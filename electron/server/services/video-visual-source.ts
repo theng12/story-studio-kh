@@ -128,6 +128,7 @@ export async function writeVideoAssemblySourceStamp(
   source: VideoVisualSource,
   imagePool?: ImagePoolVisualSource | null,
   brollNarration?: BrollNarrationEvidence,
+  narrationOffsetSec?: number,
 ): Promise<void> {
   const stat = await fs.stat(finalVideoPath)
   await writeJsonAtomic(
@@ -135,6 +136,7 @@ export async function writeVideoAssemblySourceStamp(
     {
       ...buildVideoAssemblySourceStamp(episodeId, source, imagePool),
       final_video: { size: stat.size, mtime_ms: Math.round(stat.mtimeMs) },
+      ...(narrationOffsetSec !== undefined ? { narration_offset_sec: narrationOffsetSec } : {}),
       ...(brollNarration ? { broll_assembly: { narration: brollNarration } } : {}),
     },
   )

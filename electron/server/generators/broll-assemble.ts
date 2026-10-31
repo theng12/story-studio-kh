@@ -141,6 +141,7 @@ export async function promoteVerifiedBrollFinal(input: {
       input.visualSource.source,
       input.visualSource.image_pool,
       input.narrationEvidence,
+      0,
     )
     const completion = await inspectBrollAssemblyOutput({
       project_slug: input.projectSlug,

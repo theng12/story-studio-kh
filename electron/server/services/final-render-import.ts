@@ -1164,7 +1164,9 @@ async function finishImported(
   if (carried.result) await storeFinalCheck(finalPath, carried.result)
   job.result = { ...(job.result || {}), ...carried.resultFields }
   job.output_lines.push(...carried.outputLines)
-  await video.finishImportedFinalVideo(job, facts.code, finalPath, facts.visual_source, facts.image_pool)
+  const narrationOffset = typeof facts.narration_offset_sec === 'number' && Number.isFinite(facts.narration_offset_sec) && facts.narration_offset_sec >= 0
+    ? facts.narration_offset_sec : undefined
+  await video.finishImportedFinalVideo(job, facts.code, finalPath, facts.visual_source, facts.image_pool, narrationOffset)
   // Say what this render kept and where, on the row that completes. A restart after
   // publication reaches here without the first pass's lines; the channel record names
   // the copy either way, and a first-ever final kept nothing and logs nothing.

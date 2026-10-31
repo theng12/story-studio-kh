@@ -499,6 +499,7 @@ export async function resumeSavedFinalRender(
   const argv = stage.argv
   await runSegmentedFinal({
     job, argv, targetDuration: stage.total_render_sec, format, stillTailFrom: stage.still_tail_from, segmentation,
+    narrationOffsetSec: stage.narration_offset_sec,
     runEncode: (encodeArgs, progress) => spawnFinalEncode(job, stage.total_render_sec, encodeArgs, progress),
   })
   await validateFinalOutput(argv.at(-1)!, stage.total_render_sec)
@@ -520,6 +521,7 @@ async function runSegmentedFinal(ctx: {
   targetDuration: number
   format: string
   stillTailFrom: number | null
+  narrationOffsetSec?: number
   segmentation?: FinalSegmentation
   runEncode: (argv: string[], progress?: EncodeProgress) => Promise<void>
 }): Promise<void> {
@@ -549,6 +551,7 @@ async function runSegmentedFinal(ctx: {
   checkpoint.final_stage = {
     inputs: segmentation.inputsFingerprint, argv, files: identity.files,
     total_render_sec: targetDuration, still_tail_from: stillTailFrom,
+    ...(ctx.narrationOffsetSec === undefined ? {} : { narration_offset_sec: ctx.narrationOffsetSec }),
   }
   const segDir = path.join(workDir, 'final_segments')
   await fs.mkdir(segDir, { recursive: true })
@@ -631,6 +634,7 @@ async function finishFinalVideo(ctx: {
   visualSource: Parameters<typeof writeVideoAssemblySourceStamp>[2]
   imagePool: Parameters<typeof writeVideoAssemblySourceStamp>[3]
   loudness: LoudnessTarget
+  narrationOffsetSec?: number
   /** What this render was asked to produce; the final check measures the file against it. */
   expected: FinalCheckExpectation
 }): Promise<void> {
@@ -724,7 +728,7 @@ async function finishFinalVideo(ctx: {
     await verifyFinalVideo(job, resolvedOutputPath, finalName, totalRenderDuration, ctx.loudness)
   }
   await deleteFinalSegments(tempDir, job)
-  await finishImportedFinalVideo(job, code, resolvedOutputPath, visualSource, imagePool)
+  await finishImportedFinalVideo(job, code, resolvedOutputPath, visualSource, imagePool, ctx.narrationOffsetSec)
 }
 
 /**
@@ -796,6 +800,7 @@ export async function finishImportedFinalVideo(
   finalPath: string,
   visualSource: Parameters<typeof writeVideoAssemblySourceStamp>[2],
   imagePool: Parameters<typeof writeVideoAssemblySourceStamp>[3],
+  narrationOffsetSec?: number,
 ): Promise<void> {
   const project_slug = job.project_slug
   await writeVideoAssemblySourceStamp(
@@ -803,6 +808,8 @@ export async function finishImportedFinalVideo(
     code,
     visualSource,
     imagePool,
+    undefined,
+    narrationOffsetSec,
   )
   job.progress = 100
   job.output_lines.push(`Video saved: ${path.basename(finalPath)}`)
@@ -820,6 +827,12 @@ export async function finishImportedFinalVideo(
   } catch { /* best-effort — not worth failing the job over */ }
 
   await autoScheduleFinishedEpisode(job, project_slug, code, finalPath)
+  try {
+    const { autoEnqueueEpisodeShorts } = await import('../services/episode-shorts.js')
+    await autoEnqueueEpisodeShorts(job, project_slug, code)
+  } catch (error: any) {
+    job.output_lines.push(`Could not start Shorts: ${error?.message || error}. The final video is fine.`)
+  }
   await recordMusicEpisodePlays(job, project_slug, code)
 }
 
@@ -3235,11 +3248,11 @@ export async function generateVideo(job: Job): Promise<VideoAssemblyDisposition>
           job, project_slug, code, titleHint: titleHint || '', videoDir, format, tempDir,
           outputFile, totalRenderDuration: carriedFinalStage.total_render_sec,
           visualSource: authoritativeAssets.visual_source || 'scene_plan', imagePool: authoritativeAssets.image_pool, loudness,
+          narrationOffsetSec: carriedFinalStage.narration_offset_sec,
           // A resumed final render knows its own length and canvas but not what followed the tail;
           // the tail is still measured where it is, and nothing sits after it that this run knows of.
-          // No `speechEndSec` either: the narration's lead-in was settled by the run that started
-          // this render, so this one cannot place the speech end — and a number that is nearly right
-          // would make the check claim a silence it cannot place.
+          // Old checkpoints did not record the narration's lead-in, so their speech end remains unknown.
+          // Never infer it from the current request.
           expected: finalCheckExpectation(req, {
             plannedSec: carriedFinalStage.total_render_sec, tailSec: postRoll, bakedTailSec: mergedClosingTailSec, backgroundMusic: mergedBackgroundMusicRecord,
             tailFromEndSec: 0, width: w, height: h,
@@ -3438,6 +3451,7 @@ export async function generateVideo(job: Job): Promise<VideoAssemblyDisposition>
             tolerance_pct: loudness.tolerance_pct!, check: loudness.check!,
           },
           finalCheckExpected: compExpected,
+          narrationOffsetSec: 0,
           job,
         })
         if (compositionResult?.kind === 'video-assembly-remote-wait') {
@@ -3525,7 +3539,7 @@ export async function generateVideo(job: Job): Promise<VideoAssemblyDisposition>
         await verifyFinalVideo(job, compResolvedPath, compFinalName, totalRenderDuration, loudness)
       }
       await finishImportedFinalVideo(
-        job, code, compResolvedPath, authoritativeAssets.visual_source || 'scene_plan', authoritativeAssets.image_pool,
+        job, code, compResolvedPath, authoritativeAssets.visual_source || 'scene_plan', authoritativeAssets.image_pool, 0,
       )
 
       succeeded = true
@@ -4419,6 +4433,7 @@ export async function generateVideo(job: Job): Promise<VideoAssemblyDisposition>
           tolerance_pct: loudness.tolerance_pct!, check: loudness.check!,
         },
         finalCheckExpected,
+        narrationOffsetSec: narrationLeadInSec,
         job,
       })
       if (compositionResult?.kind === 'video-assembly-remote-wait') {
@@ -4456,7 +4471,7 @@ export async function generateVideo(job: Job): Promise<VideoAssemblyDisposition>
     await finishFinalVideo({
       job, project_slug, code, titleHint: titleHint || '', videoDir, format, tempDir, outputFile, totalRenderDuration,
       visualSource: authoritativeAssets.visual_source || 'scene_plan', imagePool: authoritativeAssets.image_pool, loudness,
-      expected: finalCheckExpected,
+      expected: finalCheckExpected, narrationOffsetSec: narrationLeadInSec,
     })
 
     succeeded = true
@@ -6958,6 +6973,8 @@ export interface CompositionOpts {
    * an imported final is measured against the render's own plan, not today's settings.
    */
   finalCheckExpected?: FinalCheckExpectation
+  /** Delay applied to the narration in this render's premixed audio. */
+  narrationOffsetSec?: number
   /**
    * 1.4.265 — render in checkpointed segments that a restart keeps (lib/segmented-render.ts).
    * Absent (compilation layout, no checkpoint): one piece, exactly as before.
@@ -7710,7 +7727,7 @@ async function runFinalComposition(
     : null
 
   const runFinal = (argv: string[]) => runSegmentedFinal({
-    job, argv, targetDuration, format, stillTailFrom, segmentation: opts.segmentation, runEncode,
+    job, argv, targetDuration, format, stillTailFrom, segmentation: opts.segmentation, narrationOffsetSec: opts.narrationOffsetSec, runEncode,
   })
 
   job.output_lines.push('Running final composition...')
