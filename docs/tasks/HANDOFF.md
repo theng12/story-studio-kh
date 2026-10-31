@@ -5,7 +5,7 @@
 - **Automatic upload:** channel key `auto_upload` (`off` default, `private`, `scheduled`), set through `PUT /projects/:slug/publishing-schedule` or `settings/config`. `admitYouTubeUpload(slug, body, { automatic })` in `routes/youtube-upload-center.ts` is the one admission for manual and automatic uploads. Automatic never clicks through: a foreign episode claim always stops it, and a current passed final check is required whatever the channel's safety modes say. It fires from `scheduleEpisodeWithActivePlan`, so a held episode released later also uploads. The owner chose `scheduled` for the-curious-why only; set it after install. An episode that got its date before install does not upload by itself.
 - **Weekly results:** `components/WeeklyResults.vue` on the analytics page; the switch is global. No topics or episode codes yet. Whether YouTube's click-through figure is 5.2 or 0.052 is **unverified**: compare the first real week with YouTube Studio.
 - **Shorts:** `shorts_per_episode` (0-3, default 0), `POST /projects/:slug/episodes/:code/shorts`, job `episode_shorts`, files in `<episode>/shorts/`. The narration offset comes from the source stamp's `narration_offset_sec`, recorded on every render path from this release; older finals are refused. No upload yet. Framing (whole frame over a blurred copy) needs the owner's eye; no real episode has been cut yet.
-- The serial and pooled backend runs agreed on `e623befb` (9,850 pass, 2 skipped, 0 fail); the gate of record still runs serial until someone changes the runner.
+- The serial and pooled backend runs agreed on `e623befb` (9,850 pass, 2 skipped, 0 fail), so from 1.4.372 the gate of record runs the backend lane's normal worker pool.
 
 ### Pipeline remembered steps — 1.4.372 (2026-10-31)
 
