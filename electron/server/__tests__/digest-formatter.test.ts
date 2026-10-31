@@ -15,6 +15,12 @@ function digest(overrides: Partial<DigestData> = {}): DigestData {
 }
 
 describe('daily production brief wording', () => {
+  test('states free disk, and says so when it could not be read', () => {
+    assert.match(formatDigestMessage(digest({ free_disk_bytes: 41_500_000_000 })).body, /Free disk: 41\.5 GB$/)
+    assert.match(formatDigestMessage(digest({ free_disk_bytes: 0 })).body, /Free disk: 0\.0 GB$/)
+    assert.match(formatDigestMessage(digest({ free_disk_bytes: null })).body, /Free disk: could not be read$/)
+  })
+
   test('keeps an inactive fleet neutral and free of decorative emoji', () => {
     const payload = formatDigestMessage(digest())
 

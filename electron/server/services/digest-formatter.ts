@@ -94,9 +94,13 @@ export function formatDigestMessage(data: DigestData): NotificationPayload {
     ? 'Nothing is scheduled across your projects.'
     : `Across all projects: ${data.totals.going_live_today} publishing today · ${data.totals.scheduled_future} scheduled · ${data.totals.not_uploaded} awaiting upload`
 
-  const body = sections.length > 0
+  // No reading says so; it never reads as an empty or a healthy disk.
+  const diskLine = data.free_disk_bytes === undefined ? ''
+    : data.free_disk_bytes === null ? '\nFree disk: could not be read'
+      : `\nFree disk: ${(data.free_disk_bytes / 1e9).toFixed(1)} GB`
+  const body = (sections.length > 0
     ? `${sections.join('\n\n')}\n\n${totalsLine}`
-    : totalsLine
+    : totalsLine) + diskLine
 
   return {
     title: `Daily production brief — ${data.local_today_label}`,

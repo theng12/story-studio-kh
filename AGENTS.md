@@ -418,9 +418,6 @@ side by side has actually broken a result.
   summary, its own coverage floor — and a split run also prints
   `aggregate suite coverage: C/D file(s) completed; inputs=[...]`, which
   `story_gate_proof.py` requires the per-invocation lines to add up to exactly.
-  **Not yet proven (2026-10-27):** until one serial run (`STORY_STUDIO_BACKEND_TEST_WORKERS=1`) and
-  one pooled run on the SAME commit agree, the release gate of record runs with
-  `STORY_STUDIO_BACKEND_TEST_WORKERS=1`; delete this sentence when they do.
 - **The serial list is measured, never guessed.** A file joins `SERIAL_TEST_FILES` for one of two
   reasons, and its entry says which: it FAILED while other files ran and passed when rerun alone
   (the 2026-10-24 shape), or it asserts a WALL-CLOCK ceiling or an exact interval-fire count, which

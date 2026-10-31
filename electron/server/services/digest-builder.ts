@@ -57,6 +57,8 @@ export interface DigestData {
   /** Friendly date string for display ("Tue May 5, 2026"). */
   local_today_label: string
   projects: ProjectDigest[]
+  /** Free bytes on the fullest drive holding a channel; null when none could be asked. */
+  free_disk_bytes?: number | null
   totals: {
     going_live_today: number
     scheduled_future: number
@@ -187,11 +189,19 @@ export async function buildDigest(): Promise<DigestData> {
     totals.uploaded += p.total_uploaded
   }
 
+  // shortcut: project folders only, a separate media drive is not measured; add output roots if one fills up.
+  const { measureFreeBytes } = await import('./storage-audit.js')
+  const free = (await Promise.all(projects.map(proj => {
+    const dir = pm.getProjectDir(proj.slug)
+    return dir ? measureFreeBytes(dir) : null
+  }))).filter((bytes): bytes is number => bytes !== null)
+
   return {
     generated_at: now.toISOString(),
     local_today_ymd: todayYmd,
     local_today_label: todayLabel,
     projects: projectDigests,
+    free_disk_bytes: free.length ? Math.min(...free) : null,
     totals,
   }
 }
