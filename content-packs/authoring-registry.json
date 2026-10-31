@@ -1,5 +1,5 @@
 {
-  "revision": 370,
+  "revision": 367,
   "batches": [
     {
       "revision": 2,
@@ -7350,64 +7350,6 @@
           }
         ]
       }
-    },
-    {
-      "revision": 368,
-      "receipt_ref": "authoring:7cc39f6531b97ef177d67711d7b30eff26e0126179be218322c492ab899f86b1",
-      "request": {
-        "expected_revision": 367,
-        "coordinator": {
-          "task": "sleep-tiers-v2",
-          "branch": "content/sleep-tiers-v2-20261031"
-        },
-        "proposal_ref": "Coordinator authorized 2026-10-31: existing published v2 sleep Formula identities, four-tier starting rhythm and compatible app floor.",
-        "records": [
-          {
-            "pack_id": "com.storystudio.pack.formula.sleep-story-v2",
-            "item_id": "com.storystudio.formula.sleep-story-v2",
-            "version": "1.0.2",
-            "publisher_id": "com.storystudio",
-            "min_app_version": "1.4.361",
-            "min_app_version_status": "fixed",
-            "kind": "series-formula",
-            "source_path": "content-packs/free-starters/formula/sleep-story-v2-v1.0.2",
-            "status": "reserved",
-            "dependencies": [],
-            "stocking_proposal": {
-              "family": {
-                "id": "com.storystudio.family.formula.sleep-story-v2",
-                "status": "proposed"
-              },
-              "sku": {
-                "id": "com.storystudio.sku.formula.sleep-story-v2",
-                "status": "proposed"
-              }
-            }
-          },
-          {
-            "pack_id": "com.storystudio.pack.formula.sleep-history-compilation-v2",
-            "item_id": "com.storystudio.formula.sleep-history-compilation-v2",
-            "version": "1.0.2",
-            "publisher_id": "com.storystudio",
-            "min_app_version": "1.4.361",
-            "min_app_version_status": "fixed",
-            "kind": "series-formula",
-            "source_path": "content-packs/free-starters/formula/sleep-history-compilation-v2-v1.0.2",
-            "status": "reserved",
-            "dependencies": [],
-            "stocking_proposal": {
-              "family": {
-                "id": "com.storystudio.family.formula.sleep-history-compilation-v2",
-                "status": "proposed"
-              },
-              "sku": {
-                "id": "com.storystudio.sku.formula.sleep-history-compilation-v2",
-                "status": "proposed"
-              }
-            }
-          }
-        ]
-      }
     }
   ],
   "transitions": [
@@ -12621,40 +12563,6 @@
         "receipt_ref": "authoring:3f5f65161dd89381a7ccb37ba519524376273ddf4f5e175095dda23f6edc6f68",
         "pack_id": "com.storystudio.pack.style.bold-line-field-explainer",
         "version": "1.0.0",
-        "changes": {
-          "status": "authored"
-        }
-      }
-    },
-    {
-      "revision": 369,
-      "transition_ref": "lifecycle:9dc5023c0a039600f2f6bc137b375350f228d01bf9b0eda7b323b67ef03a7631",
-      "request": {
-        "expected_revision": 368,
-        "coordinator": {
-          "task": "sleep-tiers-v2",
-          "branch": "content/sleep-tiers-v2-20261031"
-        },
-        "receipt_ref": "authoring:7cc39f6531b97ef177d67711d7b30eff26e0126179be218322c492ab899f86b1",
-        "pack_id": "com.storystudio.pack.formula.sleep-story-v2",
-        "version": "1.0.2",
-        "changes": {
-          "status": "authored"
-        }
-      }
-    },
-    {
-      "revision": 370,
-      "transition_ref": "lifecycle:1f561664fbea362ec9d0a73f7c65cf8c384c128e58d112d658e8e395c3876f98",
-      "request": {
-        "expected_revision": 369,
-        "coordinator": {
-          "task": "sleep-tiers-v2",
-          "branch": "content/sleep-tiers-v2-20261031"
-        },
-        "receipt_ref": "authoring:7cc39f6531b97ef177d67711d7b30eff26e0126179be218322c492ab899f86b1",
-        "pack_id": "com.storystudio.pack.formula.sleep-history-compilation-v2",
-        "version": "1.0.2",
         "changes": {
           "status": "authored"
         }
@@ -20951,52 +20859,6 @@
         },
         "sku": {
           "id": "com.storystudio.sku.style.bold-line-field-explainer",
-          "status": "proposed"
-        }
-      }
-    },
-    {
-      "receipt_ref": "authoring:7cc39f6531b97ef177d67711d7b30eff26e0126179be218322c492ab899f86b1",
-      "pack_id": "com.storystudio.pack.formula.sleep-story-v2",
-      "item_id": "com.storystudio.formula.sleep-story-v2",
-      "version": "1.0.2",
-      "publisher_id": "com.storystudio",
-      "min_app_version": "1.4.361",
-      "min_app_version_status": "fixed",
-      "kind": "series-formula",
-      "source_path": "content-packs/free-starters/formula/sleep-story-v2-v1.0.2",
-      "status": "authored",
-      "dependencies": [],
-      "stocking_proposal": {
-        "family": {
-          "id": "com.storystudio.family.formula.sleep-story-v2",
-          "status": "proposed"
-        },
-        "sku": {
-          "id": "com.storystudio.sku.formula.sleep-story-v2",
-          "status": "proposed"
-        }
-      }
-    },
-    {
-      "receipt_ref": "authoring:7cc39f6531b97ef177d67711d7b30eff26e0126179be218322c492ab899f86b1",
-      "pack_id": "com.storystudio.pack.formula.sleep-history-compilation-v2",
-      "item_id": "com.storystudio.formula.sleep-history-compilation-v2",
-      "version": "1.0.2",
-      "publisher_id": "com.storystudio",
-      "min_app_version": "1.4.361",
-      "min_app_version_status": "fixed",
-      "kind": "series-formula",
-      "source_path": "content-packs/free-starters/formula/sleep-history-compilation-v2-v1.0.2",
-      "status": "authored",
-      "dependencies": [],
-      "stocking_proposal": {
-        "family": {
-          "id": "com.storystudio.family.formula.sleep-history-compilation-v2",
-          "status": "proposed"
-        },
-        "sku": {
-          "id": "com.storystudio.sku.formula.sleep-history-compilation-v2",
           "status": "proposed"
         }
       }
