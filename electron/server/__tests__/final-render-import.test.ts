@@ -766,6 +766,7 @@ type PrepareOptions = {
   priorDestinationPath?: string
   resolvedLoudness?: CompositionWithAuthority['resolvedLoudness']
   finalCheckExpected?: CompositionWithAuthority['finalCheckExpected']
+  narrationOffsetSec?: number
   /** Simulate an intent staged by a build that did not freeze a render plan. */
   withoutPlan?: boolean
   resolveExternalFinalVideoDir?: Parameters<StagingModule['_setFinalRenderStagingHooksForTesting']>[0]['resolveExternalFinalVideoDir']
@@ -811,6 +812,7 @@ async function prepareOutputReady(
     encodingEffort: 'ultrafast', codec: 'h264', code: 'EP1', titleHint: `Title ${label}`,
     videoDir, job,
     resolvedLoudness: options.resolvedLoudness ?? DEFAULT_RESOLVED_LOUDNESS,
+    narrationOffsetSec: options.narrationOffsetSec,
     ...(options.withoutPlan ? {} : { finalCheckExpected: options.finalCheckExpected ?? FINAL_CHECK_PLAN }),
   }
   const restoreStaging = options.resolveExternalFinalVideoDir
@@ -1183,11 +1185,20 @@ test('importing and imported rows go back to the importer, never to the monitor'
   }
 })
 
+test('older remote facts without narration timing leave the stamp unmeasured', async t => {
+  installHooks(t)
+  const prepared = await prepareOutputReady('old-narration-offset')
+  await requireImporter().recoverFinalRenderImport(prepared.job.project_slug, prepared.job.job_id)
+  const stamp = JSON.parse(await fs.readFile(stampPath(prepared.destination), 'utf8'))
+  assert.equal(Object.hasOwn(stamp, 'narration_offset_sec'), false)
+})
+
 test('the finish tail runs once after publication and never for a cancelled import', async t => {
   installHooks(t)
   let workDir = ''
   const finished = await prepareOutputReady('0-tail-once', false, {
     prepareJob: async job => { workDir = await rememberFinish(job) },
+    narrationOffsetSec: 5.25,
   })
   // Restart readback: the facts are in the saved row, and an ordinary write cannot drop them.
   const running = await queue.loadAuthoritativeJob(finished.job.project_slug, finished.job.job_id)
@@ -1201,11 +1212,12 @@ test('the finish tail runs once after publication and never for a cancelled impo
   assert.deepEqual(saved?.result?.final_render_finish, {
     code: 'EP1', visual_source: 'scene_plan', image_pool: null, work_dir: workDir,
     format: 'mp4', total_render_duration: 2,
-    final_check_expected: FINAL_CHECK_PLAN, loudness: DEFAULT_RESOLVED_LOUDNESS,
+    final_check_expected: FINAL_CHECK_PLAN, loudness: DEFAULT_RESOLVED_LOUDNESS, narration_offset_sec: 5.25,
   })
 
   await requireImporter().recoverFinalRenderImport(finished.job.project_slug, finished.job.job_id)
   await assertFinishedOnce(finished.job, finished.destination, workDir)
+  assert.equal(JSON.parse(await fs.readFile(stampPath(finished.destination), 'utf8')).narration_offset_sec, 5.25)
   await requireImporter().recoverFinalRenderImport(finished.job.project_slug, finished.job.job_id)
   await assertFinishedOnce(finished.job, finished.destination, workDir)
 

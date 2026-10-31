@@ -317,14 +317,16 @@ export async function preparePrivateFinalRenderDescriptor(
   // staged with the intent: a receipt freezes job.result, so they survive every recovery path, and a
   // later build can never substitute today's settings for what this render was asked to produce.
   if (opts.finalCheckExpected) {
+    const { narration_offset_sec: _previousOffset, ...previousFacts } = (opts.job.result?.final_render_finish as Record<string, unknown> | undefined) || {}
     opts.job.result = {
       ...(opts.job.result || {}),
       final_render_finish: {
-        ...((opts.job.result?.final_render_finish as Record<string, unknown> | undefined) || {}),
+        ...previousFacts,
         format: opts.format,
         total_render_duration: opts.targetDuration,
         final_check_expected: structuredClone(opts.finalCheckExpected),
         loudness: opts.resolvedLoudness ? structuredClone(opts.resolvedLoudness) : null,
+        ...(opts.narrationOffsetSec === undefined ? {} : { narration_offset_sec: opts.narrationOffsetSec }),
       },
     }
     await checkpointJobState(opts.job)

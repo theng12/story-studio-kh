@@ -42,6 +42,7 @@ export interface VideoAssemblyFinalStage {
   files: Record<string, string>
   total_render_sec: number
   still_tail_from: number | null
+  narration_offset_sec?: number
 }
 
 export interface VideoAssemblyCheckpoint {
@@ -81,6 +82,7 @@ function validFinalStage(value: unknown): boolean {
     && Object.entries(stage.files as Record<string, unknown>).every(([name, sha]) => (
       validWorkFileName(name) && typeof sha === 'string' && SHA256_RE.test(sha)))
     && typeof stage.total_render_sec === 'number' && Number.isFinite(stage.total_render_sec) && stage.total_render_sec > 0
+    && (stage.narration_offset_sec === undefined || (typeof stage.narration_offset_sec === 'number' && Number.isFinite(stage.narration_offset_sec) && stage.narration_offset_sec >= 0))
     && (stage.still_tail_from === null || (typeof stage.still_tail_from === 'number' && Number.isFinite(stage.still_tail_from)))
 }
 

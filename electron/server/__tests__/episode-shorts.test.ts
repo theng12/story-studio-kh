@@ -45,6 +45,47 @@ test('the actual render offset is tied to its final file, including a title intr
   await assert.rejects(narrationOffset(video, 'EP0001'), /another render/)
 })
 
+test('a resumed final stamps its saved narration timing', async () => {
+  const source = await fs.readFile(new URL('../generators/video.ts', import.meta.url), 'utf8')
+  assert.match(source, /narrationOffsetSec: carriedFinalStage\.narration_offset_sec/)
+  assert.match(source, /narrationOffsetSec: opts\.narrationOffsetSec/)
+  assert.match(source, /narration_offset_sec: ctx\.narrationOffsetSec/)
+  assert.match(source, /narrationOffsetSec: stage\.narration_offset_sec/)
+  assert.match(source, /narrationOffsetSec: narrationLeadInSec/)
+  const checkpoint = await fs.readFile(new URL('../lib/video-assembly-checkpoint.ts', import.meta.url), 'utf8')
+  assert.match(checkpoint, /return \{ \.\.\.stage, argv: stage\.argv\.map\(swap\), files: here\.files \}/)
+  const { finishImportedFinalVideo } = await import('../generators/video.js')
+  const pm = await import('../services/project-manager.js')
+  const project = await pm.createProject({ name: 'Shorts resumed stamp' })
+  const final = path.join(root, 'EP1001_final_video.mp4')
+  await fs.writeFile(final, 'video')
+  await finishImportedFinalVideo({ project_slug: project.slug, output_lines: [], result: {}, progress: 0 } as any, 'EP1001', final, 'scene_plan', null, 4.25)
+  assert.equal(JSON.parse(await fs.readFile(videoAssemblySourceStampPath(final, 'EP1001'), 'utf8')).narration_offset_sec, 4.25)
+})
+
+test('a compilation final stamps the zero-delay mix', async () => {
+  const source = await fs.readFile(new URL('../generators/video.ts', import.meta.url), 'utf8')
+  assert.match(source, /job, code, compResolvedPath, authoritativeAssets\.visual_source \|\| 'scene_plan', authoritativeAssets\.image_pool, 0/)
+  const { finishImportedFinalVideo } = await import('../generators/video.js')
+  const pm = await import('../services/project-manager.js')
+  const project = await pm.createProject({ name: 'Shorts compilation stamp' })
+  const final = path.join(root, 'EP1002_final_video.mp4')
+  await fs.writeFile(final, 'video')
+  await finishImportedFinalVideo({ project_slug: project.slug, output_lines: [], result: {}, progress: 0 } as any, 'EP1002', final, 'scene_plan', null, 0)
+  assert.equal(JSON.parse(await fs.readFile(videoAssemblySourceStampPath(final, 'EP1002'), 'utf8')).narration_offset_sec, 0)
+})
+
+test('B-roll assembly maps narration from its own start and stamps zero', async () => {
+  const source = await fs.readFile(new URL('../generators/broll-assemble.ts', import.meta.url), 'utf8')
+  assert.match(source, /args\.push\('-i', narrationPath\)/)
+  assert.match(source, /input\.narrationEvidence,\s*0,\s*\)/)
+  const { writeVideoAssemblySourceStamp } = await import('../services/video-visual-source.js')
+  const final = path.join(root, 'EP1003_final_video.mp4')
+  await fs.writeFile(final, 'video')
+  await writeVideoAssemblySourceStamp(final, 'EP1003', 'scene_plan', null, undefined, 0)
+  assert.equal(JSON.parse(await fs.readFile(videoAssemblySourceStampPath(final, 'EP1003'), 'utf8')).narration_offset_sec, 0)
+})
+
 test('verification distinguishes complete, missing, wrong size and missing audio', async () => {
   const info = { hasVideo: true, hasAudio: true, width: 1080, height: 1920, durationSec: 30, containerNames: ['mp4'], containerBrand: null, container: 'mp4' as const }
   assert.equal(await verifyShort('clip', 30, async () => info), null)

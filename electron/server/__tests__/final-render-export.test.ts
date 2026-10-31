@@ -112,6 +112,7 @@ const FIELD_POLICY = {
   videoBitrateKbps: 'recipe',
   resolvedLoudness: 'captured-authority',
   finalCheckExpected: 'captured-authority',
+  narrationOffsetSec: 'captured-authority',
   segmentation: 'optimizer-hint',
   stillTailFromSec: 'optimizer-hint',
   job: 'local-orchestration',
@@ -123,7 +124,7 @@ test('every current composition option has an explicit export policy', () => {
     'outputFile', 'colorGrading', 'vignette', 'chromaKey', 'overlays', 'filmGrain',
     'agedArchiveFilm', 'letterbox', 'frame', 'subtitles', 'contextualCues', 'sceneEffects',
     'episodeStack', 'excludeIntroFromEffects', 'preSceneDuration', 'sceneTimelineOffsetSec',
-    'postAudioStart', 'encodingEffort', 'codec', 'videoBitrateKbps', 'resolvedLoudness', 'finalCheckExpected',
+    'postAudioStart', 'encodingEffort', 'codec', 'videoBitrateKbps', 'resolvedLoudness', 'finalCheckExpected', 'narrationOffsetSec',
     'segmentation', 'stillTailFromSec', 'job',
   ])
 })
