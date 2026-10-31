@@ -167,7 +167,8 @@ describe('the page and the route carry the fix', () => {
     const start = route.indexOf('let promptCharCap = parsePromptCharCap')
     const block = route.slice(start, start + 900)
     assert.ok(start > 0, 'expected the cap-resolution block')
-    assert.match(block, /promptCharCap = resolveScenePlanPromptCharCap\(presetData, await listImageModels\(apiKey\)\)/)
+    // An unset cap means 'auto' (1.4.373), so a preset with no cap still clamps to the model.
+    assert.match(block, /promptCharCap = resolveScenePlanPromptCharCap\(\{ \.\.\.presetData, prompt_char_cap: presetData\.prompt_char_cap \?\? 'auto' \}, await listImageModels\(apiKey\)\)/)
     assert.doesNotMatch(block, /catch \(error: any\) \{ return res\.status\(409\)/,
       'the prompt-cap resolver must not be able to fail a generation')
   })
