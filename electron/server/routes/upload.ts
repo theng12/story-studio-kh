@@ -407,6 +407,26 @@ router.get('/projects/:slug/publishing-schedule', async (req, res) => {
   }
 })
 
+// Run the after-render step again without rendering: gives a finished, checked episode its slot,
+// replaces a date that passed with nothing uploaded, and retries a refused automatic upload.
+router.post('/projects/:slug/episodes/:code/auto-schedule', async (req, res) => {
+  try {
+    const slug = req.params.slug
+    const code = req.params.code.toUpperCase()
+    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
+    const title = (await im.getIdeas(slug, 'accepted')).find(idea => idea.episode_code === code)?.title
+    if (title === undefined) return res.status(404).json({ detail: `${code} is not an accepted episode.` })
+    const { resolveEpisodePaths } = await import('../services/utils.js')
+    const { findYouTubeSourceVideoPath } = await import('../services/youtube-source-video.js')
+    const video = await findYouTubeSourceVideoPath(await resolveEpisodePaths(slug, code, title), slug, code, title)
+    if (!video) return res.status(409).json({ detail: `${code} has no rendered video yet.` })
+    const { scheduleCheckedEpisode } = await import('../services/episode-autoschedule.js')
+    res.json(await scheduleCheckedEpisode(slug, code, video))
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Failed to schedule that episode'))
+  }
+})
+
 router.put('/projects/:slug/publishing-schedule', async (req, res) => {
   try {
     if (!await pm.getProject(req.params.slug)) return res.status(404).json({ detail: 'Project not found' })

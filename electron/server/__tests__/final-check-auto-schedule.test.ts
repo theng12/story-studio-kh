@@ -110,3 +110,30 @@ test('a later pass schedules once, and a second call changes nothing', async () 
   assert.equal((await scheduling.scheduleCheckedEpisode(slug, item.code, item.video)).scheduled, false)
   assert.deepEqual(await plans.readItemSchedule(slug), after)
 })
+
+test('a new slot is never in the past, whatever the time of day', async () => {
+  const item = await episode('never past')
+  await verdict(item.video, true)
+  const result = await scheduling.scheduleCheckedEpisode(slug, item.code, item.video)
+  assert.ok(Date.parse(result.publish_at!) > Date.now(), result.publish_at)
+})
+
+test('a past date with no known channel is left alone; with no video on the channel it is replaced', async () => {
+  const connections = await import('../services/youtube-connection-store.js')
+  const { saveYouTubeChannelGrantForTest } = await import('./_youtube-connection-test-helper.js')
+  const item = await episode('past date')
+  await verdict(item.video, true)
+  const past = new Date(Date.now() - 3_600_000).toISOString()
+  await plans.writeItemSchedule(slug, { ...(await plans.readItemSchedule(slug)), [item.code]: past })
+  assert.equal((await scheduling.scheduleCheckedEpisode(slug, item.code, item.video)).scheduled, false)
+  assert.equal((await plans.readItemSchedule(slug))[item.code], past, 'no channel to ask: not ours to replace')
+  await connections.configureYouTubeApplication({ client_id: 'c', client_secret: 's' })
+  await saveYouTubeChannelGrantForTest({
+    channel: { channel_id: 'UC_past', title: 'Past', granted_scopes: ['youtube.upload'] },
+    tokens: { access_token: 'a', refresh_token: 'r', expires_at: Date.now() + 3_600_000 },
+  })
+  await connections.assignProjectYouTubeChannel({ project_slug: slug, channel_id: 'UC_past', expected_previous_channel_id: null } as any)
+  const result = await scheduling.scheduleCheckedEpisode(slug, item.code, item.video)
+  assert.equal(result.scheduled, true, JSON.stringify(result))
+  assert.ok(Date.parse((await plans.readItemSchedule(slug))[item.code]!) > Date.now())
+})
