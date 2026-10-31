@@ -415,12 +415,14 @@ router.put('/projects/:slug/publishing-schedule', async (req, res) => {
     // so flipping the switch must not write it there.
     const hasSchedule = !!body.schedule && typeof body.schedule === 'object'
     const hasSwitch = typeof body.auto_schedule_on_render === 'boolean'
-    if (!hasSchedule && !hasSwitch) return res.status(400).json({ detail: 'schedule required' })
+    const hasCheckSwitch = typeof body.auto_schedule_require_final_check === 'boolean'
+    if (!hasSchedule && !hasSwitch && !hasCheckSwitch) return res.status(400).json({ detail: 'schedule required' })
     const { saveChannelSchedule } = await import('../services/publish-cadence.js')
     res.json(await saveChannelSchedule(req.params.slug, {
       ...(hasSchedule ? { schedule: body.schedule } : {}),
       name: typeof body.name === 'string' ? body.name : undefined,
       auto_schedule_on_render: hasSwitch ? body.auto_schedule_on_render : undefined,
+      auto_schedule_require_final_check: hasCheckSwitch ? body.auto_schedule_require_final_check : undefined,
     }))
   } catch (e: any) {
     const status = e?.statusCode === 400 || e?.status === 400 ? 400 : 500

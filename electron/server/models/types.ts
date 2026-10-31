@@ -1710,6 +1710,7 @@ export interface CreateProjectRequest {
   }
   /** v1.4.20 — write a publish time onto each episode as its render finishes. */
   auto_schedule_on_render?: boolean
+  auto_schedule_require_final_check?: boolean
   template?: string
   episode_prefix?: string
   episode_digits?: number

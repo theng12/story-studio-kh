@@ -63,6 +63,12 @@
           <small>On unless you turn it off. Nothing is sent to YouTube — the episode only gets its slot, and you still press upload. An episode that is already live, or already has a time, is left alone.</small>
         </span>
       </label>
+      <label class="schedule-auto">
+        <input type="checkbox" :checked="state.auto_schedule_require_final_check !== false" :disabled="saving" @change="toggleCheck($event.target as HTMLInputElement)" />
+        <span>Require a passed final check before automatic scheduling
+          <small>On by default. Run Final Check in Publish to release a held episode.</small>
+        </span>
+      </label>
       <p v-if="notice" class="schedule-ok" role="status">{{ notice }}</p>
     </template>
   </section>
@@ -81,6 +87,7 @@ interface ChannelSchedule {
   /** What this channel publishes on until it saves its own (2026-10-31). */
   default_schedule?: UploadScheduleShape | null
   auto_schedule_on_render: boolean
+  auto_schedule_require_final_check?: boolean
 }
 
 const props = defineProps<{ slug: string }>()
@@ -154,6 +161,12 @@ async function save(): Promise<void> {
       : 'Saved. This becomes the channel’s upload plan when you choose its YouTube channel.',
   )
   if (ok) editing.value = false
+}
+
+async function toggleCheck(box: HTMLInputElement): Promise<void> {
+  const ok = await send({ auto_schedule_require_final_check: box.checked },
+    box.checked ? 'Automatic scheduling now requires a passed final check.' : 'Automatic scheduling no longer waits for the final check.')
+  if (!ok) box.checked = !box.checked
 }
 
 async function toggleAuto(box: HTMLInputElement): Promise<void> {

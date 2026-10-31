@@ -33,8 +33,10 @@
  */
 
 import path from 'node:path'
+import { promises as fs } from 'node:fs'
+import { readStoredFinalCheck } from '../lib/final-video-check.js'
 
-import { withLock } from '../lib/atomic-store.js'
+import { withLock, writeJsonAtomic } from '../lib/atomic-store.js'
 import * as plans from './upload-plans.js'
 import * as im from './idea-manager.js'
 import { defaultSchedule, readCadence } from './publish-cadence.js'
@@ -58,6 +60,50 @@ export interface AutoScheduleResult {
   reason?: string
   /** Other episodes whose date moved so dates follow episode order. */
   order_shifted?: string[]
+  hold?: { status: 'failed' | 'stale' | 'unchecked' | 'check-error'; reason: string }
+}
+
+/** The hold belongs to the final itself and survives a restart. */
+function holdPath(videoPath: string): string { return `${videoPath}.auto-schedule.json` }
+
+export async function readAutoScheduleHold(videoPath: string): Promise<AutoScheduleResult['hold'] | null> {
+  try {
+    const state = JSON.parse(await fs.readFile(holdPath(videoPath), 'utf8'))
+    return state?.hold?.reason && state?.hold?.status ? state.hold : null
+  } catch { return null }
+}
+
+export async function scheduleCheckedEpisode(
+  slug: string, code: string, videoPath: string, checkError = false,
+): Promise<AutoScheduleResult> {
+  const pm = await import('./project-manager.js')
+  const config = await pm.getConfig(slug) as any
+  if (config.auto_schedule_on_render === false) return { scheduled: false, episode_code: code }
+  const existing = await plans.readItemPublicationStates(slug)
+  const scheduled = (await plans.readItemSchedule(slug))[code] || existing[code]?.scheduled_for
+  if (scheduled || existing[code]?.privacy_status === 'public') {
+    return { scheduled: false, episode_code: code, reason: 'This episode already has a publish time or is public; it was left as it is.' }
+  }
+  if (config.auto_schedule_require_final_check !== false) {
+    const stored = await readStoredFinalCheck(videoPath)
+    const status = checkError ? 'check-error' : !stored ? 'unchecked' : stored.stale ? 'stale' : !stored.result.passed ? 'failed' : null
+    const descriptions = {
+      failed: 'The final check failed.', stale: 'The video changed since its final check.',
+      unchecked: 'The final video has not been checked.', 'check-error': 'The final check could not run.',
+    }
+    const hold: NonNullable<AutoScheduleResult['hold']> = status
+      ? { status, reason: `Not automatically scheduled: ${descriptions[status]} Run Final Check in Publish; a pass will schedule it.` }
+      : { status: 'check-error', reason: 'Automatic scheduling was interrupted. Run Final Check in Publish; a pass will schedule it.' }
+    await writeJsonAtomic(holdPath(videoPath), { hold })
+    if (status) return { scheduled: false, episode_code: code, reason: hold.reason, hold }
+  }
+  const result = await scheduleEpisodeWithActivePlan(slug, code, 'youtube')
+  if (result.scheduled || result.publish_at) await writeJsonAtomic(holdPath(videoPath), { hold: null })
+  else if (result.reason) {
+    const prior = await readAutoScheduleHold(videoPath)
+    if (prior) await writeJsonAtomic(holdPath(videoPath), { hold: { ...prior, reason: `Final check passed, but the episode could not be scheduled: ${result.reason}` } })
+  }
+  return result
 }
 
 /**
@@ -182,6 +228,12 @@ export async function scheduleEpisodeWithActivePlan(
   }
 
   const write = async (): Promise<AutoScheduleResult> => {
+    const current = await plans.readItemPublicationStates(slug)
+    const currentSchedule = (await plans.readItemSchedule(slug))[code] || current[code]?.scheduled_for
+    if (currentSchedule || current[code]?.privacy_status === 'public') {
+      return { scheduled: false, episode_code: code, publish_at: currentSchedule || undefined,
+        reason: 'This episode already has a publish time or is public; it was left as it is.' }
+    }
     const minStartDate = await latestFutureClaim(slug, platform, code)
     const slots = plans.computeSlots(schedule, 1, { minStartDate })
     if (!slots.length) {

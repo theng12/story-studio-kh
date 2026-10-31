@@ -261,7 +261,7 @@ async function selfHealFinalPromotion(
  * that never touched it still gives every finished episode its slot.
  */
 async function autoScheduleFinishedEpisode(
-  job: Job, project_slug: string, code: string,
+  job: Job, project_slug: string, code: string, finalPath: string,
 ): Promise<void> {
   try {
     const pm = await import('../services/project-manager.js')
@@ -271,8 +271,9 @@ async function autoScheduleFinishedEpisode(
     // finished video to take a slot, and only an explicit `false` turns it off.
     if (!autoScheduleEnabled(config)) return
 
-    const { scheduleEpisodeWithActivePlan } = await import('../services/episode-autoschedule.js')
-    const result = await scheduleEpisodeWithActivePlan(project_slug, code, 'youtube')
+    const { scheduleCheckedEpisode } = await import('../services/episode-autoschedule.js')
+    const result = await scheduleCheckedEpisode(project_slug, code, finalPath, (job.result as any)?.final_check_error === true)
+    if (result.hold) job.result = { ...(job.result || {}), auto_schedule_hold: result.hold }
     if (result.scheduled) {
       job.output_lines.push(
         `Scheduled for ${result.publish_at} by plan "${result.plan_name}". `
@@ -820,7 +821,7 @@ export async function finishImportedFinalVideo(
     episodeStatusCache.invalidate(project_slug, code)
   } catch { /* best-effort — not worth failing the job over */ }
 
-  await autoScheduleFinishedEpisode(job, project_slug, code)
+  await autoScheduleFinishedEpisode(job, project_slug, code, finalPath)
   await recordMusicEpisodePlays(job, project_slug, code)
 }
 
@@ -913,9 +914,10 @@ async function finalCheckFinalVideo(
     await storeFinalCheck(outputPath, result)
     job.output_lines.push(`Final check: ${finalCheckSummary({ result, stale: false })}`)
     for (const issue of result.issues) job.output_lines.push(`Final check: ${issue.verdict}`)
-    job.result = { ...(job.result || {}), final_check: { passed: result.passed, issues: result.issues } }
+    job.result = { ...(job.result || {}), final_check_error: false, final_check: { passed: result.passed, issues: result.issues } }
     return result
   } catch (error: any) {
+    job.result = { ...(job.result || {}), final_check_error: true }
     job.output_lines.push(`⚠ Final check could not run (${error?.message || error}). The video is kept, `
       + 'and Upload Center can run the check on it later.')
     return null

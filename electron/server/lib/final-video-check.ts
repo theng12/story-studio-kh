@@ -992,13 +992,21 @@ export function startFinalCheck(
   videoPath: string,
   expected: FinalCheckExpectation,
   overrides: FinalCheckOptions = {},
+  onStored?: () => Promise<void>,
 ): { started: boolean } {
   if (finalCheckRuns.get(videoPath)?.running) return { started: false }
   const entry: FinalCheckProgress = { running: true, error: null, interrupted: false }
   finalCheckRuns.set(videoPath, entry)
   try { writeFileSync(finalCheckRunMarkerPath(videoPath), `${new Date().toISOString()}\n`) } catch { /* the run still matters more than its record */ }
   void measure(videoPath, expected, overrides)
-    .then(result => storeFinalCheck(videoPath, result))
+    .then(async result => {
+      await storeFinalCheck(videoPath, result)
+      if (result.passed && onStored) {
+        try { await onStored() } catch (error) {
+          logLine('error', `Final check passed but automatic scheduling failed for ${videoPath}: ${(error as Error)?.message || error}`)
+        }
+      }
+    })
     .catch((error: unknown) => {
       entry.error = (error as Error)?.message || String(error)
       // Loud on purpose: nothing is waiting on this run, so this line is the only place it surfaces.
