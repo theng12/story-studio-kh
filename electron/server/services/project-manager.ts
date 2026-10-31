@@ -1478,6 +1478,10 @@ export async function getSafeConfig(slug: string): Promise<any | null> {
     auto_schedule_on_render: (config as any).auto_schedule_on_render !== false,
     auto_upload: (await import('./publish-cadence.js')).autoUploadMode(config),
     shorts_per_episode: (await import('./episode-shorts.js')).shortsPerEpisode((config as any).shorts_per_episode),
+    // 1.4.374 — the channel's Shorts upload switch and its spacing, read back
+    // so a copied channel carries them and the card can show what they are.
+    shorts_auto_upload: (await import('./publish-cadence.js')).shortsAutoUploadMode(config),
+    shorts_upload_spacing_days: (await import('./publish-cadence.js')).shortsUploadSpacingDays(config),
     // Fall back to defaults when the project was created before defaults
     // were seeded (keeps the Settings → Models tab populated for old projects).
     image_models: (config.image_models && Object.keys(config.image_models).length)

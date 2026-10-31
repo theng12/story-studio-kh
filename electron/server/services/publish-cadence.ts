@@ -95,6 +95,27 @@ export function autoUploadMode(config: unknown): 'off' | 'private' | 'scheduled'
   return mode === 'private' || mode === 'scheduled' ? mode : 'off'
 }
 
+/**
+ * 1.4.374 — the channel's Shorts upload switch, beside `auto_upload` above.
+ * Absent or unknown means OFF: an unreadable value must never turn a
+ * feature on. The reader lives here so the card, the route and the Shorts
+ * job all answer the same question.
+ */
+export function shortsAutoUploadMode(config: unknown): 'off' | 'private' | 'scheduled' {
+  const mode = (config as { shorts_auto_upload?: unknown } | null | undefined)?.shorts_auto_upload
+  return mode === 'private' || mode === 'scheduled' ? mode : 'off'
+}
+
+/**
+ * Days between Shorts in 'scheduled' mode. A value outside 1–30 is not a
+ * spacing, so the starting value (one day) is used instead of a number the
+ * customer never chose (§6: never a fallback that reads as their answer).
+ */
+export function shortsUploadSpacingDays(config: unknown): number {
+  const value = (config as { shorts_upload_spacing_days?: unknown } | null | undefined)?.shorts_upload_spacing_days
+  return typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= 30 ? value : 1
+}
+
 function isUsableSchedule(value: unknown): value is UploadSchedule {
   if (!value || typeof value !== 'object') return false
   const s = value as UploadSchedule
@@ -230,6 +251,12 @@ export interface ChannelSchedule {
   auto_schedule_on_render: boolean
   auto_schedule_require_final_check: boolean
   auto_upload: 'off' | 'private' | 'scheduled'
+  /** 1.4.374 — the channel's Shorts upload switch. Off unless the owner turns it on. */
+  shorts_auto_upload: 'off' | 'private' | 'scheduled'
+  /** Days between Shorts in 'scheduled' mode (1–30). */
+  shorts_upload_spacing_days: number
+  /** How many Shorts this channel makes per episode (0–3). */
+  shorts_per_episode: number
 }
 
 async function assignedChannel(slug: string): Promise<{ channel_id: string; title: string; account_id: string } | null> {
@@ -261,6 +288,8 @@ export async function readChannelSchedule(slug: string): Promise<ChannelSchedule
     return {
       channel: null, account_id: '', plan: null, plans: [], cadence,
       default_schedule: fallback, auto_schedule_on_render: auto, auto_schedule_require_final_check: config?.auto_schedule_require_final_check !== false, auto_upload: autoUploadMode(config),
+      shorts_auto_upload: shortsAutoUploadMode(config), shorts_upload_spacing_days: shortsUploadSpacingDays(config),
+      shorts_per_episode: (await import('./episode-shorts.js')).shortsPerEpisode((config as any).shorts_per_episode),
     }
   }
   const own = (await plans.listPlans(slug)).filter(p => p.platform === 'youtube' && p.account_id === channel.account_id)
@@ -274,6 +303,8 @@ export async function readChannelSchedule(slug: string): Promise<ChannelSchedule
     default_schedule: fallback,
     auto_schedule_on_render: auto,
     auto_schedule_require_final_check: config?.auto_schedule_require_final_check !== false, auto_upload: autoUploadMode(config),
+    shorts_auto_upload: shortsAutoUploadMode(config), shorts_upload_spacing_days: shortsUploadSpacingDays(config),
+    shorts_per_episode: (await import('./episode-shorts.js')).shortsPerEpisode((config as any).shorts_per_episode),
   }
 }
 
@@ -285,6 +316,13 @@ export interface ChannelScheduleInput {
   auto_schedule_on_render?: boolean
   auto_schedule_require_final_check?: boolean
   auto_upload?: 'off' | 'private' | 'scheduled'
+  /**
+   * 1.4.374 — the channel's Shorts: how many per episode (0–3), how to upload
+   * them, and the days between them.
+   */
+  shorts_per_episode?: number
+  shorts_auto_upload?: 'off' | 'private' | 'scheduled'
+  shorts_upload_spacing_days?: number
 }
 
 /**
@@ -298,6 +336,13 @@ export async function saveChannelSchedule(slug: string, input: ChannelScheduleIn
     await pm.updateConfig(slug, { auto_schedule_on_render: input.auto_schedule_on_render } as any)
   }
   if (input.auto_upload) await pm.updateConfig(slug, { auto_upload: input.auto_upload } as any)
+  if (typeof input.shorts_per_episode === 'number') {
+    await pm.updateConfig(slug, { shorts_per_episode: input.shorts_per_episode } as any)
+  }
+  if (input.shorts_auto_upload) await pm.updateConfig(slug, { shorts_auto_upload: input.shorts_auto_upload } as any)
+  if (typeof input.shorts_upload_spacing_days === 'number') {
+    await pm.updateConfig(slug, { shorts_upload_spacing_days: input.shorts_upload_spacing_days } as any)
+  }
   if (typeof input.auto_schedule_require_final_check === 'boolean') {
     await pm.updateConfig(slug, { auto_schedule_require_final_check: input.auto_schedule_require_final_check } as any)
   }

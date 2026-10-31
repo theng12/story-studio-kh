@@ -195,6 +195,16 @@ export async function buildYouTubeMetadataPackage(input: {
   mark_as_ai_generated: boolean
   fallback_title?: string
   thumbnail_filename?: string | null
+  /**
+   * The title this upload goes up under, replacing the episode's own.
+   *
+   * 1.4.374 — a Short is its own video with its own title (the moment title
+   * the passage was chosen for), while everything else — the description, the
+   * tags, the thumbnail, the category — stays the episode's. The override is
+   * applied HERE, before the sanitizer, so the Short's title is cleaned by
+   * exactly the same rules the episode's title is.
+   */
+  title_override?: string
 }): Promise<YouTubeMetadataPackage> {
   const meta = await resolveUploadMetadata({
     slug: input.project_slug,
@@ -203,6 +213,15 @@ export async function buildYouTubeMetadataPackage(input: {
     ...(input.fallback_title !== undefined ? { fallback_title: input.fallback_title } : {}),
     ...(input.thumbnail_filename !== undefined ? { thumbnail_filename: input.thumbnail_filename } : {}),
   })
+  if (typeof input.title_override === 'string' && input.title_override.trim()) {
+    meta.title = input.title_override.trim()
+    // The Short's title comes from the passage the model chose, so it is
+    // MODEL text and the editorial strips apply to it — a `#` heading or
+    // `**` marks in a Short title are furniture, exactly as they are in the
+    // episode's. The platform's own limits still apply either way; they are
+    // not conditional on this flag.
+    meta.title_from_override = false
+  }
 
   const logs: string[] = []
   const snippet = snippetFromMeta(meta, logs, input.category_id)

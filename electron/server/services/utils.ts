@@ -67,9 +67,18 @@ export function episodeNumber(code: string, prefix: string = 'EP'): number {
  * The prefix is only an input-validation concern (`episodeNumber` above, used by
  * accept and renumber). Resolving the FOLDER of an episode already on disk needs
  * the number alone. A code with no digits is still refused — `null` here.
+ *
+ * A SHORT'S OWN IDENTITY is `EP0001-S1` — the episode's stored code plus the
+ * Short's number (1.4.374). It is not a stored episode, but it names one: the
+ * Short is a video of `EP0001`, and every path lookup for it has to resolve
+ * the same way the episode's does, or it falls through to `episodeNumber` and
+ * throws the exact error above for a channel whose prefix moved on since the
+ * episode was accepted. The suffix is matched, not the number it carries, so a
+ * Short still resolves to no folder of its own (`{code}` is substituted into
+ * the folder name) and never reads the episode's sidecar as its own.
  */
 export function storedEpisodeNumber(code: string): number | null {
-  const match = String(code ?? '').match(/^[A-Za-z]+(\d+)$/)
+  const match = String(code ?? '').match(/^[A-Za-z]+(\d+)(?:-S\d+)?$/)
   if (!match) return null
   const value = parseInt(match[1]!, 10)
   return Number.isFinite(value) ? value : null

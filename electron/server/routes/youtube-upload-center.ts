@@ -3610,6 +3610,10 @@ export async function admitYouTubeUpload(
     episode_code: input?.episode_code,
     privacy_status: 'private',
     ...(typeof input?.publish_at === 'string' && input.publish_at ? { publish_at: input.publish_at } : {}),
+    // 1.4.374 — a Short is its own video: its own file, its own identity and
+    // its own title. Carried through so this path uploads the Short rather
+    // than the episode's final video.
+    ...(input?.short_source ? { short_source: input.short_source } : {}),
   } : input
   let result: { status: number; json: any } = { status: 200, json: null }
   const res = {
@@ -3623,6 +3627,22 @@ export async function admitYouTubeUpload(
       res.status(400).json({ detail: 'Choose an episode to upload.' })
       return
     }
+    // A Short's identity is its own, so the episode's own records (its final
+    // video on YouTube, its sidecar) are not consulted for it. The Short is
+    // admitted and recorded under its own name.
+    const shortSource = body?.short_source && typeof body.short_source === 'object'
+      ? {
+        id: typeof body.short_source.id === 'string' ? body.short_source.id.trim() : '',
+        file: typeof body.short_source.file === 'string' ? body.short_source.file.trim() : '',
+        title: typeof body.short_source.title === 'string' ? body.short_source.title.trim() : '',
+      }
+      : null
+    if (shortSource && (!shortSource.id || !shortSource.file)) {
+      res.status(400).json({ detail: 'The Short to upload is not named. Nothing was uploaded.' })
+      return
+    }
+    // The identity every record for this upload is written under.
+    const uploadIdentity = shortSource ? shortSource.id : episodeCode
     if (!automatic && body?.confirm !== true) {
       res.status(400).json({
         code: 'YOUTUBE_CONFIRMATION_REQUIRED',
@@ -3643,8 +3663,8 @@ export async function admitYouTubeUpload(
     // The channel this will publish to, and the credential that signs in to it.
     const { accountId, channelId } = await accountForCurrentChannel(slug)
     if (automatic && (await getJobs(slug, { type: 'youtube_upload' })).some(job =>
-      job.episode_id === episodeCode && ['queued', 'running', 'paused'].includes(job.status))) {
-      res.status(409).json({ code: 'YOUTUBE_UPLOAD_ALREADY_IN_FLIGHT', detail: `${episodeCode} already has an upload in progress.` })
+      job.episode_id === uploadIdentity && ['queued', 'running', 'paused'].includes(job.status))) {
+      res.status(409).json({ code: 'YOUTUBE_UPLOAD_ALREADY_IN_FLIGHT', detail: `${uploadIdentity} already has an upload in progress.` })
       return
     }
     // 1.4.300 safety checks: Block refuses as before; Off/Warn let the upload go and the job logs it
@@ -3677,15 +3697,18 @@ export async function admitYouTubeUpload(
     // and was silently PATCHed instead of uploaded — with the owner told an
     // upload had started.
     const episodeTitle = await acceptedTitleFor(slug, episodeCode)
-    const existing = await remoteVideoFor(slug, episodeCode, episodeTitle, channelId)
+    // A Short is a video of its own, so it is asked whether IT is already on
+    // YouTube — not whether the episode's final video is. The episode's own
+    // record says nothing about this Short.
+    const existing = await remoteVideoFor(slug, uploadIdentity, episodeTitle, channelId)
     if (existing) {
       const record = (await listYouTubeOperations(slug))
-        .find(entry => entry.episode_code === episodeCode
+        .find(entry => entry.episode_code === uploadIdentity
           && onCurrentChannel(channelId, entry.channel_id)
           && (!!entry.video_id || OPEN_LIFECYCLES.includes(entry.lifecycle)))
       res.status(409).json({
         code: existing.video_id ? 'YOUTUBE_ALREADY_PUBLISHED' : 'YOUTUBE_UPLOAD_ALREADY_IN_FLIGHT',
-        detail: alreadyOnYouTubeReason(episodeCode, existing),
+        detail: alreadyOnYouTubeReason(uploadIdentity, existing),
         remote_source: existing.source,
         ...(existing.video_id ? { video_id: existing.video_id } : {}),
         ...(record ? { operation_id: record.operation_id, lifecycle: record.lifecycle } : {}),
@@ -3710,7 +3733,7 @@ export async function admitYouTubeUpload(
       const foreign = await findForeignEpisodeClaim({
         project_slug: slug,
         channel_id: channelId,
-        episode_code: episodeCode,
+        episode_code: uploadIdentity,
       })
       if (foreign && claimMode === 'block') {
         res.status(409).json({
@@ -3745,11 +3768,19 @@ export async function admitYouTubeUpload(
     // video". Every other caller in the tree passes the title; so does the
     // route this replaced.
     const sourcePaths = await resolveEpisodePaths(slug, episodeCode, episodeTitle)
-    const sourceVideoPath = await findYouTubeSourceVideoPath(sourcePaths, slug, episodeCode, episodeTitle)
-    if (!sourceVideoPath) {
+    // A Short uploads its OWN file: the cut inside this episode's shorts
+    // folder, never the episode's final video. The name is a bare file name
+    // and it is joined to the folder THIS episode owns, so nothing outside
+    // that folder can be uploaded.
+    const sourceVideoPath = shortSource
+      ? path.join(sourcePaths.episode_dir, 'shorts', path.basename(shortSource.file))
+      : await findYouTubeSourceVideoPath(sourcePaths, slug, episodeCode, episodeTitle)
+    if (!sourceVideoPath || (shortSource && !existsSync(sourceVideoPath))) {
       res.status(409).json({
         code: 'YOUTUBE_NO_RENDERED_VIDEO',
-        detail: `${episodeCode} has no rendered video yet.`,
+        detail: shortSource
+          ? `${shortSource.file} is missing, so it was not uploaded.`
+          : `${episodeCode} has no rendered video yet.`,
       })
       return
     }
@@ -3764,7 +3795,16 @@ export async function admitYouTubeUpload(
     // Warn (the default) asks once and the owner answers: "Upload anyway" resends this same body
     // with `acknowledge_final_check`, the click-through `episode_number_claim` already uses. Off
     // skips the question; Block refuses without one. Nothing here blocks an upload permanently.
-    const storedCheck = await readStoredFinalCheck(sourceVideoPath)
+    //
+    // A SHORT IS CUT FROM THE EPISODE'S FINAL VIDEO, so the check that applies to it is the
+    // EPISODE's check — the same verdict the cut was made from — read beside the final it was
+    // cut from, not beside the Short (which has no final check of its own). The Short's OWN
+    // completeness (right size, has audio, right duration) is proven by the Shorts job, which
+    // refuses to plan an upload for a Short that did not pass.
+    const finalCheckPath = shortSource
+      ? await findYouTubeSourceVideoPath(sourcePaths, slug, episodeCode, episodeTitle)
+      : sourceVideoPath
+    const storedCheck = finalCheckPath ? await readStoredFinalCheck(finalCheckPath) : null
     // An acknowledgement may name the verdict it is answering (`final_check_checked_at`, the row's
     // own `final_check.identity.checked_at`). When it does, the answer only counts for THAT check of
     // THAT file: a re-render, or a check run again since the owner looked, means they answered about
@@ -3913,16 +3953,30 @@ export async function admitYouTubeUpload(
     // admitted with.
     const admission = await withOverrideLock(slug, episodeCode, episodeTitle, async () => {
       // Rebuilt UNDER the lock, from the sidecar as it is right now.
+      //
+      // A SHORT IS ALWAYS PRIVATE, whatever the caller passed. The automatic
+      // path already forces that, but this is a hard rule about the artefact
+      // rather than a preference of the caller: a Short goes up private, and
+      // the ONLY way it becomes public is YouTube flipping it on the publish
+      // date the owner chose. No request, in any mode, can ask for public —
+      // and nothing here changes a visibility after the upload.
+      const privacy = shortSource
+        ? 'private' as const
+        : body?.privacy_status === 'public' || body?.privacy_status === 'unlisted'
+          ? body.privacy_status
+          : 'private'
       const built = await buildYouTubeMetadataPackage({
         project_slug: slug,
         episode_code: episodeCode,
-        privacy_status: body?.privacy_status === 'public' || body?.privacy_status === 'unlisted'
-          ? body.privacy_status
-          : 'private',
+        privacy_status: privacy,
         ...(typeof body?.publish_at === 'string' && body.publish_at ? { publish_at: body.publish_at } : {}),
         // Same resolver the preview used, so the two cannot disagree.
         ...(await resolveYouTubeUploadSettings(slug)),
         fallback_title: episodeTitle,
+        // A Short goes up under its OWN title — the moment title its passage
+        // was chosen for. Everything else (description, tags, thumbnail,
+        // category) stays the episode's.
+        ...(shortSource?.title ? { title_override: shortSource.title } : {}),
         ...(typeof body?.thumbnail_filename === 'string' || body?.thumbnail_filename === null
           ? { thumbnail_filename: body.thumbnail_filename }
           : {}),
@@ -3941,16 +3995,17 @@ export async function admitYouTubeUpload(
       // Keep ordinary no-date uploads on the configured private/apply-plan mode.
       const approvedUploadMode = built.status.publishAt ? 'apply-plan' : automatic ? 'private' : await getUploadMode(slug, 'youtube')
       if (automatic && (await getJobs(slug, { type: 'youtube_upload' })).some(job =>
-        job.episode_id === episodeCode && ['queued', 'running', 'paused'].includes(job.status))) {
-        return { refusal: { status: 409, code: 'YOUTUBE_UPLOAD_ALREADY_IN_FLIGHT', detail: `${episodeCode} already has an upload in progress.` } }
+        job.episode_id === uploadIdentity && ['queued', 'running', 'paused'].includes(job.status))) {
+        return { refusal: { status: 409, code: 'YOUTUBE_UPLOAD_ALREADY_IN_FLIGHT', detail: `${uploadIdentity} already has an upload in progress.` } }
       }
       const job = await enqueueOrRun({
         project_slug: slug,
         type: 'youtube_upload',
-        episode_id: episodeCode,
+        episode_id: uploadIdentity,
         params: {
-          episode_id: episodeCode,
+          episode_id: uploadIdentity,
           ...(automatic ? { automatic: true } : {}),
+          ...(shortSource ? { short_source: shortSource, parent_episode_code: episodeCode } : {}),
           account_id: accountId,
           expected_channel_id: channelId,
           expected_package_revision: built.package_revision,
@@ -3984,9 +4039,11 @@ export async function admitYouTubeUpload(
 
     res.json({
       job_id: job.job_id,
-      episode_code: episodeCode,
+      episode_code: uploadIdentity,
+      ...(shortSource ? { short_id: shortSource.id, short_title: shortSource.title } : {}),
       channel_id: channelId,
       privacy_status: built.status.privacyStatus,
+      ...(built.status.publishAt ? { publish_at: built.status.publishAt } : {}),
     })
   } catch (error) {
     fail(res, error, 'Failed to start that upload.')

@@ -79,6 +79,52 @@
           <option value="scheduled">Scheduled: private, YouTube makes it public on its date</option>
         </select>
       </label>
+      <div class="schedule-auto schedule-upload">
+        <span>Shorts to YouTube
+          <small>
+            Off by default. Each Short is 20–58 seconds, vertical, and goes up under its own title with the
+            episode's description. Private stays private; Scheduled goes up private and YouTube makes it public
+            on the episode's date, one every {{ spacingDays }} day{{ spacingDays === 1 ? '' : 's' }} after it.
+          </small>
+        </span>
+        <div class="schedule-upload-controls">
+          <label class="schedule-spacing">
+            <span>Shorts per episode</span>
+            <input
+              class="input input-sm"
+              type="number"
+              min="0"
+              max="3"
+              step="1"
+              inputmode="numeric"
+              :value="shortsCount"
+              :disabled="saving"
+              aria-label="Shorts per episode"
+              @change="setShortsCount($event.target as HTMLInputElement)"
+            />
+          </label>
+          <select :value="state.shorts_auto_upload || 'off'" :disabled="saving" aria-label="Upload Shorts to YouTube" @change="setShortsAutoUpload($event.target as HTMLSelectElement)">
+            <option value="off">Off: you upload them yourself</option>
+            <option value="private">Private: stays private until you change it</option>
+            <option value="scheduled">Scheduled: private, YouTube makes it public on its date</option>
+          </select>
+          <label v-if="state.shorts_auto_upload === 'scheduled'" class="schedule-spacing">
+            <span>Days between Shorts</span>
+            <input
+              class="input input-sm"
+              type="number"
+              min="1"
+              max="30"
+              step="1"
+              inputmode="numeric"
+              :value="state.shorts_upload_spacing_days ?? 1"
+              :disabled="saving"
+              aria-label="Days between Shorts"
+              @change="setShortsSpacing($event.target as HTMLInputElement)"
+            />
+          </label>
+        </div>
+      </div>
       <p v-if="notice" class="schedule-ok" role="status">{{ notice }}</p>
     </template>
   </section>
@@ -99,6 +145,11 @@ interface ChannelSchedule {
   auto_schedule_on_render: boolean
   auto_schedule_require_final_check?: boolean
   auto_upload?: 'off' | 'private' | 'scheduled'
+  /** 1.4.374 — the channel's Shorts upload switch and its spacing. */
+  shorts_auto_upload?: 'off' | 'private' | 'scheduled'
+  shorts_upload_spacing_days?: number
+  /** How many Shorts this channel makes per episode (0–3). */
+  shorts_per_episode?: number
 }
 
 const props = defineProps<{ slug: string }>()
@@ -122,6 +173,19 @@ const shownName = computed(() => state.value?.plan?.name
 const summary = computed(() => hasSchedule.value ? scheduleSummary(shownSchedule.value) : 'No days chosen yet.')
 const perMonth = computed(() => episodesPerMonth(shownSchedule.value))
 const otherPlans = computed(() => Math.max(0, (state.value?.plans?.length || 0) - (state.value?.plan ? 1 : 0)))
+/**
+ * How many Shorts this channel makes per episode, and the spacing between
+ * them. Both are shown rather than assumed — a limit the customer cannot see
+ * is a limit they cannot reason about (§1).
+ */
+const shortsCount = computed(() => {
+  const count = state.value?.shorts_per_episode
+  return typeof count === 'number' && count >= 0 ? count : 0
+})
+const spacingDays = computed(() => {
+  const days = state.value?.shorts_upload_spacing_days
+  return typeof days === 'number' && days >= 1 && days <= 30 ? days : 1
+})
 
 async function load(): Promise<void> {
   const target = props.slug
@@ -188,6 +252,57 @@ async function setAutoUpload(box: HTMLSelectElement): Promise<void> {
   if (!ok) box.value = before
 }
 
+/**
+ * How many Shorts this channel makes per episode. Zero means none — and the
+ * card says so, rather than leaving the upload switch looking effective when
+ * no Short would ever be made.
+ */
+async function setShortsCount(box: HTMLInputElement): Promise<void> {
+  const before = shortsCount.value
+  const count = Number(box.value)
+  if (!Number.isInteger(count) || count < 0 || count > 3) {
+    box.value = String(before)
+    formError.value = 'Shorts per episode must be a whole number from 0 to 3.'
+    return
+  }
+  const ok = await send({ shorts_per_episode: count },
+    count === 0 ? 'This channel makes no Shorts.'
+      : `This channel now makes ${count} Short${count === 1 ? '' : 's'} per episode.`)
+  if (!ok) box.value = String(before)
+}
+
+/**
+ * 1.4.374 — the channel's Shorts upload switch.
+ *
+ * The answer names what will happen, because "off" and "private" differ by
+ * whether anything reaches YouTube at all, and "scheduled" differs from
+ * "private" by WHEN it goes public. A switch whose effect is not spelled out
+ * is a switch nobody trusts.
+ */
+async function setShortsAutoUpload(box: HTMLSelectElement): Promise<void> {
+  const before = state.value?.shorts_auto_upload || 'off'
+  const ok = await send({ shorts_auto_upload: box.value }, box.value === 'off'
+    ? 'Shorts are not uploaded to YouTube.'
+    : box.value === 'private'
+      ? 'Shorts now upload as private and stay private.'
+      : 'Shorts now upload as private, and YouTube makes each one public on its own date.')
+  if (!ok) box.value = before
+}
+
+/** The days between Shorts in 'scheduled' mode. Out of range is refused. */
+async function setShortsSpacing(box: HTMLInputElement): Promise<void> {
+  const before = state.value?.shorts_upload_spacing_days ?? 1
+  const days = Number(box.value)
+  if (!Number.isInteger(days) || days < 1 || days > 30) {
+    box.value = String(before)
+    formError.value = 'Days between Shorts must be a whole number from 1 to 30.'
+    return
+  }
+  const ok = await send({ shorts_upload_spacing_days: days },
+    `Shorts now go up one every ${days} day${days === 1 ? '' : 's'} after the episode's date.`)
+  if (!ok) box.value = String(before)
+}
+
 async function toggleAuto(box: HTMLInputElement): Promise<void> {
   const parsed = editing.value ? scheduleFromDraft(draft.value) : null
   const schedule = parsed ? (parsed.ok ? parsed.schedule : null) : shownSchedule.value
@@ -207,6 +322,9 @@ watch(() => props.slug, () => { editing.value = false; void load() }, { immediat
 <style scoped>
 .schedule-upload { align-items: center; justify-content: space-between; flex-wrap: wrap; }
 .schedule-upload select { max-width: 100%; }
+.schedule-upload-controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.schedule-spacing { display: flex; align-items: center; gap: 6px; color: var(--text-muted); font-size: 12px; }
+.schedule-spacing .input { width: 68px; }
 .schedule-card { display: grid; gap: 12px; }
 .schedule-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
 .schedule-head h3 { margin: 0 0 4px; font-size: 16px; }

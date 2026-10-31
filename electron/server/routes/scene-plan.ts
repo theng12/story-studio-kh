@@ -78,6 +78,48 @@ router.post('/projects/:slug/episodes/:code/shorts', async (req, res) => {
   }
 })
 
+/**
+ * 1.4.374 — upload an episode's finished Shorts to YouTube.
+ *
+ * The trigger for Production, and the manual way to retry one episode. It
+ * runs the SAME step the Shorts job runs after it verifies the clips, so the
+ * two can never disagree about what is uploaded.
+ *
+ * The answer says what happened to each Short. A refusal ("no publish date",
+ * "the date has passed") is reported as a refusal with its reason, and
+ * NOTHING was uploaded — the Shorts and the episode are untouched.
+ */
+router.post('/projects/:slug/episodes/:code/shorts/upload', async (req, res) => {
+  try {
+    const { uploadShortsForEpisode } = await import('../services/shorts-uploader.js')
+    const report = await uploadShortsForEpisode(req.params.slug, req.params.code)
+    return res.json({
+      mode: report.mode,
+      spacing_days: report.spacing_days,
+      uploaded: report.uploaded,
+      upload_failed: report.upload_failed,
+      ...(report.reason ? { reason: report.reason } : {}),
+      lines: report.lines,
+      shorts: report.outcomes,
+    })
+  } catch (error: any) {
+    return res.status(error?.statusCode || 500).json({ detail: error?.message || 'Could not upload the Shorts.' })
+  }
+})
+
+/**
+ * What is known about an episode's Short uploads: which went up, which did
+ * not, and why. Read-only.
+ */
+router.get('/projects/:slug/episodes/:code/shorts/upload', async (req, res) => {
+  try {
+    const { readShortsUploadStatus } = await import('../services/shorts-uploader.js')
+    return res.json(await readShortsUploadStatus(req.params.slug, req.params.code))
+  } catch (error: any) {
+    return res.status(error?.statusCode || 500).json({ detail: error?.message || 'Could not read the Short upload state.' })
+  }
+})
+
 function parseCreativeDirection(value: unknown) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
   return normalizeCreativeDirection(value as Record<string, unknown>)

@@ -491,6 +491,15 @@ export const UpdateConfigSchema = z.object({
   auto_upload: z.enum(['off', 'private', 'scheduled']).optional(),
   shorts_per_episode: z.number().int().min(0).max(3).optional(),
   /**
+   * 1.4.374 — upload an episode's finished Shorts to YouTube by itself. Off for
+   * every channel until the owner turns it on; 'scheduled' uploads each Short
+   * private and lets YouTube publish it on the episode's date plus the
+   * spacing.
+   */
+  shorts_auto_upload: z.enum(['off', 'private', 'scheduled']).optional(),
+  /** Days between Shorts in 'scheduled' mode. */
+  shorts_upload_spacing_days: z.number().int().min(1).max(30).optional(),
+  /**
    * 1.4.369 — the channel's per-episode starting length. A shape that is not
    * whole seconds, or whose bounds cross, is refused rather than stored and
    * quietly ignored by the reader (§6).
