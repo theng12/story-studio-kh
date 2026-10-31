@@ -52,6 +52,7 @@ import {
   sessionUrlHash,
 } from '../services/upload-resume-sidecar.js'
 import { SpeedTracker, throttle } from '../lib/speed-tracker.js'
+import { readStoredFinalCheck } from '../lib/final-video-check.js'
 import { requireJobCompletion } from '../services/job-completion.js'
 import { ensureYoutubePlaylistMembership } from '../services/youtube-playlist-sync.js'
 import { describeYouTubeCredential, resolveYouTubeAccountId } from '../services/youtube-credential.js'
@@ -63,6 +64,7 @@ import {
 
 interface YouTubeUploadParams {
   episode_id: string
+  automatic?: boolean
   account_id?: string
   /** Channel shown in the confirmation. A changed assignment cannot inherit consent. */
   expected_channel_id?: string
@@ -157,6 +159,7 @@ export async function generateYoutubeUpload(job: Job): Promise<void> {
   const account = await describeYouTubeCredential(slug, accountId)
   if (!account) throw new Error('This upload names an old YouTube connection. Reconnect it in Settings → YouTube.')
   if (params.expected_channel_id && params.expected_channel_id !== account.remote_id) {
+    if (params.automatic) throw new Error('The assigned YouTube channel changed; nothing was uploaded.')
     await stopOrCarryOn(slug, 'right_channel', job,
       'The assigned YouTube channel changed after confirmation. Preview and confirm the upload again.',
       `The assigned YouTube channel changed after confirmation; uploading to the channel assigned now, ${account.remote_title}.`)
@@ -191,7 +194,7 @@ export async function generateYoutubeUpload(job: Job): Promise<void> {
     // Retry after "uploaded, but the thumbnail failed": the video is kept and
     // only the thumbnail is set. Never a second upload.
     const recorded = await readSidecarRaw(slug, episodeId, idea.title || '', 'youtube')
-    if (thumbnailOnlyRetry(recorded, remote.video_id, account.remote_id)) {
+    if (!params.automatic && thumbnailOnlyRetry(recorded, remote.video_id, account.remote_id)) {
       await setRequiredThumbnail(job, {
         slug, episodeId, accountId, videoId: remote.video_id, fallbackTitle: idea.title,
         sidecarPath: path.join(paths.episode_dir, 'youtube_upload.json'),
@@ -215,6 +218,10 @@ export async function generateYoutubeUpload(job: Job): Promise<void> {
     if (!videoPath) {
       throw new Error(`No final video file found for ${episodeId}. Run Video Assembly or drop a file into this episode's video folder (or the external final-video root if configured in Settings → Storage).`)
     }
+    if (params.automatic) {
+      const check = await readStoredFinalCheck(videoPath)
+      if (!check || check.stale || !check.result.passed) throw new Error('The final check is missing, stale, or failed; nothing was uploaded.')
+    }
     if (!hasReviewedFreshUploadParams(params) && !(await hasExactResumableRecovery({
       slug,
       episodeId,
@@ -236,6 +243,7 @@ export async function generateYoutubeUpload(job: Job): Promise<void> {
     // 1.4.300 — a video with no sound is stopped (the "valid video" safety check, Block by default).
     const silent = !probe.hasAudio || await measureLoudness(videoPath, { truePeak: false }).then(m => m.lufs === null || m.lufs <= -69, () => false)
     if (silent) {
+      if (params.automatic) throw new Error(`${path.basename(videoPath)} has no sound. Nothing was uploaded.`)
       await safetyGate(slug, 'valid_video', job, `${path.basename(videoPath)} has no sound${probe.hasAudio ? ' (its audio track is silent)' : ''}. Nothing was uploaded.`)
     }
   }
@@ -259,6 +267,7 @@ export async function generateYoutubeUpload(job: Job): Promise<void> {
   const hasThumbnail = !!meta.thumbnailPath && existsSync(meta.thumbnailPath)
   if (!hasThumbnail) {
     const reason = missingThumbnailReason(episodeId, meta.thumbnailPath, params.thumbnail_filename)
+    if (params.automatic) throw new Error(`${reason} Nothing was uploaded.`)
     await stopOrCarryOn(slug, 'thumbnail_present', job, `${reason} Nothing was uploaded.`,
       `${reason} Uploading without a thumbnail, so YouTube shows its own frame grab.`)
   }
@@ -286,6 +295,7 @@ export async function generateYoutubeUpload(job: Job): Promise<void> {
     const sourceBytes = (await sourceHandle.stat()).size
     const sourceRevision = await resolveYouTubeSourceRevisionFromHandle(sourceHandle)
     if (params.expected_source_revision && sourceRevision !== params.expected_source_revision) {
+      if (params.automatic) throw new Error('The rendered video changed after automatic upload admission; nothing was uploaded.')
       await stopOrCarryOn(slug, 'reviewed_unchanged', job,
         'The rendered video changed after confirmation. Preview and confirm the upload again; nothing was uploaded.',
         'The rendered video changed after confirmation; uploading the video as it is now.')

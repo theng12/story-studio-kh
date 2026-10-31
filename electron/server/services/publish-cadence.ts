@@ -90,6 +90,11 @@ export function autoScheduleEnabled(config: unknown): boolean {
   return (config as { auto_schedule_on_render?: unknown } | null | undefined)?.auto_schedule_on_render !== false
 }
 
+export function autoUploadMode(config: unknown): 'off' | 'private' | 'scheduled' {
+  const mode = (config as { auto_upload?: unknown } | null | undefined)?.auto_upload
+  return mode === 'private' || mode === 'scheduled' ? mode : 'off'
+}
+
 function isUsableSchedule(value: unknown): value is UploadSchedule {
   if (!value || typeof value !== 'object') return false
   const s = value as UploadSchedule

@@ -10,10 +10,7 @@
  * every time. The Pipeline does not need to select: it knows exactly which
  * episode it just rendered.
  *
- * WHAT IT DELIBERATELY DOES NOT DO: touch YouTube. It writes a local schedule
- * and stops. The owner chose that ("enqueue and schedule only — you press
- * upload"), and it is also what makes this safe to run unattended — a bad
- * render cannot reach a channel.
+ * An opt-in channel may also upload after the local schedule is written.
  *
  * EPISODE ORDER (1.4.262). After the new slot is written, the future dates of
  * episodes not on YouTube yet are dealt back out in episode-code order
@@ -39,7 +36,7 @@ import { readStoredFinalCheck } from '../lib/final-video-check.js'
 import { withLock, writeJsonAtomic } from '../lib/atomic-store.js'
 import * as plans from './upload-plans.js'
 import * as im from './idea-manager.js'
-import { defaultSchedule, readCadence } from './publish-cadence.js'
+import { autoUploadMode, defaultSchedule, readCadence } from './publish-cadence.js'
 import { getProjectDir } from './project-manager.js'
 import { readSidecarRaw, readSidecarStrict, setScheduledFor } from './upload-sidecar.js'
 import type { UploadPlatform } from './upload-store.js'
@@ -61,6 +58,7 @@ export interface AutoScheduleResult {
   /** Other episodes whose date moved so dates follow episode order. */
   order_shifted?: string[]
   hold?: { status: 'failed' | 'stale' | 'unchecked' | 'check-error'; reason: string }
+  auto_upload_log?: string
 }
 
 /** The hold belongs to the final itself and survives a restart. */
@@ -82,7 +80,9 @@ export async function scheduleCheckedEpisode(
   const existing = await plans.readItemPublicationStates(slug)
   const scheduled = (await plans.readItemSchedule(slug))[code] || existing[code]?.scheduled_for
   if (scheduled || existing[code]?.privacy_status === 'public') {
-    return { scheduled: false, episode_code: code, reason: 'This episode already has a publish time or is public; it was left as it is.' }
+    const reason = 'This episode already has a publish time or is public; it was left as it is.'
+    return { scheduled: false, episode_code: code, reason,
+      ...(autoUploadMode(config) !== 'off' ? { auto_upload_log: `Automatic YouTube upload skipped: ${reason}` } : {}) }
   }
   if (config.auto_schedule_require_final_check !== false) {
     const stored = await readStoredFinalCheck(videoPath)
@@ -95,13 +95,38 @@ export async function scheduleCheckedEpisode(
       ? { status, reason: `Not automatically scheduled: ${descriptions[status]} Run Final Check in Publish; a pass will schedule it.` }
       : { status: 'check-error', reason: 'Automatic scheduling was interrupted. Run Final Check in Publish; a pass will schedule it.' }
     await writeJsonAtomic(holdPath(videoPath), { hold })
-    if (status) return { scheduled: false, episode_code: code, reason: hold.reason, hold }
+    if (status) {
+      const reason = hold.reason
+      return { scheduled: false, episode_code: code, reason, hold,
+        ...(autoUploadMode(config) !== 'off' ? { auto_upload_log: `Automatic YouTube upload skipped: ${descriptions[status]}` } : {}) }
+    }
   }
   const result = await scheduleEpisodeWithActivePlan(slug, code, 'youtube')
-  if (result.scheduled || result.publish_at) await writeJsonAtomic(holdPath(videoPath), { hold: null })
+  if (result.scheduled || result.publish_at) await writeJsonAtomic(holdPath(videoPath), { hold: null }).catch(error => {
+    console.warn(`[auto-schedule] Could not clear the final-check hold: ${String(error)}`)
+  })
   else if (result.reason) {
     const prior = await readAutoScheduleHold(videoPath)
     if (prior) await writeJsonAtomic(holdPath(videoPath), { hold: { ...prior, reason: `Final check passed, but the episode could not be scheduled: ${result.reason}` } })
+  }
+  if (!result.scheduled && autoUploadMode(config) !== 'off' && !result.auto_upload_log) {
+    result.auto_upload_log = `Automatic YouTube upload skipped: ${result.reason || 'The episode could not be scheduled.'}`
+  }
+  if (result.scheduled && autoUploadMode(config) !== 'off') {
+    const mode = autoUploadMode(config)
+    try {
+      if (mode === 'scheduled' && !result.publish_at) throw new Error('The episode has no scheduled publish time.')
+      const { admitYouTubeUpload } = await import('../routes/youtube-upload-center.js')
+      const admission = await admitYouTubeUpload(slug, {
+        episode_code: code,
+        ...(mode === 'scheduled' ? { publish_at: result.publish_at } : {}),
+      }, { automatic: true })
+      result.auto_upload_log = admission.status < 300
+        ? 'Automatic YouTube upload queued.'
+        : `Automatic YouTube upload skipped: ${admission.json?.detail || 'Upload admission failed.'}`
+    } catch (error) {
+      result.auto_upload_log = `Automatic YouTube upload skipped: ${error instanceof Error ? error.message : String(error)}`
+    }
   }
   return result
 }

@@ -65,7 +65,7 @@ const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQ
 async function removeQueuedTestJob(slug: string, jobId: string): Promise<void> {
   for (let attempt = 0; attempt < 50; attempt++) {
     const current = jobQueue.getJob(jobId)
-    if (!current || ['completed', 'failed', 'cancelled'].includes(current.status)) break
+    if (!current || ['done', 'error', 'cancelled'].includes(current.status)) break
     await new Promise(resolve => setTimeout(resolve, 10))
   }
   jobQueue.removeTerminalJob(slug, jobId)
@@ -3307,10 +3307,10 @@ test('a listing that reached the end of the channel is not reported as truncated
 })
 
 /** A project connected ONLY through the redesigned flow: no upload_accounts entry at all. */
-async function registryOnlyProject(): Promise<string> {
+async function registryOnlyProject(name = 'Registry Only'): Promise<string> {
   const temp = await useTempDataDir()
   cleanup = temp.cleanup
-  const created = await pm.createProject({ name: 'Registry Only' })
+  const created = await pm.createProject({ name })
   const paths = await utils.resolveEpisodePaths(created.slug, 'EP0001', '')
   await fs.mkdir(path.dirname(paths.metadata_json), { recursive: true })
   await fs.writeFile(paths.metadata_json, JSON.stringify({
@@ -3479,8 +3479,8 @@ async function acceptedEpisode(slug: string): Promise<{ episodeCode: string, tit
 }
 
 /** An accepted episode that has been rendered, connected through the redesigned flow. */
-async function uploadReadyProject(): Promise<{ slug: string, episodeCode: string, title: string }> {
-  const slug = await registryOnlyProject()
+async function uploadReadyProject(name?: string): Promise<{ slug: string, episodeCode: string, title: string }> {
+  const slug = await registryOnlyProject(name)
   const { episodeCode, title } = await acceptedEpisode(slug)
   const paths = await utils.resolveEpisodePaths(slug, episodeCode, title)
   await fs.mkdir(paths.video_dir, { recursive: true })
@@ -4288,16 +4288,149 @@ test('a corrupt connection registry refuses the upload instead of skipping the c
   assert.match(res.body.detail, /Nothing was uploaded/)
 })
 
-test('the manual upload path never reaches the scheduled boundary', async () => {
-  // Tripwire. `executeScheduledYouTubeUpload` stays uncalled and default-off
-  // across the whole feature; the moment the manual route reaches it, this
-  // fails.
-  const source = await fs.readFile(
-    path.join(import.meta.dirname, '..', 'routes', 'youtube-upload-center.ts'), 'utf8')
-  const route = source.slice(source.indexOf("router.post('/projects/:slug/youtube/upload'"))
-  const body = route.slice(0, route.indexOf('\nrouter.'))
-  assert.doesNotMatch(body, /executeScheduledYouTubeUpload|scheduled_upload|claimed_slot/)
-  assert.match(body, /enqueueOrRun/, 'it queues a manual job and nothing else')
+test('automatic upload follows the channel switch and the scheduled date', async () => {
+  const { scheduleCheckedEpisode } = await import('../services/episode-autoschedule.js')
+  const { slug, episodeCode, title } = await uploadReadyProject(`Automatic ${Date.now()} ${Math.random()}`)
+  __setYouTubeTransportForTests(new FakeYouTube().transport())
+  const before = new Set((await jobQueue.getJobs(slug, { type: 'youtube_upload' })).map(job => job.job_id))
+  const videoPath = path.join((await utils.resolveEpisodePaths(slug, episodeCode, title)).video_dir, `${episodeCode}_final_video.mp4`)
+  await fs.writeFile(videoPath, tinyVideoBytes())
+  const passed = await runFinalCheck(videoPath, {
+    planned_sec: 0, tail: { sec: 0, from_end_sec: 0 }, closing_music: false,
+    width: 0, height: 0, subtitles_path: null,
+  })
+  assert.equal(passed.passed, true)
+  await storeFinalCheck(videoPath, passed)
+  const result = await scheduleCheckedEpisode(slug, episodeCode, videoPath)
+  assert.equal(result.scheduled, true)
+  assert.equal(result.auto_upload_log, undefined)
+  assert.equal((await jobQueue.getJobs(slug, { type: 'youtube_upload' })).filter(job => !before.has(job.job_id)).length, 0)
+})
+
+test('automatic admission queues private and scheduled uploads without review', async () => {
+  const { scheduleCheckedEpisode } = await import('../services/episode-autoschedule.js')
+  for (const scheduled of [false, true]) {
+    const { slug, episodeCode, title } = await uploadReadyProject(`Automatic ${Date.now()} ${Math.random()}`)
+    __setYouTubeTransportForTests(new FakeYouTube().transport())
+    const before = new Set((await jobQueue.getJobs(slug, { type: 'youtube_upload' })).map(job => job.job_id))
+    const videoPath = path.join((await utils.resolveEpisodePaths(slug, episodeCode, title)).video_dir, `${episodeCode}_final_video.mp4`)
+    await fs.writeFile(videoPath, tinyVideoBytes())
+    const passed = await runFinalCheck(videoPath, {
+      planned_sec: 0, tail: { sec: 0, from_end_sec: 0 }, closing_music: false,
+      width: 0, height: 0, subtitles_path: null,
+    })
+    await storeFinalCheck(videoPath, passed)
+    await pm.updateConfig(slug, { auto_upload: scheduled ? 'scheduled' : 'private' } as any)
+    const result = await scheduleCheckedEpisode(slug, episodeCode, videoPath)
+    assert.equal(result.scheduled, true, JSON.stringify(result))
+    assert.equal(result.auto_upload_log, 'Automatic YouTube upload queued.')
+    const jobs = (await jobQueue.getJobs(slug, { type: 'youtube_upload' })).filter(job => !before.has(job.job_id))
+    assert.equal(jobs.length, 1)
+    const job = jobs[0]!
+    assert.equal(job.params?.privacy_status, 'private')
+    assert.equal(job.params?.scheduled_for, scheduled ? result.publish_at : undefined)
+    assert.equal(job.params?.approved_upload_mode, scheduled ? 'apply-plan' : 'private')
+    await removeQueuedTestJob(slug, job.job_id)
+    await jobQueue._waitForJobPersistenceForTesting()
+    await cleanup?.()
+    cleanup = undefined
+  }
+})
+
+test('automatic scheduling logs refusals and never queues a failed final', async () => {
+  const { scheduleCheckedEpisode } = await import('../services/episode-autoschedule.js')
+  const { slug, episodeCode, title } = await uploadReadyProject(`Automatic ${Date.now()} ${Math.random()}`)
+  __setYouTubeTransportForTests(new FakeYouTube().transport())
+  const before = new Set((await jobQueue.getJobs(slug, { type: 'youtube_upload' })).map(job => job.job_id))
+  const videoPath = path.join((await utils.resolveEpisodePaths(slug, episodeCode, title)).video_dir, `${episodeCode}_final_video.mp4`)
+  await fs.writeFile(videoPath, tinyVideoBytes())
+  const failed = await runFinalCheck(videoPath, {
+    planned_sec: 60, tail: { sec: 0, from_end_sec: 0 }, closing_music: false,
+    width: 0, height: 0, subtitles_path: null,
+  })
+  await storeFinalCheck(videoPath, failed)
+  await pm.updateConfig(slug, { auto_upload: 'private', auto_schedule_require_final_check: false, safety_checks: { final_check: 'off' } } as any)
+  const result = await scheduleCheckedEpisode(slug, episodeCode, videoPath)
+  assert.equal(result.scheduled, true)
+  assert.match(result.auto_upload_log || '', /Automatic YouTube upload skipped:/)
+  assert.equal((await jobQueue.getJobs(slug, { type: 'youtube_upload' })).filter(job => !before.has(job.job_id)).length, 0)
+})
+
+test('automatic scheduling reports claim warnings, quota, stale checks and existing videos', async () => {
+  const { scheduleCheckedEpisode } = await import('../services/episode-autoschedule.js')
+  for (const reason of ['claim', 'quota', 'stale', 'existing'] as const) {
+    const { slug, episodeCode, title } = await uploadReadyProject(`Automatic ${Date.now()} ${Math.random()}`)
+    __setYouTubeTransportForTests(new FakeYouTube().transport())
+    const before = new Set((await jobQueue.getJobs(slug, { type: 'youtube_upload' })).map(job => job.job_id))
+    const videoPath = path.join((await utils.resolveEpisodePaths(slug, episodeCode, title)).video_dir, `${episodeCode}_final_video.mp4`)
+    await fs.writeFile(videoPath, tinyVideoBytes())
+    const passed = await runFinalCheck(videoPath, {
+      planned_sec: 0, tail: { sec: 0, from_end_sec: 0 }, closing_music: false,
+      width: 0, height: 0, subtitles_path: null,
+    })
+    await storeFinalCheck(videoPath, passed)
+    await pm.updateConfig(slug, { auto_upload: 'private', auto_schedule_require_final_check: false } as any)
+    if (reason === 'claim') await writeForeignClaim(episodeCode)
+    if (reason === 'quota') {
+      const ledger = await import('../services/youtube-quota-ledger.js')
+      const registry = await connections.readYouTubeConnectionRegistry()
+      await ledger.recordYouTubeQuotaAttempt({ application_id: registry.application!.application_id,
+        channel_id: CHANNEL, bucket: 'video_uploads', operation: 'videos.insert', amount: 100 })
+    }
+    if (reason === 'stale') await fs.appendFile(videoPath, Buffer.alloc(8))
+    if (reason === 'existing') {
+      const made = await operations.createYouTubeOperation({ project_slug: slug, episode_code: episodeCode,
+        channel_id: CHANNEL, source_revision: 'src', metadata_revision: 'meta', origin: 'manual', final_action: 'manual_upload' })
+      await operations.acceptYouTubeOperation({ project_slug: slug, operation_id: made.operation_id,
+        expected_revision: made.revision, channel_id: CHANNEL, video_id: 'already-on-youtube',
+        accepted_at: new Date().toISOString(), final_payload: { snippet_json: '{}', status_json: '{}', source_sha256: 'd'.repeat(64) } })
+    }
+    const result = await scheduleCheckedEpisode(slug, episodeCode, videoPath)
+    assert.match(result.auto_upload_log || '', /Automatic YouTube upload skipped:/, reason)
+    assert.equal((await jobQueue.getJobs(slug, { type: 'youtube_upload' })).filter(job => !before.has(job.job_id)).length, 0, reason)
+    await jobQueue._waitForJobPersistenceForTesting()
+    await cleanup?.()
+    cleanup = undefined
+  }
+})
+
+test('an automatic admission exception leaves scheduling successful', async () => {
+  const { scheduleCheckedEpisode } = await import('../services/episode-autoschedule.js')
+  const { slug, episodeCode, title } = await uploadReadyProject(`Automatic ${Date.now()} ${Math.random()}`)
+  __setYouTubeTransportForTests(new FakeYouTube().transport())
+  const before = new Set((await jobQueue.getJobs(slug, { type: 'youtube_upload' })).map(job => job.job_id))
+  const videoPath = path.join((await utils.resolveEpisodePaths(slug, episodeCode, title)).video_dir, `${episodeCode}_final_video.mp4`)
+  await fs.writeFile(videoPath, tinyVideoBytes())
+  const passed = await runFinalCheck(videoPath, {
+    planned_sec: 0, tail: { sec: 0, from_end_sec: 0 }, closing_music: false,
+    width: 0, height: 0, subtitles_path: null,
+  })
+  await storeFinalCheck(videoPath, passed)
+  await pm.updateConfig(slug, { auto_upload: 'private' } as any)
+  const reset = jobQueue._setEpisodeAdmissionProbeForTesting(() => { throw new Error('injected upload failure') })
+  try {
+    const result = await scheduleCheckedEpisode(slug, episodeCode, videoPath)
+    assert.equal(result.scheduled, true)
+    assert.match(result.auto_upload_log || '', /skipped:/)
+    assert.equal((await jobQueue.getJobs(slug, { type: 'youtube_upload' })).filter(job => !before.has(job.job_id)).length, 0)
+  } finally { reset() }
+})
+
+test('settings validates automatic upload modes', async () => {
+  const { router: settings } = await import('../routes/settings.js')
+  const settingsApp = express()
+  settingsApp.use(express.json())
+  settingsApp.use('/api', settings)
+  const slug = await project(false)
+  for (const value of ['off', 'private', 'scheduled']) {
+    const response = await request(settingsApp).put(`/api/projects/${slug}/settings/config`).send({ auto_upload: value })
+    assert.equal(response.status, 200, JSON.stringify(response.body))
+    assert.equal((await pm.getConfig(slug) as any).auto_upload, value)
+    const read = await request(settingsApp).get(`/api/projects/${slug}/settings/config`)
+    assert.equal(read.body.auto_upload, value)
+  }
+  const invalid = await request(settingsApp).put(`/api/projects/${slug}/settings/config`).send({ auto_upload: 'public' })
+  assert.equal(invalid.status, 400)
 })
 
 

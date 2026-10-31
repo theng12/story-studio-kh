@@ -485,6 +485,7 @@ export const UpdateConfigSchema = z.object({
   confirmation_preferences: z.record(z.string(), z.any()).optional(),
   /** 1.4.300 — per-channel Off / Warn / Block for each safety check (services/safety-checks.ts). */
   safety_checks: z.record(z.string().max(80), z.enum(['off', 'warn', 'block'])).optional(),
+  auto_upload: z.enum(['off', 'private', 'scheduled']).optional(),
   /**
    * 1.4.369 — the channel's per-episode starting length. A shape that is not
    * whole seconds, or whose bounds cross, is refused rather than stored and
