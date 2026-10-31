@@ -2666,6 +2666,17 @@ export interface UpdateConfigRequest {
   still_post_last_preset?: string
   /** The channel's optional final-video review switch (owner, 2026-10-29). Absent = off. */
   final_review?: { enabled: boolean }
+  /**
+   * 2026-10-31 — this channel's marker as a saved STARTING POINT for a new
+   * channel (owner, 2026-10-31: *"as we can have several defaults to choose
+   * from"*). The value is the name the customer gave the starting point;
+   * empty or absent means this channel is not one.
+   *
+   * Declared rather than cast, like the fields above: `applyConfigRequest` is
+   * a pass-through, so the write was always correct — declaring it makes it
+   * type-checked instead of trusted.
+   */
+  channel_default_name?: string
 }
 
 // ── Jobs ────────────────────────────────────────────────────────────────────

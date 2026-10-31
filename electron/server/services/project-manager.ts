@@ -1522,6 +1522,15 @@ export async function getSafeConfig(slug: string): Promise<any | null> {
     active_style_preset_id: typeof (config as any).active_style_preset_id === 'string'
       ? (config as any).active_style_preset_id
       : undefined,
+    // 2026-10-31 — this channel's marker as a saved starting point for a NEW
+    // channel (owner, 2026-10-31). Echoed for the same reason as
+    // `active_style_preset_id` above: this response is an ALLOW-LIST, so
+    // without an entry here the saved name would be invisible on the next
+    // read and the Settings page would show an empty field for a channel the
+    // customer had already named.
+    channel_default_name: typeof (config as any).channel_default_name === 'string'
+      ? (config as any).channel_default_name
+      : undefined,
     // v1.4.1 — per-EPISODE overlay windows, echoed for the same reason
     // `active_style_preset_id` above is. `updateConfig` persists this through
     // the schema's passthrough, but this response is an ALLOW-LIST: without an

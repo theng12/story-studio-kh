@@ -386,10 +386,94 @@
           </p>
         </div>
 
+        <!-- The owner's saved starting points (2026-10-31): "as we can have several
+             defaults to choose from" when setting up a new channel.
+
+             Each card is one saved starting point, with the art style's own
+             picture when it has one. Picking one uses the SAME copy path the
+             channel's own Settings page uses (POST /duplicate-settings), so the
+             Formula seeding and the rollback are exactly the same as a copy
+             started from inside a channel.
+
+             A channel with no saved starting points shows NOTHING here — the
+             screen looks exactly as it did before this feature existed. -->
+        <fieldset
+          v-if="channelDefaults.length || loadingChannelDefaults || channelDefaultsError || staleStartingPointNotice"
+          class="start-from"
+          :disabled="creating || loadingChannelDefaults"
+        >
+          <legend>Start from</legend>
+          <!-- Still reading: an empty grid here would read as "you have none",
+               which is a different sentence from "not checked" (AGENTS §6). -->
+          <p v-if="loadingChannelDefaults" class="start-from-hint" role="status">
+            Reading your saved starting points…
+          </p>
+          <p v-else-if="channelDefaultsError" class="create-error start-from-error" role="alert">
+            {{ channelDefaultsError }}
+            <button type="button" class="btn btn-sm btn-secondary" :disabled="loadingChannelDefaults" @click="loadChannelDefaults">
+              Try Again
+            </button>
+          </p>
+          <p v-else class="start-from-hint">
+            Begin from a channel you saved as a starting point. It brings that channel's Formula, art style
+            and saved presets as they are right now — nothing is copied until you pick one.
+          </p>
+          <div v-if="channelDefaults.length" class="start-from-grid">
+            <label
+              v-for="entry in channelDefaults"
+              :key="entry.source_slug"
+              class="start-from-card"
+              :class="{ selected: form.start_from === entry.source_slug }"
+            >
+              <span class="start-from-picture">
+                <img v-if="entry.art_style_preview" :src="entry.art_style_preview" :alt="`${entry.name} — ${entry.art_style_name}`" />
+              </span>
+              <span class="start-from-copy">
+                <input
+                  v-model="form.start_from"
+                  type="radio"
+                  name="start-from"
+                  :value="entry.source_slug"
+                />
+                <span class="start-from-text">
+                  <strong>{{ entry.name }}</strong>
+                  <small v-if="entry.art_style_name">{{ entry.art_style_name }}</small>
+                  <small v-if="entry.formula_name">{{ entry.formula_name }}</small>
+                  <small class="start-from-source">from “{{ entry.source_name }}”</small>
+                </span>
+              </span>
+            </label>
+
+            <!-- The normal blank start, always offered beside the saved ones. -->
+            <label class="start-from-card" :class="{ selected: form.start_from === '' }">
+              <span class="start-from-picture start-from-picture-blank" aria-hidden="true" />
+              <span class="start-from-copy">
+                <input v-model="form.start_from" type="radio" name="start-from" value="" />
+                <span class="start-from-text">
+                  <strong>Start blank</strong>
+                  <small>Set every setting up from scratch.</small>
+                </span>
+              </span>
+            </label>
+          </div>
+          <p v-if="startingFromDefault && !loadingChannelDefaults" class="start-from-note" role="status">
+            The new channel starts from “{{ startingFromDefault.name }}”. Its Formula and art style come from
+            there, so you do not need to choose a Formula below.
+          </p>
+          <p v-else-if="staleStartingPointNotice" class="create-error start-from-error" role="alert">
+            {{ staleStartingPointNotice }}
+          </p>
+        </fieldset>
+
         <!-- Owner ruling, 2026-10-25: the Formula is a required step, with an
              explicit Generic choice so "no Formula" is never accidental. The
              Generic option records a deliberate choice (§6) rather than leaving
-             the same blank a channel that never chose has. -->
+             the same blank a channel that never chose has.
+
+             Hidden entirely when a SAVED STARTING POINT is picked: that
+             starting point brings its own Formula, so asking again would be
+             the wrong question and answering it would be ignored. -->
+        <template v-if="!startingFromDefault">
         <fieldset class="formula-choice" :disabled="creating">
           <legend>Series Formula <span class="formula-required-badge">required</span></legend>
           <p class="formula-choice-hint">
@@ -440,6 +524,7 @@
         <p v-else class="formula-required-note">
           Choose a Series Formula or Generic to continue.
         </p>
+        </template>
 
         <div class="form-group">
           <label for="content-language">Audience language</label>
@@ -471,7 +556,7 @@
 
         <div class="create-actions">
           <button type="button" class="btn btn-secondary" :disabled="creating" @click="closeCreate">Cancel</button>
-          <button type="submit" class="btn btn-primary" :disabled="!form.name.trim() || !formulaChoiceMade || creating">
+          <button type="submit" class="btn btn-primary" :disabled="!canCreateChannel || creating">
             <LoadingSpinner v-if="creating" size="sm" />
             {{ creating ? 'Creating…' : 'Create channel' }}
           </button>
@@ -535,6 +620,9 @@ import { projectSlug } from '~/utils/project-slug'
 import { projectSlugBase, uniqueProjectSlug } from '@shared/project-slug'
 import { readLastKnownList, writeLastKnownList } from '~/utils/last-known-list'
 import { CONTENT_LANGUAGE_OPTIONS } from '~/utils/content-language'
+// The saved-starting-points row. Type-only: the shape comes from the same
+// contracts file the route serves, so the card cannot drift from it.
+import type { ChannelDefaultSummary } from '@shared/contracts'
 import {
   CHANNEL_SORTS,
   CHANNEL_SORT_LABELS,
@@ -626,12 +714,77 @@ const form = reactive({
   /** '' = not chosen yet; 'formula' = a Formula must be picked; 'generic' = deliberate no-Formula. */
   formula_choice: '' as '' | 'formula' | 'generic',
   content_language: '',
+  /** Slug of the saved starting point to copy, or '' for the normal blank start. */
+  start_from: '',
 })
+
+/**
+ * The saved starting points for the create screen.
+ *
+ * Read fresh every time the screen opens: a starting point that has since
+ * been renamed, re-Formula'd or deleted must show what is true NOW, not what
+ * was true when this page last loaded. A failure here is not fatal — without
+ * it the screen simply has no "Start from" row, exactly as before.
+ */
+const channelDefaults = ref<ChannelDefaultSummary[]>([])
+const loadingChannelDefaults = ref(false)
+/** Why the list is not on screen, when the read itself failed. Offers a retry. */
+const channelDefaultsError = ref('')
+/**
+ * The chosen starting point stopped existing while the form was open.
+ * Said plainly, because the customer is about to press Create believing they
+ * are copying — and they will now get a blank start (AGENTS §4).
+ */
+const staleStartingPointNotice = ref('')
+
+async function loadChannelDefaults(): Promise<void> {
+  loadingChannelDefaults.value = true
+  channelDefaultsError.value = ''
+  try {
+    const response = await get<{ defaults?: ChannelDefaultSummary[] }>('/channel-defaults', { cache: 'no-store' })
+    channelDefaults.value = Array.isArray(response?.defaults) ? response.defaults : []
+    // The source may have been deleted since this card was chosen. Without
+    // this, the selection would silently fall back to a blank start and the
+    // customer would press Create believing they were copying (AGENTS §4).
+    if (form.start_from && !channelDefaults.value.some(entry => entry.source_slug === form.start_from)) {
+      form.start_from = ''
+      staleStartingPointNotice.value = 'That starting point is no longer offered. A blank start is selected instead.'
+    } else {
+      staleStartingPointNotice.value = ''
+    }
+  } catch (error: any) {
+    // A failed read is not the same as an empty answer (AGENTS §6). Say so and
+    // offer the retry rather than quietly showing a plain-start screen.
+    channelDefaults.value = []
+    channelDefaultsError.value = error?.data?.detail
+      || error?.message
+      || 'Your saved starting points could not be read.'
+  } finally {
+    loadingChannelDefaults.value = false
+  }
+}
+
+/** The saved starting point this form would copy, or null for a blank start. */
+const startingFromDefault = computed(() => (
+  channelDefaults.value.find(entry => entry.source_slug === form.start_from) ?? null
+))
 
 /** The choice is made only when it has an answer behind it, not merely a tab. */
 const formulaChoiceMade = computed(() => (
   form.formula_choice === 'generic'
   || (form.formula_choice === 'formula' && !!form.niche_id)
+))
+
+/**
+ * Whether the form may be submitted, in ONE place — the button and the
+ * handler must never disagree about it.
+ *
+ * A SAVED STARTING POINT supplies its own Formula, so it replaces the Formula
+ * requirement rather than satisfying it. A blank start still has to choose one
+ * (owner ruling, 2026-10-25).
+ */
+const canCreateChannel = computed(() => (
+  !!form.name.trim() && (startingFromDefault.value ? true : formulaChoiceMade.value)
 ))
 
 /**
@@ -1104,13 +1257,17 @@ function resetForm(): void {
     niche_id: '',
     formula_choice: '',
     content_language: '',
+    start_from: '',
   })
   createError.value = ''
+  staleStartingPointNotice.value = ''
 }
 
 function openCreate(): void {
   resetForm()
   showCreate.value = true
+  // Read the starting points each time the screen opens — see the note above.
+  void loadChannelDefaults()
   nextTick(() => channelNameInput.value?.focus())
 }
 
@@ -1120,23 +1277,57 @@ function closeCreate(): void {
   resetForm()
 }
 
+/**
+ * The plain create path — a BLANK start.
+ *
+ * Its own statement, unchanged from before saved starting points existed, so
+ * a channel start with no starting point is byte-for-byte the request it has
+ * always been (owner, 2026-10-25: the Formula choice is still required here).
+ */
+async function postBlankStart(name: string): Promise<any> {
+  const project = await post<any>('/projects', {
+    name,
+    episode_prefix: form.episode_prefix.trim() || 'EP',
+    season_prefix: form.season_prefix.trim() || 'Season',
+    season_size: Math.max(1, Number(form.season_size) || 20),
+    niche_id: form.formula_choice === 'formula' ? form.niche_id || undefined : undefined,
+    // Sent on every create the wizard makes: 'selected' when a Formula is
+    // behind the choice, 'generic' when the customer deliberately chose none.
+    formula_choice: form.formula_choice === 'generic' ? 'generic' : 'selected',
+    content_language: form.content_language || undefined,
+  })
+  return project
+}
+
+/**
+ * A SAVED STARTING POINT — the SAME copy path the channel's own Settings page
+ * uses, so its Formula seeding and its rollback are exactly those of a copy
+ * started from inside a channel.
+ *
+ * Episode naming and audience language still come from this form: they are
+ * choices about the NEW channel, not settings the source owns.
+ */
+async function postStartingPoint(sourceSlug: string, name: string): Promise<any> {
+  const project = await post<any>(`/projects/${encodeURIComponent(sourceSlug)}/duplicate-settings`, {
+    name,
+    episode_prefix: form.episode_prefix.trim() || 'EP',
+    season_prefix: form.season_prefix.trim() || 'Season',
+    season_size: Math.max(1, Number(form.season_size) || 20),
+    content_language: form.content_language || undefined,
+  })
+  return project
+}
+
 async function createProject(): Promise<void> {
   const name = form.name.trim()
-  if (!name || !formulaChoiceMade.value || creating.value) return
+  const startingFrom = startingFromDefault.value
+  if (!canCreateChannel.value || creating.value) return
   creating.value = true
   createError.value = ''
   try {
-    const project = await post<any>('/projects', {
-      name,
-      episode_prefix: form.episode_prefix.trim() || 'EP',
-      season_prefix: form.season_prefix.trim() || 'Season',
-      season_size: Math.max(1, Number(form.season_size) || 20),
-      niche_id: form.formula_choice === 'formula' ? form.niche_id || undefined : undefined,
-      // Sent on every create the wizard makes: 'selected' when a Formula is
-      // behind the choice, 'generic' when the customer deliberately chose none.
-      formula_choice: form.formula_choice === 'generic' ? 'generic' : 'selected',
-      content_language: form.content_language || undefined,
-    })
+    const project = startingFrom
+      ? await postStartingPoint(startingFrom.source_slug, name)
+      : await postBlankStart(name)
     const href = projectHref(project)
     if (!href) throw new Error('The new channel did not return a valid project identifier.')
     showCreate.value = false
@@ -1521,6 +1712,92 @@ onMounted(async () => {
 .create-form { display: grid; gap: 22px; }
 .create-heading h2 { font-size: 28px; }
 .create-heading p { font-size: var(--font-md); }
+/* ── Start from: the owner's saved starting points (2026-10-31) ───────────
+   Picture-led option cards: the sample IS the thing being chosen, so the
+   art style's own preview leads the card and the words sit under it. The grid
+   fills its width by itself (auto-fill), so it composes at 390 and 1440 with
+   no breakpoint the layout could miss. */
+.start-from {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.start-from legend { padding: 0; color: var(--text-primary); font-weight: 650; }
+.start-from-hint { margin: 2px 0 4px; max-width: 70ch; color: var(--text-secondary); font-size: var(--font-sm); line-height: 1.5; }
+.start-from-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 12px;
+}
+.start-from-card {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-secondary);
+  cursor: pointer;
+}
+.start-from-card.selected {
+  border-color: color-mix(in srgb, var(--accent) 60%, var(--border));
+  box-shadow: var(--focus-ring);
+}
+.start-from-card:hover:not(.selected) { border-color: color-mix(in srgb, var(--accent) 35%, var(--border)); }
+.start-from-card:has(input:focus-visible) { box-shadow: var(--focus-ring); }
+.start-from-card input { flex: 0 0 auto; margin-top: 3px; accent-color: var(--accent); }
+/* The picture slot is the SIZED element, so a starting point with no preview
+   still reserves the same box — cards never stagger by whether art exists. */
+.start-from-picture {
+  display: block;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-tertiary);
+}
+.start-from-picture img { display: block; width: 100%; height: 100%; object-fit: cover; }
+/* The blank start, and a starting point with nothing rendered yet: a quiet
+   surface, never a placeholder picture pretending to be one. */
+.start-from-picture-blank {
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--accent) 7%, transparent), transparent 62%),
+    var(--bg-tertiary);
+}
+.start-from-copy {
+  display: flex;
+  min-width: 0;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px 12px 12px;
+}
+.start-from-text { display: flex; min-width: 0; flex-direction: column; gap: 3px; }
+.start-from-text strong {
+  overflow-wrap: anywhere;
+  color: var(--text-primary);
+  font-size: var(--font-sm);
+  line-height: 1.35;
+}
+.start-from-text small { color: var(--text-secondary); font-size: var(--font-xs); line-height: 1.5; }
+.start-from-source { color: var(--text-muted); }
+.start-from-note { margin: 0; color: var(--text-secondary); font-size: var(--font-xs); line-height: 1.5; }
+/* The two status lines that carry an action or need the alert colour: the app's
+   own error surface (`.create-error`), laid out so a button can sit beside the
+   sentence rather than on its own row. */
+.start-from-error {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+  font-size: var(--font-sm);
+  line-height: 1.5;
+}
+/* The fieldset is disabled while the copy runs: every card must read as
+   unavailable, not as a control that silently ignores the click. */
+.start-from:disabled .start-from-card { cursor: not-allowed; opacity: .55; }
+
 .formula-choice {
   display: grid;
   gap: 10px;
