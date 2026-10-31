@@ -36,7 +36,7 @@ import path from 'node:path'
 import { promises as fs } from 'node:fs'
 import { readStoredFinalCheck } from '../lib/final-video-check.js'
 
-import { withLock } from '../lib/atomic-store.js'
+import { withLock, writeJsonAtomic } from '../lib/atomic-store.js'
 import * as plans from './upload-plans.js'
 import * as im from './idea-manager.js'
 import { defaultSchedule, readCadence } from './publish-cadence.js'
@@ -94,14 +94,14 @@ export async function scheduleCheckedEpisode(
     const hold: NonNullable<AutoScheduleResult['hold']> = status
       ? { status, reason: `Not automatically scheduled: ${descriptions[status]} Run Final Check in Publish; a pass will schedule it.` }
       : { status: 'check-error', reason: 'Automatic scheduling was interrupted. Run Final Check in Publish; a pass will schedule it.' }
-    await fs.writeFile(holdPath(videoPath), JSON.stringify({ hold }) + '\n')
+    await writeJsonAtomic(holdPath(videoPath), { hold })
     if (status) return { scheduled: false, episode_code: code, reason: hold.reason, hold }
   }
-  const result = await scheduleEpisodeWithActivePlan(slug, code, 'youtube', true)
-  if (result.scheduled || result.publish_at) await fs.writeFile(holdPath(videoPath), JSON.stringify({ hold: null }) + '\n')
+  const result = await scheduleEpisodeWithActivePlan(slug, code, 'youtube')
+  if (result.scheduled || result.publish_at) await writeJsonAtomic(holdPath(videoPath), { hold: null })
   else if (result.reason) {
     const prior = await readAutoScheduleHold(videoPath)
-    if (prior) await fs.writeFile(holdPath(videoPath), JSON.stringify({ hold: { ...prior, reason: `Final check passed, but the episode could not be scheduled: ${result.reason}` } }) + '\n')
+    if (prior) await writeJsonAtomic(holdPath(videoPath), { hold: { ...prior, reason: `Final check passed, but the episode could not be scheduled: ${result.reason}` } })
   }
   return result
 }
@@ -182,7 +182,6 @@ export async function scheduleEpisodeWithActivePlan(
   slug: string,
   episode_code: string,
   platform: UploadPlatform = 'youtube',
-  preserveExisting = false,
 ): Promise<AutoScheduleResult> {
   const code = String(episode_code || '').toUpperCase()
   if (!code) return { scheduled: false, episode_code: code, reason: 'No episode code was given.' }
@@ -248,7 +247,9 @@ export async function scheduleEpisodeWithActivePlan(
     let publish_at = slots[0]!
     const existing = await plans.readItemSchedule(slug)
     await plans.writeItemSchedule(slug, { ...existing, [code]: publish_at })
-    const channelId = !preserveExisting && platform === 'youtube' ? (await getProjectYouTubeAssignment(slug))?.channel_id : null
+    // Dates follow episode order: a lower-numbered episode finishing late takes
+    // the earliest movable date and later-numbered ones shift later.
+    const channelId = platform === 'youtube' ? (await getProjectYouTubeAssignment(slug))?.channel_id : null
     const shifts = channelId ? await keepEpisodeOrder(slug, channelId) : {}
     publish_at = shifts[code] ?? publish_at
     const order_shifted = Object.keys(shifts).filter(other => other !== code)

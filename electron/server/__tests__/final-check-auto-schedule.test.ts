@@ -99,7 +99,7 @@ test('the background recheck invokes scheduling when a later verdict passes', as
   } finally { checks.__setFinalCheckRunnerForTests(null) }
 })
 
-test('a later pass schedules once and existing dates stay untouched', async () => {
+test('a later pass schedules once, and a second call changes nothing', async () => {
   const item = await episode('later pass')
   await verdict(item.video, false)
   assert.equal((await scheduling.scheduleCheckedEpisode(slug, item.code, item.video)).hold?.status, 'failed')
