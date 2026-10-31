@@ -223,6 +223,7 @@ export interface ChannelSchedule {
    */
   default_schedule: UploadSchedule
   auto_schedule_on_render: boolean
+  auto_schedule_require_final_check: boolean
 }
 
 async function assignedChannel(slug: string): Promise<{ channel_id: string; title: string; account_id: string } | null> {
@@ -253,7 +254,7 @@ export async function readChannelSchedule(slug: string): Promise<ChannelSchedule
   if (!channel) {
     return {
       channel: null, account_id: '', plan: null, plans: [], cadence,
-      default_schedule: fallback, auto_schedule_on_render: auto,
+      default_schedule: fallback, auto_schedule_on_render: auto, auto_schedule_require_final_check: config?.auto_schedule_require_final_check !== false,
     }
   }
   const own = (await plans.listPlans(slug)).filter(p => p.platform === 'youtube' && p.account_id === channel.account_id)
@@ -266,6 +267,7 @@ export async function readChannelSchedule(slug: string): Promise<ChannelSchedule
     cadence,
     default_schedule: fallback,
     auto_schedule_on_render: auto,
+    auto_schedule_require_final_check: config?.auto_schedule_require_final_check !== false,
   }
 }
 
@@ -275,6 +277,7 @@ export interface ChannelScheduleInput {
   /** Plan name; only used when a plan is created or renamed. */
   name?: string
   auto_schedule_on_render?: boolean
+  auto_schedule_require_final_check?: boolean
 }
 
 /**
@@ -286,6 +289,9 @@ export async function saveChannelSchedule(slug: string, input: ChannelScheduleIn
   const badRequest = (detail: string) => Object.assign(new Error(detail), { statusCode: 400, status: 400, expose: true })
   if (typeof input.auto_schedule_on_render === 'boolean') {
     await pm.updateConfig(slug, { auto_schedule_on_render: input.auto_schedule_on_render } as any)
+  }
+  if (typeof input.auto_schedule_require_final_check === 'boolean') {
+    await pm.updateConfig(slug, { auto_schedule_require_final_check: input.auto_schedule_require_final_check } as any)
   }
   // Only the switch was sent: the starting schedule is not on disk and must
   // not be written there.

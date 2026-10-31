@@ -276,6 +276,7 @@
               >I Deleted This Video on YouTube</button>
             </div>
             <p v-if="ep.final_check" :class="['row-result', ep.final_check.passed ? 'ok' : 'warn']">{{ ep.final_check.summary }}</p>
+            <p v-if="ep.auto_schedule_hold" class="row-result warn">{{ ep.auto_schedule_hold.reason }}</p>
             <p v-if="ep.blocked_reason" class="row-result warn">{{ ep.blocked_reason }}</p>
             <p v-if="rowResults[ep.episode_code]" :class="['row-result', rowResults[ep.episode_code].kind]" role="status">
               {{ rowResults[ep.episode_code].message }}
@@ -1034,6 +1035,7 @@ interface PublishableEpisode {
   has_video?: boolean
   /** Why this episode cannot be uploaded, decided by the route. Absent = it can. */
   blocked_reason?: string
+  auto_schedule_hold?: { status: string; reason: string } | null
   /** The final check's stored verdict, read from beside the rendered file it describes. */
   final_check?: {
     summary: string

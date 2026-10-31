@@ -701,6 +701,7 @@ router.get('/projects/:slug/youtube/publishable', async (req, res) => {
     // running uploads' own reads and the whole app stopped answering.
     const BATCH = EPISODE_PROBE_BATCH
     const episodes: any[] = []
+    const { readAutoScheduleHold } = await import('../services/episode-autoschedule.js')
     for (let i = 0; i < ordered.length; i += BATCH) {
       const batch = await Promise.all(ordered.slice(i, i + BATCH).map(async (idea) => {
         const code = idea.episode_code!
@@ -847,6 +848,7 @@ router.get('/projects/:slug/youtube/publishable', async (req, res) => {
           ...(remote ? { remote_source: remote.source } : {}),
           ...(operation ? { operation: publicOperation(operation) } : {}),
           local,
+          ...(sourceVideoPath && !plannedAt ? { auto_schedule_hold: await readAutoScheduleHold(sourceVideoPath) } : {}),
           ...(sourceVideoPath
             ? {
                 final_check: {
@@ -3434,7 +3436,10 @@ router.post('/projects/:slug/youtube/final-check', async (req, res) => {
       if (settled.kind === 'frozen') Object.assign(expected, expectationFromFrozenShape(settled.shape))
       else expected.expectation_unknown = settled.reason
     }
-    const { started } = startFinalCheck(sourceVideoPath, expected)
+    const { started } = startFinalCheck(sourceVideoPath, expected, {}, async () => {
+      const { readAutoScheduleHold, scheduleCheckedEpisode } = await import('../services/episode-autoschedule.js')
+      if (await readAutoScheduleHold(sourceVideoPath)) await scheduleCheckedEpisode(slug, episodeCode, sourceVideoPath)
+    })
     res.status(202).json({
       episode_code: episodeCode,
       // False when a check on this file was already running and this request joined it.
