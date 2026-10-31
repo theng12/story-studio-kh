@@ -1,5 +1,12 @@
 # HANDOFF — Story Studio KH
 
+### Release 1.4.373 — the bugs found running The Curious Why (2026-10-31)
+
+- **Labels:** preset `min_gap_sec` (default 10, 1-600). Pacing judges the times as they read back after anchoring. Render skips a crowded label and names it. A saved start time clears `anchor_word` and stores `anchor_offset_sec`.
+- **Pipeline:** force never joins older same-step work; `recoverMissingPipelineModel` re-reads the preset only when the frozen model is empty; `contextual_cues` is in `PRESET_MODEL_READERS`. Pipeline scene plans send `prompt_char_cap_selection` `auto`. `plan_stale_vs_stitched` uses `inspectPlanTimelineDrift`.
+- **Scene Review:** forced runs count only this run's images. A status check no longer moves an unclaimed cancellation from queued to reconciling. The tests reproduce that race; it is **not proven** to be the only cause of EP0002's stuck cancel.
+- **Still open:** labels on remote Macs. Exporter refuses them (`final-render-export.ts:97`); the design needs a late cue stage with motion across Story, Hub and Gateway. First prove ordinary finals go remote: 13 of 39 Macs offered, one remote final on record (2026-10-27).
+
 ### Release 1.4.372 — automatic upload, final-check hold, weekly results, Shorts (2026-10-31)
 
 - **Automatic upload:** channel key `auto_upload` (`off` default, `private`, `scheduled`), set through `PUT /projects/:slug/publishing-schedule` or `settings/config`. `admitYouTubeUpload(slug, body, { automatic })` in `routes/youtube-upload-center.ts` is the one admission for manual and automatic uploads. Automatic never clicks through: a foreign episode claim always stops it, and a current passed final check is required whatever the channel's safety modes say. It fires from `scheduleEpisodeWithActivePlan`, so a held episode released later also uploads. The owner chose `scheduled` for the-curious-why only; set it after install. An episode that got its date before install does not upload by itself.

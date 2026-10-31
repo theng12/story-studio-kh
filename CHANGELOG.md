@@ -4,6 +4,18 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.373 — 2026-10-31
+
+- Labels sit at least 10 seconds apart by default. The Sound & Labels preset offers 10, 20, 30, 45 or 60 seconds; a label you place by hand is not refused for it.
+- One clash no longer costs every label. A label too close to an earlier one is skipped and named in the job log, and the rest are drawn.
+- Moving a label's start time now holds. It stays at that time in its scene instead of going back to the spoken word; a time outside the scene is refused.
+- A forced Pipeline run no longer joins older work for the same step. The episode is skipped, and the message names the job to wait for or cancel.
+- Retrying a Pipeline step picks up a model you have since set on its preset, and a label preset with no model is caught before the run starts.
+- Pipeline scene plans follow the image model's published prompt limit when they are written, so an over-long prompt no longer waits until the images to fail.
+- Scene Plan now reads a plan as out of date on the same test as the subtitles page: captions or narration that no longer match.
+- A forced redraw counts only the images this run has made, so it no longer shows 98% at the start.
+- Cancelling a running image job reaches the Gateway instead of waiting on a status check.
+
 ## v1.4.372 — 2026-10-31
 
 - Pipeline remembers each channel's last submitted steps and selects them when you return. Steps no longer available for that channel are named and left out.
