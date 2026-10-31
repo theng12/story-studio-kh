@@ -24,6 +24,7 @@ export const JOB_TYPE_LABELS: Record<string, string> = {
   expand_chapters: 'Chapter expansion',
   image_prompts: 'Prompts',
   thumb_images: 'Thumbnail Images',
+  episode_shorts: 'Episode Shorts',
   images_repair: 'Image Repair',
   audio: 'Audio',
   audio_merge: 'Audio Assembly',
