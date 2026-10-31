@@ -15,6 +15,7 @@ What's new in each release. Newest first.
 - Scene Plan now reads a plan as out of date on the same test as the subtitles page: captions or narration that no longer match.
 - A forced redraw counts only the images this run has made, so it no longer shows 98% at the start.
 - Cancelling a running image job reaches the Gateway instead of waiting on a status check.
+- A channel can use a topic pack with a long published id. An 83-character id was refused when moving a channel to its v2 Formula.
 
 ## v1.4.372 — 2026-10-31
 
