@@ -53,7 +53,21 @@ const BOOT_READY_POLL_MS = 250
 // (sign-out, server change) reaches the store from one place.
 setLegacyCacheClearer(() => { /* no second map left to clear */ })
 
-function invalidateGetCache(mutatedPath: string): void {
+function invalidateGetCache(mutatedPath: string, method?: string): void {
+  // Which channels EXIST is not one of a project's own reads: hiding a channel
+  // (DELETE /projects/:slug) and un-hiding or permanently removing one
+  // (POST|DELETE /soft-deleted-projects/…) move the Channels list and the hidden
+  // list themselves, and the per-project rules below are keyed on a single
+  // project, so they never reach either. Without this, serving the Channels list
+  // from the shared cache would leave a hidden channel on screen until something
+  // else happened to flush it.
+  if (mutatedPath === '/projects'
+    || (method === 'DELETE' && /^\/projects\/[^/?#]+$/.test(mutatedPath))
+    || mutatedPath.startsWith('/soft-deleted-projects/')) {
+    swrInvalidate('GET:/projects')
+    swrInvalidate('GET:/soft-deleted-projects')
+  }
+
   const projectMatch = mutatedPath.match(/^\/projects\/([^/?#]+)/)
   const projectPrefix = projectMatch ? `/projects/${projectMatch[1]}` : null
   const changesProjectSettings = !!projectPrefix
@@ -406,7 +420,7 @@ export function useApi() {
 
  async function mutate<T>(path: string, options: any): Promise<T> {
    const value = await api<T>(path, options)
-   invalidateGetCache(path)
+   invalidateGetCache(path, options?.method)
    return value
  }
 

@@ -22,6 +22,7 @@
       title="Review finals"
       description="Finished videos, newest first, across every channel with review on. A mark here is a review note only — it does not upload, schedule or publish anything."
     />
+    <ApiDataStatus path="/review/finals" @retry="load" />
 
     <p v-if="loadError" class="rv-alert" role="alert">{{ loadError }}</p>
 

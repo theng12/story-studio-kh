@@ -1,47 +1,58 @@
 <template>
- <!--
-   Shared data-refresh indicator. Lives in app.vue so every page gets it
-   without importing anything. Three states, all small and calm:
+  <!--
+    Shared data-refresh sign. Two instances of this component live in
+    AppHeader, so every page gets both without importing anything:
+
+      variant="pill"    — a small "Updating…" chip in the header's reserved
+                          slot at the END of the top bar. The slot is always
+                          there (fixed width), so the nav never moves when
+                          the chip appears, and the chip is in normal flow,
+                          so it can never sit on top of a link.
+      variant="banner"  — the failure strip directly under the bar, in flow:
+                          a loud, plain sentence with a Retry. It pushes the
+                          page down while it shows rather than covering it.
+
+    Three states between them, all small and calm:
 
      1. Refreshing (debounced 300 ms): "Updating…" with a small pulse.
-     2. Shown-old data: nothing here — the per-block styling in useApiData
-        consumers handles "Shown from 2 min ago · updating" inline.
-     3. Failed refresh: amber "Couldn't refresh: <why> · Retry" banner.
-
-   Layout: a fixed strip just under the app header. Fades in after the
-   debounce so quick refreshes never flash. Never shifts content — the
-   strip is overlay with pointer-events-none when idle.
- -->
- <Transition name="refresh-fade">
-   <div
-     v-if="visible"
-     class="data-refresh-indicator"
-     role="status"
-     aria-live="polite"
-   >
-     <div v-if="anyRefreshing && !firstError" class="refreshing-row">
-       <span class="refresh-pulse" aria-hidden="true" />
-       <span>Updating…</span>
-     </div>
-     <div v-if="firstError" class="error-row">
-       <span class="error-dot" aria-hidden="true" />
-       <span class="error-text">Couldn't refresh: {{ firstError }}</span>
-       <button type="button" class="retry-btn" @click="retryNow">Retry</button>
-     </div>
-   </div>
- </Transition>
+     2. Shown-old data: the per-page ApiDataStatus line owns
+        "Shown from 2 min ago · updating".
+     3. Failed refresh: "Couldn't refresh: <why> · Retry", in the banner.
+  -->
+  <Transition :name="variant === 'pill' ? 'refresh-fade' : 'refresh-banner'">
+    <div
+      v-if="variant === 'pill' ? debouncedRefreshing : firstError"
+      class="data-refresh-indicator"
+      :class="`data-refresh-indicator--${variant}`"
+      :role="variant === 'pill' ? 'status' : 'alert'"
+      :aria-live="variant === 'pill' ? 'polite' : 'assertive'"
+      :title="variant === 'pill' ? 'Refreshing data in the background' : undefined"
+    >
+      <div v-if="variant === 'pill'" class="refreshing-row">
+        <span class="refresh-pulse" aria-hidden="true" />
+        <span class="refresh-label">Updating…</span>
+      </div>
+      <div v-else class="error-row">
+        <span class="error-dot" aria-hidden="true" />
+        <span class="error-text">Couldn't refresh: {{ firstError }}</span>
+        <button type="button" class="retry-btn" @click="retryNow">Retry</button>
+      </div>
+    </div>
+  </Transition>
 </template>
 
 <script setup lang="ts">
 import { computed, ref, watch, onUnmounted } from 'vue'
 import { swrAnyRefreshing, swrErrors, swrForceRefresh } from '~/utils/swrCache'
 
+withDefaults(defineProps<{ variant?: 'pill' | 'banner' }>(), { variant: 'pill' })
+
 const SHOW_DELAY_MS = 300
 const anyRefreshing = swrAnyRefreshing()
 const errors = swrErrors()
 
 /**
- * Debounced visibility: only show the strip once a refresh has been running
+ * Debounced visibility: only show the chip once a refresh has been running
  * for at least SHOW_DELAY_MS. Quick refreshes (<300 ms) stay invisible so
  * the UI never flashes for a sub-second update.
  */
@@ -60,7 +71,7 @@ watch(anyRefreshing, (now) => {
     }, SHOW_DELAY_MS)
   } else {
     if (showTimer) { clearTimeout(showTimer); showTimer = null }
-    // Hide a touch faster so the strip doesn't linger.
+    // Hide a touch faster so the chip doesn't linger.
     if (hideTimer) clearTimeout(hideTimer)
     hideTimer = setTimeout(() => {
       debouncedRefreshing.value = false
@@ -77,8 +88,6 @@ onUnmounted(() => {
 const firstError = computed(() => errors.value[0]?.error || null)
 const firstErrorKey = computed(() => errors.value[0]?.key || null)
 
-const visible = computed(() => debouncedRefreshing.value || !!firstError.value)
-
 /**
  * Retry button: mark the errored entry invalid so the next read on the page
  * that owns it fetches fresh, and clear the error so the amber banner goes
@@ -90,90 +99,111 @@ function retryNow(): void {
 </script>
 
 <style scoped>
-.data-refresh-indicator {
- position: fixed;
- top: 0;
- left: 0;
- right: 0;
- z-index: 950; /* under dialogs (1000+), over normal content */
- display: flex;
- justify-content: center;
- pointer-events: none;
+/* The pill is sized by the reserved slot in the header (100px) — never by
+   its own text — so its content can only ever fill that space. */
+.data-refresh-indicator--pill {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  max-width: 100%;
+  pointer-events: auto;
 }
 
 .refreshing-row,
 .error-row {
- display: inline-flex;
- align-items: center;
- gap: 8px;
- margin-top: 8px;
- padding: 6px 14px;
- border-radius: 999px;
- font-size: 12px;
- line-height: 1.3;
- pointer-events: auto;
- backdrop-filter: blur(6px);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  border-radius: 999px;
+  font-size: 11.5px;
+  line-height: 1.3;
+  white-space: nowrap;
 }
 
 .refreshing-row {
- background: rgba(30, 32, 40, 0.75);
- color: rgba(255, 255, 255, 0.85);
+  padding: 5px 10px;
+  background: rgba(30, 32, 40, 0.78);
+  color: rgba(255, 255, 255, 0.9);
+  backdrop-filter: blur(6px);
+}
+
+.refresh-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The failure strip runs the full width of the header, under the bar. */
+.data-refresh-indicator--banner {
+  width: 100%;
 }
 
 .error-row {
- background: rgba(120, 70, 0, 0.92);
- color: #fff;
+  width: 100%;
+  padding: 6px 16px;
+  border-top: 1px solid rgba(255, 210, 122, 0.35);
+  background: rgba(120, 70, 0, 0.94);
+  color: #fff;
 }
 
 .refresh-pulse {
- width: 8px;
- height: 8px;
- border-radius: 50%;
- background: currentColor;
- opacity: 0.85;
- animation: refresh-pulse 1.1s ease-in-out infinite;
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.85;
+  animation: refresh-pulse 1.1s ease-in-out infinite;
 }
 
 @keyframes refresh-pulse {
- 0%, 100% { opacity: 0.3; transform: scale(0.9); }
- 50% { opacity: 1; transform: scale(1.1); }
+  0%, 100% { opacity: 0.3; transform: scale(0.9); }
+  50% { opacity: 1; transform: scale(1.1); }
 }
 
 .error-dot {
- width: 8px;
- height: 8px;
- border-radius: 50%;
- background: #ffd27a;
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 50%;
+  background: #ffd27a;
 }
 
 .error-text {
- max-width: 60ch;
- overflow: hidden;
- text-overflow: ellipsis;
- white-space: nowrap;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .retry-btn {
- background: rgba(255, 255, 255, 0.15);
- color: inherit;
- border: 1px solid rgba(255, 255, 255, 0.25);
- border-radius: 4px;
- padding: 2px 10px;
- font-size: 12px;
- cursor: pointer;
+  flex: none;
+  background: rgba(255, 255, 255, 0.15);
+  color: inherit;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 4px;
+  padding: 2px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
 }
 
 .retry-btn:hover {
- background: rgba(255, 255, 255, 0.25);
+  background: rgba(255, 255, 255, 0.25);
 }
 
 /* Fade in/out so quick refreshes don't flash. */
 .refresh-fade-enter-active,
-.refresh-fade-leave-active {
- transition: opacity 160ms ease;
+.refresh-fade-leave-active,
+.refresh-banner-enter-active,
+.refresh-banner-leave-active {
+  transition: opacity 160ms ease;
 }
 .refresh-fade-enter-from,
-.refresh-fade-leave-to {
- opacity: 0;
+.refresh-fade-leave-to,
+.refresh-banner-enter-from,
+.refresh-banner-leave-to {
+  opacity: 0;
 }
 </style>
