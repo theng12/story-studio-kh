@@ -29,7 +29,7 @@ import * as pm from '../services/project-manager.js'
 import { trackChild } from '../services/job-queue.js'
 import { resolveSubfolderNames, resolveEpisodePathsByCodeWithSidecar } from '../services/utils.js'
 import { mediaEpisodeBaseForCode } from '../services/media-root.js'
-import { runFfmpeg, getAudioDuration, formatConcatFileLine, appendCappedTail } from '../lib/ffmpeg-utils.js'
+import { runFfmpeg, getAudioDuration, formatConcatFileLine, appendCappedTail, ffmpegExitErrorLine } from '../lib/ffmpeg-utils.js'
 import { getWorkTempDir } from '../lib/work-tempdir.js'
 import { getFFmpegPath } from '../services/ffmpeg-manager.js'
 import { MIX_LIMITER, type LoudnessTarget } from '../lib/final-loudness.js'
@@ -126,9 +126,7 @@ async function runFfmpegWithStderr(args: string[], opts: { timeoutMs?: number } 
         reject(new Error(`FFmpeg killed (${signal})`))
         return
       }
-      const lines = stderr.split('\n').filter(l => l.trim())
-      const errorLine = lines.slice(-5).join('\n')
-      reject(new Error(`FFmpeg exited with code ${code}:\n${errorLine}`))
+      reject(new Error(`FFmpeg exited with code ${code}:\n${ffmpegExitErrorLine(stderr)}`))
     })
   })
 }

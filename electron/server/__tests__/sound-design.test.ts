@@ -7,7 +7,7 @@ import {
   resolveRenderableSoundCues,
   validateSoundDesignTimeline,
 } from '../services/sound-design.js'
-import { buildSoundDesignMixArgs } from '../lib/sound-design-mixer.js'
+import { buildSoundDesignMixArgs, buildSpotGroupArgs } from '../lib/sound-design-mixer.js'
 import type { ScenePlan, SoundDesignTimeline } from '../models/types.js'
 
 const plan = { generated_at: '2026-07-26T00:00:00.000Z', scenes: [{ id: 'scene-1', start_sec: 0, end_sec: 70 }] } as ScenePlan
@@ -118,11 +118,13 @@ describe('Sound Design contract', () => {
 test('Sound Design mix dynamically ducks beds and keeps exact spot timing', () => {
   const args = buildSoundDesignMixArgs({
     basePath: '/audio/base.wav', outPath: '/audio/mixed.mp3', ducking_profile: 'standard',
-    cues: [
-      { kind: 'bed', path: '/audio/room.wav', gain_db: -20, start_sec: 0, end_sec: 20 },
-      { kind: 'spot', path: '/audio/door.wav', gain_db: -12, start_sec: 12.4 },
-    ],
+    beds: [{ kind: 'bed', path: '/audio/room.wav', gain_db: -20, start_sec: 0, end_sec: 20 }],
+    stems: [{ path: '/audio/group.wav', start_sec: 12.4 }],
   })
+  const group = buildSpotGroupArgs({ cues: [{ kind: 'spot', path: '/audio/door.wav', gain_db: -12, start_sec: 12.4 }], startSec: 12.4, outPath: '/audio/group.wav', sampleRate: 44100, channelLayout: 'stereo' })
+  const groupGraph = group[group.indexOf('-filter_complex') + 1]!
+  assert.match(groupGraph, /volume=-12dB,adelay=12400:all=1/)
+  assert.match(groupGraph, /amix=inputs=1:duration=longest:normalize=0/)
   const graph = args[args.indexOf('-filter_complex') + 1]!
   assert.match(graph, /sidechaincompress=threshold=0\.045:ratio=5/)
   assert.match(graph, /adelay=12400:all=1/)
