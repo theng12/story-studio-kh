@@ -10,6 +10,7 @@
        (the Gateway strip, a model picker), where navigation would throw away
        the work underneath. -->
   <div class="page-frame settings-page">
+    <PlainBackLink />
     <PageTitle
       eyebrow="This Mac"
       title="Settings"

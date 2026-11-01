@@ -103,12 +103,26 @@ function openWhatsNew() { _whatsNew.open() }
   text-decoration: none;
   -webkit-app-region: no-drag;
 }
+/* Equal, larger gaps between the tabs, and a pill on every one of them, so
+   each reads as its own button at rest — not only when active (owner,
+   2026-11-02: "each button should get a bit farther away, they are too
+   close… no separating button or sth either. it should be obvious").
+
+   The old `flex: 0 0 104px` boxed every label into the same 104px, so the long
+   ones ("Review finals", "Studio Library") touched their neighbours while the
+   short ones ("Usage", "Trash") floated apart. Sizing to the label with a
+   constant gap and constant padding makes the spacing independent of wording. */
 .app-header-nav {
   display: flex;
   flex: 1 1 auto;
   min-width: 0;
   align-items: stretch;
   justify-content: flex-start;
+  gap: 10px;
+  /* The brand is not a tab. Say so with a rule between them. */
+  margin-left: 4px;
+  padding-left: 16px;
+  border-left: 1px solid var(--border);
   overflow-x: auto;
   scrollbar-width: thin;
   -webkit-app-region: no-drag;
@@ -116,20 +130,27 @@ function openWhatsNew() { _whatsNew.open() }
 .app-header-link {
   display: inline-flex;
   min-height: 34px;
-  flex: 0 0 104px;
+  flex: none;
   align-items: center;
   justify-content: center;
-  padding: 6px 8px;
+  padding: 7px 14px;
+  border: 1px solid transparent;
   border-radius: var(--radius-md, 8px);
+  background: var(--bg-tertiary);
   color: var(--text-secondary);
   font-size: var(--font-sm);
   font-weight: 600;
   text-decoration: none;
   white-space: nowrap;
+  transition:
+    background var(--motion-fast, 140ms),
+    color var(--motion-fast, 140ms),
+    border-color var(--motion-fast, 140ms);
 }
-.app-header-link:hover { background: var(--bg-hover); color: var(--text-primary); }
+.app-header-link:hover { background: var(--bg-hover); border-color: var(--border); color: var(--text-primary); }
 .app-header-link.active {
   background: var(--accent-dim);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
   color: var(--text-primary);
   box-shadow: inset 0 -2px 0 var(--accent);
 }
@@ -166,5 +187,25 @@ function openWhatsNew() { _whatsNew.open() }
 }
 @media (max-width: 1300px) {
   .app-header-brand span { display: none; }
+}
+
+/* Small screens: the seven destinations stop fighting the window controls and
+   the tools for one squeezed row. They take a row of their own and wrap, so
+   every destination is visible without scrolling a strip you cannot see into
+   (owner, 2026-11-02: "collapse sensibly on small screens"). */
+@media (max-width: 720px) {
+  .app-header-bar { flex-wrap: wrap; row-gap: 7px; padding-block: 8px; }
+  .app-header-tools { margin-left: auto; }
+  .app-header-nav {
+    order: 3;
+    flex: 1 1 100%;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-left: 0;
+    padding-left: 0;
+    border-left: 0;
+    overflow-x: visible;
+    scrollbar-width: auto;
+  }
 }
 </style>

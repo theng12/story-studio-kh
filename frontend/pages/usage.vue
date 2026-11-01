@@ -216,7 +216,8 @@ void genStudioModels.refresh()
 </script>
 
 <style scoped>
-.usage-page { max-width: 1120px; margin: 0 auto; padding: 24px; color: var(--text-primary); }
+/* Width, margin and padding belong to .page-frame (was: pinned at 1120px). */
+.usage-page { color: var(--text-primary); }
 .usage-header { display: flex; margin-top: 4px; align-items: flex-start; justify-content: space-between; gap: 20px; margin-bottom: 20px; }
 .usage-header h1 { margin: 2px 0; color: var(--accent); }.usage-header p { margin: 0; color: var(--text-muted); }
 .usage-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; flex: 0 0 auto; }

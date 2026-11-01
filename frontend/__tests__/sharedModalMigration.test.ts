@@ -77,7 +77,7 @@ test('pickers and previews use <Modal> too', () => {
 test('Studio Library goes back through PlainBackLink and leaves Escape alone', () => {
   const store = read('pages/library.vue')
   const product = read('pages/library/[productId].vue')
-  assert.match(store, /<PlainBackLink label="Back to Channels" fallback="\/" \/>/)
+  assert.match(store, /<PlainBackLink \/>/, 'one shared Back wording on every top-level page')
   assert.equal(product.match(/<PlainBackLink label="Back to Studio Library" fallback="\/library" \/>/g)?.length, 2)
   for (const page of [store, product]) {
     assert.doesNotMatch(page, /<NuxtLink[^>]*>Back to/)

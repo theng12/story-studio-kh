@@ -256,7 +256,8 @@ onMounted(load)
 </script>
 
 <style scoped>
-.trash-page { max-width: 1120px; margin: 0 auto; padding: 24px; color: var(--text-primary); }
+/* Width, margin and padding belong to .page-frame (was: pinned at 1120px). */
+.trash-page { color: var(--text-primary); }
 .trash-header { display: flex; margin-top: 4px; align-items: flex-start; justify-content: space-between; gap: 20px; margin-bottom: 16px; }
 .trash-header h1 { margin: 2px 0; color: var(--accent); }
 .trash-header p { margin: 0; max-width: 760px; color: var(--text-muted); line-height: 1.5; }
