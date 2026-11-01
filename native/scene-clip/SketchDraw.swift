@@ -526,6 +526,13 @@ private let v2Bands: [V2Band] = [
 ]
 private let v2StrengthMargin: Float = 1.8
 
+/// Where the closing dissolve starts, as a share of the reveal. Every reveal's ink and tone ease
+/// out from here to the end, so the last drawing frame and the whole hold are the scene image.
+/// The colour reveal paints its picture to this same point and fades from there, so all six
+/// reveals dissolve over the same last 12% of the reveal. Before the dissolve starts, the frame
+/// is byte-identical to the approved look.
+private let sketchFadeStart: Float = 0.88
+
 // ── The engine ───────────────────────────────────────────────────────────────
 
 private final class SketchV2 {
@@ -1395,9 +1402,10 @@ private final class SketchV2 {
         }
     }
 
-    private func applyRim(_ dst: UnsafeMutablePointer<UInt8>, _ field: [Float], _ local: Float) {
+    private func applyRim(_ dst: UnsafeMutablePointer<UInt8>, _ field: [Float], _ local: Float, fade: Float = 1) {
         let inv: Float = 1 / 0.013
         let c0 = Int32(paper[0]), c1 = Int32(paper[1]), c2 = Int32(paper[2])
+        let fadeFactor = fade >= 1 ? 255 : Int32(max(0, min(1, fade)) * 255 + 0.5)
         field.withUnsafeBufferPointer { fb in
             let fp = fb.baseAddress!
             forRows(h) { y0, y1 in
@@ -1406,11 +1414,13 @@ private final class SketchV2 {
                     d = d > 1 ? 1 : d
                     let a = Int32((1 - d) * 0.34 * 255)
                     if a <= 0 { continue }
+                    let ar = a * fadeFactor / 255
+                    if ar <= 0 { continue }
                     let q = i * 4
                     let dv0 = Int32(dst[q]), dv1 = Int32(dst[q + 1]), dv2 = Int32(dst[q + 2])
-                    let v0 = dv0 * 255 + (c0 - dv0) * a
-                    let v1 = dv1 * 255 + (c1 - dv1) * a
-                    let v2 = dv2 * 255 + (c2 - dv2) * a
+                    let v0 = dv0 * 255 + (c0 - dv0) * ar
+                    let v1 = dv1 * 255 + (c1 - dv1) * ar
+                    let v2 = dv2 * 255 + (c2 - dv2) * ar
                     dst[q] = UInt8((v0 + 1 + (v0 >> 8)) >> 8)
                     dst[q + 1] = UInt8((v1 + 1 + (v1 >> 8)) >> 8)
                     dst[q + 2] = UInt8((v2 + 1 + (v2 >> 8)) >> 8)
@@ -1427,6 +1437,10 @@ private final class SketchV2 {
 
     func render(_ u: Float, into canvas: SketchBitmap) {
         let dst = canvas.bytes
+        // The closing dissolve every reveal shares: the drawing's ink and tone ease out over the
+        // last slice of the reveal, so the clip ends on the scene image itself, not on a two-tone
+        // drawing. Before the dissolve starts the frame is byte-identical to the approved look.
+        let fade = 1 - sketchSmoothstep(ramp(u, sketchFadeStart, 1))
         switch reveal {
         case .line:
             drawInk("line", ramp(u, 0.00, 0.66))
@@ -1436,8 +1450,8 @@ private final class SketchV2 {
                 front(fSweep, p, 0.10)
                 overPicture(dst)
             }
-            overTone(dst, 0.40 * ramp(u, 0.56, 0.80))
-            overInk(dst, p > 0 ? alpha : nil)
+            overTone(dst, 0.40 * ramp(u, 0.56, 0.80) * fade)
+            overInk(dst, p > 0 ? alpha : nil, fade: fade)
         case .buildup:
             drawInk("rough", ramp(u, 0.00, 0.24), alphaScale: 0.32, widthScale: 1.9)
             drawInk("buildup", ramp(u, 0.18, 0.58))
@@ -1447,8 +1461,8 @@ private final class SketchV2 {
                 front(fBloom, p, 0.10)
                 overPicture(dst)
             }
-            overTone(dst, 0.85 * ramp(u, 0.52, 0.74))
-            overInk(dst, p > 0 ? alpha : nil)
+            overTone(dst, 0.85 * ramp(u, 0.52, 0.74) * fade)
+            overInk(dst, p > 0 ? alpha : nil, fade: fade)
         case .patches:
             drawInk("patches", ramp(u, 0.00, 0.72))
             let p = ramp(u, 0.14, 1.00)
@@ -1457,8 +1471,8 @@ private final class SketchV2 {
                 front(fPatches, p, 0.05)
                 overPicture(dst)
             }
-            overTone(dst, 0.45 * ramp(u, 0.56, 0.78))
-            overInk(dst, p > 0 ? alpha : nil)
+            overTone(dst, 0.45 * ramp(u, 0.56, 0.78) * fade)
+            overInk(dst, p > 0 ? alpha : nil, fade: fade)
         case .bloom:
             drawInk("bloom", ramp(u, 0.00, 0.72))
             let p = ramp(u, 0.16, 1.00)
@@ -1467,8 +1481,8 @@ private final class SketchV2 {
                 front(fBloom, p, 0.085)
                 overPictureWet(dst, fBloom, p)
             }
-            overTone(dst, 0.35 * ramp(u, 0.60, 0.82))
-            overInk(dst, p > 0 ? alpha : nil)
+            overTone(dst, 0.35 * ramp(u, 0.60, 0.82) * fade)
+            overInk(dst, p > 0 ? alpha : nil, fade: fade)
         case .swipes:
             let span = u * 6
             let pass = min(5, Int(span))
@@ -1484,10 +1498,10 @@ private final class SketchV2 {
             dst.update(from: swipeBase, count: n * 4)
             if pass == 4 {
                 let tone = 0.62 * ramp(local, 0.0, 0.85)
-                if tone > 0 { overTone(dst, tone) }
+                if tone > 0 { overTone(dst, tone * fade) }
             }
-            overInk(dst, alpha)
-            applyRim(dst, field, local)
+            overInk(dst, alpha, fade: fade)
+            applyRim(dst, field, local, fade: fade)
         case .colour:
             guard let plan = colour else { fillPaper(dst); break }
             drawInk("line", ramp(u, 0.00, colourInkShare))
@@ -1497,7 +1511,6 @@ private final class SketchV2 {
             overPicture(dst)
             // The closing hold is the source picture: the bold ink eases out over the last part of
             // the reveal, so the clip ends on the scene image itself, not on a two-tone drawing.
-            let fade = 1 - colourSmoothstep(ramp(u, colourPaintEnd, 1))
             overInk(dst, plan.first <= p ? alpha : nil, fade: fade)
         }
     }
@@ -1530,7 +1543,7 @@ private let colourStrokeAngle: Float = 12
 private let colourTravelSpeed: Float = 1.5
 /// Ink runs from 0 to this share of the drawing; colour then runs to `colourPaintEnd`.
 private let colourInkShare: Float = 0.45
-private let colourPaintEnd: Float = 0.88
+private let colourPaintEnd: Float = sketchFadeStart
 private let colourMaskFloor: Float = 0.55
 private let colourMaskMinArea = 4000
 
@@ -1563,7 +1576,7 @@ private struct ColourPlan {
     var seconds: Double
 }
 
-@inline(__always) private func colourSmoothstep(_ t: Float) -> Float {
+@inline(__always) private func sketchSmoothstep(_ t: Float) -> Float {
     let x = min(1, max(0, t))
     return x * x * (3 - 2 * x)
 }

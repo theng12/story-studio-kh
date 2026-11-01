@@ -22,7 +22,7 @@ import CoreGraphics
 import ImageIO
 import Metal
 
-let HELPER_VERSION = 5
+let HELPER_VERSION = 6
 
 struct PlanFrame: Decodable {
     var z: Double          // magnification of the canvas (1 = fitted picture fills the frame)
