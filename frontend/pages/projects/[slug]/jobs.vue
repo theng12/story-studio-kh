@@ -489,7 +489,7 @@
             <span class="meta-label">Model:</span> {{ jobModelDisplay(job) }}
           </span>
           <span
-            v-if="job.auto_retry?.eligible"
+            v-if="autoRetryLabel(job)"
             class="meta-tag auto-retry-tag"
             :class="autoRetryClass(job)"
             :title="job.auto_retry.reason"
@@ -843,7 +843,7 @@
               <span class="meta-label">Model:</span> {{ jobModelDisplay(job) }}
             </span>
             <span
-              v-if="job.auto_retry?.eligible"
+              v-if="autoRetryLabel(job)"
               class="meta-tag auto-retry-tag"
               :class="autoRetryClass(job)"
               :title="job.auto_retry.reason"
@@ -3344,7 +3344,8 @@ function retryTooltip(job: Pick<RJob, 'type' | 'params' | 'auto_retry'>): string
 
 function autoRetryLabel(job: Pick<RJob, 'status' | 'auto_retry'>): string {
   const retry = job.auto_retry
-  if (!retry?.eligible) return ''
+  // A cancelled job never retries, whatever its saved policy says.
+  if (!retry?.eligible || job.status === 'cancelled') return ''
   const attempt = Math.max(1, retry.attempt || 1)
   if (job.status === 'done' && attempt > 1) return `Recovered locally · attempt ${attempt}/${retry.max_attempts}`
   if (job.status === 'error' || retry.exhausted) return `Local retries exhausted · ${attempt}/${retry.max_attempts}`
