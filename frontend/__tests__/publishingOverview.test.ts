@@ -895,14 +895,18 @@ function chipCount(button: HTMLElement): number {
   return Number(button.querySelector('span')?.textContent ?? NaN)
 }
 
-function statusCell(host: HTMLElement, channelName: string): { chip: string; select: HTMLSelectElement } {
+/** One row's single status control: the select is the label, so read the
+ *  word it is showing (its selected option), not a second element. */
+function statusCell(host: HTMLElement, channelName: string): { label: string; select: HTMLSelectElement } {
   const row = [...host.querySelectorAll('table.coverage-table tbody tr')]
     .find(candidate => (candidate.querySelector('.channel-link')?.textContent || '').trim() === channelName)
   assert.ok(row, `a coverage row for ${channelName}`)
   const select = row!.querySelector('select.status-editor') as HTMLSelectElement | null
   assert.ok(select, `the status editor for ${channelName} renders`)
+  assert.equal(row!.querySelectorAll('.status-chip').length, 0, `the row for ${channelName} says its status once, not as a chip and a select`)
+  assert.equal(row!.querySelectorAll('select.status-editor').length, 1, `exactly one status control for ${channelName}`)
   return {
-    chip: (row!.querySelector('.status-chip')?.textContent || '').trim(),
+    label: (select!.selectedOptions[0]?.textContent || '').trim(),
     select: select!,
   }
 }
@@ -974,7 +978,7 @@ test('a status label is saved through the channel-settings route and to nothing 
   ])
   const ui = await mount({ overview })
   try {
-    assert.equal(statusCell(ui.host, 'Komsan').chip, 'Unclassified')
+    assert.equal(statusCell(ui.host, 'Komsan').label, 'Unclassified')
     await chooseStatus(ui.host, 'Komsan', 'testing')
 
     // ONE call, to the ordinary channel-settings route, with just the key.
@@ -985,7 +989,7 @@ test('a status label is saved through the channel-settings route and to nothing 
     assert.equal(puts.some(entry => /schedule|upload|publish|youtube/i.test(entry.path)), false)
 
     // The row and the counts follow the saved value.
-    assert.equal(statusCell(ui.host, 'Komsan').chip, 'Testing')
+    assert.equal(statusCell(ui.host, 'Komsan').label, 'Testing')
     assert.equal(statusCell(ui.host, 'Komsan').select.value, 'testing')
     assert.equal(chipCount(chip(ui.host, 'Testing')), 1)
     assert.equal(chipCount(chip(ui.host, 'Unclassified')), 1)
@@ -995,7 +999,7 @@ test('a status label is saved through the channel-settings route and to nothing 
     await chooseStatus(ui.host, 'Komsan', 'unclassified')
     assert.equal(puts.length, 2)
     assert.deepEqual(puts[1]!.body, { channel_status: null })
-    assert.equal(statusCell(ui.host, 'Komsan').chip, 'Unclassified')
+    assert.equal(statusCell(ui.host, 'Komsan').label, 'Unclassified')
     assert.equal(chipCount(chip(ui.host, 'Unclassified')), 2)
   } finally { ui.close() }
 })
@@ -1008,7 +1012,7 @@ test('a failed status save says so in the row, keeps the stored label and puts t
 
     assert.equal(puts.length, 0, 'a refused write is not recorded as a save')
     const row = [...ui.host.querySelectorAll('table.coverage-table tbody tr')][0]!
-    assert.equal((row.querySelector('.status-chip')?.textContent || '').trim(), 'Unclassified', 'the stored label stands')
+    assert.equal(statusCell(ui.host, 'Komsan').label, 'Unclassified', 'the stored label stands')
     assert.equal(row.querySelector('select.status-editor')!.value, 'unclassified', 'the editor goes back')
     assert.match(row.querySelector('.status-error')?.textContent || '', /Project not found/)
     assert.equal(chipCount(chip(ui.host, 'Paused')), 0)

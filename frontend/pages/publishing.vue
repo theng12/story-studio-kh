@@ -135,14 +135,16 @@
                       <span v-else class="channel-handle muted">{{ channelStateLabel(channel) }}</span>
                     </td>
                     <!-- The owner's label and the editor for it, in the row it
-                         belongs to and nowhere else. Reversible: choosing
+                         belongs to and nowhere else — and only once: the
+                         select IS the label, tinted by its status, so the row
+                         never says the same word twice. Reversible: choosing
                          Unclassified clears the key, which is the same answer
                          an absent key already gives. -->
                     <td class="status-cell">
-                      <span class="status-chip" :class="`status-${statusKey(channel)}`">{{ statusLabel(channel) }}</span>
                       <select
                         :key="`${channel.slug}-${statusRevision[channel.slug] || 0}`"
                         class="status-editor"
+                        :class="`status-${statusKey(channel)}`"
                         :value="statusKey(channel)"
                         :aria-label="`Status for ${channel.name}`"
                         :disabled="!!savingStatus[channel.slug]"
@@ -442,11 +444,6 @@ function setStatusFilter(value: StatusFilter): void {
 /** Absent status is Unclassified — never inferred from anything on the row. */
 function statusKey(channel: PublishingOverviewChannel): string {
   return channel.channel_status ?? UNCLASSIFIED_STATUS
-}
-
-function statusLabel(channel: PublishingOverviewChannel): string {
-  const key = statusKey(channel)
-  return CHANNEL_STATUS_OPTIONS.find(option => option.value === key)?.label ?? 'Unclassified'
 }
 
 function statusFilterCount(value: StatusFilter): number {
@@ -893,27 +890,36 @@ function freshnessLabel(channel: PublishingOverviewChannel): string {
 .status-filter span { color: var(--accent, #2f6feb); font-variant-numeric: tabular-nums; font-size: .74rem; }
 .status-filter.is-active span { color: inherit; }
 
-/* The label itself, and the editor that changes it — both in the row. */
-.status-cell { min-width: 168px; }
-.status-chip {
-  display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: .74rem;
-  font-weight: 700; letter-spacing: .02em; background: var(--bg-secondary, #f0f0f0); color: var(--text-secondary, #555);
+/* The label AND the editor in one control: the select carries the status
+   tint, so the row reads the word once instead of a pill plus a select
+   saying the same thing. Status rules come after the base so they win. */
+.status-cell { min-width: 150px; }
+.status-editor {
+  display: block; width: 100%; max-width: 190px; min-height: 28px;
+  padding: 3px 8px; border: 1px solid transparent; border-radius: 999px;
+  background: var(--bg-secondary, #f0f0f0); color: var(--text-secondary, #555);
+  font: inherit; font-size: .76rem; font-weight: 700; letter-spacing: .02em;
+  cursor: pointer;
 }
+.status-editor:focus-visible { outline: 3px solid var(--accent, #2f6feb); outline-offset: 2px; }
+.status-editor:disabled { opacity: .6; }
 .status-live { background: color-mix(in srgb, var(--success, #2e7d32) 16%, transparent); color: var(--success, #2e7d32); }
 .status-preparing { background: color-mix(in srgb, var(--accent, #2f6feb) 14%, transparent); color: var(--accent, #2f6feb); }
 .status-testing { background: color-mix(in srgb, #7a4fd6 16%, transparent); color: #7a4fd6; }
 .status-paused { background: color-mix(in srgb, var(--warning, #b26a00) 16%, transparent); color: var(--warning, #b26a00); }
 .status-retired { background: color-mix(in srgb, var(--text-secondary, #888) 16%, transparent); color: var(--text-secondary, #666); }
 .status-unclassified { border: 1px dashed var(--border, #ccc); background: transparent; color: var(--text-secondary, #888); }
-.status-editor {
-  display: block; margin-top: 5px; max-width: 100%; min-height: 28px; padding: 2px 6px;
-  border: 1px solid var(--border, #ccc); border-radius: 6px; background: var(--bg-secondary, #fff);
-  color: inherit; font: inherit; font-size: .78rem;
-}
-.status-editor:focus-visible { outline: 3px solid var(--accent, #2f6feb); outline-offset: 2px; }
-.status-editor:disabled { opacity: .6; }
 .status-error { display: block; margin-top: 4px; font-size: .74rem; color: var(--warning, #b26a00); overflow-wrap: anywhere; }
 .unknown-value { font-style: italic; }
+
+/* .page-frame is a grid, so its children default to min-width: auto. The
+   coverage table's min-content (1674px) therefore widened the whole track
+   past the viewport; the overflow scrolled inside main.page-content
+   (overflow-x: auto) and left documentElement.scrollWidth looking tidy, so
+   the right-hand columns and the tabs simply sat off-screen behind a
+   scrollbar nobody would think to look for. Let the children shrink;
+   .coverage-scroll keeps its own horizontal scroll for the table. */
+.publishing-page > * { min-width: 0; }
 
 .coverage-scroll { width: 100%; max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
 .coverage-table { width: 100%; min-width: 1180px; border-collapse: collapse; font-size: .88rem; }
