@@ -5,8 +5,10 @@ import express from 'express'
 import request from 'supertest'
 
 import { errorBoundary } from '../lib/error-boundary.js'
+import { buildRequireSession, buildSessionCookie, signSession } from '../lib/auth-session.js'
 import { parseContentStoreCatalog } from '../lib/genstudio-content-store.js'
 import { router as contentStoreCoversRouter } from '../routes/content-store-covers.js'
+import { rewriteCoverSrc } from '../services/content-store.js'
 import { setApiKey } from '../services/app-secrets-store.js'
 import { setGenStudioUrl } from '../services/app-settings.js'
 import { useTempDataDir } from './_helpers.js'
@@ -22,9 +24,12 @@ import { useTempDataDir } from './_helpers.js'
 
 const GATEWAY_URL = 'http://127.0.0.1:8796'
 const GATEWAY_KEY = 'gateway-cover-test-key'
+const SESSION_SECRET = 'a'.repeat(64)
 const WEBP_BYTES = Buffer.from('RIFF....WEBPVP8 ', 'ascii')
 let cleanup: (() => Promise<void>) | undefined
 let app: express.Express
+/** The same route behind the server-mode session gate, for remote-peer cases. */
+let remoteApp: express.Express
 let calls: Array<{ url: string; init: RequestInit }> = []
 let handler: (url: string, init: RequestInit) => Response | Promise<Response>
 const originalFetch = globalThis.fetch
@@ -44,6 +49,19 @@ beforeEach(async () => {
   app = express()
   app.use('/api', contentStoreCoversRouter)
   app.use(errorBoundary)
+
+  // A second app for the remote-peer cases. supertest always connects from
+  // loopback, and the gate deliberately trusts loopback (the Electron window
+  // on the mini needs no login dialog), so a cookie-less call would pass for
+  // the wrong reason. `trust proxy` makes `req.ip` read the forwarded address,
+  // which is what a browser at `http://100.x.x.x:8766` really presents.
+  remoteApp = express()
+  remoteApp.set('trust proxy', true)
+  remoteApp.use('/api', buildRequireSession(
+    () => ({ username: 'owner', password_hash: 'x', session_secret: SESSION_SECRET, session_ttl_hours: 168, login_max_attempts_per_minute: 30 }),
+  ))
+  remoteApp.use('/api', contentStoreCoversRouter)
+  remoteApp.use(errorBoundary)
 })
 
 afterEach(async () => {
@@ -134,5 +152,100 @@ describe('the catalogue accepts a cover the Gateway serves itself', () => {
       () => parseContentStoreCatalog({ products: [{ ...base, cover: { url: 'http://host.test/c.webp', alt: 'x' } }] }),
       /cover/i,
     )
+  })
+})
+
+/**
+ * The owner saw every card broken from the browser at `http://100.x.x.x:8766`,
+ * while the same images worked on the mini itself.
+ *
+ * The cause was the cover URL the SERVER put on the wire: it handed the
+ * browser a Gateway-relative path (`/admin/api/content-library/covers/…`),
+ * which the browser resolved against Story's own origin. Story serves no such
+ * route, so every request was a 404 and the card fell back. The Library tab
+ * already rewrote that path to the same-origin proxy in `buildLibraryCards`;
+ * the catalogue the Discover grid reads did not.
+ *
+ * These tests pin both halves of the fix: the server rewrites the path, and
+ * the proxy it rewrites to still answers in server/remote mode, where every
+ * `/api` route sits behind the session gate and a plain `<img>` request
+ * carries the session cookie like any other same-origin request.
+ */
+describe('a cover reaches a remote browser through Story', () => {
+  const GATEWAY_COVER = '/admin/api/content-library/covers/com.storystudio.pack.style.oil/1.0.1'
+  const PRODUCT = {
+    productId: 'com.storystudio.pack.style.oil',
+    entitlementFamily: 'family.oil',
+    kind: 'visual_style' as const,
+    title: 'Oil',
+    summary: '',
+    description: '',
+    publisherId: 'com.storystudio',
+    creditPrice: 0,
+    free: true,
+    owned: true,
+    retired: false,
+    successorProductId: null,
+    currentRelease: null,
+    compatible: true,
+    compatibilityReason: null,
+    bundleComponents: [],
+    ownedComponentCreditValue: 0,
+    showcaseVideos: [],
+    cover: { url: GATEWAY_COVER, alt: 'Oil painting' },
+    hero: null,
+    tags: [],
+    license: null,
+    discount: null,
+    removeFromInstalls: false,
+    removeFromInstallsAt: null,
+  }
+
+  test('the server hands the page Story\'s own proxy path, not the Gateway\'s', () => {
+    // What is STORED is the Gateway's path; what the page is GIVEN is Story's
+    // same-origin proxy, so the browser never has to reach a host the CSP
+    // forbids. This is the line the Discover grid was missing.
+    const rewritten = rewriteCoverSrc({ ...PRODUCT, cover: { url: GATEWAY_COVER, alt: 'Oil painting' } })
+    assert.equal(rewritten, '/api/content-store/covers/com.storystudio.pack.style.oil/1.0.1')
+  })
+
+  test('a cover that is not a Gateway path is left exactly as published', () => {
+    // Marketing art on a canonical HTTPS host is not a pack cover and must not
+    // be routed through a pack-cover proxy.
+    const https = 'https://cdn.example.com/style/oil.webp'
+    assert.equal(rewriteCoverSrc({ ...PRODUCT, cover: { url: https, alt: 'Oil painting' } }), https)
+  })
+
+  test('with a live session the proxy streams the image', async () => {
+    const cookie = buildSessionCookie(signSession({ username: 'owner', exp: Math.floor(Date.now() / 1000) + 3600 }, SESSION_SECRET), 3600)
+    const response = await request(remoteApp).get('/api/content-store/covers/com.storystudio.pack.style.oil/1.0.1')
+      .set('Cookie', cookie)
+      .set('X-Forwarded-For', '203.0.113.9')
+    assert.equal(response.status, 200)
+    assert.match(response.headers['content-type'], /^image\/webp/)
+    assert.equal(response.body.equals(WEBP_BYTES), true)
+  })
+
+  test('without a session it fails closed, so the card falls back rather than hanging', async () => {
+    const response = await request(remoteApp).get('/api/content-store/covers/com.storystudio.pack.style.oil/1.0.1')
+      .set('X-Forwarded-For', '203.0.113.9')
+    assert.equal(response.status, 401)
+  })
+
+  test('a session for another user is refused', async () => {
+    const cookie = buildSessionCookie(signSession({ username: 'someone-else', exp: Math.floor(Date.now() / 1000) + 3600 }, SESSION_SECRET), 3600)
+    const response = await request(remoteApp).get('/api/content-store/covers/com.storystudio.pack.style.oil/1.0.1')
+      .set('Cookie', cookie)
+      .set('X-Forwarded-For', '203.0.113.9')
+    assert.equal(response.status, 401)
+  })
+
+  test('the Electron window on the mini itself keeps working with no cookie at all', async () => {
+    // Loopback is trusted by physical access; a login dialog there would be
+    // hostile. This is the local-mode half of the same route, on the same
+    // gated app, reached from the address the Electron window really uses.
+    const response = await request(remoteApp).get('/api/content-store/covers/com.storystudio.pack.style.oil/1.0.1')
+      .set('X-Forwarded-For', '127.0.0.1')
+    assert.equal(response.status, 200)
   })
 })
