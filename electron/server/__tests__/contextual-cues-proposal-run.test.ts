@@ -196,6 +196,62 @@ describe('Contextual Cues proposal runs', () => {
     assert.equal(scene1[0]!.status, 'approved')
   })
 
+  /**
+   * v1.4.374 — ONE bad label no longer loses all the others.
+   *
+   * "Generated cues did not pass safe pacing validation: Cue must remain
+   * inside its scene timing" aborted the whole save and named no cue: one
+   * label with a wrong timing cost every other label in the run (owner,
+   * 2026-11-01). Now the offending cue is named and only that cue is lost.
+   *
+   * The bad cue here is the REVIEWER'S OWN — an approved label whose scene
+   * changed under it when the plan was re-planned. It is not dropped: it is
+   * the customer's work and it stays exactly as it is. It is reported by
+   * name, and the labels this run proposed are saved.
+   */
+  test('one label that breaks the scene timing no longer loses every other label', async () => {
+    await reset()
+    await cues.writeContextualCueTimeline(planPath, {
+      schema_version: 1, generated_at: '', source_scene_plan_generated_at: plan.generated_at,
+      // scene-3 spans 200–300s in this plan; this label ends at 350s, so it no
+      // longer fits the scene it belongs to — the plan was re-planned under it.
+      cues: [{ id: 'cue-scene-3', scene_id: 'scene-3', start_sec: 346, end_sec: 350, title: 'Stale Rome', kind: 'location_date',
+        placement: 'top-right', template: 'map-pin', entrance: 'fade', exit: 'dissolve', status: 'approved',
+        created_at: '', updated_at: '' } as any],
+    })
+    mock.queueScenario('chat', answer('scene-1', 'Berlin'))
+    mock.queueScenario('chat', answer('scene-2', 'Paris'))
+    mock.queueScenario('chat', answer('scene-3', 'Fresh Rome'))
+    await generator.generateContextualCues(job('onebad'))
+    const saved = (await cues.readContextualCueTimeline(planPath))!
+    const titles = saved.cues.map(cue => cue.title)
+    assert.ok(titles.includes('Berlin') && titles.includes('Paris'), 'the good labels are saved')
+    assert.ok(titles.includes('Stale Rome'), 'the customer\'s own label is not destroyed')
+  })
+
+  /**
+   * v1.4.374 — the bad cue is NAMED, not vanished. The run says which label
+   * is the problem and why, so the customer can go and fix it.
+   */
+  test('a label that breaks the scene timing is reported by name with its reason', async () => {
+    await reset()
+    await cues.writeContextualCueTimeline(planPath, {
+      schema_version: 1, generated_at: '', source_scene_plan_generated_at: plan.generated_at,
+      cues: [{ id: 'cue-scene-3', scene_id: 'scene-3', start_sec: 346, end_sec: 350, title: 'Stale Rome', kind: 'location_date',
+        placement: 'top-right', template: 'map-pin', entrance: 'fade', exit: 'dissolve', status: 'approved',
+        created_at: '', updated_at: '' } as any],
+    })
+    mock.queueScenario('chat', answer('scene-1', 'Berlin'))
+    mock.queueScenario('chat', answer('scene-2', 'Paris'))
+    mock.queueScenario('chat', answer('scene-3', 'Fresh Rome'))
+    const runJob = job('named')
+    await generator.generateContextualCues(runJob)
+    const line = runJob.output_lines.find((text: string) => /need attention/.test(text))
+    assert.ok(line, `the run names the label: ${runJob.output_lines.join(' | ')}`)
+    assert.match(line!, /Stale Rome/)
+    assert.match(line!, /inside its scene timing/)
+  })
+
   test('the preset auto-approve holds a crowding cue back instead of failing the whole run', async () => {
     await reset()
     await cues.writeContextualCueTimeline(planPath, {

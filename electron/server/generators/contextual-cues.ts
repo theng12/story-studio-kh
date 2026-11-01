@@ -30,6 +30,7 @@ import {
   validateContextualCueTimeline,
   writeContextualCueProgress,
   writeContextualCueTimeline,
+  type ContextualCueIssue,
   type ContextualCueProgress,
 } from '../services/contextual-cues.js'
 import {
@@ -555,6 +556,70 @@ export function accountCueCandidates(
 }
 
 /**
+ * Sort the validation issues of a proposal into what each one costs.
+ *
+ * v1.4.374 — ONE bad cue no longer loses every other cue (owner, 2026-11-01).
+ * "Generated cues did not pass safe pacing validation: Cue must remain inside
+ * its scene timing" aborted the whole save and named no cue: one label with a
+ * wrong timing cost every other label in the run. The RENDER path already
+ * treats a per-cue defect as that ONE cue's problem and skips the cue with its
+ * reason (`resolveRenderableContextualCues`); the save now does the same.
+ *
+ * TWO KINDS OF CUE, TWO ANSWERS:
+ *
+ *  - A CUE THIS RUN PROPOSED is dropped, named with its reason. It is this
+ *    app's own proposal, and nothing of the customer's is lost.
+ *  - A CUE THE REVIEWER APPROVED OR TURNED OFF is never dropped — it is the
+ *    customer's own work. It stays exactly as it is, and the problem with it
+ *    is REPORTED by name, so the customer can fix it in Sound & Labels. (A
+ *    stale approved label — one whose scene changed under it — used to block
+ *    every later proposal on that episode for good.)
+ *
+ * A defect that belongs to NO cue — a duplicate id — is fatal: dropping a cue
+ * cannot fix it, and the save must not pretend the timeline is sound.
+ */
+export function accountRejectedCues(
+  timeline: ContextualCueTimeline,
+  proposed: ContextualCue[],
+  issues: ContextualCueIssue[],
+): {
+  fatal: ContextualCueIssue[]
+  proposed: ContextualCue[]
+  kept: ContextualCue[]
+  dropped: DroppedCueCandidate[]
+  rejectedIds: Set<string>
+  keptButBroken: string[]
+} {
+  const fatal = issues.filter(issue => !issue.cue_id)
+  const proposedIds = new Set(proposed.map(cue => cue.id))
+  const rejectedIds = new Set<string>()
+  const dropped: DroppedCueCandidate[] = []
+  const keptButBroken: string[] = []
+  for (const issue of issues) {
+    if (!issue.cue_id) continue
+    const cue = timeline.cues.find(row => row.id === issue.cue_id)
+    if (!proposedIds.has(issue.cue_id)) {
+      keptButBroken.push(`"${cue?.title || issue.cue_id}" — ${issue.detail}`)
+      continue
+    }
+    rejectedIds.add(issue.cue_id)
+    dropped.push({
+      scene_id: cue?.scene_id || '',
+      title: cue?.title || '',
+      reason: issue.detail,
+    })
+  }
+  return {
+    fatal,
+    proposed: proposed.filter(cue => !rejectedIds.has(cue.id)),
+    kept: timeline.cues.filter(cue => !rejectedIds.has(cue.id)),
+    dropped,
+    rejectedIds,
+    keptButBroken,
+  }
+}
+
+/**
  * The saved partial proposal this run may continue from, or null.
  *
  * Same run (crash replay, Retry): used as is. A different action for the SAME
@@ -906,7 +971,36 @@ export async function generateContextualCues(job: Job): Promise<void> {
   // exactly as before this setting existed.
   const heldIds = new Set(autoApprovalHolds.map(hold => hold.cue_id))
   const issues = validateContextualCueTimeline(timeline, plan).filter(issue => !issue.cue_id || !heldIds.has(issue.cue_id))
-  if (issues.length) throw new Error(`Generated cues did not pass safe pacing validation: ${issues.slice(0, 3).map(issue => issue.detail).join('; ')}`)
+  if (issues.length) {
+    const accounted = accountRejectedCues(timeline, proposed, issues)
+    if (accounted.fatal.length) {
+      throw new Error(`Generated cues did not pass safe pacing validation: ${accounted.fatal.slice(0, 3).map(issue => issue.detail).join('; ')}`)
+    }
+    proposed = accounted.proposed
+    timeline.cues = accounted.kept
+    dropped.push(...accounted.dropped)
+    // A hold for a cue that no longer exists is a hold for nothing: it would
+    // show the reviewer a reason for a label they cannot see.
+    if (autoApprovalHolds.length) {
+      autoApprovalHolds = autoApprovalHolds.filter(hold => !accounted.rejectedIds.has(hold.cue_id))
+      if (autoApprovalHolds.length) timeline.auto_approval_holds = autoApprovalHolds
+      else delete timeline.auto_approval_holds
+    }
+    if (accounted.rejectedIds.size) {
+      job.output_lines.push(
+        `Dropped ${accounted.rejectedIds.size} label(s) that failed the pacing rules, and kept the rest.`,
+      )
+    }
+    if (accounted.keptButBroken.length) {
+      // The customer's own label, named. It is kept exactly as it is — it is
+      // their work — and it is not drawn until it is fixed, which the render
+      // says in its own words.
+      job.output_lines.push(
+        `${accounted.keptButBroken.length} label(s) already on this episode need attention and were left untouched: `
+        + `${accounted.keptButBroken.slice(0, 5).join('; ')}. Open Sound & Labels to move or turn them off.`,
+      )
+    }
+  }
   await writeContextualCueTimeline(planPath, timeline)
   // The progress file is the record of what was PAID for. It is removed only
   // when every batch is accounted for; if a batch failed, the successful

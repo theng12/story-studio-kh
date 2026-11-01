@@ -17,6 +17,7 @@ import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   accountCueCandidates,
+  accountRejectedCues,
   cueSystemPrompt,
   resolveCueChoiceAllowlist,
 } from '../generators/contextual-cues.js'
@@ -210,5 +211,43 @@ describe('Contextual Cues label choices', () => {
     const old = (await account([{ scene_id: 's2', title: 'Rome, 64 AD', template: 'documentary-label' }])).proposed[0]!
     assert.equal(old.template, 'documentary-label')
     assert.ok(!('point_at' in old))
+  })
+
+  /**
+   * v1.4.374 — one bad cue does not lose every other cue.
+   *
+   * "Generated cues did not pass safe pacing validation: Cue must remain
+   * inside its scene timing" aborted the whole save and named no cue (owner,
+   * 2026-11-01). Now the offending cue is named with its reason, and only
+   * that cue is lost.
+   */
+  test('one bad cue is dropped with its reason, and the customer\'s own cue is kept and reported', () => {
+    const proposedCue = { id: 'cue-s2', scene_id: 's2', title: 'Proposed', start_sec: 100, end_sec: 104 } as any
+    const customerCue = { id: 'cue-s1', scene_id: 's1', title: 'Reviewed', start_sec: 146, end_sec: 150 } as any
+    const timeline = { schema_version: 2, generated_at: '', source_scene_plan_generated_at: '', cues: [customerCue, proposedCue] } as any
+    const result = accountRejectedCues(timeline, [proposedCue], [
+      { cue_id: 'cue-s2', detail: 'Cue must remain inside its scene timing.' },
+      { cue_id: 'cue-s1', detail: 'Cue must remain inside its scene timing.' },
+    ])
+    // The proposed cue is dropped, named with its reason.
+    assert.deepEqual(result.proposed.map(cue => cue.id), [])
+    assert.equal(result.dropped.length, 1)
+    assert.equal(result.dropped[0]!.title, 'Proposed')
+    assert.match(result.dropped[0]!.reason, /inside its scene timing/)
+    // The customer's own cue is NOT dropped, and is reported by name.
+    assert.deepEqual(result.kept.map(cue => cue.id), ['cue-s1'])
+    assert.equal(result.keptButBroken.length, 1)
+    assert.match(result.keptButBroken[0]!, /Reviewed/)
+    assert.match(result.keptButBroken[0]!, /inside its scene timing/)
+  })
+
+  test('a defect that belongs to no cue is fatal, because dropping a cue cannot fix it', () => {
+    const result = accountRejectedCues(
+      { schema_version: 2, generated_at: '', source_scene_plan_generated_at: '', cues: [] } as any,
+      [],
+      [{ detail: 'Duplicate cue ID.' }],
+    )
+    assert.equal(result.fatal.length, 1)
+    assert.equal(result.fatal[0]!.detail, 'Duplicate cue ID.')
   })
 })
