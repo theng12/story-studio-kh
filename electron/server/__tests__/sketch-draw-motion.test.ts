@@ -8,6 +8,7 @@ import { after, before, describe, test } from 'node:test'
 import { auditSceneClipCompletion, assertSketchDrawClip, checkpointSceneClip, isSceneClipFresh, motionPresentationSelection, sceneClipStaleReason, sceneWindowSeconds } from '../services/scene-media-checkpoint.js'
 import { NATIVE_SCENE_CLIP_VERSION } from '../lib/native-scene-clip-version.js'
 import { sketchRevealFingerprint, type SketchRevealSetting } from '../lib/sketch-reveal.js'
+import type { SketchLineWeight } from '../lib/sketch-line-weight.js'
 import { runFfmpeg } from '../lib/ffmpeg-utils.js'
 import { useTempDataDir } from './_helpers.js'
 
@@ -19,10 +20,10 @@ before(async () => { const temp = await useTempDataDir(); dir = temp.dir; cleanu
 after(async () => { await cleanup() })
 
 function settings(penFingerprint = sha(Buffer.from('none')), fps = 30, width = 1920, height = 1080,
-  reveal: SketchRevealSetting | null = null) {
+  reveal: SketchRevealSetting | null = null, lineWeight: SketchLineWeight = 'normal') {
   return { fps, width, height, pen: { mode: 'none' as const }, penFingerprint,
     hold: { mode: 'auto' as const }, holdFingerprint: sha(Buffer.from('auto')),
-    reveal, revealFingerprint: sha(Buffer.from(JSON.stringify(reveal ?? 'default'))) }
+    reveal, revealFingerprint: sha(Buffer.from(JSON.stringify(reveal ?? 'default'))), lineWeight }
 }
 
 function scene(over: Record<string, unknown> = {}) {

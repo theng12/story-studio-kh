@@ -57,9 +57,11 @@ import { inspectSceneReviewCompletion } from '../services/scene-review-completio
 import { isEpisodeCode, isSketchPenMode, writeEpisodeSketchPen } from '../services/episode-sketch-pen.js'
 import { writeEpisodeSketchHold } from '../services/episode-sketch-hold.js'
 import { writeEpisodeSketchReveal } from '../services/episode-sketch-reveal.js'
+import { writeEpisodeSketchLineWeight } from '../services/episode-sketch-line-weight.js'
 import { parseSketchHold, sketchHoldSelection } from '../lib/sketch-hold.js'
+import { parseSketchLineWeight, sketchLineWeightSelection, type SketchLineWeight } from '../lib/sketch-line-weight.js'
 import { DEFAULT_SKETCH_REVEAL, parseSketchReveal, sketchRevealChoice, type SketchRevealType } from '../lib/sketch-reveal.js'
-import { checkpointSceneClip, invalidateEpisodesFollowingChannelSketch, motionPresentationSelection, resolveEpisodeHold, resolveEpisodePen, resolveEpisodeReveal, resolveSketchDrawSettings, revealTypeFor, sceneClipStaleReason, sceneWindowSeconds, isSceneClipFresh } from '../services/scene-media-checkpoint.js'
+import { checkpointSceneClip, invalidateEpisodesFollowingChannelSketch, motionPresentationSelection, resolveEpisodeHold, resolveEpisodeLineWeight, resolveEpisodePen, resolveEpisodeReveal, resolveSketchDrawSettings, revealTypeFor, sceneClipStaleReason, sceneWindowSeconds, isSceneClipFresh } from '../services/scene-media-checkpoint.js'
 import { readChannelProfileAsset } from '../services/channel-profile.js'
 import { resolveEpisodeMotionSceneIds } from '../services/episode-motion-scope.js'
 import { readVideoVisualSource } from '../services/video-visual-source.js'
@@ -393,6 +395,7 @@ router.get('/projects/:slug/motion-presentation', async (req, res) => {
     const logo = await readChannelProfileAsset(req.params.slug, 'logo')
     res.json({ ...motionPresentationSelection(config.motion_presentation), hold: sketchHoldSelection(config.motion_presentation?.hold),
       reveal: sketchRevealChoice(config.motion_presentation?.reveal),
+      line_weight: sketchLineWeightSelection(config.motion_presentation?.line_weight),
       channel_name: project.name, has_logo: !!logo?.bytes.length })
   } catch (error: any) { res.status(409).json({ detail: error.message }) }
 })
@@ -429,7 +432,15 @@ router.put('/projects/:slug/motion-presentation', async (req, res) => {
         reveal = parsed.reveal
       }
     }
-    if (!await pm.updateConfig(req.params.slug, { motion_presentation: { renderer, pen, ...(hold ? { hold } : {}), ...(reveal ? { reveal } : {}) } } as any)) {
+    // The ink weight rides here too. It has no "never chosen" value: absent means NORMAL, the
+    // engine's own weight, so a channel that never chose one keeps every clip it has.
+    let lineWeight = config.motion_presentation?.line_weight
+    if (req.body?.line_weight !== undefined) {
+      const parsed = parseSketchLineWeight(req.body.line_weight)
+      if (!parsed.ok) return res.status(400).json({ detail: parsed.error })
+      lineWeight = parsed.weight
+    }
+    if (!await pm.updateConfig(req.params.slug, { motion_presentation: { renderer, pen, ...(hold ? { hold } : {}), ...(reveal ? { reveal } : {}), ...(lineWeight ? { line_weight: lineWeight } : {}) } } as any)) {
       return res.status(404).json({ detail: 'Channel not found' })
     }
     // Episodes without their own pen, hold or reveal follow these defaults, and their cached status
@@ -438,8 +449,10 @@ router.put('/projects/:slug/motion-presentation', async (req, res) => {
       pen: pen !== motionPresentationSelection(config.motion_presentation).pen,
       hold: JSON.stringify(hold ?? null) !== JSON.stringify(config.motion_presentation?.hold ?? null),
       reveal: JSON.stringify(reveal ?? null) !== JSON.stringify(config.motion_presentation?.reveal ?? null),
+      // An ABSENT weight and NORMAL are the same weight, so only a real move invalidates.
+      line_weight: sketchLineWeightSelection(lineWeight) !== sketchLineWeightSelection(config.motion_presentation?.line_weight),
     })
-    res.json({ renderer, pen, hold: sketchHoldSelection(hold), reveal: sketchRevealChoice(reveal) })
+    res.json({ renderer, pen, hold: sketchHoldSelection(hold), reveal: sketchRevealChoice(reveal), line_weight: sketchLineWeightSelection(lineWeight) })
   } catch (error: any) { res.status(409).json({ detail: error.message }) }
 })
 
@@ -537,6 +550,40 @@ router.put('/projects/:slug/scene-review/:episodeId/motion-reveal', async (req, 
     await writeEpisodeSketchReveal(slug, episodeId, reveal)
     await invalidateEpisodeStatus(slug, episodeId)
     res.json(await resolveEpisodeReveal(slug, episodeId))
+  } catch (error: any) { res.status(409).json({ detail: error.message }) }
+})
+
+// An episode's own ink weight, beside its reveal. `line_weight: null` returns the episode to the
+// channel default. Only this episode's clips whose weight moves go stale.
+router.get('/projects/:slug/scene-review/:episodeId/motion-line-weight', async (req, res) => {
+  const { slug, episodeId } = req.params
+  if (!isEpisodeCode(episodeId)) return res.status(400).json({ detail: 'Choose a valid episode.' })
+  try {
+    res.json(await resolveEpisodeLineWeight(slug, episodeId))
+  } catch (error: any) {
+    // As for the pen, hold and reveal: an unreadable file must not lock the control. The effective
+    // weight is unknown, never "normal".
+    const config = await pm.getConfig(slug).catch(() => null)
+    if (!config) return res.status(409).json({ detail: error.message })
+    let channel_line_weight: SketchLineWeight
+    try { channel_line_weight = sketchLineWeightSelection(config.motion_presentation?.line_weight) }
+    catch { return res.status(409).json({ detail: error.message }) }
+    res.json({ line_weight: null, line_weight_source: 'unreadable', episode_line_weight: null, channel_line_weight, error: error.message })
+  }
+})
+router.put('/projects/:slug/scene-review/:episodeId/motion-line-weight', async (req, res) => {
+  try {
+    const { slug, episodeId } = req.params
+    if (!isEpisodeCode(episodeId)) return res.status(400).json({ detail: 'Choose a valid episode.' })
+    const weight = req.body?.line_weight
+    if (weight === undefined) return res.status(400).json({ detail: 'Choose a line weight, or null to use the channel default.' })
+    if (weight !== null) {
+      const parsed = parseSketchLineWeight(weight)
+      if (!parsed.ok) return res.status(400).json({ detail: parsed.error })
+    }
+    await writeEpisodeSketchLineWeight(slug, episodeId, weight)
+    await invalidateEpisodeStatus(slug, episodeId)
+    res.json(await resolveEpisodeLineWeight(slug, episodeId))
   } catch (error: any) { res.status(409).json({ detail: error.message }) }
 })
 

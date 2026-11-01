@@ -400,7 +400,7 @@ export async function generateSketchDrawSceneClip(job: Job, render = renderSketc
     const colourMask = revealType === 'colour' ? await sceneDepthMask(paths.episode_dir, sceneId, imagePath) : undefined
     const helperJob = { kind: 'sketch' as const, input: snapshotPath, output: candidatePath,
       width: settings.width, height: settings.height, fps: settings.fps, frames,
-      hold_frames: holdFrames, paper: '#ffffff', pen, reveal: revealType, quality: NATIVE_CLIP_QUALITY,
+      hold_frames: holdFrames, paper: '#ffffff', pen, reveal: revealType, line_weight: settings.lineWeight, quality: NATIVE_CLIP_QUALITY,
       ...(colourMask ? { mask: colourMask } : {}) }
     job.output_lines.push(`Scene ${sceneId}: Sketch Draw locally, ${REVEAL_LABEL[revealType]} reveal, ${frames} frames at ${settings.fps} fps (${window}s), closing hold ${holdFrames} frames (${(holdFrames / settings.fps).toFixed(1)}s).${colourMask ? " Subject phase from this scene's depth map." : ''}`)
     job.progress = 10
@@ -422,7 +422,7 @@ export async function generateSketchDrawSceneClip(job: Job, render = renderSketc
           hold_frames: holdFrames, hold_fingerprint: settings.holdFingerprint,
           // No depth-mask identity here on purpose: the map only reorders the colouring and the
           // final frame is the scene picture either way, so a changed map never stales a clip.
-          reveal_type: revealType },
+          reveal_type: revealType, line_weight: settings.lineWeight },
         candidate_path: candidatePath,
         context: { slug: job.project_slug, episodeId, episodeDir: paths.episode_dir, imagePath, revealScenes }, assertActive,
       })

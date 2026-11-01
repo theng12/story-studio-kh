@@ -38,6 +38,7 @@ import {
 } from '../lib/native-scene-clip.js'
 import { sceneClipStaleReason } from '../services/scene-media-checkpoint.js'
 import { DEFAULT_SKETCH_REVEAL, sketchRevealFingerprint, type SketchRevealSetting, type SketchRevealType } from '../lib/sketch-reveal.js'
+import type { SketchLineWeight } from '../lib/sketch-line-weight.js'
 import { useTempDataDir } from './_helpers.js'
 
 const sha = (bytes: Buffer | string) => createHash('sha256').update(bytes).digest('hex')
@@ -53,10 +54,10 @@ after(async () => { await cleanup() })
 
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64')
 
-function settings(reveal: SketchRevealSetting | null) {
+function settings(reveal: SketchRevealSetting | null, lineWeight: SketchLineWeight = 'normal') {
   return { fps: 30, width: 1920, height: 1080, pen: { mode: 'none' as const }, penFingerprint: sha('none'),
     hold: { mode: 'auto' as const }, holdFingerprint: sha('auto'),
-    reveal, revealFingerprint: sketchRevealFingerprint(reveal ?? DEFAULT_SKETCH_REVEAL) }
+    reveal, revealFingerprint: sketchRevealFingerprint(reveal ?? DEFAULT_SKETCH_REVEAL), lineWeight }
 }
 
 function scene(revealType: SketchRevealType, over: Record<string, unknown> = {}) {
@@ -78,13 +79,13 @@ test('a clip receipt from the old helper stays fresh: the ending changes, the cl
   for (const reveal of REVEALS) {
     const ctx = { slug: 'channel', episodeId: 'EP001', episodeDir: dir, imagePath: file,
       sketchSettings: settings({ style: reveal, mix: [] }), revealScenes: ['scene-1'] }
-    for (const helper_version of [2, 3, 4, 5, 6]) {
+    for (const helper_version of [2, 3, 4, 5, 6, 7]) {
       const receipt = { ...scene(reveal).clip_sketch, helper_version }
       assert.equal(await sceneClipStaleReason(scene(reveal, { clip_sketch: receipt }), ctx), null,
         `helper ${helper_version} ${reveal} clip stays fresh under helper ${NATIVE_SCENE_CLIP_VERSION}`)
     }
   }
-  assert.deepEqual([...SKETCH_DRAW_COMPATIBLE_HELPER_VERSIONS], [2, 3, 4, 5, 6])
+  assert.deepEqual([...SKETCH_DRAW_COMPATIBLE_HELPER_VERSIONS], [2, 3, 4, 5, 6, 7])
   assert.ok(SKETCH_DRAW_COMPATIBLE_HELPER_VERSIONS.includes(NATIVE_SCENE_CLIP_VERSION))
 })
 

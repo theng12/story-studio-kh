@@ -50,6 +50,7 @@ struct SketchJob: Decodable {
     var pen: SketchPen
     var quality: Double?
     var reveal: String?        // line | buildup | swipes | patches | bloom | colour. Default: line.
+    var line_weight: String?   // thin | normal | bold. Default: normal — the engine's own weight.
     // Optional 8-bit depth map for THIS scene (the episode's own Scene Analysis depth), used only by
     // `colour` to paint the subject first. Absent, unreadable or flat: no subject phase, never an
     // invented one — the reveal never guesses where the subject is.
@@ -66,6 +67,21 @@ func sketchDefaultHold(frames: Int, fps: Int) -> Int {
 enum SketchReveal: String {
     case line, buildup, swipes, patches, bloom, colour
     static let names = ["line", "buildup", "swipes", "patches", "bloom", "colour"]
+}
+
+/// The ink weights this engine draws. `normal` is the engine's own weight — the band widths the
+/// renderer has always used — so a clip that asks for nothing is drawn exactly as before.
+enum SketchLineWeight: String {
+    case thin, normal, bold
+    static let names = ["thin", "normal", "bold"]
+    /// The multiplier applied to every stroke's width. Measured against rendered samples, not guessed.
+    var scale: Float {
+        switch self {
+        case .thin: return 0.62
+        case .normal: return 1.0
+        case .bold: return 1.45
+        }
+    }
 }
 
 private final class SketchBitmap {
@@ -538,6 +554,9 @@ private let sketchFadeStart: Float = 0.88
 private final class SketchV2 {
     let w: Int, h: Int, n: Int
     let reveal: SketchReveal
+    /// The ink weight this drawing is drawn with. `normal` scales every stroke by 1, so the
+    /// drawing is byte-identical to the one the engine drew before the weight existed.
+    let lineWeight: SketchLineWeight
     let paper: [UInt8]
     let zoom: Float
 
@@ -569,9 +588,11 @@ private final class SketchV2 {
     private(set) var colour: ColourPlan?
 
     init(_ source: SketchBitmap, _ paper: [UInt8], _ reveal: SketchReveal,
+         lineWeight: SketchLineWeight = .normal,
          mask: (path: String, rect: (x: Int, y: Int, w: Int, h: Int))? = nil) {
         w = source.width; h = source.height; n = w * h
         self.reveal = reveal
+        self.lineWeight = lineWeight
         self.paper = paper
         zoom = max(0.5, Float(w) / 1920.0)
         picture = .allocate(capacity: n * 3)
@@ -959,7 +980,9 @@ private final class SketchV2 {
                                     simplified.append(seg[seg.count - 1])
                                 } else { simplified = seg }
                                 if simplified.count < 2 { continue }
-                                let width = band.baseW * zoom * (0.6 + 0.8 * min(1, strength / (need * 1.6)))
+                                // The ink weight scales every stroke's width. `normal` is exactly 1, so a normal drawing is
+                                // byte-identical to the one the engine drew before the weight existed.
+                                let width = band.baseW * zoom * (0.6 + 0.8 * min(1, strength / (need * 1.6))) * lineWeight.scale
                                 let f = min(1, (strength - need) / (need * 1.2))
                                 let alpha = band.baseA * (0.62 + 0.38 * max(0, f))
                                 raw.append((simplified, width, alpha, band.phase, strength))
@@ -2355,6 +2378,7 @@ private func sketchNV12(_ canvas: SketchBitmap, _ pb: CVPixelBuffer) {
 
 func renderSketch(_ job: SketchJob) {
     let revealName = job.reveal ?? "line"
+    let weightName = job.line_weight ?? "normal"
     guard job.kind == "sketch", job.width >= 2, job.height >= 2, job.width <= 4096, job.height <= 4096,
           job.width % 2 == 0, job.height % 2 == 0, job.fps >= 1, job.fps <= 120,
           job.frames >= 1, job.frames <= 1_000_000,
@@ -2362,11 +2386,12 @@ func renderSketch(_ job: SketchJob) {
           job.quality == nil || (job.quality!.isFinite && (0...1).contains(job.quality!)),
           job.paper.range(of: "^#[0-9a-fA-F]{6}$", options: .regularExpression) != nil,
           SketchReveal.names.contains(revealName),
+          SketchLineWeight.names.contains(weightName),
           ["none", "plain", "name", "logo"].contains(job.pen.mode),
           job.pen.mode != "name" || (!(job.pen.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && (job.pen.text?.count ?? 0) <= 256),
           job.pen.mode != "logo" || !(job.pen.logo ?? "").isEmpty,
           job.input.hasPrefix("/"), job.output.hasPrefix("/"), job.input != job.output,
-          job.mask == nil || job.mask!.hasPrefix("/") else { fail(2, "bad sketch geometry, frame budget, paper, reveal, mask or pen") }
+          job.mask == nil || job.mask!.hasPrefix("/") else { fail(2, "bad sketch geometry, frame budget, paper, reveal, line weight, mask or pen") }
     if FileManager.default.fileExists(atPath: job.output) { fail(2, "sketch output already exists; use a new temporary path") }
     let began = DispatchTime.now().uptimeNanoseconds
     let hex = String(job.paper.dropFirst()), paper = stride(from: 0, to: 6, by: 2).map { i -> UInt8 in
@@ -2385,7 +2410,7 @@ func renderSketch(_ job: SketchJob) {
     let analysisBegan = DispatchTime.now().uptimeNanoseconds
     // The depth map is the scene's own, and is drawn into the same fitted rect as the picture.
     let mask = job.mask.map { (path: $0, rect: (x: Int(px), y: Int(py), w: Int(fw), h: Int(fh))) }
-    let engine = SketchV2(source, paper, SketchReveal(rawValue: revealName)!, mask: mask)
+    let engine = SketchV2(source, paper, SketchReveal(rawValue: revealName)!, lineWeight: SketchLineWeight(rawValue: weightName)!, mask: mask)
     let analysisSeconds = Double(DispatchTime.now().uptimeNanoseconds - analysisBegan) / 1e9
     let hold = job.hold_frames ?? sketchDefaultHold(frames: job.frames, fps: job.fps)
     let drawing = job.frames - hold

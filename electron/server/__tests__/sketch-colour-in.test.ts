@@ -36,6 +36,7 @@ import {
   readSceneAnalysis, SCENE_ANALYSIS_DIR, SCENE_ANALYSIS_SCHEMA, visionFromEntry,
 } from '../services/scene-analysis.js'
 import { useTempDataDir } from './_helpers.js'
+import type { SketchLineWeight } from '../lib/sketch-line-weight.js'
 
 const sha = (bytes: Buffer | string) => createHash('sha256').update(bytes).digest('hex')
 
@@ -103,10 +104,10 @@ after(async () => { await cleanup() })
 
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64')
 
-function settings(reveal: SketchRevealSetting | null, fps = 30) {
+function settings(reveal: SketchRevealSetting | null, fps = 30, lineWeight: SketchLineWeight = 'normal') {
   return { fps, width: 1920, height: 1080, pen: { mode: 'none' as const }, penFingerprint: sha('none'),
     hold: { mode: 'auto' as const }, holdFingerprint: sha('auto'),
-    reveal, revealFingerprint: sketchRevealFingerprint(reveal ?? DEFAULT_SKETCH_REVEAL) }
+    reveal, revealFingerprint: sketchRevealFingerprint(reveal ?? DEFAULT_SKETCH_REVEAL), lineWeight }
 }
 
 function scene(over: Record<string, unknown> = {}) {
@@ -131,9 +132,9 @@ function context(imagePath: string, sketchSettings = settings(null)) {
   return { slug: 'channel', episodeId: 'EP001', episodeDir: dir, imagePath, sketchSettings, revealScenes: ['scene-1'] }
 }
 
-test('version-4 and version-5 clips — every clip accepted before this change — stay fresh under helper 6', async () => {
+test('version-4 and version-5 clips — every clip accepted before this change — stay fresh under helper 7', async () => {
   const file = await still()
-  for (const helper_version of [4, 5, 6]) {
+  for (const helper_version of [4, 5, 6, 7]) {
     const receipt = { ...scene().clip_sketch, helper_version, reveal_type: 'line' as SketchRevealType }
     assert.equal(await sceneClipStaleReason(scene({ clip_sketch: receipt }), context(file, settings({ style: 'line', mix: [] }))), null,
       `helper ${helper_version} line clip stays fresh while the episode renders Line`)
@@ -141,7 +142,7 @@ test('version-4 and version-5 clips — every clip accepted before this change �
     assert.equal(await sceneClipStaleReason(scene({ clip_sketch: legacy }), context(file, settings(null))), null,
       'a clip that recorded no type keeps the reveal it was made with')
   }
-  assert.deepEqual([...SKETCH_DRAW_COMPATIBLE_HELPER_VERSIONS], [2, 3, 4, 5, 6])
+  assert.deepEqual([...SKETCH_DRAW_COMPATIBLE_HELPER_VERSIONS], [2, 3, 4, 5, 6, 7])
   assert.ok(SKETCH_DRAW_COMPATIBLE_HELPER_VERSIONS.includes(NATIVE_SCENE_CLIP_VERSION))
   assert.match((await sceneClipStaleReason(scene({ clip_sketch: { ...scene().clip_sketch, helper_version: 1 } }), context(file, settings(null))))!, /renderer/)
 })

@@ -8,7 +8,7 @@
  * MUST equal `HELPER_VERSION` in `native/scene-clip/main.swift`; the backend regression
  * reads both files and the build script's version probe enforces it at build time.
  */
-export const NATIVE_SCENE_CLIP_VERSION = 6
+export const NATIVE_SCENE_CLIP_VERSION = 7
 
 /**
  * Helper versions whose Sketch Draw clips are still a valid render for freshness. Version 3 only
@@ -26,5 +26,9 @@ export const NATIVE_SCENE_CLIP_VERSION = 6
  * version-5 clip ends on the drawing instead of the picture — a complete, correct drawing of its
  * scene, but not the same ending — so accepted clips stay fresh and only re-render when the owner
  * asks for them again.
+ * Version 7 adds the ink WEIGHT: `thin`, `normal` or `bold`. A version-7 clip records the weight it
+ * was drawn with on its receipt, and a version-6 clip has no such record — it IS a normal clip, so
+ * choosing normal never stales it and a channel or episode that never chose a weight stales
+ * nothing. Accepted clips stay fresh and only re-render when the owner asks for them again.
  */
-export const SKETCH_DRAW_COMPATIBLE_HELPER_VERSIONS: readonly number[] = [2, 3, 4, 5, 6]
+export const SKETCH_DRAW_COMPATIBLE_HELPER_VERSIONS: readonly number[] = [2, 3, 4, 5, 6, 7]
