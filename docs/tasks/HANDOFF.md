@@ -2,6 +2,7 @@
 
 ### Release 1.4.374 — Sketch Draw finish and weight, re-plan staleness, cancel, grouped sound mix (2026-11-01)
 
+- **Shipped:** main `2756ed0a`, gate4 passed 10 of 10 (`_orchestra/app-closeout-20261021/story-374/gate4`). Published on 1301 (sha `a1ecc679`) and installed on the mini at 22:33; on all four SSD kits. Ship with `KH_GATEWAY_URL=http://127.0.0.1:8787` (`gw.py` defaults to this Mac's own Gateway).
 - **Sketch:** helper 7, compatible [2-7], so old clips stay fresh. `line_weight` factors thin 0.62, normal 1.0, bold 1.45; absent means normal. GOLDEN_V6 was re-recorded from the new helper, so it guards change from here on, not the old look; `_orchestra/sketch-finish-374-samples` is the evidence for that. Frame-hash goldens flake at quality 0.7 with encoders side by side.
 - **Re-plan:** `services/scene-plan-staleness.ts`, proved end to end by `scene-plan-replan-image-batch-e2e` against the mock Gateway. A picture with no `rendered_prompt` is not stale.
 - **Sound mix:** `SPOT_MIX_GROUP_SIZE` 24, lossless stems. EP0002's FFmpeg code 221 on the mini is NOT explained and does not reproduce on the Mac Studio. `ffmpegExitErrorLine` keeps the real line for next time.
