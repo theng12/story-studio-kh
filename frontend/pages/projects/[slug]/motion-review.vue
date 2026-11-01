@@ -199,6 +199,7 @@
           <button v-if="isSketchDraw && lineWeightLoaded && episodeLineWeight && episodeLineWeight !== channelLineWeight" type="button" class="btn btn-sm btn-ghost" :disabled="lineWeightSaving || presentationSaving" @click="setChannelLineWeightDefault">
             Make this the channel default weight
           </button>
+          <div v-if="isSketchDraw" class="renderer-help-break" aria-hidden="true" />
           <p v-if="isSketchDraw" id="sketch-line-weight-help" class="renderer-help" role="status">
             How heavy the ink is drawn. This is {{ episodeId }}'s setting; other episodes are not affected. Each scene records the weight it actually drew with, so changing it re-generates only the scenes whose weight moved.
             <span v-if="!lineWeightLoaded">Loading this episode's line weight.</span>
@@ -2305,6 +2306,7 @@ watch(episodeId, () => {
 .motion-tool-heading span { color: var(--text-muted); font-size: var(--font-xs); line-height: 1.4; }
 .motion-renderer-row { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; }
 .motion-renderer-row .renderer-field { flex: 0 1 240px; min-width: 0; }
+.renderer-help-break { flex: 0 0 100%; height: 0; }
 .renderer-help { flex: 1 1 280px; max-width: 70ch; margin: 0; color: var(--text-secondary); font-size: var(--font-xs); line-height: 1.5; }
 .renderer-help span { display: block; }
 .hold-inputs { display: flex; flex-wrap: wrap; align-items: end; gap: 8px; }
