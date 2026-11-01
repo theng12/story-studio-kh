@@ -524,11 +524,11 @@ export async function decidePaidImageReplacement(input: PaidImageReplacementDeci
   const initialArtifact = await dependencies.artifactExists(asset.outputPath).catch(() => null)
   if (initialArtifact === null) return blocked('the original artifact could not be audited')
   if (initialArtifact) return { action: 'recover-original' }
-  // The failure code is the only evidence Story has that nothing was taken: the
-  // allow-list above is the set of Gateway endings where no machine kept the
-  // work. A placement that DID reach a machine is the paid lane, and that lane
-  // is decided by its switch alone.
-  if (!FLEET_FAILURE_CODES.has(failureCode)) {
+  const setting = await dependencies.getSetting().catch(() => null)
+  if (!setting?.enabled) return blocked('paid image replacement is currently off on this machine', 'replacement_disabled')
+
+  const alreadyRetried = typeof entry.request_scope === 'string' && entry.request_scope.includes(':retry:')
+  if (!alreadyRetried) {
     let zeroReason: string | null = null
     try {
       const authorized = await withCommitLock(input.job.job_id, async () => {
@@ -554,6 +554,10 @@ export async function decidePaidImageReplacement(input: PaidImageReplacementDeci
       return blocked(error?.message || 'the free retry could not be verified')
     }
     return { action: 'safe-zero-settlement-retry' }
+  }
+
+  if (!FLEET_FAILURE_CODES.has(failureCode)) {
+    return blocked('exhausted failover is eligible only after a fully released zero settlement', 'original_failure_not_eligible')
   }
 
   let attempt: PaidImageReplacementAttempt | undefined

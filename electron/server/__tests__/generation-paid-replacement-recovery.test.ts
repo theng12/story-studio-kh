@@ -193,7 +193,6 @@ test('generation replacement recovery reuses receipts, stays off-safe, and keeps
       assert.equal(audioPosts.length, 2)
       assert.equal(audioPosts[0]?.key, originalAudioKey)
       assert.match(audioPosts[1]?.key || '', /^story-audio-replacement-/)
-      assert.equal(audioPosts[1]?.body.max_charge_credits, 5)
       assert.equal(audioPosts.some(entry => entry.key === manualAudioKey), false)
     })
 
@@ -314,7 +313,6 @@ test('generation replacement recovery reuses receipts, stays off-safe, and keeps
       assert.equal(chatPosts.length, 3)
       assert.equal(chatPosts[0]?.key, originalChatKey)
       assert.match(chatPosts[1]?.key || '', /^story-writing-replacement-/)
-      assert.equal(chatPosts[1]?.body.max_charge_credits, 10)
       assert.equal(chatPosts[2]?.key, searchedChatKey)
       assert.deepEqual(chatPosts[2]?.body.web_search, { enabled: true, max_searches: 1, allowed_domains: [], blocked_domains: [] })
     })

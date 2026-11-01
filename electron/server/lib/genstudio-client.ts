@@ -8119,6 +8119,13 @@ async function recoverChatJobAdmitted(
 }
 
 /** One confirmed failed request, one durable bounded replacement; never a whole-job replay. */
+let automaticPaidGenerationReplacementEnabled = false
+export function _setAutomaticPaidGenerationReplacementForTesting(enabled: boolean): () => void {
+  const previous = automaticPaidGenerationReplacementEnabled
+  automaticPaidGenerationReplacementEnabled = enabled
+  return () => { automaticPaidGenerationReplacementEnabled = previous }
+}
+
 function isUncertainGenerationCode(code: string | null | undefined): boolean {
   return isSubmissionUncertainCode(code)
 }
@@ -8229,6 +8236,9 @@ async function replaceConfirmedGeneration<T>(
     // so a hold taken between the failure and this read bought a replacement anyway.
     || holdsUnknownOutcome(original)) {
     return refuse('The previous request is not a confirmed eligible failure.')
+  }
+  if (!automaticPaidGenerationReplacementEnabled) {
+    return refuse('Automatic paid replacement is not enabled in this release. Manual Retry remains available.')
   }
   let quotedMaximum: number | null = null
   if (quoteMaximum) {
