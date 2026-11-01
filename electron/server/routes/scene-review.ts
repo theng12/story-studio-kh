@@ -43,6 +43,7 @@ import {
 } from '../generators/scene-clip.js'
 import { publishedVideoControls, STORY_STUDIO_VIDEO_MODE, type GenStudioVideoControl } from '../lib/genstudio-client.js'
 import { decodeUploadBuffer } from './image-references.js'
+import { copyToTrashSync, trashRootFor } from '../lib/trash-move.js'
 import {
   assertScenePromptsRenderable,
   clearLegacyPlannerFallbackReasons,
@@ -1775,6 +1776,11 @@ router.post('/projects/:slug/scene-review/:episodeId/upload-image/:sceneId', asy
     const outDir = await resolveSceneImagesDir(slug, episodeId.toUpperCase(), paths.episode_dir)
     await fs.mkdir(outDir, { recursive: true })
     const outPath = path.join(outDir, `${sceneId}.png`)
+    // v1.4.375 — a replaced image goes to Story Trash, never silently overwritten.
+    const prevImage = await fs.stat(outPath).catch(() => null)
+    if (prevImage?.isFile() && prevImage.size > 0) {
+      copyToTrashSync(outPath, path.join(trashRootFor(outDir, pm.getProjectDir(slug) ?? outDir, slug), 'scene-images', path.basename(outPath)), 'scene-images')
+    }
     await fs.writeFile(outPath, buf.data)
 
     // The image file is on disk; stamping the plan is a read-modify-write and
@@ -1878,6 +1884,11 @@ router.post('/projects/:slug/scene-review/:episodeId/upload-clip/:sceneId', clip
     // The converted clip is decoded end to end before it may replace anything, and the
     // duration recorded on the plan is the one measured from THAT file — not from the upload.
     const measuredDurationSeconds = await assertPlayableSceneClip(tmp)
+    // v1.4.375 — a replaced clip goes to Story Trash, never silently overwritten.
+    const prevClip = await fs.stat(outPath).catch(() => null)
+    if (prevClip?.isFile() && prevClip.size > 0) {
+      copyToTrashSync(outPath, path.join(trashRootFor(outDir, pm.getProjectDir(slug) ?? outDir, slug), 'scene-clips', path.basename(outPath)), 'scene-clips')
+    }
     await fs.rename(tmp, outPath)
 
     // The checkpoint decodes the uploaded video before exposing it to Scene
@@ -2150,5 +2161,51 @@ router.get('/projects/:slug/scene-review/:episodeId/audio', async (req, res) => 
     streamLocalMedia(req, res, audioPath, mime, bestSize)
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Failed to serve merged audio'))
+  }
+})
+
+// ── GET /scene-review/:ep/import-handoff ──────────────────────────────
+// v1.4.375 — hand-off data for external clip/image import (owner 2026-11-02:
+// "I use Google Flow to generate the scene and import"). Returns which scenes
+// need clips or images, with each scene's prompt and length ready to copy,
+// and the file name to save it as. Preset-owned clip lengths (Flow=8s).
+router.get('/projects/:slug/scene-review/:episodeId/import-handoff', async (req, res) => {
+  const { slug, episodeId } = req.params
+  const preset = (req.query.preset as string) || 'flow'
+  try {
+    const paths = await resolveEpisodePathsByCodeWithSidecar(slug, episodeId, SCENE_PLAN_FILENAME)
+    const planPath = await resolveScenePlanPath(slug, episodeId, paths.episode_dir)
+    if (!existsSync(planPath)) return res.status(400).json({ detail: 'No scene_plan.json yet' })
+    const plan = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
+    const { generateHandoffData } = await import('../lib/scene-import.js')
+    const handoff = generateHandoffData(plan.scenes, preset as any)
+    res.json(handoff)
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Failed to generate import hand-off'))
+  }
+})
+
+// ── POST /scene-review/:ep/match-import-files ─────────────────────────
+// v1.4.375 — match uploaded file names to scenes before import. Returns
+// matched, unmatched, and ambiguous files so the user can confirm the mapping.
+router.post('/projects/:slug/scene-review/:episodeId/match-import-files', async (req, res) => {
+  const { slug, episodeId } = req.params
+  const body = req.body || {}
+  const files = body.files
+  if (!Array.isArray(files)) return res.status(400).json({ detail: 'files must be an array' })
+  try {
+    const paths = await resolveEpisodePathsByCodeWithSidecar(slug, episodeId, SCENE_PLAN_FILENAME)
+    const planPath = await resolveScenePlanPath(slug, episodeId, paths.episode_dir)
+    if (!existsSync(planPath)) return res.status(400).json({ detail: 'No scene_plan.json yet' })
+    const plan = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
+    const { matchFilesToScenes } = await import('../lib/scene-import.js')
+    const result = matchFilesToScenes(files, plan.scenes)
+    res.json({
+      matched: result.matched.map(m => ({ file: m.file, scene_id: m.scene.id, scene_index: m.scene.scene_index })),
+      unmatched: result.unmatched,
+      ambiguous: result.ambiguous.map(a => ({ file: a.file, candidates: a.candidates.map(c => ({ id: c.id, scene_index: c.scene_index })) })),
+    })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Failed to match import files'))
   }
 })
