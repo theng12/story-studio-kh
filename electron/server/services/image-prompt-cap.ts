@@ -31,7 +31,9 @@
  */
 
 import { listImageModels } from '../lib/genstudio-client.js'
+import { findGenStudioProduct } from '../contracts/genstudio-product-identity.js'
 import { getApiKey } from './app-secrets-store.js'
+import { resolveGenStudioModelId } from './genstudio-model-migration.js'
 import { resolveScenePlanPromptCharCapDetail } from './preset-authority.js'
 import { ImagePromptCapUnavailableError, parsePromptCharCap } from './prompt-char-cap.js'
 
@@ -167,4 +169,37 @@ export async function requireLiveImagePromptCharCapDetail(
   const result = await resolveLiveImagePromptCharCap(request)
   if (result.error) throw new ImagePromptCapUnavailableError(result.error)
   return { cap: result.cap, publishedCap: result.publishedCap }
+}
+
+/**
+ * The image model's OWN published `max_prompt_characters`, read live for one
+ * scene render.
+ *
+ * Deliberately NOT a selection: a scene render is not writing a prompt, it is
+ * SUBMITTING one, so the only figure that may govern it is the model's own.
+ * There is no 'auto' / 'none' / chosen-number choice here to resolve, and no
+ * customer ceiling is consulted — a tighter customer writing budget cannot
+ * loosen what the model accepts, and a looser one cannot tighten it.
+ *
+ * Read through the same cached, coalesced catalogue call the model resolver
+ * has just made, so a 25-scene batch costs no extra request. That copy is
+ * refreshed on the catalogue's own schedule rather than held from an earlier
+ * render, so a model that republishes a different figure takes effect on the
+ * next render without anything being stored and without a reload.
+ *
+ * No published figure — an unpublished cap, a saved id the catalogue no longer
+ * answers to, a missing key, an unreadable catalogue — means `undefined`.
+ * The caller then sends the assembled prompt untrimmed rather than inventing a
+ * ceiling (§1), and a catalogue fault never turns a working render into a
+ * failed one.
+ */
+export async function publishedSceneRenderPromptCap(
+  apiKey: string,
+  modelId: string,
+): Promise<number | undefined> {
+  const resolved = resolveGenStudioModelId('image', modelId)
+  if (!resolved || !apiKey.trim()) return undefined
+  const catalogue = await listImageModels(apiKey).catch(() => null)
+  if (!catalogue) return undefined
+  return parsePromptCharCap(findGenStudioProduct(catalogue, resolved)?.max_prompt_characters)
 }
