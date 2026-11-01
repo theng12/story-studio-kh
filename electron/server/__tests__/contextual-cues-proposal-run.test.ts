@@ -130,6 +130,37 @@ describe('Contextual Cues proposal runs', () => {
     assert.deepEqual(titles, ['Berlin', 'Paris', 'Rome'])
   })
 
+  /**
+   * v1.4.374 — a batch that fails no longer takes the whole proposal with it.
+   *
+   * A 68-scene episode failed three times on the Gateway's "answer stopped
+   * early (length)" and lost every label each time, because the first bad
+   * batch ended the run and the progress file was thrown away with it. The
+   * batches that DID succeed are paid for and must survive: they are saved,
+   * the failure is named, and a Retry asks only for the missing batch.
+   */
+  test('a failed batch keeps the labels the other batches bought, and names what is missing', async () => {
+    await reset()
+    mock.queueScenario('chat', answer('scene-1', 'Berlin'))
+    // Batch 2 fails at the provider; the run must not lose batch 1.
+    mock.queueScenario('chat', { states: ['failed'], failureCode: 'LANGUAGE_PROVIDER_INCOMPLETE', outputText: '' })
+    mock.queueScenario('chat', answer('scene-3', 'Rome'))
+    const run = generator.generateContextualCues(job('partial'))
+    await assert.rejects(run, (error: Error) => {
+      assert.match(error.message, /Contextual cue proposal incomplete/, 'the run says it is incomplete')
+      assert.match(error.message, /batch 2/, 'the failed batch is named')
+      return true
+    })
+    // The two successful batches are on disk, not thrown away.
+    const saved = (await cues.readContextualCueTimeline(planPath))!
+    assert.deepEqual(saved.cues.map(cue => cue.title).sort(), ['Berlin', 'Rome'])
+    // And the paid batches stay on the progress file, so a Retry buys only the
+    // one batch that is missing.
+    const progress = await cues.readContextualCueProgress(planPath)
+    assert.ok(progress, 'the paid batches are still recorded')
+    assert.equal(progress!.completed_batches.length, 2)
+  })
+
   test('progress for a different Scene Plan is never reused', async () => {
     await reset()
     await savePartialRunFromActionA({ ...plan, generated_at: '2026-09-01T00:00:00.000Z' })
@@ -165,6 +196,86 @@ describe('Contextual Cues proposal runs', () => {
     assert.equal(scene1[0]!.status, 'approved')
   })
 
+  /**
+   * v1.4.374 — ONE bad label no longer loses all the others.
+   *
+   * "Generated cues did not pass safe pacing validation: Cue must remain
+   * inside its scene timing" aborted the whole save and named no cue: one
+   * label with a wrong timing cost every other label in the run (owner,
+   * 2026-11-01). Now the offending cue is named and only that cue is lost.
+   *
+   * The bad cue here is the REVIEWER'S OWN — an approved label whose scene
+   * changed under it when the plan was re-planned. It is not dropped: it is
+   * the customer's work and it stays exactly as it is. It is reported by
+   * name, and the labels this run proposed are saved.
+   */
+  test('one label that breaks the scene timing no longer loses every other label', async () => {
+    await reset()
+    await cues.writeContextualCueTimeline(planPath, {
+      schema_version: 1, generated_at: '', source_scene_plan_generated_at: plan.generated_at,
+      // scene-3 spans 200–300s in this plan; this label ends at 350s, so it no
+      // longer fits the scene it belongs to — the plan was re-planned under it.
+      cues: [{ id: 'cue-scene-3', scene_id: 'scene-3', start_sec: 346, end_sec: 350, title: 'Stale Rome', kind: 'location_date',
+        placement: 'top-right', template: 'map-pin', entrance: 'fade', exit: 'dissolve', status: 'approved',
+        created_at: '', updated_at: '' } as any],
+    })
+    mock.queueScenario('chat', answer('scene-1', 'Berlin'))
+    mock.queueScenario('chat', answer('scene-2', 'Paris'))
+    await generator.generateContextualCues(job('onebad'))
+    const saved = (await cues.readContextualCueTimeline(planPath))!
+    const titles = saved.cues.map(cue => cue.title)
+    assert.ok(titles.includes('Berlin') && titles.includes('Paris'), 'the good labels are saved')
+    assert.ok(titles.includes('Stale Rome'), 'the customer\'s own label is not destroyed')
+  })
+
+  /**
+   * v1.4.374 — the bad cue is NAMED, not vanished. The run says which label
+   * is the problem and why, so the customer can go and fix it.
+   */
+  test('a label that breaks the scene timing is reported by name with its reason', async () => {
+    await reset()
+    await cues.writeContextualCueTimeline(planPath, {
+      schema_version: 1, generated_at: '', source_scene_plan_generated_at: plan.generated_at,
+      cues: [{ id: 'cue-scene-3', scene_id: 'scene-3', start_sec: 346, end_sec: 350, title: 'Stale Rome', kind: 'location_date',
+        placement: 'top-right', template: 'map-pin', entrance: 'fade', exit: 'dissolve', status: 'approved',
+        created_at: '', updated_at: '' } as any],
+    })
+    mock.queueScenario('chat', answer('scene-1', 'Berlin'))
+    mock.queueScenario('chat', answer('scene-2', 'Paris'))
+    const runJob = job('named')
+    await generator.generateContextualCues(runJob)
+    const line = runJob.output_lines.find((text: string) => /need attention/.test(text))
+    assert.ok(line, `the run names the label: ${runJob.output_lines.join(' | ')}`)
+    assert.match(line!, /Stale Rome/)
+    assert.match(line!, /inside its scene timing/)
+  })
+
+  /**
+   * v1.4.374 — a scene that already carries a reviewer's label is LEFT OUT of
+   * the request, and a candidate that still comes back for it is named.
+   */
+  test('a scene with an approved label is left out of the request and keeps its own label', async () => {
+    await reset()
+    await cues.writeContextualCueTimeline(planPath, {
+      schema_version: 1, generated_at: '', source_scene_plan_generated_at: plan.generated_at,
+      cues: [{ id: 'cue-scene-1', scene_id: 'scene-1', start_sec: 1, end_sec: 4, title: 'Reviewed Berlin', kind: 'location_date',
+        placement: 'top-right', template: 'map-pin', entrance: 'fade', exit: 'dissolve', status: 'approved',
+        created_at: '', updated_at: '' } as any],
+    })
+    mock.queueScenario('chat', answer('scene-2', 'Paris'))
+    mock.queueScenario('chat', answer('scene-3', 'Rome'))
+    await generator.generateContextualCues(job('occupied'))
+    // Only the two open scenes were asked about: scene-1 was never sent.
+    assert.equal(chatSubmissions().length, 2, 'the occupied scene was not proposed for again')
+    const bodies = chatSubmissions().map((s: any) => String(s.parsedBody?.messages?.[1]?.content || ''))
+    assert.ok(!bodies.some((body: string) => body.includes('scene-1')), 'the occupied scene is not in the prompt')
+    const saved = (await cues.readContextualCueTimeline(planPath))!
+    const scene1 = saved.cues.filter(cue => cue.scene_id === 'scene-1')
+    assert.equal(scene1.length, 1, 'the reviewer\'s label survives untouched')
+    assert.equal(scene1[0]!.title, 'Reviewed Berlin')
+    assert.equal(scene1[0]!.status, 'approved')
+  })
+
   test('the preset auto-approve holds a crowding cue back instead of failing the whole run', async () => {
     await reset()
     await cues.writeContextualCueTimeline(planPath, {
@@ -174,7 +285,8 @@ describe('Contextual Cues proposal runs', () => {
         placement: 'top-right', template: 'map-pin', entrance: 'fade', exit: 'dissolve', status: 'approved',
         created_at: '', updated_at: '' } as any],
     })
-    mock.queueScenario('chat', { outputText: JSON.stringify({ cues: [] }) })
+    // v1.4.374 — scene-1 carries the reviewer's approved label, so it is left
+    // out of the request: only scenes 2 and 3 are asked about.
     mock.queueScenario('chat', answer('scene-2', 'Paris', 0))
     mock.queueScenario('chat', answer('scene-3', 'Rome'))
     await generator.generateContextualCues(job('E', { auto_approve: true }))

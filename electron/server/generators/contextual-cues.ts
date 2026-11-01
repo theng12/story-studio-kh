@@ -24,11 +24,12 @@ import {
   readContextualCueTimeline,
   removeContextualCueProgress,
   normalizeContextualCueProposalSettings,
-  resolveContextualCueBatchSize,
+  resolveContextualCueBatchSizeForOutput,
   normalizeContextualCueTemplate,
   validateContextualCueTimeline,
   writeContextualCueProgress,
   writeContextualCueTimeline,
+  type ContextualCueIssue,
   type ContextualCueProgress,
 } from '../services/contextual-cues.js'
 import {
@@ -224,8 +225,8 @@ function assertContextualCueCapability(model: GenStudioChatModel, itemCount: num
   // absent number decided that the model could not do work it may well be able
   // to do, and the refusal read "above its published unpublished item limit".
   // Now only a PUBLISHED limit can refuse. When nothing is published the batch
-  // goes out bounded by the token budget (`resolveContextualCueBatchSize` sizes
-  // from the policy default rather than inventing a cap), and a provider
+  // goes out bounded by the token budget (`resolveContextualCueBatchSizeForOutput`
+  // sizes from the policy default rather than inventing a cap), and a provider
   // refusal is the answer if the lane disagrees.
   const published = model.max_structured_items_per_request
   const structuredItemLimit = typeof published === 'number' && Number.isInteger(published) && published > 0
@@ -516,6 +517,11 @@ function cueDropReason(candidate: CueCandidate, plan: ScenePlan, allow: CueChoic
  * Every candidate the model returned, split into the cues that will be saved
  * and the ones dropped — each with its reason (2026-10-07). This used to drop
  * silently, and the job certified a constant 1/1 whatever happened.
+ *
+ * v1.4.374 — the drop for a scene the reviewer already resolved is now
+ * RECORDED too. It used to be filtered away by `resolvedIds` with no reason
+ * at all, so a run that saved 1 of 4 candidates reported `dropped: []` and
+ * the count did not add up (owner, 2026-11-01).
  */
 export function accountCueCandidates(
   candidates: CueCandidate[],
@@ -550,7 +556,85 @@ export function accountCueCandidates(
     }
   }
   // One cue per scene: a scene the reviewer already resolved keeps that cue.
-  return { proposed: paced.filter(cue => !resolvedIds.has(cue.id)), dropped }
+  // The cue is NOT saved — the reviewer's is — and it is now NAMED, so the
+  // candidates the model returned and the cues that were saved add up.
+  const kept: ContextualCue[] = []
+  for (const cue of paced) {
+    if (resolvedIds.has(cue.id)) {
+      dropped.push({
+        scene_id: cue.scene_id,
+        title: cue.title,
+        reason: 'the scene already has a label the reviewer approved or turned off',
+      })
+      continue
+    }
+    kept.push(cue)
+  }
+  return { proposed: kept, dropped }
+}
+
+/**
+ * Sort the validation issues of a proposal into what each one costs.
+ *
+ * v1.4.374 — ONE bad cue no longer loses every other cue (owner, 2026-11-01).
+ * "Generated cues did not pass safe pacing validation: Cue must remain inside
+ * its scene timing" aborted the whole save and named no cue: one label with a
+ * wrong timing cost every other label in the run. The RENDER path already
+ * treats a per-cue defect as that ONE cue's problem and skips the cue with its
+ * reason (`resolveRenderableContextualCues`); the save now does the same.
+ *
+ * TWO KINDS OF CUE, TWO ANSWERS:
+ *
+ *  - A CUE THIS RUN PROPOSED is dropped, named with its reason. It is this
+ *    app's own proposal, and nothing of the customer's is lost.
+ *  - A CUE THE REVIEWER APPROVED OR TURNED OFF is never dropped — it is the
+ *    customer's own work. It stays exactly as it is, and the problem with it
+ *    is REPORTED by name, so the customer can fix it in Sound & Labels. (A
+ *    stale approved label — one whose scene changed under it — used to block
+ *    every later proposal on that episode for good.)
+ *
+ * A defect that belongs to NO cue — a duplicate id — is fatal: dropping a cue
+ * cannot fix it, and the save must not pretend the timeline is sound.
+ */
+export function accountRejectedCues(
+  timeline: ContextualCueTimeline,
+  proposed: ContextualCue[],
+  issues: ContextualCueIssue[],
+): {
+  fatal: ContextualCueIssue[]
+  proposed: ContextualCue[]
+  kept: ContextualCue[]
+  dropped: DroppedCueCandidate[]
+  rejectedIds: Set<string>
+  keptButBroken: string[]
+} {
+  const fatal = issues.filter(issue => !issue.cue_id)
+  const proposedIds = new Set(proposed.map(cue => cue.id))
+  const rejectedIds = new Set<string>()
+  const dropped: DroppedCueCandidate[] = []
+  const keptButBroken: string[] = []
+  for (const issue of issues) {
+    if (!issue.cue_id) continue
+    const cue = timeline.cues.find(row => row.id === issue.cue_id)
+    if (!proposedIds.has(issue.cue_id)) {
+      keptButBroken.push(`"${cue?.title || issue.cue_id}" — ${issue.detail}`)
+      continue
+    }
+    rejectedIds.add(issue.cue_id)
+    dropped.push({
+      scene_id: cue?.scene_id || '',
+      title: cue?.title || '',
+      reason: issue.detail,
+    })
+  }
+  return {
+    fatal,
+    proposed: proposed.filter(cue => !rejectedIds.has(cue.id)),
+    kept: timeline.cues.filter(cue => !rejectedIds.has(cue.id)),
+    dropped,
+    rejectedIds,
+    keptButBroken,
+  }
 }
 
 /**
@@ -632,7 +716,7 @@ export async function generateContextualCues(job: Job): Promise<void> {
     model = saved.model
   }
   const resolvedBatchSize = catalogModel
-    ? resolveContextualCueBatchSize(catalogModel.max_structured_items_per_request, saved?.batch_size)
+    ? resolveContextualCueBatchSizeForOutput(catalogModel.max_structured_items_per_request, catalogModel.max_output_tokens, saved?.batch_size)
     : batchSize
   if (saved && catalogModel && saved.batch_size !== resolvedBatchSize) {
     // The saved batches no longer line up with what GenStudio accepts. Drop
@@ -640,7 +724,21 @@ export async function generateContextualCues(job: Job): Promise<void> {
     await removeContextualCueProgress(planPath)
     throw new Error('The Gateway now accepts a different number of scenes per request, so the saved partial proposal cannot be reused. Press Propose cues again to start over.')
   }
-  const batches = chunk(plan.scenes, resolvedBatchSize)
+  // v1.4.374 — the scenes a reviewer has already resolved are LEFT OUT of the
+  // prompt, so the model is never asked for a label that would be thrown away
+  // (owner, 2026-11-01). Before this, an occupied scene was still sent, the
+  // model proposed for it, and the candidate was then dropped with no reason
+  // recorded — so a run saved 1 of 4 candidates and reported no drops at all.
+  //
+  // The timeline is read HERE as well as at the end of the run. The end-read
+  // is what saves an approval made while this run was in flight; this read is
+  // what keeps the prompt honest about which scenes are already taken.
+  const timelineBeforeRun = await readContextualCueTimeline(planPath)
+  const occupiedSceneIds = new Set(
+    (timelineBeforeRun?.cues || []).filter(cue => cue.status !== 'proposed').map(cue => cue.scene_id),
+  )
+  const openScenes = plan.scenes.filter(scene => !occupiedSceneIds.has(scene.id))
+  const batches = chunk(openScenes, resolvedBatchSize)
   const completed = new Map((saved?.completed_batches || []).map(batch => [batch.index, batch]))
   const candidates: CueCandidate[] = [...completed.values()].flatMap(batch => batch.candidates as CueCandidate[])
   const snapshot = genStudioAdmissionSnapshot(apiKey)
@@ -651,12 +749,13 @@ export async function generateContextualCues(job: Job): Promise<void> {
     source_scene_plan_generated_at: plan.generated_at,
     model,
     batch_size: resolvedBatchSize,
-    total_scenes: plan.scenes.length,
+    total_scenes: openScenes.length,
     total_batches: batches.length,
     completed_batches: [],
     updated_at: new Date().toISOString(),
   }
   let lastSubmissionAt = 0
+  const failedBatches: Array<{ index: number; detail: string }> = []
   job.item_progress = {
     total: batches.length,
     completed: completed.size,
@@ -665,8 +764,19 @@ export async function generateContextualCues(job: Job): Promise<void> {
     active: [],
   }
   job.output_lines.push(
-    `Proposing contextual cues in ${batches.length} paced Gateway batch(es); ${completed.size} saved batch(es) will be reused. Existing approved or disabled cues stay untouched.`,
+    `Proposing contextual cues in ${batches.length} paced Gateway batch(es) of up to ${resolvedBatchSize} scene(s) each `
+    + `(sized to the model's published output allowance); ${completed.size} saved batch(es) will be reused. `
+    + 'Existing approved or disabled cues stay untouched.',
   )
+  // Say how many scenes were left out, and why — a scene that carries a
+  // reviewer's label is not proposed for again, and the count has to be
+  // visible or the candidates do not add up to the scenes.
+  if (occupiedSceneIds.size) {
+    job.output_lines.push(
+      `${occupiedSceneIds.size} scene(s) already carry a label the reviewer approved or turned off; `
+      + 'they are left out of the request and keep their own label.',
+    )
+  }
   for (const [index, scenes] of batches.entries()) {
     if (isCancelled(job.job_id)) throw new Error('Cancelled by user')
     if (completed.has(index)) continue
@@ -689,6 +799,12 @@ export async function generateContextualCues(job: Job): Promise<void> {
     let attemptNum = 1
     let backpressureRetries = 0
     let fleetBusyRetries = 0
+    // The failure that ended THIS batch, if any. Kept here rather than thrown
+    // out of the loop, because a batch that fails must not take the batches
+    // that already succeeded with it (owner, 2026-11-01): a 68-scene episode
+    // failed three times on "answer stopped early (length)" and lost every
+    // label each time, because the first bad batch ended the whole run.
+    let batchFailure: { detail: string; error: unknown } | null = null
     // The ceiling shown to the owner. It starts at exactly the number this
     // generator has always displayed, so a run that only ever meets
     // backpressure looks identical; a busy fleet raises it to cover the
@@ -785,18 +901,25 @@ export async function generateContextualCues(job: Job): Promise<void> {
             attemptNum++
             continue
           }
-          throw error
+          batchFailure = { detail: error instanceof Error ? error.message : String(error), error }
+          break
         }
         const releasedBackpressure = error instanceof GenStudioChatTerminalFailureError
           && isReleasedContextualCueBackpressure(error)
-        if (!releasedBackpressure) throw error
+        if (!releasedBackpressure) {
+          batchFailure = { detail: error instanceof Error ? error.message : String(error), error }
+          break
+        }
         progress = {
           ...progress,
           retry_scopes: { ...(progress.retry_scopes || {}), [String(index)]: error.jobId },
           updated_at: new Date().toISOString(),
         }
         await writeContextualCueProgress(planPath, progress)
-        if (backpressureRetries >= CONTEXTUAL_CUE_BACKPRESSURE_RETRIES) throw error
+        if (backpressureRetries >= CONTEXTUAL_CUE_BACKPRESSURE_RETRIES) {
+          batchFailure = { detail: error instanceof Error ? error.message : String(error), error }
+          break
+        }
         backpressureRetries++
         // Same widening as the fleet branch, and a no-op when only this ladder
         // ever fires: 1+1+1 and 2+1+0 are both 3, today's number exactly. It
@@ -811,7 +934,20 @@ export async function generateContextualCues(job: Job): Promise<void> {
         attemptNum++
       }
     }
-    if (!batchCandidates) throw new Error(`Contextual cue batch ${index + 1} produced no result.`)
+    if (!batchCandidates) {
+      // This batch failed. The batches that succeeded stay — they are already
+      // on disk in the progress file and are written into the timeline below —
+      // and the failure is reported by name, with the batch it came from.
+      // A Cancel still ends the run at once: the owner's last word outranks
+      // saving what was bought.
+      if (isCancelled(job.job_id)) throw new Error('Cancelled by user')
+      const detail = batchFailure?.detail || `Contextual cue batch ${index + 1} produced no result.`
+      failedBatches.push({ index, detail })
+      job.item_progress.failed = failedBatches.length
+      job.item_progress.active = []
+      job.output_lines.push(`Batch ${index + 1} of ${batches.length} failed: ${detail}`)
+      continue
+    }
     candidates.push(...batchCandidates)
     const completedBatch = { index, scene_ids: scenes.map(scene => scene.id), candidates: batchCandidates }
     completed.set(index, completedBatch)
@@ -876,11 +1012,44 @@ export async function generateContextualCues(job: Job): Promise<void> {
   // exactly as before this setting existed.
   const heldIds = new Set(autoApprovalHolds.map(hold => hold.cue_id))
   const issues = validateContextualCueTimeline(timeline, plan).filter(issue => !issue.cue_id || !heldIds.has(issue.cue_id))
-  if (issues.length) throw new Error(`Generated cues did not pass safe pacing validation: ${issues.slice(0, 3).map(issue => issue.detail).join('; ')}`)
+  if (issues.length) {
+    const accounted = accountRejectedCues(timeline, proposed, issues)
+    if (accounted.fatal.length) {
+      throw new Error(`Generated cues did not pass safe pacing validation: ${accounted.fatal.slice(0, 3).map(issue => issue.detail).join('; ')}`)
+    }
+    proposed = accounted.proposed
+    timeline.cues = accounted.kept
+    dropped.push(...accounted.dropped)
+    // A hold for a cue that no longer exists is a hold for nothing: it would
+    // show the reviewer a reason for a label they cannot see.
+    if (autoApprovalHolds.length) {
+      autoApprovalHolds = autoApprovalHolds.filter(hold => !accounted.rejectedIds.has(hold.cue_id))
+      if (autoApprovalHolds.length) timeline.auto_approval_holds = autoApprovalHolds
+      else delete timeline.auto_approval_holds
+    }
+    if (accounted.rejectedIds.size) {
+      job.output_lines.push(
+        `Dropped ${accounted.rejectedIds.size} label(s) that failed the pacing rules, and kept the rest.`,
+      )
+    }
+    if (accounted.keptButBroken.length) {
+      // The customer's own label, named. It is kept exactly as it is — it is
+      // their work — and it is not drawn until it is fixed, which the render
+      // says in its own words.
+      job.output_lines.push(
+        `${accounted.keptButBroken.length} label(s) already on this episode need attention and were left untouched: `
+        + `${accounted.keptButBroken.slice(0, 5).join('; ')}. Open Sound & Labels to move or turn them off.`,
+      )
+    }
+  }
   await writeContextualCueTimeline(planPath, timeline)
-  await removeContextualCueProgress(planPath)
+  // The progress file is the record of what was PAID for. It is removed only
+  // when every batch is accounted for; if a batch failed, the successful
+  // batches stay in it, so a Retry asks again for the missing batch alone
+  // instead of buying the whole proposal a second time.
+  if (!failedBatches.length) await removeContextualCueProgress(planPath)
   job.output_dir = paths.episode_dir
-  job.progress = 100
+  job.progress = failedBatches.length ? Math.round((completed.size / Math.max(1, batches.length)) * 100) : 100
   const approvedNow = proposed.filter(cue => cue.status === 'approved').length
   job.result = {
     proposed: proposed.length - approvedNow,
@@ -890,8 +1059,18 @@ export async function generateContextualCues(job: Job): Promise<void> {
     candidates: candidates.length,
     saved: proposed.length,
     dropped,
+    ...(failedBatches.length
+      ? { failed_batches: failedBatches.map(batch => ({ batch: batch.index + 1, detail: batch.detail })) }
+      : {}),
   }
   job.output_lines.push(`Saved ${proposed.length} of ${candidates.length} candidate cue(s) the model proposed.`)
+  // The count has to ADD UP: every candidate the model returned is either
+  // saved or dropped with a reason. A run that reported "saved 1 of 4" and
+  // "dropped []" is the silent-drop defect this line exists to make
+  // impossible (owner, 2026-11-01).
+  job.output_lines.push(
+    `Candidates accounted for: ${proposed.length} saved + ${dropped.length} dropped = ${proposed.length + dropped.length} of ${candidates.length} the model returned.`,
+  )
   for (const drop of dropped.slice(0, 20)) {
     job.output_lines.push(`  dropped: scene ${drop.scene_id}${drop.title ? ` "${drop.title}"` : ''} — ${drop.reason}`)
   }
@@ -1007,12 +1186,21 @@ export async function generateContextualCues(job: Job): Promise<void> {
 
   // Real counts: every scene batch must have returned an answer. (Dropped
   // candidates are editorial — reported above, not a failure.)
+  //
+  // A failed batch is named with the reason the provider gave, and the labels
+  // the OTHER batches produced are already saved on disk (written above), so a
+  // Retry asks again only for what is missing — it never buys the whole
+  // proposal twice.
   requireJobCompletion(job, {
     label: 'Contextual cue proposal',
     expected: batches.length,
     completed: batches.filter((_, index) => completed.has(index)).length,
-    missing: batches.map((_, index) => index).filter(index => !completed.has(index)).map(index => `batch ${index + 1}`),
-    retry_hint: 'Retry asks again only for the missing batches.',
+    missing: batches.map((_, index) => index).filter(index => !completed.has(index))
+      .map(index => {
+        const failure = failedBatches.find(batch => batch.index === index)
+        return failure ? `batch ${index + 1} (${failure.detail})` : `batch ${index + 1}`
+      }),
+    retry_hint: 'Retry asks again only for the missing batches; the labels already saved stay.',
   })
 }
 
