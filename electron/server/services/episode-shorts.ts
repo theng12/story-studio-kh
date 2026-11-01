@@ -162,4 +162,40 @@ export async function generateEpisodeShorts(job: Job): Promise<void> {
   job.output_dir = dir
   job.result = { shorts: moments, source: { size: sourceStat.size, mtime_ms: sourceStat.mtimeMs } }
   job.output_lines.push(`${count} Shorts verified in ${dir}.`)
+
+  // Upload the Shorts, if this channel asked for it.
+  //
+  // This is an EXTRA step, never a condition of the Shorts being done. The
+  // clips are on disk and verified at this point, and that is the job's
+  // success — so a refusal ("no publish date", "the date has passed") and a
+  // failed upload are both LINES in the log, and neither fails the Shorts or
+  // the episode.
+  await uploadShortsAfterVerification(job, slug, code)
+}
+
+/**
+ * Send an episode's verified Shorts to YouTube when the channel asked for it.
+ *
+ * The API route triggers the same underlying step for one episode
+ * (`uploadShortsForEpisode`); this wrapper is the job's own, so whatever the
+ * upload does it lands in the SHORTS job's log rather than in a throwaway
+ * response nobody keeps.
+ */
+export async function uploadShortsAfterVerification(job: Job, slug: string, code: string): Promise<void> {
+  try {
+    const { uploadShortsForEpisode } = await import('./shorts-uploader.js')
+    const report = await uploadShortsForEpisode(slug, code)
+    for (const line of report.lines) job.output_lines.push(line)
+    if (report.reason && !report.outcomes.length) job.output_lines.push(`Shorts upload: ${report.reason}`)
+    job.result = { ...(job.result || {}), shorts_upload: {
+      mode: report.mode, uploaded: report.uploaded, upload_failed: report.upload_failed,
+      ...(report.reason ? { reason: report.reason } : {}),
+    } }
+  } catch (error: any) {
+    // A failure to even START the upload is still not a failed Shorts job.
+    // It is loud, and the clips are exactly where they were.
+    const message = `Shorts upload did not run: ${error?.message || error}. The Shorts are saved and verified.`
+    job.output_lines.push(message)
+    job.result = { ...(job.result || {}), shorts_upload: { upload_failed: true, error: message } }
+  }
 }

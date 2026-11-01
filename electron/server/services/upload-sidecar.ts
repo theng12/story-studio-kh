@@ -556,3 +556,67 @@ export async function setScheduledFor(
     await writeJsonAtomic(p, { ...existing, scheduled_for })
   })
 }
+
+// ── A Short's own upload record (1.4.374) ────────────────────────────────
+//
+// A Short is its own video, so it needs its own record. It cannot use the
+// episode's `youtube_upload.json`: that file IS the episode's only local
+// record of its final video, and a Short writing it would overwrite that.
+//
+// So a Short's record is its own file, inside the shorts folder that already
+// belongs to this episode. The helpers below work on an explicit PATH for
+// that reason — the folder is the parent's, and only the file name differs.
+
+/** The Short's own upload record, beside the Shorts it describes. */
+export function shortSidecarPath(shortsDir: string, shortId: string): string {
+  return path.join(shortsDir, `${shortId}_upload.json`)
+}
+
+/** Read a Short's record by its exact path. Absent is null. */
+export async function readShortSidecarAtPath(filePath: string): Promise<UploadSidecar | null> {
+  return readSidecarAtPath(filePath)
+}
+
+/** Write a Short's record at its exact path, under that file's own lock. */
+export async function writeShortSidecarAtPath(filePath: string, sidecar: UploadSidecar): Promise<void> {
+  await fsp.mkdir(path.dirname(filePath), { recursive: true })
+  await withLock(filePath, () => writeJsonAtomic(filePath, sidecar))
+}
+
+/**
+ * Record a verified playlist membership on a record at an EXACT path.
+ *
+ * The episode-scoped `checkpointPlaylistSync` resolves the episode's folder
+ * from its code, so it cannot be used for a Short (whose code names no
+ * episode folder — resolving it would CREATE a stray empty folder). This
+ * variant works on the path the caller already knows.
+ */
+export async function checkpointPlaylistSyncAtPath(
+  filePath: string,
+  expected: { playlist_id: string; video_id: string; account_id: string; channel_id?: string },
+): Promise<UploadSidecar> {
+  return withLock(filePath, async () => {
+    const current = await readSidecarAtPath(filePath)
+    if (!current?.video_id) throw new Error('Cannot checkpoint playlist membership without a valid YouTube upload sidecar.')
+    if (current.video_id !== expected.video_id) {
+      throw new Error(`Upload record changed from ${expected.video_id} to ${current.video_id}; playlist checkpoint was not written.`)
+    }
+    if (expected.channel_id && current.channel_id !== expected.channel_id) {
+      throw new Error(`Upload channel changed from ${expected.channel_id} to ${current.channel_id}; playlist checkpoint was not written.`)
+    }
+    const next: UploadSidecar = {
+      ...current,
+      ...(expected.channel_id ? { account_id: expected.account_id } : {}),
+      playlist_sync: {
+        ...(current.playlist_sync || {}),
+        [expected.playlist_id]: {
+          video_id: expected.video_id,
+          account_id: expected.account_id,
+          verified_at: new Date().toISOString(),
+        },
+      },
+    }
+    await writeJsonAtomic(filePath, next)
+    return next
+  })
+}

@@ -37,10 +37,13 @@ import { listYouTubeOperations } from '../services/youtube-operation-store.js'
 import type { YouTubeMetadataPackage } from '../services/youtube-metadata-package.js'
 import {
   checkpointPlaylistSync,
+  checkpointPlaylistSyncAtPath,
   checkpointThumbnailStateAtPath,
   checkpointUploadSidecarIdentity,
   inspectUploadSidecarIdentity,
-  readSidecarRaw,
+  readShortSidecarAtPath,
+  shortSidecarPath,
+  writeShortSidecarAtPath,
   type UploadSidecar,
 } from '../services/upload-sidecar.js'
 import { remoteVideoFor, alreadyOnYouTubeReason } from '../services/youtube-remote-video.js'
@@ -67,6 +70,17 @@ interface YouTubeUploadParams {
   episode_id: string
   automatic?: boolean
   account_id?: string
+  /**
+   * 1.4.374 — a Short's own identity and file.
+   *
+   * A Short is its own video on the channel: its own record, its own
+   * sidecar, its own "already on YouTube" answer. The episode it was cut
+   * from is named separately, because the FILE and the FOLDER still belong to
+   * that episode.
+   */
+  short_source?: { id: string; file: string; title: string }
+  /** The episode a Short was cut from. Its folder owns the Short's file. */
+  parent_episode_code?: string
   /** Channel shown in the confirmation. A changed assignment cannot inherit consent. */
   expected_channel_id?: string
   /** Exact preview revision. Fresh uploads refuse if live inputs changed afterward. */
@@ -233,6 +247,12 @@ export async function generateYoutubeUpload(job: Job): Promise<void> {
   const params = (job.params || {}) as YouTubeUploadParams
   const episodeId = params.episode_id || job.episode_id
   if (!episodeId) throw new Error('episode_id is required')
+  // A Short is uploaded under its OWN identity, but its file belongs to the
+  // episode it was cut from. So the two are read separately from here on:
+  // `episodeId` is what every RECORD is written under, `parentCode` is what
+  // every FILE is read from.
+  const shortSource = params.short_source
+  const parentCode = (shortSource ? params.parent_episode_code : undefined) || episodeId
 
   job.output_lines.push(`YouTube upload — ${episodeId}`)
 
@@ -249,11 +269,12 @@ export async function generateYoutubeUpload(job: Job): Promise<void> {
   job.output_lines.push(`Using channel: ${account.remote_title} (${account.remote_id})`)
   for (const passed of params.safety_warnings || []) await safetyGate(slug, passed.check, job, passed.message)
 
-  // Lookup episode + paths.
+  // Lookup episode + paths. For a Short these are the PARENT episode's: the
+  // Short's file sits in that episode's own folder.
   const ideas = await im.getIdeas(slug, 'accepted')
-  const idea = ideas.find(i => (i.episode_code || '') === episodeId)
-  if (!idea) throw new Error(`Accepted idea not found for ${episodeId}`)
-  const paths = await resolveEpisodePaths(slug, episodeId, idea.title || '')
+  const idea = ideas.find(i => (i.episode_code || '') === parentCode)
+  if (!idea) throw new Error(`Accepted idea not found for ${parentCode}`)
+  const paths = await resolveEpisodePaths(slug, parentCode, idea.title || '')
 
   // "Is this already on YouTube?" is asked BEFORE any local video lookup,
   // because the answer does not depend on a local file — and an episode whose
@@ -272,14 +293,20 @@ export async function generateYoutubeUpload(job: Job): Promise<void> {
   // the owner pressed the button. Tell 13, fourth instance.
   const operations = await listYouTubeOperations(slug)
   const remote = await remoteVideoFor(slug, episodeId, idea.title || '', account.remote_id, operations)
+  // A Short's record is its OWN file inside the shorts folder; the episode's
+  // `youtube_upload.json` is the episode's only local record of its final
+  // video, and a Short must never overwrite it.
+  const sidecarFilePath = shortSource
+    ? shortSidecarPath(path.join(paths.episode_dir, 'shorts'), shortSource.id)
+    : path.join(paths.episode_dir, 'youtube_upload.json')
   if (remote?.video_id) {
     // Retry after "uploaded, but the thumbnail failed": the video is kept and
     // only the thumbnail is set. Never a second upload.
-    const recorded = await readSidecarRaw(slug, episodeId, idea.title || '', 'youtube')
+    const recorded = await readShortSidecarAtPath(sidecarFilePath)
     if (!params.automatic && thumbnailOnlyRetry(recorded, remote.video_id, account.remote_id)) {
       await setRequiredThumbnail(job, {
         slug, episodeId, accountId, videoId: remote.video_id, fallbackTitle: idea.title,
-        sidecarPath: path.join(paths.episode_dir, 'youtube_upload.json'),
+        sidecarPath: sidecarFilePath,
         thumbnailFilename: params.thumbnail_filename,
       })
       return
@@ -296,12 +323,28 @@ export async function generateYoutubeUpload(job: Job): Promise<void> {
     // project-tree video_dir — same precedence the asset-status detector
     // uses so the pipeline view and the upload generator never disagree
     // about whether the final exists.
-    videoPath = await findYouTubeSourceVideoPath(paths, slug, episodeId, idea.title || '')
-    if (!videoPath) {
-      throw new Error(`No final video file found for ${episodeId}. Run Video Assembly or drop a file into this episode's video folder (or the external final-video root if configured in Settings → Storage).`)
+    //
+    // A Short uploads its OWN cut: the file named in `short_source`, inside
+    // the parent episode's shorts folder. The name is a bare file name and it
+    // is joined to the folder THIS episode owns, so nothing outside that
+    // folder can be uploaded.
+    videoPath = shortSource
+      ? path.join(paths.episode_dir, 'shorts', path.basename(shortSource.file))
+      : await findYouTubeSourceVideoPath(paths, slug, parentCode, idea.title || '')
+    if (!videoPath || !existsSync(videoPath)) {
+      throw new Error(shortSource
+        ? `${shortSource.file} is missing, so nothing was uploaded.`
+        : `No final video file found for ${episodeId}. Run Video Assembly or drop a file into this episode's video folder (or the external final-video root if configured in Settings → Storage).`)
     }
     if (params.automatic) {
-      const check = await readStoredFinalCheck(videoPath)
+      // A Short is cut from the episode's final, so the check that applies to
+      // it is the EPISODE's final check — the same verdict the cut was made
+      // from — not a check of the Short file itself.
+      const checkPath = shortSource
+        ? await findYouTubeSourceVideoPath(paths, slug, parentCode, idea.title || '')
+        : videoPath
+      if (!checkPath) throw new Error('The final check is missing; nothing was uploaded.')
+      const check = await readStoredFinalCheck(checkPath)
       if (!check || check.stale || !check.result.passed) throw new Error('The final check is missing, stale, or failed; nothing was uploaded.')
     }
     if (!hasReviewedFreshUploadParams(params) && !(await hasExactResumableRecovery({
@@ -330,14 +373,22 @@ export async function generateYoutubeUpload(job: Job): Promise<void> {
     }
   }
 
-  // Resolve metadata.
+  // Resolve metadata. A Short keeps the episode's description, tags and
+  // thumbnail, and goes up under its OWN title — the moment title its passage
+  // was chosen for.
   const meta = await resolveUploadMetadata({
     slug,
-    episode_code: episodeId,
+    episode_code: parentCode,
     fallback_title: idea.title,
     platform: 'youtube',
     thumbnail_filename: params.thumbnail_filename,
   })
+  if (shortSource?.title) {
+    meta.title = shortSource.title
+    // Model text, same as the episode's own title: the editorial strips apply
+    // to it. Skipping them would send a Short whose title began as `# …`.
+    meta.title_from_override = false
+  }
   // Refuse BEFORE any quota is spent: a video with no description is the
   // "title-only fallback" upload that went out publicly and silent. The job
   // fails loudly, so Pipeline and one-click runs show it too (§8), rather
@@ -601,6 +652,25 @@ export async function generateYoutubeUpload(job: Job): Promise<void> {
 
   if (!videoId?.trim()) throw new Error('YouTube returned success without a video id; no upload record was written.')
 
+  // A Short's outcome is recorded HERE, where the video id is known — not at
+  // admission, which only queues the upload. Recording it earlier would mark a
+  // Short as uploaded while its upload was still running, or had failed, and a
+  // retry would then skip it.
+  if (shortSource) {
+    const { writeShortUploadRecord } = await import('../services/shorts-upload.js')
+    await writeShortUploadRecord(path.join(paths.episode_dir, 'shorts'), shortSource.file, {
+      file: shortSource.file,
+      title: shortSource.title,
+      state: 'uploaded',
+      video_id: videoId,
+      ...(metadataPackage.status.publishAt ? { publish_at: metadataPackage.status.publishAt } : {}),
+      uploaded_at: new Date().toISOString(),
+    }).catch((error: any) => {
+      job.output_lines.push(`⚠ The Short's upload record could not be written (${error?.message || error}). `
+        + 'The video is uploaded; reconcile it from the Upload Center.')
+    })
+  }
+
   // Checkpoint the permanent remote identity before thumbnail or playlist
   // work. uploadVideo deliberately retains the transient resumable-session
   // sidecar until this durable write succeeds. That closes the crash window
@@ -635,7 +705,19 @@ export async function generateYoutubeUpload(job: Job): Promise<void> {
     tags: metadataPackage.snippet.tags || [],
     thumbnail_set,
   }
-  const identityCheckpoint = await checkpointUploadSidecarIdentity(slug, episodeId, idea.title || '', sidecar)
+  // A Short writes ITS OWN record; the episode keeps its own, untouched.
+  const identityCheckpoint = shortSource
+    ? await (async () => {
+      await writeShortSidecarAtPath(sidecarFilePath, sidecar)
+      const saved = await readShortSidecarAtPath(sidecarFilePath)
+      return {
+        saved,
+        invalid: inspectUploadSidecarIdentity(saved, {
+          platform: 'youtube', video_id: sidecar.video_id, account_id: sidecar.account_id, channel_id: sidecar.channel_id,
+        }),
+      }
+    })()
+    : await checkpointUploadSidecarIdentity(slug, episodeId, idea.title || '', sidecar)
   const identityErrors = identityCheckpoint.invalid
   if (identityErrors.length) {
     requireJobCompletion(job, {
@@ -709,13 +791,13 @@ export async function generateYoutubeUpload(job: Job): Promise<void> {
   // Merge optional thumbnail details into the current record rather than
   // writing the stale pre-thumbnail object over a concurrent schedule or
   // playlist update.
-  const sidecarPath = path.join(paths.episode_dir, 'youtube_upload.json')
+  const sidecarPath = sidecarFilePath
   await checkpointThumbnailStateAtPath(
     sidecarPath,
     { video_id: videoId, account_id: accountId },
     { set: thumbnail_set, error: thumb_error || undefined, remotely_verified: thumbnailVerifiedThisRun },
   )
-  const finalCheckpoint = await readSidecarRaw(slug, episodeId, idea.title || '', 'youtube')
+  const finalCheckpoint = await readShortSidecarAtPath(sidecarPath)
   const sidecarErrors = inspectUploadSidecarIdentity(finalCheckpoint, {
     platform: 'youtube', video_id: videoId, account_id: accountId, channel_id: account.remote_id,
   })
@@ -754,11 +836,18 @@ export async function generateYoutubeUpload(job: Job): Promise<void> {
         videoId,
         isCancelled: () => isCancelled(job.job_id),
       })
-      await checkpointPlaylistSync(slug, episodeId, idea.title || '', {
-        playlist_id: playlistToUse,
-        video_id: videoId,
-        account_id: accountId,
-      })
+      await (shortSource
+        ? checkpointPlaylistSyncAtPath(sidecarFilePath, {
+          playlist_id: playlistToUse,
+          video_id: videoId,
+          account_id: accountId,
+          channel_id: account.remote_id,
+        })
+        : checkpointPlaylistSync(slug, episodeId, idea.title || '', {
+          playlist_id: playlistToUse,
+          video_id: videoId,
+          account_id: accountId,
+        }))
       job.output_lines.push(
         membership.inserted
           ? `Added to playlist ${playlistToUse} and verified membership.`

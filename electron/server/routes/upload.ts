@@ -440,7 +440,28 @@ router.put('/projects/:slug/publishing-schedule', async (req, res) => {
     if (hasAutoUpload && !['off', 'private', 'scheduled'].includes(body.auto_upload)) {
       return res.status(400).json({ detail: 'auto_upload must be off, private or scheduled.' })
     }
-    if (!hasSchedule && !hasSwitch && !hasCheckSwitch && !hasAutoUpload) return res.status(400).json({ detail: 'schedule required' })
+    // 1.4.374 — the channel's Shorts: how many per episode, whether they go
+    // up by themselves, and how far apart their dates fall.
+    const hasShortsCount = body.shorts_per_episode !== undefined
+    if (hasShortsCount && (typeof body.shorts_per_episode !== 'number'
+      || !Number.isInteger(body.shorts_per_episode)
+      || body.shorts_per_episode < 0 || body.shorts_per_episode > 3)) {
+      return res.status(400).json({ detail: 'shorts_per_episode must be a whole number from 0 to 3.' })
+    }
+    const hasShortsAutoUpload = body.shorts_auto_upload !== undefined
+    if (hasShortsAutoUpload && !['off', 'private', 'scheduled'].includes(body.shorts_auto_upload)) {
+      return res.status(400).json({ detail: 'shorts_auto_upload must be off, private or scheduled.' })
+    }
+    const hasShortsSpacing = body.shorts_upload_spacing_days !== undefined
+    if (hasShortsSpacing && (typeof body.shorts_upload_spacing_days !== 'number'
+      || !Number.isInteger(body.shorts_upload_spacing_days)
+      || body.shorts_upload_spacing_days < 1 || body.shorts_upload_spacing_days > 30)) {
+      return res.status(400).json({ detail: 'shorts_upload_spacing_days must be a whole number of days from 1 to 30.' })
+    }
+    if (!hasSchedule && !hasSwitch && !hasCheckSwitch && !hasAutoUpload
+      && !hasShortsCount && !hasShortsAutoUpload && !hasShortsSpacing) {
+      return res.status(400).json({ detail: 'schedule required' })
+    }
     const { saveChannelSchedule } = await import('../services/publish-cadence.js')
     res.json(await saveChannelSchedule(req.params.slug, {
       ...(hasSchedule ? { schedule: body.schedule } : {}),
@@ -448,6 +469,9 @@ router.put('/projects/:slug/publishing-schedule', async (req, res) => {
       auto_schedule_on_render: hasSwitch ? body.auto_schedule_on_render : undefined,
       auto_schedule_require_final_check: hasCheckSwitch ? body.auto_schedule_require_final_check : undefined,
       auto_upload: hasAutoUpload ? body.auto_upload : undefined,
+      shorts_per_episode: hasShortsCount ? body.shorts_per_episode : undefined,
+      shorts_auto_upload: hasShortsAutoUpload ? body.shorts_auto_upload : undefined,
+      shorts_upload_spacing_days: hasShortsSpacing ? body.shorts_upload_spacing_days : undefined,
     }))
   } catch (e: any) {
     const status = e?.statusCode === 400 || e?.status === 400 ? 400 : 500
