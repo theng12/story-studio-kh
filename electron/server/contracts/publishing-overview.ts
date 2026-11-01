@@ -38,6 +38,57 @@
  */
 export type PublishingFreshness = 'fresh' | 'stale' | 'unknown'
 
+// ── The owner-set channel status label ──────────────────────────────────────
+//
+// A deliberate choice the owner makes per channel, exactly like the free-text
+// `labels` beside it (AGENTS §5: a choice the customer makes elsewhere is the
+// owner's to make, never derived from code). It is stored on project.json as
+// `channel_status` and read here, because this is the screen that shows it.
+//
+// ABSENT MEANS "Unclassified" AND IS NEVER INFERRED. A channel nobody has
+// labelled is unlabelled: not "Live" because it publishes, not "Paused" because
+// it has no schedule, not "Retired" because nothing has shipped in a while.
+// Every one of those would be the app deciding for the owner, and a channel
+// that has never been asked reads the same as one he deliberately cleared.
+
+/**
+ * The five labels. Lower-case ids on the wire and on disk; the display words
+ * live in `CHANNEL_STATUS_LABELS` so spelling is decided in one place.
+ */
+export const CHANNEL_STATUSES = ['live', 'preparing', 'testing', 'paused', 'retired'] as const
+
+export type ChannelStatus = (typeof CHANNEL_STATUSES)[number]
+
+/**
+ * The value a channel with no `channel_status` carries — and the value the
+ * editor sends to CLEAR one back to that state. It is a real, stored-as-absent
+ * answer, not a sixth owner label.
+ */
+export const UNCLASSIFIED_STATUS = 'unclassified'
+
+export const CHANNEL_STATUS_LABELS: Record<ChannelStatus, string> = {
+  live: 'Live',
+  preparing: 'Preparing',
+  testing: 'Testing',
+  paused: 'Paused',
+  retired: 'Retired',
+}
+
+/**
+ * Every option in one list — the editor's options AND the filter chips — so a
+ * label the owner can set is exactly a label the page can filter by, and
+ * neither list can grow a name the other does not know.
+ */
+export const CHANNEL_STATUS_OPTIONS: ReadonlyArray<{ value: ChannelStatus | typeof UNCLASSIFIED_STATUS; label: string }> = [
+  { value: UNCLASSIFIED_STATUS, label: 'Unclassified' },
+  ...CHANNEL_STATUSES.map(status => ({ value: status, label: CHANNEL_STATUS_LABELS[status] })),
+]
+
+/** True only for one of the five. Anything else stored is not a label of ours. */
+export function isChannelStatus(value: unknown): value is ChannelStatus {
+  return typeof value === 'string' && (CHANNEL_STATUSES as readonly string[]).includes(value)
+}
+
 export interface PublishingOverviewConfirmedSchedule {
   video_id: string
   episode_code?: string
@@ -111,6 +162,14 @@ export interface PublishingOverviewRecommendation {
 export interface PublishingOverviewChannel {
   slug: string
   name: string
+  /**
+   * The owner-set status label, or null when there is none ("Unclassified").
+   * Read from project.json's `channel_status`; NEVER inferred from the
+   * schedule, the readiness sweep, the age of anything, or any other fact on
+   * this payload — an absent key and a channel he chose to clear are the same
+   * answer, and both are honest.
+   */
+  channel_status: ChannelStatus | null
   /**
    * The assigned YouTube channel, or null before one is chosen OR when the
    * assigned one is not connected (`confirmed.error` says which).
@@ -209,6 +268,33 @@ export interface PublishingOverviewChannel {
      * (`readiness.ready_unknown`) — never a count silently short by the failures.
      */
     ready_video_count: number | null
+    /**
+     * Expected slots in the next 28 days with NO confirmed schedule on them,
+     * counted at the channel's OWN cadence — the plan's, walked forward from
+     * now. There is no number of ours anywhere in this: a channel with no plan
+     * has no cadence to count against, so it is null rather than 0.
+     *
+     * Null (unknown) whenever the figure could not honestly be computed:
+     *   - no usable plan, or a plan that could not be READ;
+     *   - confirmed coverage that is unknown (never checked, not connected) or
+     *     STALE — a count built on observations past the freshness window would
+     *     read as a confident number it is not.
+     *
+     * A real 0 means every slot in the window is confirmed. Never a zero
+     * standing in for any of the above (AGENTS §6).
+     */
+    missing_slots_4w: number | null
+    /**
+     * The OLDEST observation behind `confirmed.schedules` — the one that can
+     * lie to you, not the newest. Null when no schedule carries a check time.
+     *
+     * `oldest_checked_stale` marks that observation as past the TTL. The page
+     * reads either case as unknown rather than as a confident date, and never
+     * renders a zero: "we have not looked lately" and "we have never looked"
+     * are both not-a-date, while a fresh one carries its own timestamp.
+     */
+    oldest_checked_at: string | null
+    oldest_checked_stale: boolean
     /** The very next expected slot has no confirmed schedule — the urgent case. */
     at_risk: boolean
   }
