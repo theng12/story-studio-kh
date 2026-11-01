@@ -159,8 +159,8 @@ test('toolbar scope uses only the selected project; hiding affects cards but nev
 test('history cleanup uses distinct finished and failed requests while preserving files and billing evidence', () => {
   assert.match(jobs, /function clearFinished\(\) \{ return clearHistory\('finished'\) \}/)
   assert.match(jobs, /function clearFailed\(\) \{ return clearHistory\('failed'\) \}/)
-  assert.match(jobs, /await del<\{ cleared: number \}>\(`\$\{endpoint\}\?status=\$\{status\}`\)/)
-  assert.match(jobs, /Files and billing records are unchanged/)
+  assert.match(jobs, /await post<\{ hidden: number \}>\(`\$\{endpoint\}\/hide\?status=\$\{status\}`\)/)
+  assert.match(jobs, /Nothing was deleted/)
 })
 
 test('toolbar history cleanup reloads the authoritative history, even when the clear removes nothing', () => {

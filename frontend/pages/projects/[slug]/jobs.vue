@@ -128,17 +128,17 @@
               <small>{{ pausedJobCount ? MORE_ACTION_HINTS.resume : 'No paused jobs.' }}</small>
             </div>
           </div>
-          <div class="jobs-control-group" role="group" aria-label="Remove rows from the list">
-            <span class="jobs-control-label">Remove From List · keeps files and billing records</span>
+          <div class="jobs-control-group" role="group" aria-label="Hide rows from the list">
+            <span class="jobs-control-label">Hide from list · keeps the record, its error details, logs and Retry/Recover</span>
             <div class="jobs-more-action">
               <button class="btn btn-sm btn-secondary" :disabled="bulkActionBusy || finishedCount === 0"
-                @click="clearFinished()">{{ clearingHistory === 'finished' ? 'Removing…' : `Remove Finished From List (${finishedCount})` }}</button>
-              <small>{{ finishedCount ? MORE_ACTION_HINTS.clearFinished : 'No finished rows to remove.' }}</small>
+                @click="clearFinished()">{{ clearingHistory === 'finished' ? 'Hiding…' : `Hide Finished From List (${finishedCount})` }}</button>
+              <small>{{ finishedCount ? MORE_ACTION_HINTS.clearFinished : 'No finished rows to hide.' }}</small>
             </div>
             <div class="jobs-more-action">
               <button class="btn btn-sm btn-secondary" :disabled="bulkActionBusy || failedCount === 0"
-                @click="clearFailed()">{{ clearingHistory === 'failed' ? 'Removing…' : `Remove Failed From List (${failedCount})` }}</button>
-              <small>{{ failedCount ? MORE_ACTION_HINTS.clearFailed : 'No settled failed rows to remove.' }}</small>
+                @click="clearFailed()">{{ clearingHistory === 'failed' ? 'Hiding…' : `Hide Failed From List (${failedCount})` }}</button>
+              <small>{{ failedCount ? MORE_ACTION_HINTS.clearFailed : 'No settled failed rows to hide.' }}</small>
             </div>
           </div>
         </div>
@@ -306,6 +306,11 @@
           {{ s.label }}<span v-if="s.count > 0" class="status-count">{{ s.count }}</span>
         </button>
       </div>
+      <p v-if="statusFilter === 'hidden'" class="jobs-hidden-hint" role="status">
+        {{ hiddenScopedJobs.length }} hidden {{ hiddenScopedJobs.length === 1 ? 'row' : 'rows' }}.
+        Nothing was deleted: each keeps its error details, logs and Retry/Recover, and Restore puts it back.
+        Hidden rows are not counted in Needs attention or in the Hide Failed total while they are here.
+      </p>
       <div v-if="hiddenJobsInScope.length" class="hidden-jobs" role="status">
         <span v-if="!showHidden && hiddenSettlingCount" class="hidden-settling-count">
           {{ hiddenSettlingCount }} hidden {{ hiddenSettlingCount === 1 ? 'job is' : 'jobs are' }} still settling
@@ -355,7 +360,7 @@
         <button class="btn btn-sm btn-secondary" :disabled="bulkActionBusy || !attentionCleanupCount" @click="selectCleanupJobs(true)">Select Needs Attention ({{ attentionCleanupCount }})</button>
         <button class="btn btn-sm btn-secondary" :disabled="bulkActionBusy || !eligibleCleanupJobs.length" @click="selectCleanupJobs(false)">Select All Matching ({{ eligibleCleanupJobs.length }})</button>
         <button class="btn btn-sm btn-ghost" :disabled="bulkActionBusy || !selectedCleanupIds.size" @click="selectedCleanupIds = new Set()">Clear Selection</button>
-        <button class="btn btn-sm btn-secondary" :disabled="bulkActionBusy || !selectedCleanupJobs.length" @click="abandonAndClearSelected">{{ clearingSelected ? 'Removing Selected…' : `Abandon and Remove From List (${selectedCleanupJobs.length})` }}</button>
+        <button class="btn btn-sm btn-secondary" :disabled="bulkActionBusy || !selectedCleanupJobs.length" @click="abandonAndClearSelected">{{ clearingSelected ? 'Hiding Selected…' : `Abandon and Hide From List (${selectedCleanupJobs.length})` }}</button>
       </div>
       <p v-if="selectedCleanupJobs.length" class="text-muted">Selection includes matching jobs across all filtered pages. Files and billing records stay intact. Abandoning stops local tracking; accepted provider work may still finish.</p>
       <p v-if="cleanupProgress" role="status">{{ cleanupProgress }}</p>
@@ -810,6 +815,12 @@
                 Retry
               </button>
               <button
+                v-if="statusFilter === 'hidden'"
+                class="btn btn-xs btn-primary"
+                :disabled="controlBusy.has(job.job_id)"
+                @click="restoreHiddenJob(job)"
+              >Restore</button>
+              <button
                 v-if="showHidden && isJobHidden(job)"
                 class="btn btn-xs btn-ghost"
                 @click="restoreJob(job)"
@@ -830,7 +841,7 @@
             role="status"
           >
             <template v-if="hasPendingCancellation(job) && primaryJobControl(job)?.action === 'request-remote-cancel'">Story Studio is confirming the cancellation with the Gateway. </template>
-            <template v-else-if="primaryJobControl(job)?.action === 'clear-history'">Removing this row does not change its files or billing records. </template>
+            <template v-else-if="primaryJobControl(job)?.action === 'clear-history'">Hiding takes this row off the list only — nothing is deleted, and Restore puts it back. </template>
             {{ customerJobText(primaryJobControl(job)?.reason, job) }}
           </p>
 
@@ -1071,7 +1082,7 @@ useAppTitle('Jobs')
 const route = useRoute()
 const router = useRouter()
 const slug = computed(() => route.params.slug as string)
-const { get, del, post } = useApi()
+const { get, post } = useApi()
 const projectQueue = useJobs()
 const universalQueue = useAllJobs()
 const genStudioModels = useGenStudioModelDisplay()
@@ -1082,6 +1093,11 @@ const streamedJobs = computed(() => isUniversal.value ? universalQueue.jobs.valu
 // Both scopes stream live work and read finished history separately. History
 // returns small summary rows; full logs are loaded only when details are opened.
 const history = useJobHistory()
+// The rows the owner hid live in their own read. They are deliberately NOT in
+// `history` (the default read excludes them) so no badge, chip or bulk count
+// can pick one up by accident — the Hidden filter is the only place that asks
+// for them back.
+const hiddenHistory = useJobHistory()
 // A failed history read must be visible: an empty list after a successful clear
 // otherwise looks like "nothing remains" instead of "the list could not reload".
 const historyError = computed(() => history.error.value)
@@ -1188,9 +1204,16 @@ watch(isUniversal, enabled => {
 let historyReload: ReturnType<typeof setTimeout> | null = null
 async function loadJobHistory() {
   if (isUniversal.value) {
-    await history.load('/jobs/all/history', projectFilter.value === 'all' ? {} : { project: projectFilter.value })
+    const query = projectFilter.value === 'all' ? {} : { project: projectFilter.value }
+    await Promise.all([
+      history.load('/jobs/all/history', query),
+      hiddenHistory.load('/jobs/all/history', { ...query, hidden: '1' }),
+    ])
   } else {
-    await history.load(`/projects/${slug.value}/jobs/history`)
+    await Promise.all([
+      history.load(`/projects/${slug.value}/jobs/history`),
+      hiddenHistory.load(`/projects/${slug.value}/jobs/history`, { hidden: '1' }),
+    ])
   }
 }
 function scheduleHistoryRefresh(delay: number) {
@@ -1199,6 +1222,7 @@ function scheduleHistoryRefresh(delay: number) {
 }
 watch([isUniversal, projectFilter, slug], () => {
   history.reset()
+  hiddenHistory.reset()
   void loadJobHistory()
 }, { immediate: true })
 // A terminal update leaves the live-only stream and joins history; watching
@@ -2195,6 +2219,29 @@ function hideJob(job: RJob) {
 // A hidden card never hides a new actionable failure. Recovered subtitle
 // attempts retain their raw error for diagnostics, so the display status is
 // the authority for whether the row needs attention.
+/**
+ * Put a hidden row back on the list (the server's `hidden_at`). Nothing was
+ * deleted on the way out, so its error details, log and Retry/Recover are
+ * still on the record — this only makes the row readable again.
+ */
+async function restoreHiddenJob(job: RJob) {
+  if (controlBusy.value.has(job.job_id)) return
+  controlBusy.value = new Set(controlBusy.value).add(job.job_id)
+  try {
+    await post(`${jobQueuePath(job)}/unhide`, {})
+    success(job.error
+      ? 'Restored to the list. Its error details and Retry/Recover are still there.'
+      : 'Restored to the list.')
+    await loadJobHistory()
+  } catch (e: any) {
+    showError(customerJobText(e?.data?.detail || 'Failed to restore this job', job))
+  } finally {
+    const next = new Set(controlBusy.value)
+    next.delete(job.job_id)
+    controlBusy.value = next
+  }
+}
+
 function isActionableHiddenFailure(job: RJob): boolean {
   return isJobHidden(job) && jobDisplayStatus(job) === 'error'
 }
@@ -2235,11 +2282,25 @@ const stats = computed(() => {
     skipped,
   }
 })
-const typeScopedJobs = computed(() => activeFilter.value === 'all'
+const visibleTypeScopedJobs = computed(() => activeFilter.value === 'all'
   ? presentationScopedJobs.value
   : presentationScopedJobs.value.filter(job => job.type === activeFilter.value))
+// The rows the owner hid, scoped the same way the visible ones are. They are
+// never merged into the visible list: `sortedJobs` (and therefore every badge,
+// count and bulk action) reads one or the other, never both.
+const hiddenScopedJobs = computed(() => {
+  const list = hiddenHistory.rows.value as RJob[]
+  if (!isUniversal.value || projectFilter.value === 'all') return list
+  return list.filter(job => job.project_slug === projectFilter.value)
+})
+const hiddenTypeScopedJobs = computed(() => activeFilter.value === 'all'
+  ? hiddenScopedJobs.value
+  : hiddenScopedJobs.value.filter(job => job.type === activeFilter.value))
+const typeScopedJobs = computed(() => statusFilter.value === 'hidden'
+  ? hiddenTypeScopedJobs.value
+  : visibleTypeScopedJobs.value)
 // v1.0.x — status filter (independent of the type tabs).
-const statusFilter = ref<'all' | 'running' | 'queued' | 'paused' | 'error' | 'done' | 'recovered' | 'cancelled' | 'skipped'>('all')
+const statusFilter = ref<'all' | 'running' | 'queued' | 'paused' | 'error' | 'done' | 'recovered' | 'cancelled' | 'skipped' | 'hidden'>('all')
 function toggleHiddenJobs() {
   showHidden.value = !showHidden.value
   if (showHidden.value) {
@@ -2261,6 +2322,10 @@ const STATUS_FILTERS: Array<{ key: typeof statusFilter.value; label: string }> =
   { key: 'recovered', label: 'Recovered' },
   { key: 'skipped', label: 'Skipped' },
   { key: 'cancelled', label: 'Cancelled' },
+  // The rows the owner took off the list. They are a different set of records
+  // entirely, not another display status, which is why their count comes from
+  // `hiddenHistory` and not from the visible rows every other chip counts.
+  { key: 'hidden', label: 'Hidden' },
 ]
 // `?status=error` (the dashboard's "Repair N failed jobs" link) opens the list already filtered.
 function statusFromQuery(value: unknown): typeof statusFilter.value | null {
@@ -2282,11 +2347,16 @@ watch(episodeSearch, value => {
     void router.replace({ query: { ...route.query, episode_id: next } })
   }
 })
+// Counts are always over the VISIBLE rows. A hidden row is off the list, so it
+// adds to the Hidden chip and to nothing else — "Needs attention" and the
+// failed count on the bulk button stay honest about what is on the list.
 const statusFilters = computed(() => STATUS_FILTERS.map(s => ({
   ...s,
-  count: s.key === 'all'
-    ? typeScopedJobs.value.length
-    : typeScopedJobs.value.filter(j => jobDisplayStatus(j) === s.key).length,
+  count: s.key === 'hidden'
+    ? hiddenTypeScopedJobs.value.length
+    : s.key === 'all'
+      ? visibleTypeScopedJobs.value.length
+      : visibleTypeScopedJobs.value.filter(j => jobDisplayStatus(j) === s.key).length,
 })))
 
 // Filter tabs at the top of the Jobs page. Order matches the production
@@ -2661,12 +2731,12 @@ async function abandonAndClearSelected() {
   try {
     const { ask } = useConfirm()
     if (!await ask({
-      title: `Abandon and remove ${selected.length} selected job${selected.length === 1 ? '' : 's'} from the list?`,
-      message: `${scope}: only these ${selected.length} selected job rows will be removed. Files and billing records stay intact.${reasons.length ? `\n\n${reasons.join('\n')}` : ''}`,
-      confirmLabel: 'Abandon and Remove From List',
+      title: `Abandon and hide ${selected.length} selected job${selected.length === 1 ? '' : 's'} from the list?`,
+      message: `${scope}: only these ${selected.length} selected job rows leave the list. Nothing is deleted — their error details, logs and Retry/Recover stay, and the Hidden filter restores them.${reasons.length ? `\n\n${reasons.join('\n')}` : ''}`,
+      confirmLabel: 'Abandon and Hide From List',
     })) return
     cleanupFailures.value = []
-    // A history read begun before this bulk clear may still carry rows it removes.
+    // A history read begun before this bulk hide may still carry rows it moves.
     history.invalidate()
     controlBusy.value = new Set([...controlBusy.value, ...selected.map(job => job.job_id)])
     let cleared = 0
@@ -2679,23 +2749,20 @@ async function abandonAndClearSelected() {
           projectQueue.applyUpdate(response.job)
           universalQueue.applyUpdate(response.job)
         }
-        await del(jobQueuePath(job))
-        projectQueue.removeJobs([job.job_id])
-        universalQueue.removeJobs([job.job_id])
-        history.removeIds([job.job_id])
+        await post(`${jobQueuePath(job)}/hide`, {})
         const next = new Set(selectedCleanupIds.value)
         next.delete(job.job_id)
         selectedCleanupIds.value = next
         cleared++
       } catch (error: any) {
-        cleanupFailures.value.push({ label, reason: customerJobText(error?.data?.detail || error?.message || 'Could not clear this job.', job) })
+        cleanupFailures.value.push({ label, reason: customerJobText(error?.data?.detail || error?.message || 'Could not hide this job.', job) })
       } finally {
         const next = new Set(controlBusy.value)
         next.delete(job.job_id)
         controlBusy.value = next
       }
     }
-    cleanupProgress.value = `${scope}: cleared ${cleared} of ${selected.length} selected jobs.${cleanupFailures.value.length ? ` ${cleanupFailures.value.length} could not be cleared; see details below.` : ''}`
+    cleanupProgress.value = `${scope}: hid ${cleared} of ${selected.length} selected jobs.${cleanupFailures.value.length ? ` ${cleanupFailures.value.length} could not be hidden; see details below.` : ''}`
     if (cleared) await loadJobHistory()
     info(cleanupProgress.value)
   } finally {
@@ -2720,6 +2787,10 @@ function secondaryJobControls(job: RJob): JobControl[] {
 }
 
 function canRetryJob(job: RJob): boolean {
+  // Hidden rows offer no Retry until they are back on the list. The server
+  // refuses the same way, so this mirrors an admission rule rather than
+  // inventing one (same rule `retryAdmissionError` enforces).
+  if (job.hidden_at) return false
   if (!['error', 'cancelled'].includes(job.status)
     || isRecoveredFailure(job)
     || isTerminalContinuityRender(job)
@@ -2826,10 +2897,10 @@ async function runJobControl(job: RJob, requestedControl?: JobControl) {
     } else if (control.action === 'pause-submissions') {
       await post(`${jobQueuePath(job)}/pause`, {})
     } else if (control.action === 'clear-history') {
-      await del(jobQueuePath(job))
-      projectQueue.removeJobs([job.job_id])
-      universalQueue.removeJobs([job.job_id])
-      history.removeIds([job.job_id])
+      // HIDE, not delete (owner, 2026-11-02): the record, its error details,
+      // its log and Retry/Recover all stay. Only the read that feeds the list
+      // stops returning it, so there is no row to remove from any queue here.
+      await post(`${jobQueuePath(job)}/hide`, {})
       await loadJobHistory()
     } else if (control.action === 'recheck-provider-status') {
       // v1.2.6 — this button actually asks GenStudio. The refreshed control
@@ -2838,13 +2909,15 @@ async function runJobControl(job: RJob, requestedControl?: JobControl) {
       const response = await post<{ job?: RJob }>(`${jobQueuePath(job)}/recheck-provider-status`, {})
       const refreshed = response?.job?.control
       success(refreshed?.action === 'clear-history'
-        ? 'The Gateway confirmed this job\'s provider work has finished. This history can now be removed.'
+        ? 'The Gateway confirmed this job\'s provider work has finished. This history can now be hidden.'
         : customerJobText(refreshed?.reason || control.reason, job))
       return
     } else {
       return
     }
-    success(control.action === 'clear-history' ? 'Removed from history. Files and provider evidence stay intact.' : `${control.label} requested. ${customerJobText(control.reason, job)}`)
+    success(control.action === 'clear-history'
+      ? 'Hidden from the list. Nothing was deleted — open the Hidden filter and Restore brings it back.'
+      : `${control.label} requested. ${customerJobText(control.reason, job)}`)
   } catch (e: any) {
     showError(customerJobText(e?.data?.detail || `Failed to ${control.label.toLowerCase()}`, job))
   } finally {
@@ -3611,7 +3684,15 @@ async function clearHistory(status: 'finished' | 'failed') {
   const promised = status === 'finished' ? finishedCount.value : failedCount.value
   if (!promised) return
   // Failed rows are the only place Retry/Recover and the error detail live.
-  if (status === 'failed' && !await useConfirm().ask({ title: 'Remove failed jobs from the list?', message: `Remove ${promised} failed job row(s)? Their error details and Retry/Recover actions go with them. Files and billing records are unchanged.`, confirmLabel: 'Remove From List', danger: true })) return
+  // Hiding keeps all of it: the confirm says so rather than letting the old
+  // wording ("their error details go with them") stand for an action that no
+  // longer takes anything away.
+  if (status === 'failed' && !await useConfirm().ask({
+    title: 'Hide failed jobs from the list?',
+    message: `Hide ${promised} failed job row(s)? Nothing is deleted — their error details, logs and Retry/Recover stay on the record, and the Hidden filter brings them back.`,
+    confirmLabel: 'Hide From List',
+    danger: true,
+  })) return
   const project = isUniversal.value ? projectFilter.value : slug.value
   const endpoint = isUniversal.value && project === 'all' ? '/jobs/all'
     : project === '_app_' ? '/jobs/app' : `/projects/${project}/jobs`
@@ -3619,10 +3700,10 @@ async function clearHistory(status: 'finished' | 'failed') {
   // A history read that began before this delete may still carry a row it removes.
   history.invalidate()
   try {
-    const result = await del<{ cleared: number }>(`${endpoint}?status=${status}`)
-    bulkActionMessage.value = result.cleared
-      ? `Removed ${result.cleared} ${status} row(s) from the list. Files and billing records are unchanged.`
-      : 'Nothing was removed. Provider status may have changed; the job’s controls show what is still pending.'
+    const result = await post<{ hidden: number }>(`${endpoint}/hide?status=${status}`)
+    bulkActionMessage.value = result.hidden
+      ? `Hid ${result.hidden} ${status} row(s) from the list. Nothing was deleted — the Hidden filter restores them.`
+      : 'Nothing was hidden. Provider status may have changed; the job’s controls show what is still pending.'
     info(bulkActionMessage.value)
     // This endpoint returns only a count, not the exact ids that survived its
     // provider-settlement gate. The history read is the authority for what
@@ -4335,6 +4416,7 @@ function clearFailed() { return clearHistory('failed') }
 /* Button sizes */
 .btn-xs { padding: 3px 10px; font-size: var(--font-xs); }
 .status-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 12px 0 8px; }
+.jobs-hidden-hint { flex: 1 1 100%; margin: 0; color: var(--text-secondary); font-size: var(--font-xs); line-height: 1.45; }
 .status-filters { display: flex; gap: 6px; flex-wrap: wrap; }
 .hidden-jobs { margin-left: auto; display: flex; align-items: center; gap: 8px; min-width: 0; font-size: var(--font-xs); color: var(--text-muted); }
 .hidden-settling-count { overflow-wrap: anywhere; }

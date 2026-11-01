@@ -148,7 +148,7 @@ import { customerSafeJobText, jobRequestIds, primaryControl, secondaryControls }
 
 definePageMeta({ layout: 'default' })
 
-const { get, post, put, del } = useApi()
+const { get, post, put } = useApi()
 const { success, error: showError } = useToast()
 const { ask } = useConfirm()
 const projectsLoadError = ref('')
@@ -371,19 +371,22 @@ async function runJobControl(job: Job, requestedControl?: JobControl): Promise<b
     } else if (control.action === 'pause-submissions') {
       await post(`${jobQueuePath(job)}/pause`, {})
     } else if (control.action === 'clear-history') {
-      await del(jobQueuePath(job))
+      // Hide, not delete: the record, its error details and its log all stay.
+      await post(`${jobQueuePath(job)}/hide`, {})
     } else if (control.action === 'recheck-provider-status') {
       // v1.2.6 — actually asks GenStudio; the reply carries the new verdict.
       const response = await post<{ job?: Job }>(`${jobQueuePath(job)}/recheck-provider-status`, {})
       const refreshed = response?.job?.control
       success(refreshed?.action === 'clear-history'
-        ? 'The Gateway confirmed this job\'s provider work has finished. This history can now be removed.'
+        ? 'The Gateway confirmed this job\'s provider work has finished. This history can now be hidden.'
         : customerJobText(refreshed?.reason || control.reason, job))
       return true
     } else {
       return false
     }
-    success(control.action === 'clear-history' ? 'Removed from history. Files and provider evidence stay intact.' : `${control.label} requested. ${customerJobText(control.reason, job)}`)
+    success(control.action === 'clear-history'
+      ? 'Hidden from the list. Nothing was deleted — Restore on the Jobs page brings it back.'
+      : `${control.label} requested. ${customerJobText(control.reason, job)}`)
     return true
   } catch (e: any) {
     showError(customerJobText(e?.data?.detail || `Failed to ${control.label.toLowerCase()}`, job))

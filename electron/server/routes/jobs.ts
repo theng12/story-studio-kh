@@ -97,6 +97,11 @@ function parseHistoryQuery(
         ...(q ? { q } : {}),
         ...(controls?.length ? { controls } : {}),
         ...(singleQueryValue(record.since) ? { since: singleQueryValue(record.since) } : {}),
+        // `hidden=1` is the one way to read the rows the owner took off the
+        // list. Absent means visible, which is what every job saved before
+        // hiding shipped looks like (AGENTS.md §6: the two answers stay
+        // distinct — a hidden row is never reported as "no rows").
+        ...(queryFlag(record.hidden) ? { hidden: true } : {}),
       },
       options: {
         ...(limit !== undefined ? { limit } : {}),
@@ -138,13 +143,17 @@ function parseResumePausedBody(
 }
 
 function summarizeJobs(jobsList: Job[]) {
+  // Hidden rows are off the list, so they are in no badge. They are still
+  // readable through the history read's `hidden` filter — this is a count of
+  // what is on the list, not of what exists.
+  const visible = jobsList.filter(job => !jq.isJobHidden(job))
   return {
-    running: jobsList.filter(job => job.status === 'running').length,
-    queued: jobsList.filter(job => job.status === 'queued').length,
-    paused: jobsList.filter(job => job.status === 'paused').length,
-    done: jobsList.filter(job => job.status === 'done').length,
-    error: jobsList.filter(job => job.status === 'error' && !jq.isRecoveredFailure(job)).length,
-    total: jobsList.length,
+    running: visible.filter(job => job.status === 'running').length,
+    queued: visible.filter(job => job.status === 'queued').length,
+    paused: visible.filter(job => job.status === 'paused').length,
+    done: visible.filter(job => job.status === 'done').length,
+    error: visible.filter(job => job.status === 'error' && !jq.isRecoveredFailure(job)).length,
+    total: visible.length,
   }
 }
 
@@ -258,7 +267,7 @@ function sendTerminalOnlyConflict(res: import('express').Response, job: Job): vo
   res.status(409).json({
     code: job.control?.code,
     control: job.control,
-    detail: 'Only finished jobs can be removed from history.',
+    detail: 'Only finished jobs can be hidden from the list.',
   })
 }
 
@@ -319,6 +328,10 @@ const REMOVED_JOB_TYPES = new Set(['script-only', 'expression_markup', 'video'])
 
 /** Retired jobs keep their terminal record; Retry must not replace it with the same known failure. */
 function retryAdmissionError(job: Job): string | null {
+  // Hidden rows are off the list, so nothing queues from them until the owner
+  // puts the row back. The refusal is a real answer (AGENTS.md §6), not a
+  // silent no-op: it names the one action that unblocks the row.
+  if (jq.isJobHidden(job)) return 'This job is hidden from the list. Restore it first, then Retry.'
   const type = job.type as string
   if (REMOVED_JOB_TYPES.has(type)) return 'This kind of job was removed from Story Studio, so it cannot be retried.'
   if (job.params?.jobs_replace_failed_items && !jq.canRetryManualFailedItemExactly(job)) {
@@ -711,19 +724,34 @@ router.post('/jobs/all/:jobId/abandon', async (req, res, next) => {
   }
 })
 
-router.delete('/jobs/all/:jobId', async (req, res) => {
+// v2026-11-02 — the owner's rule: nothing deleted for good. This used to be
+// `DELETE`, and deleting took the record with it — the error details, the log
+// and Retry/Recover went permanently. It is now a HIDE: the record, its
+// evidence and its controls all stay exactly as they were, and `.../unhide`
+// puts the row back. There is no route that deletes a terminal job any more.
+router.post('/jobs/all/:jobId/hide', async (req, res) => {
   const existing = await findUniversalJob(req.params.jobId)
   if (!existing) return res.status(404).json({ detail: 'Job not found' })
-  if (!jq.removeTerminalJob(existing.project_slug, req.params.jobId)) return sendTerminalOnlyConflict(res, existing)
-  res.json({ ok: true })
+  if (!await jq.hideTerminalJob(existing.project_slug, req.params.jobId)) return sendTerminalOnlyConflict(res, existing)
+  res.json({ ok: true, job: jq.getPublicJob(req.params.jobId) })
 })
 
-router.delete('/jobs/all', async (req, res) => {
+router.post('/jobs/all/:jobId/unhide', async (req, res) => {
+  const existing = await findUniversalJob(req.params.jobId)
+  if (!existing) return res.status(404).json({ detail: 'Job not found' })
+  if (!await jq.unhideTerminalJob(existing.project_slug, req.params.jobId)) return sendTerminalOnlyConflict(res, existing)
+  res.json({ ok: true, job: jq.getPublicJob(req.params.jobId) })
+})
+
+// Bulk: the Jobs toolbar's "Hide Finished / Hide Failed From List". The count
+// it returns is the number of rows that left the list, which is the number on
+// the button — nothing is deleted, so nothing is lost by pressing it twice.
+router.post('/jobs/all/hide', async (req, res) => {
   const parsed = parseHistoryClearQuery(req.query)
   if ('error' in parsed) return res.status(400).json({ detail: parsed.error })
   const scopes = await allJobScopes()
-  const cleared = await Promise.all(scopes.map(scope => jq.clearFinished(scope, parsed.value.status)))
-  res.json({ ok: true, cleared: cleared.reduce((total, count) => total + count, 0) })
+  const hidden = await Promise.all(scopes.map(scope => jq.hideFinished(scope, parsed.value.status)))
+  res.json({ ok: true, hidden: hidden.reduce((total, count) => total + count, 0) })
 })
 
 // ── App-level jobs (broll_normalize, broll_autotag, etc.) ─────────────
@@ -818,11 +846,12 @@ router.get('/jobs/app/:jobId', (req, res) => {
   res.json(job)
 })
 
-router.delete('/jobs/app', async (req, res) => {
+// See the `/jobs/all` sibling above: hide, never delete.
+router.post('/jobs/app/hide', async (req, res) => {
   const parsed = parseHistoryClearQuery(req.query)
   if ('error' in parsed) return res.status(400).json({ detail: parsed.error })
-  const count = await jq.clearFinished(APP_SLUG, parsed.value.status)
-  res.json({ ok: true, cleared: count })
+  const count = await jq.hideFinished(APP_SLUG, parsed.value.status)
+  res.json({ ok: true, hidden: count })
 })
 
 router.post('/projects/:slug/jobs/resume-paused', async (req, res) => {
@@ -1028,17 +1057,25 @@ router.post('/projects/:slug/jobs/:jobId/abandon', async (req, res, next) => {
   }
 })
 
-router.delete('/projects/:slug/jobs/:jobId', async (req, res) => {
+// Hide, never delete — see the `/jobs/all` sibling for why.
+router.post('/projects/:slug/jobs/:jobId/hide', async (req, res) => {
   const existing = (await jq.findJobs(req.params.slug, job => job.job_id === req.params.jobId))[0]
   if (!existing || existing.project_slug !== req.params.slug) return res.status(404).json({ detail: 'Job not found' })
-  if (!jq.removeTerminalJob(req.params.slug, req.params.jobId)) return sendTerminalOnlyConflict(res, existing)
-  res.json({ ok: true })
+  if (!await jq.hideTerminalJob(req.params.slug, req.params.jobId)) return sendTerminalOnlyConflict(res, existing)
+  res.json({ ok: true, job: jq.getPublicJob(req.params.jobId) })
 })
 
-// Clear all finished (done/error/cancelled) jobs
-router.delete('/projects/:slug/jobs', async (req, res) => {
+router.post('/projects/:slug/jobs/:jobId/unhide', async (req, res) => {
+  const existing = (await jq.findJobs(req.params.slug, job => job.job_id === req.params.jobId))[0]
+  if (!existing || existing.project_slug !== req.params.slug) return res.status(404).json({ detail: 'Job not found' })
+  if (!await jq.unhideTerminalJob(req.params.slug, req.params.jobId)) return sendTerminalOnlyConflict(res, existing)
+  res.json({ ok: true, job: jq.getPublicJob(req.params.jobId) })
+})
+
+// Bulk: take a whole finished/failed subset off the list, keeping every record.
+router.post('/projects/:slug/jobs/hide', async (req, res) => {
   const parsed = parseHistoryClearQuery(req.query)
   if ('error' in parsed) return res.status(400).json({ detail: parsed.error })
-  const count = await jq.clearFinished(req.params.slug, parsed.value.status)
-  res.json({ ok: true, cleared: count })
+  const count = await jq.hideFinished(req.params.slug, parsed.value.status)
+  res.json({ ok: true, hidden: count })
 })

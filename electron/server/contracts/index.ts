@@ -1081,6 +1081,14 @@ export interface JobEnqueuedResponse {
   music_results_awaiting_import?: string[]
   /** A failed job whose files were all made later — kept as history, no longer needs attention. */
   resolved?: { at: string; reason: string }
+  /**
+   * 2026-11-02 — hidden from the Jobs list by its owner (the restorable
+   * "Hide from list"). Absent means visible, which is every job saved before
+   * this shipped. The row stays a complete record: error details, logs and
+   * Retry/Recover are intact, and clearing this restores it. Nothing sets it
+   * automatically.
+   */
+  hidden_at?: string
   /** This step did not run because the channel's own settings switch it off (AGENTS.md §8). Reads `skipped`. */
   skipped?: { at: string; reason: string }
   /** v1.2.8 — the owner stopped tracking this job without provider confirmation. */
@@ -1183,8 +1191,14 @@ export interface JobHistoryFacets {
   active_by_type: Record<string, number>
   /** Display-status counts under the current type/search/batch filter — the status chips. */
   status: Record<string, number>
-  /** Terminal rows whose own controls offer "Remove From List". */
+  /** Terminal rows whose own controls offer "Hide from list". Visible rows only. */
   clearable: { finished: number; failed: number }
+  /**
+   * Rows the owner hid. Not in `stats`, `status` or `clearable` — they are off
+   * the list — and never a silent zero: this is the one number that says how
+   * many records are being kept out of sight (AGENTS.md §6).
+   */
+  hidden: number
 }
 
 /** Response from the paged history endpoints. */

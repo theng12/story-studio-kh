@@ -69,9 +69,10 @@ test('Repair confirmation states the count and that it never charges', () => {
 })
 
 test('row buttons keep the wording the backend chose', () => {
-  // "Remove From List" is this client's own button. Every other label is the
-  // server's, written in sentence case, and it is rendered as it was written.
-  assert.equal(controlLabel({ action: 'clear-history', label: 'Remove from history' }), 'Remove From List')
+  // "Hide from list" is this client's own button (the restorable replacement
+  // for "Remove From List"). Every other label is the server's, written in
+  // sentence case, and it is rendered as it was written.
+  assert.equal(controlLabel({ action: 'clear-history', label: 'Hide from list' }), 'Hide from list')
   assert.equal(controlLabel({ action: 'return-later', label: 'Checking provider status' }), 'Checking provider status')
   assert.equal(controlLabel({ action: 'cancel-before-submit', label: 'Cancel' }), 'Cancel')
   assert.equal(controlLabel({ action: 'pause-submissions', label: 'Pause new work' }), 'Pause new work')

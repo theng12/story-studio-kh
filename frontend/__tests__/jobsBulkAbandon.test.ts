@@ -115,5 +115,5 @@ test('selection controls are available for both active and history cards', () =>
   assert.equal((source.match(/@change="toggleCleanupJob\(job\)"/g) || []).length, 2)
   assert.match(source, /Select Needs Attention/)
   assert.match(source, /Select All Matching/)
-  assert.match(source, /Abandon and Remove From List/)
+  assert.match(source, /Abandon and Hide From List/)
 })

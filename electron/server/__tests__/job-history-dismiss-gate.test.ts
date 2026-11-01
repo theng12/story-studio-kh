@@ -87,7 +87,7 @@ describe('finished-job dismiss gate', () => {
     const control = classifyJobControl(settled, capabilities)
     assert.equal(control.action, 'clear-history')
     assert.equal(control.enabled, true)
-    assert.equal(control.label, 'Remove from history')
+    assert.equal(control.label, 'Hide from list')
     assert.equal(control.code, 'READY')
   })
 

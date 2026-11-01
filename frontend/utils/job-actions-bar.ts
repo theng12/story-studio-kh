@@ -142,6 +142,6 @@ export const MORE_ACTION_HINTS = {
   repair: 'Per failed job: asks the gateway about that job’s own recorded requests and downloads any that finished late. Never generates or charges.',
   queue: 'Holds new work in every channel. Work already sent keeps going.',
   resume: 'Continues paused jobs from where they stopped.',
-  clearFinished: 'Removes finished rows from this list. Keeps files and billing records.',
-  clearFailed: 'Removes failed rows whose provider work has settled. Keeps files and billing records.',
+  clearFinished: 'Hides finished rows from this list. Nothing is deleted — the Hidden filter restores them.',
+  clearFailed: 'Hides settled failed rows from this list. Their error details, logs and Retry/Recover stay, and the Hidden filter restores them.',
 } as const

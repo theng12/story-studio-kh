@@ -22,6 +22,8 @@ export interface JobHistoryQuery {
   type?: string
   batch?: string
   q?: string
+  /** `hidden=1` reads the rows the owner took off the list; omit for visible rows. */
+  hidden?: string
 }
 
 export function useJobHistory() {

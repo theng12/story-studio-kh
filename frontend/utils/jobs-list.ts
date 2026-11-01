@@ -140,7 +140,8 @@ export function bulkConfirmOptions(kind: 'retry' | 'repair', count: number, paid
 /**
  * One vocabulary for row buttons.
  *
- * "Remove From List" is the frontend's own button and stays as it is. Every
+ * "Hide from list" is the frontend's own button (the restorable replacement for
+ * "Remove From List", owner 2026-11-02) and stays as it is. Every
  * other label is the BACKEND's wording, and it is used as the backend wrote
  * it: the controls are written in sentence case ("Return later", "Checking
  * provider status", "Pause new work"), and title-casing them here changed the
@@ -148,6 +149,6 @@ export function bulkConfirmOptions(kind: 'retry' | 'repair', count: number, paid
  * client only renders it.
  */
 export function controlLabel(control: { action: string; label?: string }): string {
-  if (control.action === 'clear-history') return 'Remove From List'
+  if (control.action === 'clear-history') return 'Hide from list'
   return control.label || ''
 }
