@@ -19,6 +19,7 @@
  */
 
 import { reactive, readonly } from 'vue'
+import { swrClearAll } from '../utils/swrCache'
 
 interface ServerModeState {
   isServerMode: boolean
@@ -103,16 +104,23 @@ export function markAuthenticated(username: string): void {
   state.isAuthenticated = true
   state.username = username
   state.authChecked = true
+  // A fresh session must not inherit anything stored for the previous one.
+  swrClearAll()
 }
 
 /**
  * Mark the user as signed out. Called from the banner's Sign Out button
  * handler after the API call settles, then a full page reload to /login
  * clears the rest of the UI state.
+ *
+ * Also drops every cached API read: a stored project or channel value
+ * must never survive a sign-out, or the next user of this browser tab
+ * would see the previous session's data on first paint.
  */
 export function markSignedOut(): void {
   state.isAuthenticated = false
   state.username = null
+  swrClearAll()
 }
 
 /**

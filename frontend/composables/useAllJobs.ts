@@ -1,5 +1,5 @@
 import { computed, readonly, ref } from 'vue'
-import { useApi } from './useApi.js'
+import { useApi, invalidateProjectCache } from './useApi.js'
 import { announceJobFailure, isWatchingProject } from './useJobs.js'
 import type { Job, JobStats } from './useJobs.js'
 import type { JobHistoryResponse, JobListResponse } from '@shared/contracts'
@@ -164,6 +164,12 @@ function applyUpdate(job: Job) {
   if ((previous?.status === 'running' || previous?.status === 'queued')
     && job.status === 'error' && !isWatchingProject(job.project_slug)) {
     announceJobFailure(job)
+  }
+  // A terminal transition changed the project's episodes/channels on disk —
+  // drop its cached reads so no page keeps showing the pre-job picture.
+  if ((previous?.status === 'running' || previous?.status === 'queued')
+    && !isLiveStatus(job.status)) {
+    invalidateProjectCache(job.project_slug, job.episode_id)
   }
   if (previous) {
     // The badge counts the transition even though the row itself leaves the list:

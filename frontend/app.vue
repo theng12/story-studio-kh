@@ -2,6 +2,7 @@
   <NuxtLayout>
     <NuxtPage />
   </NuxtLayout>
+  <DataRefreshIndicator />
   <ToastContainer />
   <GenerationConfirmationDialog />
   <ConfirmDialog />
