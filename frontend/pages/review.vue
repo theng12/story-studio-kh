@@ -95,6 +95,10 @@
       <p v-if="saveError[itemKey(item)]" class="rv-alert" role="alert">{{ saveError[itemKey(item)] }}</p>
 
       <div class="rv-actions">
+        <NuxtLink
+          :to="`/projects/${item.channel_slug}/video-assembly?episode_id=${item.episode_code}`"
+          class="rv-btn rv-btn-primary"
+        >View episode</NuxtLink>
         <button
           type="button"
           class="rv-btn rv-btn-ok"
@@ -404,6 +408,16 @@ onUnmounted(() => poller.stop())
   cursor: pointer;
 }
 .rv-btn:disabled { opacity: 0.6; cursor: default; }
+.rv-btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+  background: var(--accent, #2563eb);
+  border-color: var(--accent, #2563eb);
+  color: #fff;
+}
+.rv-btn-primary:hover { opacity: 0.9; }
 .rv-btn-ok.chosen { border-color: #1d7a46; background: #1d7a46; color: #fff; }
 .rv-btn-changes.chosen { border-color: var(--danger, #c0392b); background: var(--danger, #c0392b); color: #fff; }
 .rv-foot { margin: 0; color: var(--text-secondary); font-size: var(--font-xs); line-height: 1.45; }
