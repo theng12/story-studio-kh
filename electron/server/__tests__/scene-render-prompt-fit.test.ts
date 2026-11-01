@@ -225,9 +225,9 @@ test('the fit is deterministic: the same inputs and the same ceiling produce the
   const limit = capFor(splitStyleSentences(STYLE)[2]!.end)
   const first = fitRenderedStyleBible({ ...parts, limit })
   const second = fitRenderedStyleBible({ ...parts, limit })
-  assert.equal(first.prompt, second.prompt)
   assert.equal(first.kind, 'trimmed')
   assert.equal(second.kind, 'trimmed')
+  assert.equal(first.prompt, second.prompt)
 })
 
 // ── The live ceiling ─────────────────────────────────────────────────────
@@ -390,7 +390,7 @@ test('a render under the published ceiling sends the assembled prompt unchanged'
       assert.equal(sent.length, 1)
       assert.equal(sent[0], composeSceneRenderPrompt(SCENE, [], LONG_STYLE_BIBLE, false),
         'byte for byte the assembled prompt, Style Bible whole')
-      assert.equal(job.output_lines.some(line => line.includes('Prompt fit:')), false,
+      assert.equal(job.output_lines.some((line: string) => line.includes('Prompt fit:')), false,
         'a run that trimmed nothing says nothing')
     })
   } finally {
@@ -436,7 +436,7 @@ test('a render over the published ceiling sends a shorter prompt, and the run sa
         assert.equal(/[.!?។]["'”’»)\]]?\s*$/.test(prompt), true, 'the cut landed on a sentence end')
       }
 
-      const fitLines = job.output_lines.filter(line => line.includes('Prompt fit:'))
+      const fitLines = job.output_lines.filter((line: string) => line.includes('Prompt fit:'))
       assert.equal(fitLines.length, 1, 'one line for the run, not one per scene')
       assert.match(fitLines[0]!, /2 of 2 scene/)
       assert.match(fitLines[0]!, /mock-image-v1/)
@@ -490,7 +490,7 @@ test('a scene whose own text will not fit is refused, naming the model limit and
       assert.match(refusal.message, /Scene 1/, 'the scene is named')
       assert.equal(generationPrompts(service).length, 0, 'no request was made')
       // The Style Bible is not blamed for a scene that could never have fit.
-      assert.equal(job.output_lines.some(line => line.includes('Prompt fit:')), false)
+      assert.equal(job.output_lines.some((line: string) => line.includes('Prompt fit:')), false)
     })
   } finally {
     await service.close()
@@ -524,7 +524,7 @@ test('no published ceiling means no trimming and no invented figure', async () =
       assert.equal(sent.length, 1)
       assert.equal(sent[0], composeSceneRenderPrompt(SCENE, [], LONG_STYLE_BIBLE, false),
         'unpublished means unsent-limit, not a guessed one')
-      assert.equal(job.output_lines.some(line => line.includes('Prompt fit:')), false)
+      assert.equal(job.output_lines.some((line: string) => line.includes('Prompt fit:')), false)
     })
   } finally {
     await service.close()
