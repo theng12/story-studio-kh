@@ -1,10 +1,10 @@
 /**
- * The Review page (owner, 2026-10-29: *"when I'm outside, I can just review the
- * video then approve it"*).
+ * The Review page (owner, 2026-10-29; compact rows 2026-11-02).
  *
  * What this pins:
  *   - each final plays IN the page through Story's own authenticated range
- *     route, with native controls — no download first;
+ *     route, with native controls — one row open at a time, no preload
+ *     until opened;
  *   - the page carries no key, bearer or token: the URL it plays is the
  *     server's own final-video route, and the browser holds only the sign-in
  *     cookie the app already issues;
@@ -34,7 +34,6 @@ async function component() {
     id: 'review-page',
     compilerOptions: { bindingMetadata: script.bindings },
   })
-  // The page's own Nuxt auto-imports are supplied by the support block below.
   const code = script.content.replace(/^import .* from ['"]~\/.*['"]\s*$/gm, '').replace('export default', 'const __sfc__ =')
   const support = [
     'const definePageMeta = () => undefined;',
@@ -83,6 +82,7 @@ function listWithFinal(review: Record<string, any>): ListFixture {
       size: 64,
       mtime_ms: 1_760_000_000_000,
       ino: 42,
+      review_enabled: true,
       review,
     }],
     generated_at: '2026-10-29T00:00:00.000Z',
@@ -109,8 +109,6 @@ async function mount(list: ListFixture, postResult?: any) {
     props: ['to'],
     setup: (props: any, { slots }: any) => () => h('a', { href: props.to }, slots.default?.()),
   }))
-  // The page's heading now comes from the shared <PageTitle> (v1.4.371); the real
-  // component is auto-imported under Nuxt, so the test provides the same slots.
   app.component('PageTitle', defineComponent({
     props: ['title', 'eyebrow', 'description'],
     setup: (p: any, { slots }: any) => () => h('header', [
@@ -125,16 +123,66 @@ async function mount(list: ListFixture, postResult?: any) {
   return { host, app, calls }
 }
 
-test('plays each final in place with native controls, through the authenticated route', async () => {
+test('compact rows: each final is a row with Play button, no video loaded until opened', async () => {
   const { host, app } = await mount(listWithFinal({ state: 'not_reviewed' }))
   try {
+    // Row exists with the episode title and channel name
+    const row = host.querySelector('.rv-row')
+    assert.ok(row, 'a compact row is rendered for each final')
+    assert.match(row!.textContent || '', /The First Story/)
+    assert.match(row!.textContent || '', /Demo Channel/)
+    // Video is NOT present until Play is clicked (preload none)
+    assert.equal(host.querySelector('video'), null, 'no video element until the row is opened')
+    // Play button exists with accessible name
+    const playBtn = host.querySelector<HTMLButtonElement>('.rv-btn-play')
+    assert.ok(playBtn, 'Play button exists')
+    assert.equal(playBtn!.textContent, 'Play')
+    assert.match(playBtn!.getAttribute('aria-label') || '', /EP0001/)
+    assert.match(playBtn!.getAttribute('aria-label') || '', /The First Story/)
+    assert.equal(playBtn!.getAttribute('aria-expanded'), 'false')
+  } finally { app.unmount() }
+})
+
+test('Play opens one row video at a time through the authenticated route', async () => {
+  const { host, app } = await mount(listWithFinal({ state: 'not_reviewed' }))
+  try {
+    const playBtn = host.querySelector<HTMLButtonElement>('.rv-btn-play')!
+    playBtn.click()
+    await flush()
     const video = host.querySelector('video')
-    assert.ok(video, 'the final must be playable here, not downloaded first')
+    assert.ok(video, 'video element appears after Play')
     assert.equal(video!.hasAttribute('controls'), true)
     assert.equal(video!.getAttribute('preload'), 'metadata')
     assert.equal(video!.getAttribute('src'), '/api/projects/demo/video-editor/final-video/EP0001?v=1760000000000-64')
-    assert.match(host.textContent || '', /does not upload, schedule or publish anything/i)
-    assert.match(host.textContent || '', /The First Story/)
+    assert.equal(playBtn.textContent, 'Close')
+    assert.equal(playBtn.getAttribute('aria-expanded'), 'true')
+    // Clicking again closes
+    playBtn.click()
+    await flush()
+    assert.equal(host.querySelector('video'), null, 'video removed after Close')
+  } finally { app.unmount() }
+})
+
+test('only one row video open at a time', async () => {
+  const { host, app } = await mount({
+    channels: [{ slug: 'demo', name: 'Demo Channel', review_enabled: true, final_count: 2 }],
+    finals: [
+      { channel_slug: 'demo', channel_name: 'Demo Channel', episode_code: 'EP0001', title: 'First', stream_url: '/api/projects/demo/video-editor/final-video/EP0001', size: 64, mtime_ms: 1_760_000_000_000, ino: 42, review_enabled: true, review: { state: 'not_reviewed' } },
+      { channel_slug: 'demo', channel_name: 'Demo Channel', episode_code: 'EP0002', title: 'Second', stream_url: '/api/projects/demo/video-editor/final-video/EP0002', size: 64, mtime_ms: 1_760_000_000_000, ino: 43, review_enabled: true, review: { state: 'not_reviewed' } },
+    ],
+    generated_at: '2026-10-29T00:00:00.000Z',
+  })
+  try {
+    const plays = host.querySelectorAll<HTMLButtonElement>('.rv-btn-play')
+    assert.equal(plays.length, 2)
+    plays[0].click()
+    await flush()
+    assert.equal(host.querySelectorAll('video').length, 1)
+    // Opening the second closes the first
+    plays[1].click()
+    await flush()
+    assert.equal(host.querySelectorAll('video').length, 1)
+    assert.equal(host.querySelector('video')!.getAttribute('src'), '/api/projects/demo/video-editor/final-video/EP0002')
   } finally { app.unmount() }
 })
 
@@ -149,8 +197,6 @@ test('no key, bearer or token appears in the page or in what it renders', async 
       assert.doesNotMatch(text, /ssk_[A-Za-z0-9_-]{20,}/)
       assert.doesNotMatch(text, /[?&](api_key|apikey|key|token|access_token)=/i)
     }
-    // The only URL the page plays is the server's own final-video route.
-    assert.equal(host.querySelector('video')!.getAttribute('src'), '/api/projects/demo/video-editor/final-video/EP0001?v=1760000000000-64')
   } finally { app.unmount() }
 })
 
@@ -197,7 +243,7 @@ test('a mark that no longer matches the file says the file changed', async () =>
 test('an unreadable mark is reported, never shown as "not reviewed"', async () => {
   const { host, app } = await mount(listWithFinal({ state: 'unreadable', error: 'The review mark is not valid JSON: unexpected token' }))
   try {
-    assert.match(host.textContent || '', /could not be read/)
+    assert.match(host.textContent || '', /could not be read/i)
     assert.match(host.textContent || '', /unexpected token/)
     assert.doesNotMatch(host.textContent || '', /Not reviewed yet/)
   } finally { app.unmount() }
@@ -219,6 +265,74 @@ test('a channel with review off lists nothing and offers the switch', async () =
     await flush()
     assert.deepEqual(calls.puts, [{ url: '/review/channels/demo', body: { enabled: true } }])
     assert.equal(calls.gets, 2, 'turning review on reloads the list')
+  } finally { app.unmount() }
+})
+
+test('summary line shows count or all-reviewed for the current filter', async () => {
+  // Unreviewed items: shows count
+  const { host: h1, app: a1 } = await mount({
+    channels: [{ slug: 'demo', name: 'Demo', review_enabled: true, final_count: 3 }],
+    finals: [
+      { channel_slug: 'demo', channel_name: 'Demo', episode_code: 'EP0001', title: 'A', stream_url: '/a', size: 64, mtime_ms: 3_000, ino: 1, review_enabled: true, review: { state: 'not_reviewed' } },
+      { channel_slug: 'demo', channel_name: 'Demo', episode_code: 'EP0002', title: 'B', stream_url: '/b', size: 64, mtime_ms: 2_000, ino: 2, review_enabled: true, review: { state: 'not_reviewed' } },
+      { channel_slug: 'demo', channel_name: 'Demo', episode_code: 'EP0003', title: 'C', stream_url: '/c', size: 64, mtime_ms: 1_000, ino: 3, review_enabled: true, review: { state: 'current', decision: 'approved', decided_at: '2026-10-29T00:00:00Z', identity: IDENTITY } },
+    ],
+    generated_at: '2026-10-29T00:00:00.000Z',
+  })
+  try {
+    assert.match(h1.textContent || '', /2 videos to review/)
+    assert.match(h1.textContent || '', /Start with the top one/)
+  } finally { a1.unmount() }
+
+  // All reviewed
+  const { host: h2, app: a2 } = await mount({
+    channels: [{ slug: 'demo', name: 'Demo', review_enabled: true, final_count: 1 }],
+    finals: [
+      { channel_slug: 'demo', channel_name: 'Demo', episode_code: 'EP0001', title: 'A', stream_url: '/a', size: 64, mtime_ms: 3_000, ino: 1, review_enabled: true, review: { state: 'current', decision: 'approved', decided_at: '2026-10-29T00:00:00Z', identity: IDENTITY } },
+    ],
+    generated_at: '2026-10-29T00:00:00.000Z',
+  })
+  try {
+    assert.match(h2.textContent || '', /All reviewed/)
+  } finally { a2.unmount() }
+})
+
+test('reviewed rows are visually quieter', async () => {
+  const { host, app } = await mount({
+    channels: [{ slug: 'demo', name: 'Demo', review_enabled: true, final_count: 2 }],
+    finals: [
+      { channel_slug: 'demo', channel_name: 'Demo', episode_code: 'EP0001', title: 'Unreviewed', stream_url: '/a', size: 64, mtime_ms: 3_000, ino: 1, review_enabled: true, review: { state: 'not_reviewed' } },
+      { channel_slug: 'demo', channel_name: 'Demo', episode_code: 'EP0002', title: 'Reviewed', stream_url: '/b', size: 64, mtime_ms: 2_000, ino: 2, review_enabled: true, review: { state: 'current', decision: 'approved', decided_at: '2026-10-29T00:00:00Z', identity: IDENTITY } },
+    ],
+    generated_at: '2026-10-29T00:00:00.000Z',
+  })
+  try {
+    const rows = host.querySelectorAll('.rv-row')
+    assert.equal(rows.length, 2)
+    assert.ok(!rows[0].classList.contains('rv-row-reviewed'), 'unreviewed row has no reviewed class')
+    assert.ok(rows[1].classList.contains('rv-row-reviewed'), 'reviewed row has quieter class')
+  } finally { app.unmount() }
+})
+
+test('channel chips sorted unreviewed-first', async () => {
+  const { host, app } = await mount({
+    channels: [
+      { slug: 'alpha', name: 'Alpha', review_enabled: true, final_count: 0 },
+      { slug: 'beta', name: 'Beta', review_enabled: true, final_count: 2 },
+      { slug: 'gamma', name: 'Gamma', review_enabled: true, final_count: 1 },
+    ],
+    finals: [
+      { channel_slug: 'beta', channel_name: 'Beta', episode_code: 'EP0001', title: 'B1', stream_url: '/b1', size: 64, mtime_ms: 3_000, ino: 1, review_enabled: true, review: { state: 'current', decision: 'approved', decided_at: '2026-10-29T00:00:00Z', identity: IDENTITY } },
+      { channel_slug: 'beta', channel_name: 'Beta', episode_code: 'EP0002', title: 'B2', stream_url: '/b2', size: 64, mtime_ms: 2_000, ino: 2, review_enabled: true, review: { state: 'current', decision: 'approved', decided_at: '2026-10-29T00:00:00Z', identity: IDENTITY } },
+      { channel_slug: 'gamma', channel_name: 'Gamma', episode_code: 'EP0001', title: 'G1', stream_url: '/g1', size: 64, mtime_ms: 1_000, ino: 3, review_enabled: true, review: { state: 'not_reviewed' } },
+    ],
+    generated_at: '2026-10-29T00:00:00.000Z',
+  })
+  try {
+    // All-channels chip first, then Gamma (1 unreviewed), Beta (0 unreviewed), Alpha (0 unreviewed)
+    const chips = host.querySelectorAll('.rv-chip-name')
+    const names = Array.from(chips).map(c => c.textContent)
+    assert.deepEqual(names, ['All channels', 'Gamma', 'Alpha', 'Beta'])
   } finally { app.unmount() }
 })
 

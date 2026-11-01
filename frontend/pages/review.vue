@@ -1,5 +1,5 @@
 <!--
-  Review finals (owner, 2026-10-29; redesigned 2026-11-01).
+  Review finals (owner, 2026-10-29; redesigned 2026-11-01; compact rows 2026-11-02).
 
   One private, mobile-friendly page over the app's existing Tailscale path: the
   finished videos of every channel, newest unreviewed first.
@@ -28,7 +28,7 @@
       <button type="button" class="rv-retry" @click="load(false)">Retry</button>
     </p>
 
-    <nav v-if="channels.length" class="rv-channels" aria-label="Channel filter">
+    <nav v-if="sortedChannels.length" class="rv-channels" aria-label="Channel filter">
       <button
         type="button"
         class="rv-chip"
@@ -39,7 +39,7 @@
         <span class="rv-chip-count">{{ unreviewedCount }} / {{ totalFinals }}</span>
       </button>
       <button
-        v-for="channel in channels"
+        v-for="channel in sortedChannels"
         :key="channel.slug"
         type="button"
         class="rv-chip"
@@ -66,39 +66,57 @@
 
     <p v-if="loading && !filteredFinals.length" class="rv-empty" role="status">Loading finished videos…</p>
     <p v-else-if="!totalFinals" class="rv-empty">
-      No finished videos yet across any channel.
+      No finished videos are waiting. Turn review on for a channel above to start seeing finished videos here.
     </p>
     <p v-else-if="!filteredFinals.length" class="rv-empty">
       {{ selectedChannelData ? `No finished videos for ${selectedChannelData.name}.` : 'No finished videos match this filter.' }}
     </p>
 
+    <p v-else class="rv-summary" role="status">
+      <span v-if="unreviewedInFilter > 0">
+        {{ unreviewedInFilter }} video{{ unreviewedInFilter === 1 ? '' : 's' }} to review. Start with the top one.
+      </span>
+      <span v-else>All reviewed.</span>
+    </p>
+
     <article
       v-for="item in filteredFinals"
       :key="`${item.channel_slug}/${item.episode_code}`"
-      class="rv-card"
-      :aria-labelledby="`rv-${item.channel_slug}-${item.episode_code}`"
+      class="rv-row"
+      :class="{ 'rv-row-reviewed': item.review.state !== 'not_reviewed' && item.review.state !== 'unreadable' }"
     >
-      <header class="rv-card-head">
-        <p class="rv-card-channel">{{ item.channel_name }}</p>
-        <h2 :id="`rv-${item.channel_slug}-${item.episode_code}`" class="rv-card-title">
-          {{ item.episode_code }} · {{ item.title }}
-        </h2>
-        <p class="rv-card-sub">{{ finishedAt(item.mtime_ms) }}</p>
-      </header>
+      <div class="rv-row-head">
+        <span class="rv-row-channel">{{ item.channel_name }}</span>
+        <span class="rv-row-state" :data-state="markTone(item.review)">{{ stateShort(item.review) }}</span>
+      </div>
+      <h2 class="rv-row-title">{{ item.episode_code }} · {{ item.title }}</h2>
+      <p class="rv-row-sub">{{ finishedAt(item.mtime_ms) }}</p>
 
-      <video class="rv-video" :src="item.stream_url" controls preload="metadata" playsinline>
+      <video
+        v-if="openRow === itemKey(item)"
+        class="rv-video"
+        :src="item.stream_url"
+        controls
+        preload="metadata"
+        playsinline
+      >
         This video cannot play in your browser.
       </video>
 
-      <p class="rv-mark" :data-state="markTone(item.review)">{{ markLabel(item.review) }}</p>
       <p v-if="item.review.state === 'unreadable'" class="rv-alert" role="alert">{{ item.review.error }}</p>
+      <p v-if="item.review.state === 'stale'" class="rv-mark rv-mark-stale">
+        This file changed since it was marked {{ item.review.decision === 'approved' ? 'approved' : 'as needing changes' }}. Watch it again, then mark it.
+      </p>
       <p v-if="saveError[itemKey(item)]" class="rv-alert" role="alert">{{ saveError[itemKey(item)] }}</p>
 
-      <div class="rv-actions">
-        <NuxtLink
-          :to="`/projects/${item.channel_slug}/video-assembly?episode_id=${item.episode_code}`"
-          class="rv-btn rv-btn-primary"
-        >View episode</NuxtLink>
+      <div class="rv-row-actions">
+        <button
+          type="button"
+          class="rv-btn rv-btn-play"
+          :aria-expanded="openRow === itemKey(item)"
+          :aria-label="`${openRow === itemKey(item) ? 'Close' : 'Play'} ${item.episode_code} ${item.title}`"
+          @click="toggleRow(itemKey(item))"
+        >{{ openRow === itemKey(item) ? 'Close' : 'Play' }}</button>
         <button
           type="button"
           class="rv-btn rv-btn-ok"
@@ -113,6 +131,10 @@
           :disabled="saving.has(itemKey(item))"
           @click="decide(item, 'needs_changes')"
         >{{ saving.has(itemKey(item)) ? 'Saving…' : 'Needs changes' }}</button>
+        <NuxtLink
+          :to="`/projects/${item.channel_slug}/video-assembly?episode_id=${item.episode_code}`"
+          class="rv-btn rv-btn-primary"
+        >View episode</NuxtLink>
       </div>
     </article>
 
@@ -147,6 +169,7 @@ const saving = ref<Set<string>>(new Set())
 const toggling = ref<Set<string>>(new Set())
 const saveError = ref<Record<string, string>>({})
 const selectedChannel = ref('')
+const openRow = ref('')
 
 const totalFinals = computed(() => finals.value.length)
 
@@ -167,6 +190,20 @@ const filteredFinals = computed(() => {
   })
 })
 
+const unreviewedInFilter = computed(() => {
+  return filteredFinals.value.filter(item => item.review.state === 'not_reviewed').length
+})
+
+/** Channels sorted unreviewed-first so a channel needing attention leads. */
+const sortedChannels = computed(() => {
+  return [...channels.value].sort((a, b) => {
+    const aUn = unreviewedByChannel(a.slug)
+    const bUn = unreviewedByChannel(b.slug)
+    if (aUn !== bUn) return bUn - aUn
+    return a.name.localeCompare(b.name)
+  })
+})
+
 const selectedChannelData = computed(() => {
   return channels.value.find(c => c.slug === selectedChannel.value) || null
 })
@@ -178,6 +215,10 @@ function unreviewedByChannel(slug: string): number {
 /** One key per final: two channels can share an episode code (§4). */
 function itemKey(item: FinalReviewItem): string {
   return `${item.channel_slug}/${item.episode_code}`
+}
+
+function toggleRow(key: string): void {
+  openRow.value = openRow.value === key ? '' : key
 }
 
 async function load(quiet = false): Promise<void> {
@@ -252,15 +293,12 @@ function markTone(review: FinalReviewState): string {
   return 'none'
 }
 
-function markLabel(review: FinalReviewState): string {
-  if (review.state === 'not_reviewed') return 'Not reviewed yet.'
-  if (review.state === 'unreadable') return 'The review mark could not be read.'
-  if (review.state === 'stale') {
-    return `This file changed since it was marked ${review.decision === 'approved' ? 'approved' : 'as needing changes'}. Watch it again, then mark it.`
-  }
-  return review.decision === 'approved'
-    ? `Approved · review note only, marked ${finishedAt(Date.parse(review.decided_at))}.`
-    : `Needs changes · marked ${finishedAt(Date.parse(review.decided_at))}.`
+/** Short state label for the compact row. */
+function stateShort(review: FinalReviewState): string {
+  if (review.state === 'not_reviewed') return 'Not reviewed'
+  if (review.state === 'unreadable') return 'Could not be read'
+  if (review.state === 'stale') return 'File changed'
+  return review.decision === 'approved' ? 'Approved' : 'Needs changes'
 }
 
 function finishedAt(ms: number): string {
@@ -367,19 +405,38 @@ onUnmounted(() => poller.stop())
 }
 .rv-toggle input { width: 20px; height: 20px; }
 
-.rv-empty { color: var(--text-secondary); text-align: center; padding: 24px 8px; }
+.rv-empty { color: var(--text-secondary); text-align: center; padding: 24px 8px; margin: 0; }
 
-.rv-card {
+.rv-summary {
+  margin: 0;
+  padding: 8px 0;
+  font-size: var(--font-sm);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.rv-row {
   border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 12px;
+  border-radius: 10px;
+  padding: 10px 12px;
   background: var(--bg-secondary);
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 6px;
 }
-.rv-card-head { display: flex; flex-direction: column; gap: 4px; }
-.rv-card-channel {
+.rv-row + .rv-row { margin-top: 8px; }
+.rv-row-reviewed { opacity: 0.65; }
+.rv-row-reviewed .rv-row-state[data-state='approved'] { color: var(--success); }
+.rv-row-reviewed .rv-row-state[data-state='needs_changes'] { color: var(--error); }
+
+.rv-row-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.rv-row-channel {
   margin: 0;
   font-size: var(--font-xs);
   font-weight: 600;
@@ -387,25 +444,43 @@ onUnmounted(() => poller.stop())
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
-.rv-card-title { margin: 0; font-size: 1rem; line-height: 1.35; }
-.rv-card-sub { margin: 0; color: var(--text-secondary); font-size: var(--font-xs); }
-.rv-video { width: 100%; height: auto; border-radius: 8px; background: #000; }
-.rv-mark { margin: 0; font-size: var(--font-sm); color: var(--text-secondary); }
-.rv-mark[data-state='approved'] { color: var(--success); }
-.rv-mark[data-state='needs_changes'] { color: var(--error); }
-.rv-mark[data-state='stale'] { color: var(--warning); }
-.rv-mark[data-state='unreadable'] { color: var(--error); }
-.rv-actions { display: flex; gap: 10px; }
+.rv-row-state {
+  font-size: var(--font-xs);
+  font-weight: 500;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+.rv-row-state[data-state='approved'] { color: var(--success); }
+.rv-row-state[data-state='needs_changes'] { color: var(--error); }
+.rv-row-state[data-state='stale'] { color: var(--warning); }
+.rv-row-state[data-state='unreadable'] { color: var(--error); }
+
+.rv-row-title { margin: 0; font-size: var(--font-sm); font-weight: 600; line-height: 1.35; }
+.rv-row-sub { margin: 0; color: var(--text-secondary); font-size: var(--font-xs); }
+.rv-video { width: 100%; height: auto; border-radius: 8px; background: #000; margin: 4px 0; }
+
+.rv-mark-stale { margin: 0; font-size: var(--font-xs); color: var(--warning); }
+
+.rv-row-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
 .rv-btn {
-  flex: 1;
-  min-height: 44px;
-  border-radius: 10px;
+  flex: 1 1 auto;
+  min-height: 36px;
+  min-width: 0;
+  padding: 6px 10px;
+  border-radius: 8px;
   border: 1px solid var(--border);
   background: var(--bg-primary);
   color: var(--text-primary);
-  font-size: var(--font-sm);
+  font-size: var(--font-xs);
   font-weight: 600;
   cursor: pointer;
+  text-align: center;
+  white-space: nowrap;
 }
 .rv-btn:disabled { opacity: 0.6; cursor: default; }
 .rv-btn-primary {
@@ -418,7 +493,13 @@ onUnmounted(() => poller.stop())
   color: #fff;
 }
 .rv-btn-primary:hover { opacity: 0.9; }
+.rv-btn-play { font-weight: 600; }
 .rv-btn-ok.chosen { border-color: #1d7a46; background: #1d7a46; color: #fff; }
 .rv-btn-changes.chosen { border-color: var(--danger, #c0392b); background: var(--danger, #c0392b); color: #fff; }
 .rv-foot { margin: 0; color: var(--text-secondary); font-size: var(--font-xs); line-height: 1.45; }
+
+@media (max-width: 480px) {
+  .rv-row-actions { flex-direction: column; }
+  .rv-btn { flex: 1 1 100%; }
+}
 </style>
