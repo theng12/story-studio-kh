@@ -66,6 +66,10 @@ async function loadComponent(name: SfcName): Promise<Component> {
     const ContentProductCover = { props: ['product'], render: () => null }
     const ContentProductCard = { props: ['product'], render() { return h('article', { class: 'component-card' }, this.product.title) } }
     const ContentProductDetail = { props: ['product'], render() { return h('article', { class: 'detail-stub' }, this.product.title) } }
+    // The detail views open this viewer over a pack's pictures. It is stripped
+    // with the other imports, so it is provided here as a stub that renders
+    // nothing: these tests assert the page's own copy, not the lightbox.
+    const PackPreviewViewer = { props: ['pictures', 'index', 'title'], emits: ['close', 'update:index'], render: () => null }
     const useRoute = () => globalThis.__contentStoreTestRoute
     const useContentStore = () => globalThis.__contentStoreTestStore
     const useAppTitle = () => undefined
