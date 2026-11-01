@@ -639,13 +639,9 @@ function freshnessLabel(channel: PublishingOverviewChannel): string {
 </script>
 
 <style scoped>
-.publishing-page {
-  width: 100%;
-  max-width: none;
-  margin: 0;
-  padding: 20px 24px 48px;
-  box-sizing: border-box;
-}
+/* No width, margin or padding here: .page-frame owns the frame. This page used
+   to declare `max-width: none` and run edge to edge while review sat in a
+   720px column — the owner's "it's different width" (2026-11-01). */
 .publishing-header {
   display: flex;
   align-items: flex-start;
@@ -754,14 +750,12 @@ function freshnessLabel(channel: PublishingOverviewChannel): string {
   .calendar-day-label { min-width: 0; }
 }
 @media (max-width: 560px) {
-  .publishing-page { padding: 14px 12px 40px; }
   .publishing-tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; }
   .publishing-tabs button { justify-content: center; min-height: 44px; }
   .calendar-view-button { min-height: 40px; }
   .pagination { justify-content: space-between; }
 }
 @media (max-width: 420px) {
-  .publishing-page { padding: 12px 10px 36px; }
   .calendar-nav { width: 100%; }
   .calendar-range { width: 100%; }
 }

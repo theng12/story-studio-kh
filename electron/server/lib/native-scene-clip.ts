@@ -246,7 +246,7 @@ export function validateSketchDrawJob(job: SketchDrawJob): void {
   }
   if (typeof job.input !== 'string' || typeof job.output !== 'string' || !path.isAbsolute(job.input) || !path.isAbsolute(job.output) || path.resolve(job.input) === path.resolve(job.output)) invalid('input and output must be different absolute paths')
   if (typeof job.paper !== 'string' || !/^#[a-f\d]{6}$/i.test(job.paper)) invalid('paper must be a six-digit hex colour')
-  if (typeof job.reveal !== 'string' || !(SKETCH_REVEAL_TYPES as readonly string[]).includes(job.reveal)) invalid('reveal must be one of line, buildup, swipes, patches, bloom, colour')
+  if (typeof job.reveal !== 'string' || !(SKETCH_REVEAL_TYPES as readonly string[]).includes(job.reveal)) invalid(`reveal must be one of ${SKETCH_REVEAL_TYPES.join(', ')}`)
   if (job.line_weight !== undefined && !(SKETCH_LINE_WEIGHTS as readonly string[]).includes(job.line_weight)) invalid('line_weight must be one of thin, normal, bold')
   if (job.mask !== undefined && (typeof job.mask !== 'string' || !path.isAbsolute(job.mask))) invalid('mask must be an absolute path')
   if (job.quality !== undefined && (!Number.isFinite(job.quality) || job.quality < 0 || job.quality > 1)) invalid('quality must be 0–1')

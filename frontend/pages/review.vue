@@ -323,10 +323,10 @@ onUnmounted(() => poller.stop())
 </script>
 
 <style scoped>
+/* The outer wrapper only: .page-frame owns width, margin and padding. It used
+   to pin this page to a centred 720px column while publishing ran edge to edge.
+   The flex column and its gap stay — that is this page's own vertical rhythm. */
 .rv-page {
-  max-width: 720px;
-  margin: 0 auto;
-  padding: 16px 14px 48px;
   display: flex;
   flex-direction: column;
   gap: 16px;
