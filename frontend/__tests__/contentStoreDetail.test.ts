@@ -363,7 +363,11 @@ describe('Studio Library proof route contract', () => {
   })
 
   test('uses 44px text-link targets on the library page', () => {
-    assert.match(storePage, /<PlainBackLink label="Back to Channels" fallback="\/" \/>/)
+    // One Back wording across every top-level page (owner, 2026-11-01: "Back
+    // links say Back on some pages and Back to Channels on others"). The label
+    // comes from the component's default, so no page may rename it.
+    assert.match(storePage, /<PlainBackLink \/>/)
+    assert.doesNotMatch(storePage, /<PlainBackLink[^>]*label=/, 'no page overrides the shared Back wording')
     assert.match(readFileSync(fileURLToPath(new URL('../components/content-store/ContentProductCard.vue', import.meta.url)), 'utf8'), /\.proof-action\s*\{[^}]*min-height:\s*44px/)
   })
 })
