@@ -233,15 +233,17 @@ test('ordinary Pipeline continuation preserves approved partial Scene Plan state
   assert.doesNotMatch(submissions[0]!.bodyText, new RegExp(fixture.preservedId))
 })
 
-test('explicit timeline and force requests remain intentional whole-plan rebuilds', async () => {
+// 1.4.374 — explicit timeline and force requests still rebuild the whole plan, but a scene whose
+// narration is unchanged keeps its prompt and picture (scene-plan-staleness carrySceneMediaForward).
+test('explicit timeline and force requests rebuild the plan and keep scenes whose narration is unchanged', async () => {
   service.reset()
   genstudio.clearGenStudioCatalogCache()
   const timelineFixture = await seedFixture()
   await runScenePlanJob(pipelineJob(timelineFixture, { stage: 'timeline' }))
   const timelinePlan = JSON.parse(await fs.readFile(timelineFixture.planPath, 'utf8'))
-  assert.equal(timelinePlan.scenes[0].visual_prompt, '')
-  assert.equal(timelinePlan.scenes[0].approved, undefined)
-  assert.equal(timelinePlan.scenes[0].image_path, undefined)
+  assert.equal(timelinePlan.scenes[0].visual_prompt, timelineFixture.preservedPrompt)
+  assert.equal(timelinePlan.scenes[0].image_path, timelineFixture.imagePath)
+  assert.equal(timelinePlan.scenes[0].rendered_prompt, timelineFixture.preservedPrompt)
   assert.equal(timelinePlan.visual_prompt_batch_id, undefined)
   assert.equal(chatSubmissions().length, 0)
 
@@ -251,11 +253,14 @@ test('explicit timeline and force requests remain intentional whole-plan rebuild
   queuePromptResult([forceFixture.preservedId, forceFixture.missingId])
   await runScenePlanJob(pipelineJob(forceFixture, { force: true }))
   const forcePlan = JSON.parse(await fs.readFile(forceFixture.planPath, 'utf8'))
-  assert.equal(forcePlan.scenes[0].visual_prompt, `A new cinematic prompt written only for ${forceFixture.preservedId}.`)
-  assert.equal(forcePlan.scenes[0].approved, undefined)
-  assert.equal(forcePlan.scenes[0].image_path, undefined)
+  assert.equal(forcePlan.scenes[0].visual_prompt, forceFixture.preservedPrompt)
+  assert.equal(forcePlan.scenes[0].approved, true)
+  assert.equal(forcePlan.scenes[0].image_path, forceFixture.imagePath)
+  assert.equal(forcePlan.scenes[1].visual_prompt, `A new cinematic prompt written only for ${forceFixture.missingId}.`)
   assert.equal(forcePlan.visual_prompt_batch_id, undefined)
-  assert.equal(chatSubmissions().length, 1)
+  const forceSubmissions = chatSubmissions()
+  assert.equal(forceSubmissions.length, 1)
+  assert.doesNotMatch(forceSubmissions[0]!.bodyText, new RegExp(forceFixture.preservedId))
 })
 
 test('ordinary continuation still asks for a rebuild when the timeline moved more than re-aligning can absorb', async () => {
