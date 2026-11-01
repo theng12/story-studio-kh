@@ -658,6 +658,56 @@
             </p>
           </section>
 
+          <!-- The owner's saved starting points (2026-10-31): "as we can have
+               several defaults to choose from" when setting up a new channel.
+               Marking a channel here puts it on the create screen's "Start
+               from" cards. The card shows the source channel AS IT IS NOW, so
+               a channel whose Formula changed afterwards shows its current
+               Formula — the saved starting point points at the channel, it
+               does not freeze a copy of it. -->
+          <section class="card settings-panel" data-setting="channel-default">
+            <header class="settings-card-head">
+              <h3>Save this channel as a starting point</h3>
+              <p>
+                Names this channel so it can be picked when you create a new one. The new channel starts
+                from this one as it is right now — this channel's Formula, art style and saved presets.
+                Nothing is copied until you pick it, and this channel is never changed by that.
+              </p>
+            </header>
+            <div class="form-group">
+              <label for="channel-default-name">Starting point name</label>
+              <input
+                id="channel-default-name"
+                v-model="channelDefaultName"
+                class="input"
+                placeholder="e.g. Warm History"
+                autocomplete="off"
+                maxlength="80"
+                :disabled="savingChannelDefault"
+                @keydown.enter="saveChannelDefault"
+              />
+              <p class="text-muted text-sm">
+                Leave this empty and save to stop offering this channel as a starting point.
+                A channel started from a starting point is not itself one.
+              </p>
+            </div>
+            <div class="button-row">
+              <button
+                type="button"
+                class="btn btn-primary btn-sm"
+                :disabled="savingChannelDefault"
+                @click="saveChannelDefault"
+              >
+                <LoadingSpinner v-if="savingChannelDefault" size="sm" />
+                {{ savingChannelDefault ? 'Saving…' : (channelDefaultName.trim() ? 'Save starting point' : 'Remove starting point') }}
+              </button>
+              <SaveIndicator v-bind="savedHintProps('channel_default')" />
+            </div>
+            <p v-if="channelDefaultError" class="text-danger" role="alert" style="font-size: 13px;">
+              {{ channelDefaultError }}
+            </p>
+          </section>
+
           <section class="card settings-panel" data-setting="content-language">
             <header class="settings-card-head">
               <h3>Language &amp; introductions</h3>
@@ -4841,6 +4891,54 @@ async function startChannelFromSettings(): Promise<void> {
     startChannelError.value = e?.data?.detail || e?.message || 'Could not start the new channel.'
   } finally {
     startingChannel.value = false
+  }
+}
+
+// ── Save this channel as a starting point (2026-10-31) ────────────────────
+//
+// The marker is ONE config key carrying the name the customer gave it. The
+// route writes only that key, so a whole-config save elsewhere on this page
+// can never carry a stale marker into the disk, and the marker itself can
+// never carry anything else out of it.
+const channelDefaultName = ref('')
+const savingChannelDefault = ref(false)
+const channelDefaultError = ref('')
+
+// Watched as [slug, config] rather than as the field's value: switching to
+// another channel whose marker happens to be the SAME string (including
+// none) would not change that value, and the previous channel's unsaved
+// typing would survive the switch (AGENTS §4). The reference changes on every
+// load and refresh; an in-place edit of some other field does not, so a draft
+// typed here is not thrown away by an unrelated save.
+watch([slug, config], () => {
+  if (savingChannelDefault.value) return
+  const value = (config.value as any)?.channel_default_name
+  channelDefaultName.value = typeof value === 'string' ? value : ''
+}, { immediate: true })
+
+async function saveChannelDefault(): Promise<void> {
+  if (savingChannelDefault.value) return
+  savingChannelDefault.value = true
+  channelDefaultError.value = ''
+  const name = channelDefaultName.value.trim()
+  try {
+    const saved = await put<{ name?: string; is_starting_point?: boolean }>(
+      `/projects/${slug.value}/channel-default`,
+      { name },
+    )
+    // Read the answer back rather than trusting the form: a marker that did
+    // not land would leave a card the customer cannot remove.
+    const stored = typeof saved?.name === 'string' ? saved.name : ''
+    channelDefaultName.value = stored
+    if (config.value) (config.value as any).channel_default_name = stored
+    stampSaved('channel_default')
+    success(stored
+      ? `Saved as a starting point. It will be on the "Start from" cards when you create a new channel.`
+      : 'This channel is no longer offered as a starting point.')
+  } catch (e: any) {
+    channelDefaultError.value = e?.data?.detail || e?.message || 'Could not save the starting point.'
+  } finally {
+    savingChannelDefault.value = false
   }
 }
 </script>

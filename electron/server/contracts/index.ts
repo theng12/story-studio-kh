@@ -485,6 +485,12 @@ export const UpdateConfigSchema = z.object({
   }).passthrough()).optional(),
   style_presets: z.array(z.any()).optional(),
   active_style_preset_id: z.string().max(200).optional(),
+  /**
+   * 2026-10-31 — this channel's name as a saved starting point for a NEW channel
+   * (owner, 2026-10-31). Empty clears the marker; the name is what the card
+   * in the create screen shows. Bounded so a runaway value cannot reach disk.
+   */
+  channel_default_name: z.string().max(80).optional(),
   confirmation_preferences: z.record(z.string(), z.any()).optional(),
   /** 1.4.300 — per-channel Off / Warn / Block for each safety check (services/safety-checks.ts). */
   safety_checks: z.record(z.string().max(80), z.enum(['off', 'warn', 'block'])).optional(),
@@ -567,6 +573,33 @@ export const UpdateConfigSchema = z.object({
   return current
 })
 export type UpdateConfigBody = z.infer<typeof UpdateConfigSchema>
+
+/**
+ * One SAVED STARTING POINT, as `GET /projects/channel-defaults` returns it —
+ * a channel the owner named so a NEW channel can start from it
+ * (owner, 2026-10-31: *"as we can have several defaults to choose from"*).
+ *
+ * Every field describes the source channel as it is RIGHT NOW: the list is
+ * read live from the channels, never cached, so a Formula or art style
+ * changed since the channel was marked shows its current value here.
+ *
+ * `art_style_preview` is always an app-served URL or '' — never a file path,
+ * so nothing outside this app's own routes reaches the renderer.
+ */
+export interface ChannelDefaultSummary {
+  /** The name the owner gave this starting point. */
+  name: string
+  /** The channel a copy made from here would be started from. */
+  source_slug: string
+  /** The source channel's own name, so a card says which channel it is. */
+  source_name: string
+  /** The source channel's Series Formula, by the name installed on this Mac. */
+  formula_name: string
+  /** The source channel's art style, by name. '' when it names none. */
+  art_style_name: string
+  /** The art style's preview picture, when it has one. '' when it has none. */
+  art_style_preview: string
+}
 
 /**
  * Shape of `GET /projects/:slug/settings/config` — the "safe" config with

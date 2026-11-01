@@ -14,6 +14,12 @@ import type { ProjectMeta } from '../models/types.js'
 import type { JobType } from '../models/types.js'
 import { createProjectWithContentSelections, updateProjectContentConfigSelections } from '../content-packs/project-pins.js'
 import { copyableConfigSettings, copyableCreateRequest } from '../services/channel-settings-copy.js'
+import {
+  CHANNEL_DEFAULT_NAME_KEY,
+  listChannelDefaults,
+  normaliseChannelDefaultName,
+  readChannelDefaultNameOnDisk,
+} from '../services/channel-defaults.js'
 import { loadNiche, withFormulaLabels } from '../services/niche-loader.js'
 import { seedFormulaStartingDefaults } from '../services/formula-starting-defaults.js'
 import { getIdeas } from '../services/idea-manager.js'
@@ -362,7 +368,21 @@ router.post('/projects/:slug/duplicate-settings', async (req, res) => {
 
   let created: Awaited<ReturnType<typeof createProjectWithContentSelections>>
   try {
-    created = await createProjectWithContentSelections(copyableCreateRequest(name, source))
+    // Episode naming and audience language are NEW-channel choices, not
+    // settings this channel owns, so the create form's values for them are
+    // honoured here rather than quietly dropped (they are not on the copy
+    // allow list, and rightly so). The Formula still comes from the source —
+    // that is the whole point of starting from one.
+    const request = copyableCreateRequest(name, source)
+    const body = (req.body ?? {}) as Record<string, unknown>
+    if (typeof body.episode_prefix === 'string' && body.episode_prefix.trim()) request.episode_prefix = body.episode_prefix.trim().slice(0, 10)
+    if (typeof body.season_prefix === 'string' && body.season_prefix.trim()) request.season_prefix = body.season_prefix.trim().slice(0, 40)
+    const seasonSize = Number(body.season_size)
+    if (Number.isInteger(seasonSize) && seasonSize >= 1 && seasonSize <= 1000) request.season_size = seasonSize
+    if (typeof body.content_language === 'string' && (body.content_language === 'en' || body.content_language === 'km')) {
+      request.content_language = body.content_language
+    }
+    created = await createProjectWithContentSelections(request)
   } catch (e: any) {
     return res.status(400).json(humanizeBackendError(e, 'Could not start a channel from this one'))
   }
@@ -389,6 +409,57 @@ router.post('/projects/:slug/duplicate-settings', async (req, res) => {
     return res.status(typeof e?.statusCode === 'number' ? e.statusCode : 400)
       .json(humanizeBackendError(e, 'Could not carry this channel\'s settings over'))
   }
+})
+
+/**
+ * The saved starting points — the channels the owner marked as a template for
+ * a NEW channel (owner, 2026-10-31): *"as we can have several defaults to
+ * choose from."*
+ *
+ * Live, not cached: the list is built by reading the channels that exist
+ * right now, so a channel that has been deleted stops being offered without
+ * anything having to clean it up, and a marked channel's Formula and art
+ * style are whatever that channel says today.
+ *
+ * Top-level, deliberately NOT `/projects/channel-defaults`: the project-existence
+ * guard mounts on `/api/projects/:slug`, and a channel whose slug IS
+ * "channel-defaults" would then lose its own settings page to this route.
+ */
+router.get('/channel-defaults', async (req, res) => {
+  try {
+    const defaults = await listChannelDefaults(req.app.locals.contentPackOptions || {})
+    res.json({ defaults })
+  } catch (e: any) {
+    respondWithError(res, e, 'Failed to list saved starting points')
+  }
+})
+
+/**
+ * Mark this channel as a starting point (or stop offering it).
+ *
+ * The marker is one config key carrying the name the customer gave it. An
+ * empty name clears the marker — the channel stops being offered and stops
+ * being a starting point, and nothing else about it changes.
+ *
+ * This route writes ONLY that one key. It deliberately does not go through
+ * the whole-config save, because a whole-config save would carry whatever the
+ * page happened to hold — and a stale value reaching another channel is the
+ * defect class this repo cares about most.
+ */
+router.put('/projects/:slug/channel-default', async (req, res) => {
+  const slug = req.params.slug
+  if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
+
+  const requested = normaliseChannelDefaultName(req.body?.name)
+  if (!requested.ok) return res.status(400).json({ detail: requested.detail })
+
+  const saved = await pm.updateConfig(slug, { [CHANNEL_DEFAULT_NAME_KEY]: requested.name })
+  if (!saved) return res.status(404).json({ detail: 'Project not found' })
+
+  // Read it back rather than trusting the write: a marker that did not land
+  // would leave a card the customer cannot remove.
+  const stored = await readChannelDefaultNameOnDisk(slug)
+  return res.json({ ok: true, name: stored, is_starting_point: stored.length > 0 })
 })
 
 // (Removed: POST /projects/import/inspect and POST /projects/import, and the

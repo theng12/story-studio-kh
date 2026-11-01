@@ -48,8 +48,19 @@ const EXTRA_COPYABLE_CONFIG_KEYS = new Set([
  *   so carrying them here would silently replace every other channel's list.
  *   A channel's narration voice rides in on `audio_generator_presets` with the
  *   rest of its Audio presets.
+ * - `channel_default_name` — this channel's marker as a saved starting point
+ *   for a new channel (owner, 2026-10-31). A channel STARTED FROM a default
+ *   is not itself a default: if the marker crossed, every copy would silently
+ *   join the list of starting points and the list would grow without anyone
+ *   choosing to. Named here even though the allow list below would already
+ *   drop it, so a future widening of that list cannot start carrying it.
  */
-const NEVER_COPIED_CONFIG_KEYS = new Set(['default_scene_pacing', 'voice_presets', 'voice_favourites'])
+const NEVER_COPIED_CONFIG_KEYS = new Set([
+  'default_scene_pacing',
+  'voice_presets',
+  'voice_favourites',
+  'channel_default_name',
+])
 
 /**
  * The config patch that carries a channel's reusable settings over: every
