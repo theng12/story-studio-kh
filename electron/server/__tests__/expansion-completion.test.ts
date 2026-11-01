@@ -146,6 +146,11 @@ function makeParams(
 
 const fixed = (chapters: number): ExpansionBatchSetting => ({ mode: 'count', chapters, words: 1_800 })
 
+// Listicle batches run in parallel, so arrival order is not fixed: compare the
+// groups sent, ordered by their first chapter.
+const batchesSent = (): number[][] =>
+  expansionCalls.map(call => call.slots).sort((a, b) => (a[0] ?? 0) - (b[0] ?? 0))
+
 // ── "Chapters per request" respected end to end ───────────────────────────
 
 describe('chapters per request — the channel setting is what runs', () => {
@@ -153,7 +158,7 @@ describe('chapters per request — the channel setting is what runs', () => {
     const scriptDir = await freshDir()
     await seedOutline(scriptDir, 4, 'listicle')
     await expandChapters(makeJob(), makeParams(scriptDir, fixed(1)), { auto_approve: true })
-    assert.deepEqual(expansionCalls.map(call => call.slots), [[1], [2], [3], [4]])
+    assert.deepEqual(batchesSent(), [[1], [2], [3], [4]])
   })
 
   test('a fixed 5 sends five chapters per request, with the remainder last', async () => {
@@ -161,7 +166,7 @@ describe('chapters per request — the channel setting is what runs', () => {
     await seedOutline(scriptDir, 11, 'listicle')
     await expandChapters(makeJob(), makeParams(scriptDir, fixed(5), 11), { auto_approve: true })
     assert.deepEqual(
-      expansionCalls.map(call => call.slots),
+      batchesSent(),
       [[1, 2, 3, 4, 5], [6, 7, 8, 9, 10], [11]],
     )
   })
@@ -175,7 +180,7 @@ describe('chapters per request — the channel setting is what runs', () => {
       makeParams(scriptDir, { mode: 'length', chapters: null, words: 1_200 }, 6),
       { auto_approve: true },
     )
-    assert.deepEqual(expansionCalls.map(call => call.slots), [[1, 2], [3, 4], [5, 6]])
+    assert.deepEqual(batchesSent(), [[1, 2], [3, 4], [5, 6]])
   })
 
   test('the run says how it grouped the chapters', async () => {
