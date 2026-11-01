@@ -6353,7 +6353,7 @@ async function runJob(type: JobType, job: Job): Promise<void> {
         }
 
         try {
-          if (cancelled.has(job.job_id)) throw new Error('Cancelled by user')
+          if (cancelled.has(job.job_id) || hasCancellationContext(job)) throw new Error('Cancelled by user')
           throwIfPauseRequested(job.job_id)
           await assertQueuedVisualSource(job)
           if (job.params?.pipeline_batch_id && (job.params.pipeline_model_retry || job.params.episode_recovery_id)) {
@@ -6423,7 +6423,13 @@ async function runJob(type: JobType, job: Job): Promise<void> {
             return
           }
           finalError = error
-          if (cancelled.has(job.job_id)) throw error
+          // A cancel ends this job's attempts. `cancelled` is the local stop;
+          // a cancellation CONTEXT is the remote one — the owner asked the
+          // Gateway to stop this work, and the provider settlement path below
+          // decides how the row ends. Neither may schedule another attempt:
+          // that is what made a cancelled render go on saying "Auto-retrying
+          // in 60s" (Production, 2026-11-01).
+          if (cancelled.has(job.job_id) || hasCancellationContext(job)) throw error
           if (error instanceof JobPausedError || pauseRequested.has(job.job_id)) throw new JobPausedError()
           // A proven, uncharged quota stop. Do not consume a worker slot on
           // local retry backoff; the outer lifecycle parks it.
@@ -6677,7 +6683,10 @@ async function settleFinalRenderRecoveryHoldNeverThrow(job: Job): Promise<void> 
 async function waitForLocalRetry(jobId: string, delayMs: number): Promise<void> {
   const deadline = Date.now() + delayMs
   while (Date.now() < deadline) {
-    if (cancelled.has(jobId)) throw new Error('Cancelled by user')
+    // Production, 2026-11-01: the owner cancels a job that is WAITING for its
+    // next automatic attempt, and the backoff carried on for the full minute —
+    // so the attempt ran anyway, after the cancel. A cancel ends the wait.
+    if (isCancelled(jobId)) throw new Error('Cancelled by user')
     await new Promise(resolve => setTimeout(resolve, Math.min(250, Math.max(1, deadline - Date.now()))))
   }
 }
@@ -9571,6 +9580,53 @@ function controlFor(job: Job): JobControl {
   })
 }
 
+/**
+ * Withdraw the automatic-retry promise when the owner stops a job.
+ *
+ * The Jobs card promises "Auto-retry in Ns" straight from `auto_retry`
+ * (`autoRetryLabel` in the Jobs page). After a cancel there IS no next
+ * attempt, so a promise still on the row is a promise Story Studio will not
+ * keep. Withdrawing it here — for every cancel path — is what makes the card
+ * honest, and it also tells the generators that no automatic attempt is left
+ * (the `auto_retry.attempt < max_attempts` checks in the narration, scene
+ * plan, subtitle and continuity-render generators).
+ */
+function withdrawAutomaticRetry(job: Job): void {
+  if (!job.auto_retry) return
+  const wasScheduled = Boolean(job.auto_retry.next_retry_at)
+  job.auto_retry.eligible = false
+  job.auto_retry.reason = 'Cancelled at your request. This step will not retry itself — press Retry when you are ready.'
+  delete job.auto_retry.next_retry_at
+  // The log already said "Auto-retrying in Ns" before the cancel arrived. That
+  // line is history and stays — but the next line says the attempt was
+  // withdrawn, so the log does not end on a promise Story Studio will not keep.
+  if (wasScheduled) {
+    job.output_lines.push('↻ The automatic retry was withdrawn: this job was cancelled before the next attempt, so it will not run again on its own.')
+  }
+}
+
+/**
+ * The same withdrawal, for a row cancelled BEFORE it ever started.
+ *
+ * `auto_retry` is only written when the job begins to run, so a row cancelled
+ * while it was still queued has none — and `withdrawAutomaticRetry` alone
+ * would leave the promise standing by omission. The row is cancelled, so the
+ * promise is written out as withdrawn rather than left absent for the card to
+ * guess at.
+ */
+function withdrawAutomaticRetryForCancelledJob(job: Job): void {
+  if (job.auto_retry) {
+    withdrawAutomaticRetry(job)
+    return
+  }
+  job.auto_retry = {
+    eligible: false,
+    reason: 'Cancelled at your request. This step will not retry itself — press Retry when you are ready.',
+    attempt: 1,
+    max_attempts: 1,
+  }
+}
+
 function cancellationControlFor(job: Job): JobControl {
   return classifyJobControls(job, {
     remoteCancellationAudited: hasJobCancellationAuditor(job.type),
@@ -9599,6 +9655,7 @@ async function cancelQueuedBeforeSubmitUnlocked(job: Job): Promise<Job> {
   job.pause_requested = false
   job.pause_origin = undefined
   job.finished_at = new Date().toISOString()
+  withdrawAutomaticRetryForCancelledJob(job)
   job.output_lines.push('Cancelled before submission. This operation sent no provider request.')
   await persistJob(job)
   emitUpdate(job)
@@ -9627,6 +9684,7 @@ async function stopLocalJobUnlocked(job: Job): Promise<Job> {
   }
   job.status = 'cancelled'
   job.finished_at = new Date().toISOString()
+  withdrawAutomaticRetryForCancelledJob(job)
   // A stop offered while a provider request is already submitted must not claim nothing was sent.
   // The batch keeps its idempotency key, so a later retry collects the same answer without a second
   // POST; the copy says exactly that instead of promising a charge that may already exist.
@@ -9696,6 +9754,12 @@ async function queueRemoteCancellationTargetsUnlocked(
   job.finished_at = null
   job.pause_requested = false
   pauseRequested.delete(job.job_id)
+  // Production, 2026-11-01: a cancel on a RUNNING job left the automatic
+  // retry promise standing, so the card said "Auto-retrying in 60s" for a job
+  // the owner had just stopped. The owner asked for this job to stop; the
+  // next automatic attempt is not going to happen, so the promise is
+  // withdrawn here rather than left to be broken by the retry loop.
+  withdrawAutomaticRetry(job)
   if (added > 0) job.output_lines.push(`Cancellation requested for ${added} provider task${added === 1 ? '' : 's'}; waiting for Gateway confirmation.`)
   await persistJob(job)
   emitUpdate(job)

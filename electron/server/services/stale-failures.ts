@@ -24,6 +24,7 @@ import * as jq from './job-queue.js'
 const RESOLVABLE_TYPES = new Set<Job['type']>([
   'audio', 'thumb_images', 'images_repair', 'audio_merge', 'video_assembly',
   'still_post_render', 'scene_clips_batch', 'scene_plan_run',
+  'continuity_render', 'contextual_cues',
 ])
 
 /** Assembly rebuilds one whole file; a later successful build of it is that output. */
@@ -124,6 +125,94 @@ async function sceneClipBatchComplete(job: Job): Promise<boolean> {
   return await sceneClipBatchOutputsComplete(job)
 }
 
+/**
+ * Continuity Render: every scene the failed render covered now has a usable,
+ * prompt-matching picture on disk, by the one scene-image audit the generator
+ * and the Production Board already use (`auditSceneImageCompletion`).
+ *
+ * The audit is the same proof in both directions: a scene with no file is
+ * `missing`, a corrupt or empty file is `invalid`, and a file rendered from an
+ * OUTDATED prompt is `invalid` too. A partial render therefore leaves the row
+ * needing attention, and a later plan edit does not let an old picture settle
+ * a row.
+ *
+ * A forced re-render wanted NEW pictures for the same prompt, and the disk
+ * cannot tell a new file from the old one it replaced — so that row is left
+ * unsettled on purpose (the same rule the thumbnail pools below follow).
+ */
+async function continuityRenderComplete(job: Job): Promise<boolean> {
+  if (!job.episode_id) return false
+  if (job.params?.force === true) return false
+  const episodeId = String(job.params?.episode_id || job.episode_id)
+  const { resolveEpisodePathsByCode, resolveScenePlanPath } = await import('./utils.js')
+  const { resolveContinuityRenderOutputDir } = await import('../generators/continuity-render.js')
+  const { auditSceneImageCompletion } = await import('./scene-media-checkpoint.js')
+  const paths = await resolveEpisodePathsByCode(job.project_slug, episodeId)
+  const planPath = await resolveScenePlanPath(job.project_slug, episodeId, paths.episode_dir)
+  const plan = JSON.parse(await (await import('fs/promises')).readFile(planPath, 'utf-8')) as {
+    scenes?: Array<{ id: string }>
+  }
+  const planIds = (plan.scenes || []).map(scene => scene.id)
+  const requested = Array.isArray(job.params?.scene_ids) && job.params.scene_ids.length
+    ? job.params.scene_ids.map(String)
+    : job.params?.single_scene_id
+      ? [String(job.params.single_scene_id)]
+      : null
+  const ids = requested ?? planIds
+  if (!ids.length) return false
+  const outputDir = await resolveContinuityRenderOutputDir(job.project_slug, episodeId, paths.episode_dir)
+  const audit = await auditSceneImageCompletion(
+    planPath,
+    ids,
+    job.output_dir && job.output_dir !== outputDir ? [outputDir, job.output_dir] : [outputDir],
+  )
+  return audit.expected > 0 && audit.completed === audit.expected && !audit.issues.length
+}
+
+/**
+ * Contextual Cues: the labels timeline for THIS scene plan exists, by the same
+ * audit the cancellation auditor and the Pipeline's own readiness check use
+ * (`inspectContextualCueCompletion`).
+ *
+ * A partial run writes its progress to a different file and never the
+ * timeline, so a half-proposed run leaves the row needing attention. A timeline
+ * built from an EARLIER scene plan is not this plan's labels, and the audit
+ * says so.
+ *
+ * A timeline is also only proof for a run that asked for NEW labels when the
+ * timeline was written AFTER that ask: an older run's labels are not what
+ * this row was for. The same rule the Still Posts redraw below follows.
+ *
+ * The same job also proposes the SOUND half when the channel has Sound
+ * switched on, so a run that wrote its labels and then failed on the sounds
+ * has only half its work done — the sound timeline is part of the proof.
+ */
+async function contextualCuesComplete(job: Job): Promise<boolean> {
+  if (!job.episode_id) return false
+  const episodeId = String(job.params?.episode_id || job.episode_id)
+  const { resolveEpisodePathsByCode, resolveScenePlanPath } = await import('./utils.js')
+  const { inspectContextualCueCompletion } = await import('./text-completion.js')
+  const { readContextualCueTimeline } = await import('./contextual-cues.js')
+  const { readSoundDesignTimeline, normalizeSoundDesignConfig } = await import('./sound-design.js')
+  const { getConfig } = await import('./project-manager.js')
+  const paths = await resolveEpisodePathsByCode(job.project_slug, episodeId)
+  const planPath = await resolveScenePlanPath(job.project_slug, episodeId, paths.episode_dir)
+  const audit = await inspectContextualCueCompletion(planPath)
+  if (!audit.authoritative || !audit.complete) return false
+  const timeline = await readContextualCueTimeline(planPath)
+  if (!timeline) return false
+  const requestedAt = Date.parse(job.started_at || job.created_at || '')
+  if (!Number.isFinite(requestedAt)) return false
+  const writtenAt = Date.parse(timeline.generated_at || '')
+  if (!Number.isFinite(writtenAt) || writtenAt < requestedAt) return false
+  const config = normalizeSoundDesignConfig((await getConfig(job.project_slug))?.sound_design)
+  if (!config.enabled) return true
+  const sounds = await readSoundDesignTimeline(planPath)
+  if (!sounds) return false
+  const soundsAt = Date.parse(sounds.generated_at || '')
+  return Number.isFinite(soundsAt) && soundsAt >= requestedAt
+}
+
 /** Does every file this failed job was meant to make exist on disk now? */
 export async function outputsComplete(job: Job): Promise<boolean> {
   // Types that settle on artifacts rather than one episode's folder first: a
@@ -132,6 +221,8 @@ export async function outputsComplete(job: Job): Promise<boolean> {
   if (job.type === 'scene_clips_batch') return await sceneClipBatchComplete(job)
   if (job.type === 'scene_plan_run') return await scenePlanRunComplete(job)
   if (!job.episode_id) return false
+  if (job.type === 'continuity_render') return await continuityRenderComplete(job)
+  if (job.type === 'contextual_cues') return await contextualCuesComplete(job)
   if (ASSEMBLY_TYPES.has(job.type)) {
     // A file that was already on disk before the failure proves nothing, so
     // only a build of the same kind that FINISHED after it counts.
