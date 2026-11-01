@@ -1,15 +1,15 @@
 <!--
-  Review finals (owner, 2026-10-29).
+  Review finals (owner, 2026-10-29; redesigned 2026-11-01).
 
   One private, mobile-friendly page over the app's existing Tailscale path: the
-  finished videos of every channel that has review turned ON, newest first.
+  finished videos of every channel, newest unreviewed first.
   Each one streams through Story's own authenticated range route — the browser
   holds only the HttpOnly session cookie that server mode already issues, so no
   key or bearer ever reaches a URL or the page.
 
   A mark here is a REVIEW NOTE ONLY. It does not upload, schedule or publish
-  anything, and no pipeline step reads it. Review is off unless a channel turns
-  it on, so a channel that never opts in looks exactly as it did before.
+  anything, and no pipeline step reads it. A channel that never opts in looks
+  exactly as it did before.
 
   New finals arrive by polling the same live route the rest of the app reads
   (20 s while the tab is visible), which also catches hand-imported finals that
@@ -20,51 +20,70 @@
     <PlainBackLink />
     <PageTitle
       title="Review finals"
-      description="Finished videos, newest first, across every channel with review on. A mark here is a review note only — it does not upload, schedule or publish anything."
+      description="Finished videos, newest unreviewed first. A mark here is a review note only — it does not upload, schedule or publish."
     />
 
-    <p v-if="loadError" class="rv-alert" role="alert">{{ loadError }}</p>
+    <p v-if="loadError" class="rv-alert" role="alert">
+      {{ loadError }}
+      <button type="button" class="rv-retry" @click="load(false)">Retry</button>
+    </p>
 
-    <details v-if="channels.length" class="rv-channels">
-      <summary>Review channels — {{ enabledChannels }} of {{ channels.length }} on</summary>
-      <ul class="rv-channel-list">
-        <li v-for="channel in channels" :key="channel.slug">
-          <label class="rv-toggle">
-            <input
-              type="checkbox"
-              :checked="channel.review_enabled"
-              :disabled="toggling.has(channel.slug)"
-              @change="onToggleChannel(channel, $event)"
-            >
-            <span>{{ channel.name }}</span>
-            <small v-if="channel.review_enabled">{{ channel.final_count }} finished</small>
-          </label>
-          <p v-if="channel.error" class="rv-alert rv-alert-sm" role="alert">{{ channel.error }}</p>
-        </li>
-      </ul>
-      <p class="rv-hint">
-        Review is optional per channel and off by default. Turning it off hides the channel here and
-        leaves production unchanged — nothing in Story waits on these marks.
-      </p>
-    </details>
+    <nav v-if="channels.length" class="rv-channels" aria-label="Channel filter">
+      <button
+        type="button"
+        class="rv-chip"
+        :class="{ 'rv-chip-active': !selectedChannel }"
+        @click="selectedChannel = ''"
+      >
+        <span class="rv-chip-name">All channels</span>
+        <span class="rv-chip-count">{{ unreviewedCount }} / {{ totalFinals }}</span>
+      </button>
+      <button
+        v-for="channel in channels"
+        :key="channel.slug"
+        type="button"
+        class="rv-chip"
+        :class="{ 'rv-chip-active': selectedChannel === channel.slug }"
+        @click="selectedChannel = channel.slug"
+      >
+        <span class="rv-chip-name">{{ channel.name }}</span>
+        <span class="rv-chip-count">{{ unreviewedByChannel(channel.slug) }} / {{ channel.final_count }}</span>
+      </button>
+    </nav>
 
-    <p v-if="loading && !finals.length" class="rv-empty" role="status">Loading finished videos…</p>
-    <p v-else-if="!finals.length" class="rv-empty">
-      No finished videos are waiting.
-      <template v-if="!enabledChannels"> Turn review on for a channel above to review its finals.</template>
+    <div v-if="selectedChannel" class="rv-channel-settings">
+      <label class="rv-toggle">
+        <input
+          type="checkbox"
+          :checked="selectedChannelData?.review_enabled ?? false"
+          :disabled="toggling.has(selectedChannel)"
+          @change="onToggleSelected($event)"
+        >
+        <span>Review on for {{ selectedChannelData?.name }}</span>
+      </label>
+      <p v-if="selectedChannelData?.error" class="rv-alert rv-alert-sm" role="alert">{{ selectedChannelData.error }}</p>
+    </div>
+
+    <p v-if="loading && !filteredFinals.length" class="rv-empty" role="status">Loading finished videos…</p>
+    <p v-else-if="!totalFinals" class="rv-empty">
+      No finished videos yet across any channel.
+    </p>
+    <p v-else-if="!filteredFinals.length" class="rv-empty">
+      {{ selectedChannelData ? `No finished videos for ${selectedChannelData.name}.` : 'No finished videos match this filter.' }}
     </p>
 
     <article
-      v-for="item in finals"
+      v-for="item in filteredFinals"
       :key="`${item.channel_slug}/${item.episode_code}`"
       class="rv-card"
       :aria-labelledby="`rv-${item.channel_slug}-${item.episode_code}`"
     >
       <header class="rv-card-head">
+        <p class="rv-card-channel">{{ item.channel_name }}</p>
         <h2 :id="`rv-${item.channel_slug}-${item.episode_code}`" class="rv-card-title">
           {{ item.episode_code }} · {{ item.title }}
         </h2>
-        <p class="rv-card-sub">{{ item.channel_name }} · {{ finishedAt(item.mtime_ms) }}</p>
+        <p class="rv-card-sub">{{ finishedAt(item.mtime_ms) }}</p>
       </header>
 
       <video class="rv-video" :src="item.stream_url" controls preload="metadata" playsinline>
@@ -101,7 +120,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import type {
   FinalReviewChannel,
   FinalReviewDecision,
@@ -123,8 +142,34 @@ const loadError = ref('')
 const saving = ref<Set<string>>(new Set())
 const toggling = ref<Set<string>>(new Set())
 const saveError = ref<Record<string, string>>({})
+const selectedChannel = ref('')
 
-const enabledChannels = computed(() => channels.value.filter(channel => channel.review_enabled).length)
+const totalFinals = computed(() => finals.value.length)
+
+const unreviewedCount = computed(() => {
+  return finals.value.filter(item => item.review.state === 'not_reviewed').length
+})
+
+const filteredFinals = computed(() => {
+  const list = selectedChannel.value
+    ? finals.value.filter(item => item.channel_slug === selectedChannel.value)
+    : finals.value
+  // Sort: unreviewed first, then by newest
+  return [...list].sort((a, b) => {
+    const aUnrev = a.review.state === 'not_reviewed' ? 0 : 1
+    const bUnrev = b.review.state === 'not_reviewed' ? 0 : 1
+    if (aUnrev !== bUnrev) return aUnrev - bUnrev
+    return b.mtime_ms - a.mtime_ms
+  })
+})
+
+const selectedChannelData = computed(() => {
+  return channels.value.find(c => c.slug === selectedChannel.value) || null
+})
+
+function unreviewedByChannel(slug: string): number {
+  return finals.value.filter(item => item.channel_slug === slug && item.review.state === 'not_reviewed').length
+}
 
 /** One key per final: two channels can share an episode code (§4). */
 function itemKey(item: FinalReviewItem): string {
@@ -171,17 +216,19 @@ async function decide(item: FinalReviewItem, decision: FinalReviewDecision): Pro
   }
 }
 
-function onToggleChannel(channel: FinalReviewChannel, event: Event): void {
-  void toggleChannel(channel, (event.target as HTMLInputElement).checked)
+function onToggleSelected(event: Event): void {
+  const channel = selectedChannelData.value
+  if (channel) void toggleChannel(channel, (event.target as HTMLInputElement).checked)
 }
 
-async function toggleChannel(channel: FinalReviewChannel, enabled: boolean): Promise<void> {  if (toggling.value.has(channel.slug)) return
+async function toggleChannel(channel: FinalReviewChannel, enabled: boolean): Promise<void> {
+  if (toggling.value.has(channel.slug)) return
   toggling.value = new Set(toggling.value).add(channel.slug)
   try {
     await put(`/review/channels/${encodeURIComponent(channel.slug)}`, { enabled })
     await load(true)
   } catch (e: any) {
-    loadError.value = e?.data?.detail || 'Could not change that channel’s review setting.'
+    loadError.value = e?.data?.detail || 'Could not change that channel\'s review setting.'
   } finally {
     const next = new Set(toggling.value)
     next.delete(channel.slug)
@@ -219,6 +266,13 @@ function finishedAt(ms: number): string {
 
 const poller = createVisibleInterval(() => { void load(true) }, 20_000)
 
+// If the selected channel is removed from the list, clear the filter.
+watch(channels, (list) => {
+  if (selectedChannel.value && !list.find(c => c.slug === selectedChannel.value)) {
+    selectedChannel.value = ''
+  }
+})
+
 onMounted(() => {
   void load()
   poller.start()
@@ -235,9 +289,7 @@ onUnmounted(() => poller.stop())
   flex-direction: column;
   gap: 16px;
 }
-.rv-head { display: flex; flex-direction: column; gap: 6px; }
-.rv-title { margin: 0; font-size: 1.5rem; }
-.rv-sub { margin: 0; color: var(--text-secondary); font-size: var(--font-sm); line-height: 1.45; }
+
 .rv-alert {
   margin: 0;
   padding: 10px 12px;
@@ -249,14 +301,59 @@ onUnmounted(() => poller.stop())
   font-size: var(--font-sm);
 }
 .rv-alert-sm { margin-top: 6px; }
+
+.rv-retry {
+  margin-left: 8px;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: var(--font-xs);
+  cursor: pointer;
+}
+.rv-retry:hover { background: var(--bg-secondary); }
+
 .rv-channels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 0;
+  margin: 0;
+}
+
+.rv-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: var(--font-sm);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.rv-chip:hover { background: var(--bg-secondary); }
+.rv-chip-active {
+  background: var(--accent, #2563eb);
+  border-color: var(--accent, #2563eb);
+  color: #fff;
+}
+.rv-chip-name { font-weight: 500; }
+.rv-chip-count { font-size: var(--font-xs); opacity: 0.8; }
+
+.rv-channel-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
   border: 1px solid var(--border);
   border-radius: 10px;
-  padding: 10px 12px;
   background: var(--bg-secondary);
 }
-.rv-channels summary { cursor: pointer; font-weight: 600; }
-.rv-channel-list { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+
 .rv-toggle {
   display: flex;
   align-items: center;
@@ -265,9 +362,9 @@ onUnmounted(() => poller.stop())
   cursor: pointer;
 }
 .rv-toggle input { width: 20px; height: 20px; }
-.rv-toggle small { color: var(--text-secondary); font-size: var(--font-xs); }
-.rv-hint { margin: 10px 0 0; color: var(--text-secondary); font-size: var(--font-xs); line-height: 1.45; }
+
 .rv-empty { color: var(--text-secondary); text-align: center; padding: 24px 8px; }
+
 .rv-card {
   border: 1px solid var(--border);
   border-radius: 12px;
@@ -277,7 +374,15 @@ onUnmounted(() => poller.stop())
   flex-direction: column;
   gap: 10px;
 }
-.rv-card-head { display: flex; flex-direction: column; gap: 2px; }
+.rv-card-head { display: flex; flex-direction: column; gap: 4px; }
+.rv-card-channel {
+  margin: 0;
+  font-size: var(--font-xs);
+  font-weight: 600;
+  color: var(--accent, #2563eb);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
 .rv-card-title { margin: 0; font-size: 1rem; line-height: 1.35; }
 .rv-card-sub { margin: 0; color: var(--text-secondary); font-size: var(--font-xs); }
 .rv-video { width: 100%; height: auto; border-radius: 8px; background: #000; }

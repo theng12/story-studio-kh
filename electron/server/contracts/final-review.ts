@@ -57,6 +57,8 @@ export interface FinalReviewItem {
    * (see `writeFinalReview`), not just an in-place rewrite.
    */
   ino: number
+  /** Whether review is enabled for this item's channel at list time. */
+  review_enabled: boolean
   review: FinalReviewState
 }
 
