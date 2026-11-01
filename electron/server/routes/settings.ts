@@ -87,6 +87,8 @@ const CONFIG_KEYS_NOT_SAVED: Record<string, string> = {
   audio_launch_stagger_ms: 'retired: launch pacing is no longer a setting',
   video_launch_stagger_ms: 'retired: launch pacing is no longer a setting',
   generation_timeouts: 'retired: generation timeouts are no longer a setting',
+  // Owned by Motion Review, which pins the episodes that follow a moved default before saving.
+  motion_presentation: 'saved by Motion Review (PUT /projects/:slug/motion-presentation)',
 }
 
 router.put('/projects/:slug/settings/config', (req, res, next) => {

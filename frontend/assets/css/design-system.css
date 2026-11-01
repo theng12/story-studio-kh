@@ -8,6 +8,20 @@
   --workspace-max: 1680px;
   --workspace-gutter: clamp(16px, 2.2vw, 32px);
   --workspace-section-gap: clamp(14px, 1.5vw, 20px);
+
+  /* The ONE width for a non-channel page (owner, 2026-11-01, refreshed
+     2026-11-02: "it's different width… no consistency" and then "must be
+     dynamic, not one fixed number"). Fluid rather than a single px value, so a
+     laptop reads at ~1280 and a large or ultrawide monitor grows to ~1980
+     without a second rule to remember. The side padding grows with it, and the
+     reading measure inside a page stays on its own max line length — a wide
+     table or card grid takes the extra room, a description does not.
+
+     Channel workspaces keep --workspace-max / --workspace-gutter above; these
+     two tokens are .page-frame's alone. */
+  --page-max: clamp(1280px, 92vw, 1980px);
+  --page-gutter: clamp(16px, 3vw, 48px);
+
   --control-height-sm: 34px;
   --control-height-md: 42px;
   --surface-raised: color-mix(in srgb, var(--bg-secondary) 94%, var(--accent) 6%);
@@ -26,15 +40,22 @@
 
 /* ONE frame for an application page (owner, 2026-10-30). Every non-channel
    page measured itself: four widths, two alignments, two title colours. This
-   is the same width and gutter the workspace pages already use, so a wide
-   table still gets the full frame and a narrow one keeps its reading measure.
-   Compose it with <PageTitle> for the heading and the page's actions. */
+   is the same width and gutter every one of them now composes, so a wide table
+   still gets the full frame and a narrow one keeps its reading measure.
+   Compose it with <PageTitle> for the heading and the page's actions, and with
+   <PlainBackLink> where there is somewhere to go back to.
+
+   Nothing may re-declare width, max-width, margin or padding on the element
+   that carries this class — that is exactly what made the seven pages disagree
+   (publishing ran edge to edge, review sat in a 720px column, usage and trash
+   pinned at 1120px). A page's own scoped CSS styles its contents, not the
+   frame. */
 .page-frame {
   display: grid;
   gap: var(--workspace-section-gap);
-  width: min(100%, var(--workspace-max));
+  width: min(100%, var(--page-max));
   margin: 0 auto;
-  padding: var(--workspace-gutter);
+  padding: var(--page-gutter);
 }
 
 .workspace-hero {

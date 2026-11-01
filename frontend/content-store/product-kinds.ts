@@ -27,3 +27,19 @@ export const CONTENT_STORE_PRODUCT_KINDS = [
 ] as const
 
 export type ContentStoreProductKind = (typeof CONTENT_STORE_PRODUCT_KINDS)[number]
+
+/**
+ * The wire kinds whose archive carries `preview_assets`.
+ *
+ * Three document kinds declare previews — `visual-style`, `thumbnail-recipe`
+ * and `lettering-style` — and the Gateway maps the last of those to `font_pack`
+ * (`gateway-kh/repository/gateway/content_delivery.py` `_WIRE_KIND_EXCEPTIONS`).
+ * Every other kind ships no pictures at any point, so telling its owner
+ * "previews appear after installing" would promise something installing cannot
+ * deliver.
+ */
+const KINDS_WITH_PREVIEWS: readonly string[] = ['visual_style', 'thumbnail_recipe', 'font_pack']
+
+export function contentStoreKindCanCarryPreviews(kind: ContentStoreProductKind): boolean {
+  return KINDS_WITH_PREVIEWS.includes(kind)
+}

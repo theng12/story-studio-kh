@@ -75,7 +75,23 @@
             channel with no plan says so — Story Studio will not guess a rhythm. Sort any column with
             its header button; unknown values stay last.
           </p>
-          <p v-if="sortedChannels.length === 0" class="empty" role="status">No channel matches “{{ query.trim() }}”.</p>
+          <!-- The owner's own status label: one chip per value with its count,
+               All by default, and the choice remembered on this Mac. Live starts
+               at 0 — a channel is Live only because he said so, never because
+               the schedule looks like it. -->
+          <div class="status-filters" role="group" aria-label="Filter channels by status">
+            <button
+              v-for="option in statusFilterOptions"
+              :key="option.value"
+              type="button"
+              class="status-filter"
+              :class="{ 'is-active': statusFilter === option.value }"
+              :data-status="option.value"
+              :aria-pressed="statusFilter === option.value"
+              @click="setStatusFilter(option.value)"
+            >{{ option.label }}<span>{{ statusFilterCount(option.value) }}</span></button>
+          </div>
+          <p v-if="sortedChannels.length === 0" class="empty" role="status">{{ emptyCoverageMessage }}</p>
           <template v-else>
             <div class="coverage-scroll">
               <table class="coverage-table">
@@ -84,12 +100,15 @@
                     <th scope="col" :aria-sort="ariaSort('name')">
                       <button type="button" class="sort-button" @click="sortBy('name')">Channel <span aria-hidden="true">{{ sortIndicator('name') }}</span></button>
                     </th>
+                    <th scope="col">Status</th>
                     <th scope="col" :aria-sort="ariaSort('next_uncovered')">
                       <button type="button" class="sort-button" @click="sortBy('next_uncovered')">Next uncovered slot <span aria-hidden="true">{{ sortIndicator('next_uncovered') }}</span></button>
                     </th>
+                    <th scope="col">Missing (4 weeks)</th>
                     <th scope="col" :aria-sort="ariaSort('last_confirmed')">
                       <button type="button" class="sort-button" @click="sortBy('last_confirmed')">Last confirmed <span aria-hidden="true">{{ sortIndicator('last_confirmed') }}</span></button>
                     </th>
+                    <th scope="col">Oldest checked</th>
                     <th scope="col" :aria-sort="ariaSort('last_planned')">
                       <button type="button" class="sort-button" @click="sortBy('last_planned')">Last planned <span aria-hidden="true">{{ sortIndicator('last_planned') }}</span></button>
                     </th>
@@ -115,6 +134,30 @@
                       <span v-if="channel.channel" class="channel-handle">{{ channel.channel.title }}</span>
                       <span v-else class="channel-handle muted">{{ channelStateLabel(channel) }}</span>
                     </td>
+                    <!-- The owner's label and the editor for it, in the row it
+                         belongs to and nowhere else — and only once: the
+                         select IS the label, tinted by its status, so the row
+                         never says the same word twice. Reversible: choosing
+                         Unclassified clears the key, which is the same answer
+                         an absent key already gives. -->
+                    <td class="status-cell">
+                      <select
+                        :key="`${channel.slug}-${statusRevision[channel.slug] || 0}`"
+                        class="status-editor"
+                        :class="`status-${statusKey(channel)}`"
+                        :value="statusKey(channel)"
+                        :aria-label="`Status for ${channel.name}`"
+                        :disabled="!!savingStatus[channel.slug]"
+                        @change="saveStatus(channel, $event)"
+                      >
+                        <option
+                          v-for="option in CHANNEL_STATUS_OPTIONS"
+                          :key="option.value"
+                          :value="option.value"
+                        >{{ option.label }}</option>
+                      </select>
+                      <span v-if="statusErrors[channel.slug]" class="status-error" role="alert">{{ statusErrors[channel.slug] }}</span>
+                    </td>
                     <td>
                       <template v-if="channel.coverage.next_uncovered_slot">
                         <span v-if="channel.coverage.at_risk" class="risk-badge">At risk</span>
@@ -139,11 +182,32 @@
                       <!-- The plan's days and the releases' days disagree: said here, never repaired. -->
                       <p v-if="offCadenceNote(channel)" class="cadence-note">{{ offCadenceNote(channel) }}</p>
                     </td>
+                    <!-- Own cadence, own window. Unknown is the absence of an
+                         answer, so it says so rather than showing a 0. -->
+                    <td>
+                      <span
+                        v-if="channel.coverage.missing_slots_4w === null || channel.coverage.missing_slots_4w === undefined"
+                        class="muted unknown-value"
+                        :title="missingSlotsReason(channel)"
+                      >unknown</span>
+                      <span v-else>{{ channel.coverage.missing_slots_4w }}</span>
+                    </td>
                     <td>
                       <time v-if="channel.coverage.last_confirmed_date" :datetime="channel.coverage.last_confirmed_date">
                         {{ channel.coverage.last_confirmed_date }}
                       </time>
                       <span v-else class="muted">—</span>
+                    </td>
+                    <!-- The OLDEST check, not the newest. Unknown when there is
+                         none, and when the one there is has gone stale: a date
+                         past the freshness window is not an answer either. -->
+                    <td>
+                      <span
+                        v-if="!channel.coverage.oldest_checked_at || channel.coverage.oldest_checked_stale"
+                        class="muted unknown-value"
+                        :title="oldestCheckedReason(channel)"
+                      >unknown</span>
+                      <time v-else :datetime="channel.coverage.oldest_checked_at">{{ channel.coverage.oldest_checked_at.slice(0, 10) }}</time>
                     </td>
                     <td>
                       <time v-if="channel.coverage.last_planned_date" :datetime="channel.coverage.last_planned_date">
@@ -156,7 +220,7 @@
                     <td>
                       <span
                         v-if="channel.coverage.ready_video_count === null"
-                        class="muted"
+                        class="muted ready-unknown"
                         :title="channel.readiness.error || 'Story Studio could not read this channel\'s episodes'"
                       >unknown<span v-if="channel.readiness.ready_unknown > 0"> · {{ channel.readiness.ready_unknown }} unreadable</span></span>
                       <span v-else>{{ channel.coverage.ready_video_count }}</span>
@@ -279,11 +343,18 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
+import { useApi } from '~/composables/useApi'
 import { usePublishingOverview } from '~/composables/usePublishingOverview'
+import {
+  CHANNEL_STATUS_OPTIONS,
+  UNCLASSIFIED_STATUS,
+  type ChannelStatus,
+} from '@shared/publishing-overview'
 import type { PublishingOverviewCalendarEntry, PublishingOverviewChannel } from '@shared/publishing-overview'
 
 const { overview, loading, error, refreshing, load, refresh } = usePublishingOverview()
+const { put } = useApi()
 
 // Load once when the page is opened. Never on every render.
 load()
@@ -331,6 +402,126 @@ const filteredChannels = computed(() => {
   const needle = query.value.trim().toLowerCase()
   return (overview.value?.channels ?? []).filter(channel => channelMatches(channel, needle))
 })
+
+// ---- Status filter chips ----------------------------------------------------
+// One chip per label plus All, each carrying its count over what the search
+// already matched, so the chips and the table always describe the same set.
+// All is the default and the choice is remembered per Mac.
+type StatusFilter = 'all' | typeof UNCLASSIFIED_STATUS | ChannelStatus
+
+const STATUS_FILTER_KEY = 'storyStudio:publishingStatusFilter'
+
+const statusFilterOptions: ReadonlyArray<{ value: StatusFilter; label: string }> = [
+  { value: 'all', label: 'All' },
+  ...CHANNEL_STATUS_OPTIONS,
+]
+
+function isStatusFilter(value: unknown): value is StatusFilter {
+  return typeof value === 'string' && statusFilterOptions.some(option => option.value === value)
+}
+
+function readStoredStatusFilter(): StatusFilter {
+  if (typeof localStorage === 'undefined') return 'all'
+  try {
+    const stored = localStorage.getItem(STATUS_FILTER_KEY)
+    // An unknown value is not a filter we offer: fall back to All rather than
+    // silently showing nothing.
+    return isStatusFilter(stored) ? stored : 'all'
+  } catch { return 'all' }
+}
+
+const statusFilter = ref<StatusFilter>(readStoredStatusFilter())
+
+function setStatusFilter(value: StatusFilter): void {
+  statusFilter.value = value
+  try {
+    if (typeof localStorage === 'undefined') return
+    if (value === 'all') localStorage.removeItem(STATUS_FILTER_KEY)
+    else localStorage.setItem(STATUS_FILTER_KEY, value)
+  } catch { /* remembered is best effort; the filter still applies now */ }
+}
+
+/** Absent status is Unclassified — never inferred from anything on the row. */
+function statusKey(channel: PublishingOverviewChannel): string {
+  return channel.channel_status ?? UNCLASSIFIED_STATUS
+}
+
+function statusFilterCount(value: StatusFilter): number {
+  return statusFilterCounts.value[value] ?? 0
+}
+
+const statusFilterCounts = computed<Record<string, number>>(() => {
+  const counts: Record<string, number> = { all: 0 }
+  for (const option of CHANNEL_STATUS_OPTIONS) counts[option.value] = 0
+  for (const channel of filteredChannels.value) {
+    counts.all = (counts.all ?? 0) + 1
+    const key = statusKey(channel)
+    counts[key] = (counts[key] ?? 0) + 1
+  }
+  return counts
+})
+
+const statusFilterLabel = computed(() =>
+  CHANNEL_STATUS_OPTIONS.find(option => option.value === statusFilter.value)?.label ?? 'All')
+
+const emptyCoverageMessage = computed(() => {
+  const searching = query.value.trim() !== ''
+  const filtering = statusFilter.value !== 'all'
+  if (searching && filtering) return `No channel matches “${query.value.trim()}” with the status “${statusFilterLabel.value}”.`
+  if (searching) return `No channel matches “${query.value.trim()}”.`
+  if (filtering) return `No channel has the status “${statusFilterLabel.value}”.`
+  return 'No channel matches “”.'
+})
+
+/** Search first, then status. Both run before the page slice and the sort. */
+const visibleChannels = computed(() => {
+  if (statusFilter.value === 'all') return filteredChannels.value
+  return filteredChannels.value.filter(channel => statusKey(channel) === statusFilter.value)
+})
+
+// ---- Saving a status label --------------------------------------------------
+// One call, to the ordinary channel-settings route, and nothing else: no
+// schedule, no upload, no publishing write. A failure leaves the stored label
+// alone, says why in the row, and puts the select back where it was.
+const savingStatus = reactive<Record<string, boolean>>({})
+const statusErrors = reactive<Record<string, string>>({})
+const statusRevision = reactive<Record<string, number>>({})
+
+async function saveStatus(channel: PublishingOverviewChannel, event: Event): Promise<void> {
+  const select = event.target as HTMLSelectElement
+  const slug = channel.slug
+  // Unclassified is a real value the owner can choose, and it clears the key
+  // back to the answer an absent key already gives.
+  const next: ChannelStatus | null = select.value === UNCLASSIFIED_STATUS ? null : (select.value as ChannelStatus)
+  savingStatus[slug] = true
+  delete statusErrors[slug]
+  try {
+    await put(`/projects/${encodeURIComponent(slug)}`, { channel_status: next })
+    channel.channel_status = next
+  } catch (e: any) {
+    statusErrors[slug] = e?.data?.detail || e?.message || 'Could not save this channel status.'
+    // Re-key the select so it re-reads the stored value instead of keeping
+    // the choice that just failed.
+    statusRevision[slug] = (statusRevision[slug] ?? 0) + 1
+  } finally {
+    savingStatus[slug] = false
+  }
+}
+
+/** Why this window's figure is unknown — never a 0 standing in for it. */
+function missingSlotsReason(channel: PublishingOverviewChannel): string {
+  if (channel.plan_set === null) return 'The publishing plan could not be read, so there is no cadence to count against.'
+  if (channel.plan_set === false) return 'No publishing plan is set, so this channel has no cadence of its own to count.'
+  if (channel.confirmed.freshness === 'unknown') return 'YouTube coverage has never been checked, so nothing can be said about the next four weeks.'
+  if (channel.confirmed.freshness === 'stale') return 'The confirmed coverage behind this count is stale, so it is unknown rather than a number.'
+  return 'Story Studio could not work out this figure.'
+}
+
+/** Why the oldest check is unknown — a missing one and a stale one both are. */
+function oldestCheckedReason(channel: PublishingOverviewChannel): string {
+  if (!channel.coverage.oldest_checked_at) return 'No confirmed schedule carries a check time, so nothing has been observed yet.'
+  return `The oldest check (${channel.coverage.oldest_checked_at}) is past the freshness window, so it is unknown rather than a date.`
+}
 
 const channelsBySlug = computed(() => new Map(
   (overview.value?.channels ?? []).map(channel => [channel.slug, channel] as [string, PublishingOverviewChannel]),
@@ -394,7 +585,7 @@ function isUnknown(value: string | number | null): boolean {
 
 const sortedChannels = computed(() => {
   const key = sortKey.value
-  const list = filteredChannels.value
+  const list = visibleChannels.value
   if (!key) return list // Default: the API's own priority order.
   const direction = sortDir.value === 'asc' ? 1 : -1
   return list
@@ -430,7 +621,7 @@ function previousCoveragePage(): void { coveragePage.value = Math.max(1, coverag
 function nextCoveragePage(): void { coveragePage.value = Math.min(coveragePageCount.value, coveragePage.value + 1) }
 
 // A filter/sort change resets to page 1; a shrinking result clamps the page.
-watch([query, sortKey, sortDir], () => { coveragePage.value = 1 })
+watch([query, statusFilter, sortKey, sortDir], () => { coveragePage.value = 1 })
 watch(coveragePageCount, count => { if (coveragePage.value > count) coveragePage.value = count })
 
 // ---- Calendar: Week / Month / Year over local dates --------------------------
@@ -545,7 +736,7 @@ const visibleCalendarDays = computed<CalendarDay[]>(() => {
 })
 
 function tabCountLabel(tab: PublishingTab): string {
-  return String(tab === 'coverage' ? filteredChannels.value.length : calendarEvents.value.length)
+  return String(tab === 'coverage' ? visibleChannels.value.length : calendarEvents.value.length)
 }
 
 // ---- Formatting and honest labels -------------------------------------------
@@ -597,7 +788,7 @@ function offCadenceNote(channel: PublishingOverviewChannel): string {
   return `${count} confirmed release${one ? '' : 's'} ${one ? 'lands' : 'land'} on a day the plan does not expect, between the first and last of the next 12 expected slots${days ? ` (${days})` : ''}`
 }
 
-const cadenceNotes = computed(() => filteredChannels.value
+const cadenceNotes = computed(() => visibleChannels.value
   .map(channel => ({ slug: channel.slug, name: channel.name, text: offCadenceNote(channel) }))
   .filter(note => note.text !== ''))
 
@@ -639,13 +830,9 @@ function freshnessLabel(channel: PublishingOverviewChannel): string {
 </script>
 
 <style scoped>
-.publishing-page {
-  width: 100%;
-  max-width: none;
-  margin: 0;
-  padding: 20px 24px 48px;
-  box-sizing: border-box;
-}
+/* No width, margin or padding here: .page-frame owns the frame. This page used
+   to declare `max-width: none` and run edge to edge while review sat in a
+   720px column — the owner's "it's different width" (2026-11-01). */
 .publishing-header {
   display: flex;
   align-items: flex-start;
@@ -689,8 +876,53 @@ function freshnessLabel(channel: PublishingOverviewChannel): string {
 .result-count { color: var(--text-secondary, #888); font-size: .8rem; font-variant-numeric: tabular-nums; }
 .section-hint { margin: 3px 0 8px; color: var(--text-secondary, #888); font-size: .82rem; max-width: 88ch; line-height: 1.4; }
 
+/* Status filter chips: one per label with its count, All first. */
+.status-filters { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 10px; }
+.status-filter {
+  display: inline-flex; align-items: center; gap: 6px; min-height: 30px;
+  padding: 4px 11px; border: 1px solid var(--border, #e5e5e5); border-radius: 999px;
+  background: var(--bg-secondary, #f7f7f7); color: var(--text-secondary, #555);
+  font: inherit; font-size: .8rem; font-weight: 600; cursor: pointer;
+}
+.status-filter:hover { border-color: var(--accent, #2f6feb); }
+.status-filter:focus-visible { outline: 3px solid var(--accent, #2f6feb); outline-offset: 2px; }
+.status-filter.is-active { background: var(--accent-dim, #e4ecff); border-color: var(--accent, #2f6feb); color: var(--text-primary, #111); }
+.status-filter span { color: var(--accent, #2f6feb); font-variant-numeric: tabular-nums; font-size: .74rem; }
+.status-filter.is-active span { color: inherit; }
+
+/* The label AND the editor in one control: the select carries the status
+   tint, so the row reads the word once instead of a pill plus a select
+   saying the same thing. Status rules come after the base so they win. */
+.status-cell { min-width: 150px; }
+.status-editor {
+  display: block; width: 100%; max-width: 190px; min-height: 28px;
+  padding: 3px 8px; border: 1px solid transparent; border-radius: 999px;
+  background: var(--bg-secondary, #f0f0f0); color: var(--text-secondary, #555);
+  font: inherit; font-size: .76rem; font-weight: 700; letter-spacing: .02em;
+  cursor: pointer;
+}
+.status-editor:focus-visible { outline: 3px solid var(--accent, #2f6feb); outline-offset: 2px; }
+.status-editor:disabled { opacity: .6; }
+.status-live { background: color-mix(in srgb, var(--success, #2e7d32) 16%, transparent); color: var(--success, #2e7d32); }
+.status-preparing { background: color-mix(in srgb, var(--accent, #2f6feb) 14%, transparent); color: var(--accent, #2f6feb); }
+.status-testing { background: color-mix(in srgb, #7a4fd6 16%, transparent); color: #7a4fd6; }
+.status-paused { background: color-mix(in srgb, var(--warning, #b26a00) 16%, transparent); color: var(--warning, #b26a00); }
+.status-retired { background: color-mix(in srgb, var(--text-secondary, #888) 16%, transparent); color: var(--text-secondary, #666); }
+.status-unclassified { border: 1px dashed var(--border, #ccc); background: transparent; color: var(--text-secondary, #888); }
+.status-error { display: block; margin-top: 4px; font-size: .74rem; color: var(--warning, #b26a00); overflow-wrap: anywhere; }
+.unknown-value { font-style: italic; }
+
+/* .page-frame is a grid, so its children default to min-width: auto. The
+   coverage table's min-content (1674px) therefore widened the whole track
+   past the viewport; the overflow scrolled inside main.page-content
+   (overflow-x: auto) and left documentElement.scrollWidth looking tidy, so
+   the right-hand columns and the tabs simply sat off-screen behind a
+   scrollbar nobody would think to look for. Let the children shrink;
+   .coverage-scroll keeps its own horizontal scroll for the table. */
+.publishing-page > * { min-width: 0; }
+
 .coverage-scroll { width: 100%; max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
-.coverage-table { width: 100%; min-width: 860px; border-collapse: collapse; font-size: .88rem; }
+.coverage-table { width: 100%; min-width: 1180px; border-collapse: collapse; font-size: .88rem; }
 .coverage-table th, .coverage-table td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border, #e5e5e5); vertical-align: top; }
 .coverage-table th { font-size: .72rem; text-transform: uppercase; letter-spacing: .04em; color: var(--text-secondary, #888); white-space: nowrap; }
 .sort-button { display: inline-flex; align-items: center; gap: 4px; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-transform: inherit; letter-spacing: inherit; cursor: pointer; }
@@ -754,14 +986,12 @@ function freshnessLabel(channel: PublishingOverviewChannel): string {
   .calendar-day-label { min-width: 0; }
 }
 @media (max-width: 560px) {
-  .publishing-page { padding: 14px 12px 40px; }
   .publishing-tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; }
   .publishing-tabs button { justify-content: center; min-height: 44px; }
   .calendar-view-button { min-height: 40px; }
   .pagination { justify-content: space-between; }
 }
 @media (max-width: 420px) {
-  .publishing-page { padding: 12px 10px 36px; }
   .calendar-nav { width: 100%; }
   .calendar-range { width: 100%; }
 }

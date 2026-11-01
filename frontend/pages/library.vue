@@ -1,7 +1,7 @@
 <template>
   <NuxtPage />
   <div v-if="!viewingDetail" class="library-page page-frame">
-    <PlainBackLink label="Back to Channels" fallback="/" />
+    <PlainBackLink />
     <PageTitle
       title="Studio Library"
       description="Visual styles, Series Formulas, topic packs and thumbnail recipes in one place. Browse what your Gateway publishes and install it on this Mac, or install a .sspack file already here."
@@ -326,5 +326,5 @@ onMounted(() => {
 .install-queue-strip { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-top: 18px; padding: 14px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg-secondary); color: var(--text-secondary); font-size: var(--font-sm); }
 .install-queue-strip .notice-action { margin-top: 0; }.store-state { display: grid; justify-items: start; gap: 9px; padding: 26px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg-secondary); }.store-state h2 { font-size: var(--font-2xl); letter-spacing: -.02em; }.store-state p { color: var(--text-secondary); }
 @media (max-width: 720px) { .gateway-archives-head { flex-direction: column; }.gateway-archive-row { align-items: stretch; flex-direction: column; } } @media (max-width: 560px) { .store-tabs button, .library-header-actions .btn, .store-state .btn { min-height: 44px; } } @media (max-width: 420px) { .store-tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; }.store-tabs button { justify-content: center; } } @media (prefers-reduced-motion: reduce) { .store-tabs button { transition: none; } }
-@media (max-width: 720px) { .library-header { align-items: stretch; flex-direction: column; }.library-header-actions { flex-wrap: wrap; }} @media (max-width: 560px) { .store-tabs button, .library-header-actions .btn, .store-state .btn { min-height: 44px; } } @media (max-width: 420px) { .library-page { width: min(100% - 24px, 1180px); padding-top: 20px; }.library-header-actions .btn { flex: 1 1 130px; justify-content: center; }.store-tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; }.store-tabs button { justify-content: center; } } @media (prefers-reduced-motion: reduce) { .store-tabs button { transition: none; } }
+@media (max-width: 720px) { .library-header { align-items: stretch; flex-direction: column; }.library-header-actions { flex-wrap: wrap; }} @media (max-width: 560px) { .store-tabs button, .library-header-actions .btn, .store-state .btn { min-height: 44px; } } @media (max-width: 420px) { .library-header-actions .btn { flex: 1 1 130px; justify-content: center; }.store-tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; }.store-tabs button { justify-content: center; } } @media (prefers-reduced-motion: reduce) { .store-tabs button { transition: none; } }
 </style>

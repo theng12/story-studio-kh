@@ -1,15 +1,15 @@
 <!--
-  Review finals (owner, 2026-10-29).
+  Review finals (owner, 2026-10-29; redesigned 2026-11-01; compact rows 2026-11-02).
 
   One private, mobile-friendly page over the app's existing Tailscale path: the
-  finished videos of every channel that has review turned ON, newest first.
+  finished videos of every channel, newest unreviewed first.
   Each one streams through Story's own authenticated range route — the browser
   holds only the HttpOnly session cookie that server mode already issues, so no
   key or bearer ever reaches a URL or the page.
 
   A mark here is a REVIEW NOTE ONLY. It does not upload, schedule or publish
-  anything, and no pipeline step reads it. Review is off unless a channel turns
-  it on, so a channel that never opts in looks exactly as it did before.
+  anything, and no pipeline step reads it. A channel that never opts in looks
+  exactly as it did before.
 
   New finals arrive by polling the same live route the rest of the app reads
   (20 s while the tab is visible), which also catches hand-imported finals that
@@ -20,62 +20,103 @@
     <PlainBackLink />
     <PageTitle
       title="Review finals"
-      description="Finished videos, newest first, across every channel with review on. A mark here is a review note only — it does not upload, schedule or publish anything."
+      description="Finished videos, newest unreviewed first. A mark here is a review note only — it does not upload, schedule or publish."
     />
 
-    <p v-if="loadError" class="rv-alert" role="alert">{{ loadError }}</p>
+    <p v-if="loadError" class="rv-alert" role="alert">
+      {{ loadError }}
+      <button type="button" class="rv-retry" @click="load(false)">Retry</button>
+    </p>
 
-    <details v-if="channels.length" class="rv-channels">
-      <summary>Review channels — {{ enabledChannels }} of {{ channels.length }} on</summary>
-      <ul class="rv-channel-list">
-        <li v-for="channel in channels" :key="channel.slug">
-          <label class="rv-toggle">
-            <input
-              type="checkbox"
-              :checked="channel.review_enabled"
-              :disabled="toggling.has(channel.slug)"
-              @change="onToggleChannel(channel, $event)"
-            >
-            <span>{{ channel.name }}</span>
-            <small v-if="channel.review_enabled">{{ channel.final_count }} finished</small>
-          </label>
-          <p v-if="channel.error" class="rv-alert rv-alert-sm" role="alert">{{ channel.error }}</p>
-        </li>
-      </ul>
-      <p class="rv-hint">
-        Review is optional per channel and off by default. Turning it off hides the channel here and
-        leaves production unchanged — nothing in Story waits on these marks.
-      </p>
-    </details>
+    <nav v-if="sortedChannels.length" class="rv-channels" aria-label="Channel filter">
+      <button
+        type="button"
+        class="rv-chip"
+        :class="{ 'rv-chip-active': !selectedChannel }"
+        @click="selectedChannel = ''"
+      >
+        <span class="rv-chip-name">All channels</span>
+        <span class="rv-chip-count">{{ unreviewedCount }} / {{ totalFinals }}</span>
+      </button>
+      <button
+        v-for="channel in sortedChannels"
+        :key="channel.slug"
+        type="button"
+        class="rv-chip"
+        :class="{ 'rv-chip-active': selectedChannel === channel.slug }"
+        @click="selectedChannel = channel.slug"
+      >
+        <span class="rv-chip-name">{{ channel.name }}</span>
+        <span class="rv-chip-count">{{ unreviewedByChannel(channel.slug) }} / {{ channel.final_count }}</span>
+      </button>
+    </nav>
 
-    <p v-if="loading && !finals.length" class="rv-empty" role="status">Loading finished videos…</p>
-    <p v-else-if="!finals.length" class="rv-empty">
-      No finished videos are waiting.
-      <template v-if="!enabledChannels"> Turn review on for a channel above to review its finals.</template>
+    <div v-if="selectedChannel" class="rv-channel-settings">
+      <label class="rv-toggle">
+        <input
+          type="checkbox"
+          :checked="selectedChannelData?.review_enabled ?? false"
+          :disabled="toggling.has(selectedChannel)"
+          @change="onToggleSelected($event)"
+        >
+        <span>Review on for {{ selectedChannelData?.name }}</span>
+      </label>
+      <p v-if="selectedChannelData?.error" class="rv-alert rv-alert-sm" role="alert">{{ selectedChannelData.error }}</p>
+    </div>
+
+    <p v-if="loading && !filteredFinals.length" class="rv-empty" role="status">Loading finished videos…</p>
+    <p v-else-if="!totalFinals" class="rv-empty">
+      No finished videos are waiting. Turn review on for a channel above to start seeing finished videos here.
+    </p>
+    <p v-else-if="!filteredFinals.length" class="rv-empty">
+      {{ selectedChannelData ? `No finished videos for ${selectedChannelData.name}.` : 'No finished videos match this filter.' }}
+    </p>
+
+    <p v-else class="rv-summary" role="status">
+      <span v-if="unreviewedInFilter > 0">
+        {{ unreviewedInFilter }} video{{ unreviewedInFilter === 1 ? '' : 's' }} to review. Start with the top one.
+      </span>
+      <span v-else>All reviewed.</span>
     </p>
 
     <article
-      v-for="item in finals"
+      v-for="item in filteredFinals"
       :key="`${item.channel_slug}/${item.episode_code}`"
-      class="rv-card"
-      :aria-labelledby="`rv-${item.channel_slug}-${item.episode_code}`"
+      class="rv-row"
+      :class="{ 'rv-row-reviewed': item.review.state !== 'not_reviewed' && item.review.state !== 'unreadable' }"
     >
-      <header class="rv-card-head">
-        <h2 :id="`rv-${item.channel_slug}-${item.episode_code}`" class="rv-card-title">
-          {{ item.episode_code }} · {{ item.title }}
-        </h2>
-        <p class="rv-card-sub">{{ item.channel_name }} · {{ finishedAt(item.mtime_ms) }}</p>
-      </header>
+      <div class="rv-row-head">
+        <span class="rv-row-channel">{{ item.channel_name }}</span>
+        <span class="rv-row-state" :data-state="markTone(item.review)">{{ stateShort(item.review) }}</span>
+      </div>
+      <h2 class="rv-row-title">{{ item.episode_code }} · {{ item.title }}</h2>
+      <p class="rv-row-sub">{{ finishedAt(item.mtime_ms) }}</p>
 
-      <video class="rv-video" :src="item.stream_url" controls preload="metadata" playsinline>
+      <video
+        v-if="openRow === itemKey(item)"
+        class="rv-video"
+        :src="item.stream_url"
+        controls
+        preload="metadata"
+        playsinline
+      >
         This video cannot play in your browser.
       </video>
 
-      <p class="rv-mark" :data-state="markTone(item.review)">{{ markLabel(item.review) }}</p>
       <p v-if="item.review.state === 'unreadable'" class="rv-alert" role="alert">{{ item.review.error }}</p>
+      <p v-if="item.review.state === 'stale'" class="rv-mark rv-mark-stale">
+        This file changed since it was marked {{ item.review.decision === 'approved' ? 'approved' : 'as needing changes' }}. Watch it again, then mark it.
+      </p>
       <p v-if="saveError[itemKey(item)]" class="rv-alert" role="alert">{{ saveError[itemKey(item)] }}</p>
 
-      <div class="rv-actions">
+      <div class="rv-row-actions">
+        <button
+          type="button"
+          class="rv-btn rv-btn-play"
+          :aria-expanded="openRow === itemKey(item)"
+          :aria-label="`${openRow === itemKey(item) ? 'Close' : 'Play'} ${item.episode_code} ${item.title}`"
+          @click="toggleRow(itemKey(item))"
+        >{{ openRow === itemKey(item) ? 'Close' : 'Play' }}</button>
         <button
           type="button"
           class="rv-btn rv-btn-ok"
@@ -90,6 +131,10 @@
           :disabled="saving.has(itemKey(item))"
           @click="decide(item, 'needs_changes')"
         >{{ saving.has(itemKey(item)) ? 'Saving…' : 'Needs changes' }}</button>
+        <NuxtLink
+          :to="`/projects/${item.channel_slug}/video-assembly?episode_id=${item.episode_code}`"
+          class="rv-btn rv-btn-primary"
+        >View episode</NuxtLink>
       </div>
     </article>
 
@@ -101,7 +146,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import type {
   FinalReviewChannel,
   FinalReviewDecision,
@@ -123,12 +168,57 @@ const loadError = ref('')
 const saving = ref<Set<string>>(new Set())
 const toggling = ref<Set<string>>(new Set())
 const saveError = ref<Record<string, string>>({})
+const selectedChannel = ref('')
+const openRow = ref('')
 
-const enabledChannels = computed(() => channels.value.filter(channel => channel.review_enabled).length)
+const totalFinals = computed(() => finals.value.length)
+
+const unreviewedCount = computed(() => {
+  return finals.value.filter(item => item.review.state === 'not_reviewed').length
+})
+
+const filteredFinals = computed(() => {
+  const list = selectedChannel.value
+    ? finals.value.filter(item => item.channel_slug === selectedChannel.value)
+    : finals.value
+  // Sort: unreviewed first, then by newest
+  return [...list].sort((a, b) => {
+    const aUnrev = a.review.state === 'not_reviewed' ? 0 : 1
+    const bUnrev = b.review.state === 'not_reviewed' ? 0 : 1
+    if (aUnrev !== bUnrev) return aUnrev - bUnrev
+    return b.mtime_ms - a.mtime_ms
+  })
+})
+
+const unreviewedInFilter = computed(() => {
+  return filteredFinals.value.filter(item => item.review.state === 'not_reviewed').length
+})
+
+/** Channels sorted unreviewed-first so a channel needing attention leads. */
+const sortedChannels = computed(() => {
+  return [...channels.value].sort((a, b) => {
+    const aUn = unreviewedByChannel(a.slug)
+    const bUn = unreviewedByChannel(b.slug)
+    if (aUn !== bUn) return bUn - aUn
+    return a.name.localeCompare(b.name)
+  })
+})
+
+const selectedChannelData = computed(() => {
+  return channels.value.find(c => c.slug === selectedChannel.value) || null
+})
+
+function unreviewedByChannel(slug: string): number {
+  return finals.value.filter(item => item.channel_slug === slug && item.review.state === 'not_reviewed').length
+}
 
 /** One key per final: two channels can share an episode code (§4). */
 function itemKey(item: FinalReviewItem): string {
   return `${item.channel_slug}/${item.episode_code}`
+}
+
+function toggleRow(key: string): void {
+  openRow.value = openRow.value === key ? '' : key
 }
 
 async function load(quiet = false): Promise<void> {
@@ -171,17 +261,19 @@ async function decide(item: FinalReviewItem, decision: FinalReviewDecision): Pro
   }
 }
 
-function onToggleChannel(channel: FinalReviewChannel, event: Event): void {
-  void toggleChannel(channel, (event.target as HTMLInputElement).checked)
+function onToggleSelected(event: Event): void {
+  const channel = selectedChannelData.value
+  if (channel) void toggleChannel(channel, (event.target as HTMLInputElement).checked)
 }
 
-async function toggleChannel(channel: FinalReviewChannel, enabled: boolean): Promise<void> {  if (toggling.value.has(channel.slug)) return
+async function toggleChannel(channel: FinalReviewChannel, enabled: boolean): Promise<void> {
+  if (toggling.value.has(channel.slug)) return
   toggling.value = new Set(toggling.value).add(channel.slug)
   try {
     await put(`/review/channels/${encodeURIComponent(channel.slug)}`, { enabled })
     await load(true)
   } catch (e: any) {
-    loadError.value = e?.data?.detail || 'Could not change that channel’s review setting.'
+    loadError.value = e?.data?.detail || 'Could not change that channel\'s review setting.'
   } finally {
     const next = new Set(toggling.value)
     next.delete(channel.slug)
@@ -201,15 +293,12 @@ function markTone(review: FinalReviewState): string {
   return 'none'
 }
 
-function markLabel(review: FinalReviewState): string {
-  if (review.state === 'not_reviewed') return 'Not reviewed yet.'
-  if (review.state === 'unreadable') return 'The review mark could not be read.'
-  if (review.state === 'stale') {
-    return `This file changed since it was marked ${review.decision === 'approved' ? 'approved' : 'as needing changes'}. Watch it again, then mark it.`
-  }
-  return review.decision === 'approved'
-    ? `Approved · review note only, marked ${finishedAt(Date.parse(review.decided_at))}.`
-    : `Needs changes · marked ${finishedAt(Date.parse(review.decided_at))}.`
+/** Short state label for the compact row. */
+function stateShort(review: FinalReviewState): string {
+  if (review.state === 'not_reviewed') return 'Not reviewed'
+  if (review.state === 'unreadable') return 'Could not be read'
+  if (review.state === 'stale') return 'File changed'
+  return review.decision === 'approved' ? 'Approved' : 'Needs changes'
 }
 
 function finishedAt(ms: number): string {
@@ -219,6 +308,13 @@ function finishedAt(ms: number): string {
 
 const poller = createVisibleInterval(() => { void load(true) }, 20_000)
 
+// If the selected channel is removed from the list, clear the filter.
+watch(channels, (list) => {
+  if (selectedChannel.value && !list.find(c => c.slug === selectedChannel.value)) {
+    selectedChannel.value = ''
+  }
+})
+
 onMounted(() => {
   void load()
   poller.start()
@@ -227,17 +323,15 @@ onUnmounted(() => poller.stop())
 </script>
 
 <style scoped>
+/* The outer wrapper only: .page-frame owns width, margin and padding. It used
+   to pin this page to a centred 720px column while publishing ran edge to edge.
+   The flex column and its gap stay — that is this page's own vertical rhythm. */
 .rv-page {
-  max-width: 720px;
-  margin: 0 auto;
-  padding: 16px 14px 48px;
   display: flex;
   flex-direction: column;
   gap: 16px;
 }
-.rv-head { display: flex; flex-direction: column; gap: 6px; }
-.rv-title { margin: 0; font-size: 1.5rem; }
-.rv-sub { margin: 0; color: var(--text-secondary); font-size: var(--font-sm); line-height: 1.45; }
+
 .rv-alert {
   margin: 0;
   padding: 10px 12px;
@@ -249,14 +343,64 @@ onUnmounted(() => poller.stop())
   font-size: var(--font-sm);
 }
 .rv-alert-sm { margin-top: 6px; }
+
+.rv-retry {
+  margin-left: 8px;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: var(--font-xs);
+  cursor: pointer;
+}
+.rv-retry:hover { background: var(--bg-secondary); }
+
 .rv-channels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 0;
+  margin: 0;
+}
+
+.rv-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: var(--font-sm);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.rv-chip:hover { background: var(--bg-secondary); }
+/* Scoped CSS appends [data-v-*] to the end, so `.rv-chip[data-v]:hover`
+   outranks `.rv-chip-active[data-v]`. Without the matching hover, resting the
+   mouse on the selected chip painted it --bg-secondary (#fff here) while its
+   label stayed #fff — an invisible chip. Say so for the active one too. */
+.rv-chip-active,
+.rv-chip-active:hover {
+  background: var(--accent, #2563eb);
+  border-color: var(--accent, #2563eb);
+  color: #fff;
+}
+.rv-chip-name { font-weight: 500; }
+.rv-chip-count { font-size: var(--font-xs); opacity: 0.8; }
+
+.rv-channel-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
   border: 1px solid var(--border);
   border-radius: 10px;
-  padding: 10px 12px;
   background: var(--bg-secondary);
 }
-.rv-channels summary { cursor: pointer; font-weight: 600; }
-.rv-channel-list { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+
 .rv-toggle {
   display: flex;
   align-items: center;
@@ -265,41 +409,102 @@ onUnmounted(() => poller.stop())
   cursor: pointer;
 }
 .rv-toggle input { width: 20px; height: 20px; }
-.rv-toggle small { color: var(--text-secondary); font-size: var(--font-xs); }
-.rv-hint { margin: 10px 0 0; color: var(--text-secondary); font-size: var(--font-xs); line-height: 1.45; }
-.rv-empty { color: var(--text-secondary); text-align: center; padding: 24px 8px; }
-.rv-card {
+
+.rv-empty { color: var(--text-secondary); text-align: center; padding: 24px 8px; margin: 0; }
+
+.rv-summary {
+  margin: 0;
+  padding: 8px 0;
+  font-size: var(--font-sm);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.rv-row {
   border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 12px;
+  border-radius: 10px;
+  padding: 10px 12px;
   background: var(--bg-secondary);
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 6px;
 }
-.rv-card-head { display: flex; flex-direction: column; gap: 2px; }
-.rv-card-title { margin: 0; font-size: 1rem; line-height: 1.35; }
-.rv-card-sub { margin: 0; color: var(--text-secondary); font-size: var(--font-xs); }
-.rv-video { width: 100%; height: auto; border-radius: 8px; background: #000; }
-.rv-mark { margin: 0; font-size: var(--font-sm); color: var(--text-secondary); }
-.rv-mark[data-state='approved'] { color: var(--success); }
-.rv-mark[data-state='needs_changes'] { color: var(--error); }
-.rv-mark[data-state='stale'] { color: var(--warning); }
-.rv-mark[data-state='unreadable'] { color: var(--error); }
-.rv-actions { display: flex; gap: 10px; }
+.rv-row + .rv-row { margin-top: 8px; }
+.rv-row-reviewed { opacity: 0.65; }
+.rv-row-reviewed .rv-row-state[data-state='approved'] { color: var(--success); }
+.rv-row-reviewed .rv-row-state[data-state='needs_changes'] { color: var(--error); }
+
+.rv-row-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.rv-row-channel {
+  margin: 0;
+  font-size: var(--font-xs);
+  font-weight: 600;
+  color: var(--accent, #2563eb);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.rv-row-state {
+  font-size: var(--font-xs);
+  font-weight: 500;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+.rv-row-state[data-state='approved'] { color: var(--success); }
+.rv-row-state[data-state='needs_changes'] { color: var(--error); }
+.rv-row-state[data-state='stale'] { color: var(--warning); }
+.rv-row-state[data-state='unreadable'] { color: var(--error); }
+
+.rv-row-title { margin: 0; font-size: var(--font-sm); font-weight: 600; line-height: 1.35; }
+.rv-row-sub { margin: 0; color: var(--text-secondary); font-size: var(--font-xs); }
+.rv-video { width: 100%; height: auto; border-radius: 8px; background: #000; margin: 4px 0; }
+
+.rv-mark-stale { margin: 0; font-size: var(--font-xs); color: var(--warning); }
+
+.rv-row-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
 .rv-btn {
-  flex: 1;
-  min-height: 44px;
-  border-radius: 10px;
+  flex: 1 1 auto;
+  min-height: 36px;
+  min-width: 0;
+  padding: 6px 10px;
+  border-radius: 8px;
   border: 1px solid var(--border);
   background: var(--bg-primary);
   color: var(--text-primary);
-  font-size: var(--font-sm);
+  font-size: var(--font-xs);
   font-weight: 600;
   cursor: pointer;
+  text-align: center;
+  white-space: nowrap;
 }
 .rv-btn:disabled { opacity: 0.6; cursor: default; }
+.rv-btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+  background: var(--accent, #2563eb);
+  border-color: var(--accent, #2563eb);
+  color: #fff;
+}
+.rv-btn-primary:hover { opacity: 0.9; }
+.rv-btn-play { font-weight: 600; }
 .rv-btn-ok.chosen { border-color: #1d7a46; background: #1d7a46; color: #fff; }
 .rv-btn-changes.chosen { border-color: var(--danger, #c0392b); background: var(--danger, #c0392b); color: #fff; }
 .rv-foot { margin: 0; color: var(--text-secondary); font-size: var(--font-xs); line-height: 1.45; }
+
+@media (max-width: 480px) {
+  .rv-row-actions { flex-direction: column; }
+  .rv-btn { flex: 1 1 100%; }
+}
 </style>
