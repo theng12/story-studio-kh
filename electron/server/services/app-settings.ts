@@ -116,7 +116,6 @@ function cloneSettingValue<T>(value: T): T {
 
 export interface PaidImageReplacementSetting {
   enabled: boolean
-  additional_credit_ceiling: number | null
 }
 
 export const PAID_IMAGE_REPLACEMENT_KEY = 'paid_image_replacement'
@@ -175,12 +174,11 @@ function parsePrivateFinalRenderSetting(
 
 const PAID_REPLACEMENT_DEFAULT: PaidImageReplacementSetting = {
   enabled: false,
-  additional_credit_ceiling: null,
 }
 
 function invalidPaidReplacementSetting(kind: 'image' | 'subtitle' | 'audio' | 'writing'): never {
   throw Object.assign(
-    new Error(`Paid ${kind} replacement requires exactly enabled and additional_credit_ceiling; when enabled, the ceiling must be a positive safe whole number.`),
+    new Error(`Paid ${kind} replacement requires exactly enabled as a boolean.`),
     { statusCode: 400, expose: true },
   )
 }
@@ -196,29 +194,13 @@ function parsePaidReplacementSetting(
   }
   const record = value as Record<string, unknown>
   const keys = Object.keys(record)
-  if (keys.length !== 2
-    || !keys.includes('enabled')
-    || !keys.includes('additional_credit_ceiling')
-    || typeof record.enabled !== 'boolean') {
+  // Accept both the new shape (enabled only) and legacy records that also carry
+  // additional_credit_ceiling — the ceiling is ignored (credits retired 2026-11-02).
+  if (!keys.includes('enabled') || typeof record.enabled !== 'boolean') {
     if (invalid === 'throw') return invalidPaidReplacementSetting(kind)
     return { ...PAID_REPLACEMENT_DEFAULT }
   }
-  const ceiling = record.additional_credit_ceiling
-  const validCeiling = typeof ceiling === 'number'
-    && Number.isSafeInteger(ceiling)
-    && ceiling > 0
-  if (ceiling !== null && !validCeiling) {
-    if (invalid === 'throw') return invalidPaidReplacementSetting(kind)
-    return { ...PAID_REPLACEMENT_DEFAULT }
-  }
-  if (record.enabled && !validCeiling) {
-    if (invalid === 'throw') return invalidPaidReplacementSetting(kind)
-    return { ...PAID_REPLACEMENT_DEFAULT }
-  }
-  return {
-    enabled: record.enabled,
-    additional_credit_ceiling: ceiling as number | null,
-  }
+  return { enabled: record.enabled }
 }
 
 // Legacy installs wrote this file with default 0644. On the first read after

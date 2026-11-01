@@ -334,9 +334,6 @@ export async function reconcileRemoteCancellationFromProvider(
     cancellation_requested?: boolean | null
     cancellation_note?: string | null
     failure_code?: string | null
-    reserved_credits?: number | null
-    settled_credits?: number | null
-    released_credits?: number | null
     transcription_absence_verified_at?: string
   },
 ): Promise<void> {
@@ -359,9 +356,6 @@ export async function reconcileRemoteCancellationFromProvider(
     ...(evidence.cancellation_requested !== undefined && evidence.cancellation_requested !== null ? { cancellation_requested: evidence.cancellation_requested } : {}),
     ...(evidence.cancellation_note !== undefined ? { cancellation_note: evidence.cancellation_note } : {}),
     ...(evidence.failure_code !== undefined ? { failure_code: evidence.failure_code } : {}),
-    ...(typeof evidence.reserved_credits === 'number' && Number.isFinite(evidence.reserved_credits) && evidence.reserved_credits >= 0 ? { reserved_credits: evidence.reserved_credits } : {}),
-    ...(typeof evidence.settled_credits === 'number' && Number.isFinite(evidence.settled_credits) && evidence.settled_credits >= 0 ? { settled_credits: evidence.settled_credits } : {}),
-    ...(typeof evidence.released_credits === 'number' && Number.isFinite(evidence.released_credits) && evidence.released_credits >= 0 ? { released_credits: evidence.released_credits } : {}),
   })
 }
 
@@ -866,9 +860,6 @@ function mergeGenStudioReconciliationEvidence(
     cancellation_requested?: boolean | null
     cancellation_note?: string | null
     failure_code?: string | null
-    reserved_credits?: number | null
-    settled_credits?: number | null
-    released_credits?: number | null
     recovery_required?: boolean | null
     recovery_state?: string | null
     transcription_absence_verified_at?: string
@@ -893,9 +884,6 @@ function mergeGenStudioReconciliationEvidence(
     cancellation_requested: _priorCancellationRequested,
     cancellation_note: _priorCancellationNote,
     failure_code: _priorFailureCode,
-    reserved_credits: _priorReservedCredits,
-    settled_credits: _priorSettledCredits,
-    released_credits: _priorReleasedCredits,
     transcription_absence_verified_at: _priorTranscriptionAbsenceVerifiedAt,
     ...priorWithoutSyntheticAbsenceFields
   } = prior
@@ -924,9 +912,6 @@ function mergeGenStudioReconciliationEvidence(
     ...(provider.cancellation_requested !== undefined ? { cancellation_requested: provider.cancellation_requested } : {}),
     ...(provider.cancellation_note !== undefined ? { cancellation_note: provider.cancellation_note } : {}),
     ...(provider.failure_code !== undefined ? { failure_code: provider.failure_code } : {}),
-    ...(typeof provider.reserved_credits === 'number' && Number.isFinite(provider.reserved_credits) ? { reserved_credits: provider.reserved_credits } : {}),
-    ...(typeof provider.settled_credits === 'number' && Number.isFinite(provider.settled_credits) ? { settled_credits: provider.settled_credits } : {}),
-    ...(typeof provider.released_credits === 'number' && Number.isFinite(provider.released_credits) ? { released_credits: provider.released_credits } : {}),
     ...(provider.transcription_absence_verified_at ? { transcription_absence_verified_at: provider.transcription_absence_verified_at } : {}),
     updated_at: new Date().toISOString(),
   }
@@ -2312,9 +2297,7 @@ function streamSource(job: Job): Job {
   slim.genstudio_jobs_updated_at = entries.reduce((latest, entry) => (
     typeof entry.updated_at === 'string' && entry.updated_at > latest ? entry.updated_at : latest), '') || undefined
   slim.genstudio_settlement_open = !isFreeFleetWork(entries) && entries.some((entry: GenStudioEvidence) => (
-    !['succeeded', 'failed'].includes(String(entry.state))
-    || !settledNumber(entry.reserved_credits) || !settledNumber(entry.settled_credits) || !settledNumber(entry.released_credits)
-    || entry.settled_credits + entry.released_credits !== entry.reserved_credits))
+    !['succeeded', 'failed'].includes(String(entry.state))))
   return slim
 }
 
@@ -4455,7 +4438,6 @@ export function getValidPaidImageWait(job: Job): { attempt: PaidImageReplacement
   const policy = job.paid_image_replacement
   if (
     policy?.enabled !== true || policy.wait_minutes !== 30 || policy.max_replacements_per_asset !== 1
-    || !Number.isSafeInteger(policy.additional_credit_ceiling) || (policy.additional_credit_ceiling || 0) <= 0
     || !isNonEmptyString(policy.snapshotted_at) || !Number.isFinite(Date.parse(policy.snapshotted_at))
   ) return null
   const attempts = job.paid_image_replacement_attempts || []
@@ -8906,27 +8888,21 @@ function chatEntries(job: Job): NonNullable<Job['genstudio_jobs']> {
   return (job.genstudio_jobs || []).filter(entry => entry.operation === 'chat.response')
 }
 
-function isPreDispatchCreditRefusal(entry: NonNullable<Job['genstudio_jobs']>[number]): boolean {
-  return entry.state === 'failed'
-    && entry.dispatch_state === 'pre_dispatch'
-    && entry.queue_state === 'waiting_credits'
-}
-
 function isResolvedChatEntry(entry: NonNullable<Job['genstudio_jobs']>[number]): boolean {
-  return isPreDispatchCreditRefusal(entry) || (typeof entry.id === 'string'
+  return typeof entry.id === 'string'
     && !!entry.id
     && !entry.id.startsWith('pending:')
-    && (entry.state === 'succeeded' || entry.state === 'failed'))
+    && (entry.state === 'succeeded' || entry.state === 'failed')
 }
 
 function chapterChatRetryMode(job: Job): ChapterChatRetryMode | undefined {
   const chats = chatEntries(job)
   if (chats.length === 0) return undefined
   const terminalFailure = chats.find(entry =>
-    isPreDispatchCreditRefusal(entry) || (entry.state === 'failed'
+    entry.state === 'failed'
     && typeof entry.id === 'string'
     && !!entry.id
-    && !entry.id.startsWith('pending:')),
+    && !entry.id.startsWith('pending:'),
   )
   // A Story retry may replace the provider key only after every chat batch is
   // resolved. Any pending preview or unknown/nonterminal state can still be
@@ -8939,11 +8915,6 @@ function chapterChatRetryMode(job: Job): ChapterChatRetryMode | undefined {
 
 function terminalChatRetryScope(job: Job): string | undefined {
   if (chapterChatRetryMode(job) !== 'fresh-replacement') return undefined
-  const creditRefusal = chatEntries(job).find(isPreDispatchCreditRefusal)
-  if (creditRefusal) {
-    const key = creditRefusal.request?.idempotency_key?.trim() || creditRefusal.id.replace(/^pending:/, '')
-    return `credit-refused:${key}:${job.job_id}`
-  }
   const terminalFailure = chatEntries(job).find(entry => entry.state === 'failed' && !entry.id.startsWith('pending:'))
   return terminalFailure ? `terminal:${terminalFailure.id}:${job.job_id}` : undefined
 }
