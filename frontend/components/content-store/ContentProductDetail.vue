@@ -20,14 +20,26 @@
          showing an empty grid. -->
     <section class="detail-section" aria-labelledby="pictures-heading">
       <h2 id="pictures-heading">Preview pictures</h2>
-      <p v-if="!pictures.length">The Gateway publishes no preview picture for this pack yet.</p>
-      <div v-else class="preview-grid">
+      <p v-if="previewNote" class="preview-note" role="status">{{ previewNote }}</p>
+      <p v-else-if="!pictures.length">The Gateway publishes no preview picture for this pack yet.</p>
+      <div v-if="pictures.length" class="preview-grid">
         <button
           v-for="(picture, position) in pictures" :key="picture.src" type="button"
-          class="preview-tile" :aria-label="`Enlarge preview ${position + 1} of ${pictures.length}`"
+          class="preview-tile" :data-broken="isTileBroken(picture.src) ? 'true' : undefined"
+          :aria-label="`Enlarge preview ${position + 1} of ${pictures.length}`"
           @click="openPreview(position)"
         >
-          <img :src="picture.src" :alt="picture.alt" loading="lazy" decoding="async" />
+          <!-- A picture that will not load says so, the same way a cover does,
+               instead of leaving the browser's alt text in an empty box — and
+               only THIS tile degrades, so the other two still open. -->
+          <img
+            v-if="!isTileBroken(picture.src)" :src="picture.src" :alt="picture.alt"
+            loading="lazy" decoding="async" @error="markTileBroken(picture.src)"
+          />
+          <span v-else class="preview-tile-fallback" role="img" :aria-label="picture.alt || 'Preview could not load'">
+            <span class="preview-tile-fallback-icon" aria-hidden="true">!</span>
+            <span class="preview-tile-fallback-label">Couldn&rsquo;t load preview</span>
+          </span>
         </button>
       </div>
     </section>
@@ -48,10 +60,12 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
+import { useApi } from '~/composables/useApi'
 import ContentProductCover from './ContentProductCover.vue'
 import PackPreviewViewer, { type PackPicture } from './PackPreviewViewer.vue'
 import { contentStoreKindLabel } from '~/content-store/catalog-presentation'
+import { contentStoreKindCanCarryPreviews } from '~/content-store/product-kinds'
 import type { ContentStoreAccount, ContentStoreProduct, ContentStoreShowcaseVideo } from '~/composables/useContentStore'
 import type { InstallQueueStatus } from '~/composables/useInstallQueue'
 
@@ -70,6 +84,7 @@ defineEmits<{ install: [releaseId: string] }>()
  * "no preview picture" state and the section says so in words.
  */
 const pictures = computed<PackPicture[]>(() => {
+  if (previewPictures.value.length) return previewPictures.value
   const seen = new Set<string>()
   const rows: PackPicture[] = []
   for (const media of [props.product.presentation.hero, props.product.presentation.cover]) {
@@ -79,6 +94,83 @@ const pictures = computed<PackPicture[]>(() => {
   }
   return rows
 })
+
+type PreviewStatus = 'idle' | 'loading' | 'ready' | 'not-installed' | 'unreadable'
+type PreviewListing = { available: boolean; reason: 'not-installed' | 'unreadable' | null; pictures: PackPicture[] }
+
+const KEY_SEPARATOR = '\u0000'
+
+const { get } = useApi()
+const previewStatus = ref<PreviewStatus>('idle')
+const previewPictures = ref<PackPicture[]>([])
+let previewRequest = 0
+
+const previewReleaseKey = computed(() => {
+  const release = props.product.currentRelease
+  return release?.packId && release.version ? release.packId + KEY_SEPARATOR + release.version : ''
+})
+
+async function loadPreviews(key: string): Promise<void> {
+  const token = ++previewRequest
+  previewPictures.value = []
+  if (!key) { previewStatus.value = 'idle'; return }
+  previewStatus.value = 'loading'
+  const parts = key.split(KEY_SEPARATOR)
+  const packId = parts[0] || ''
+  const version = parts[1] || ''
+  try {
+    const listing = await get<PreviewListing>(
+      '/content-store/previews/' + encodeURIComponent(packId) + '/' + encodeURIComponent(version),
+      { cache: 'no-store' },
+    )
+    // A late answer for a pack this page has already left must not paint over
+    // the pack now on screen.
+    if (token !== previewRequest) return
+    previewPictures.value = Array.isArray(listing?.pictures)
+      ? listing.pictures.filter(row => !!row && typeof row.src === 'string')
+      : []
+    previewStatus.value = listing?.available
+      ? 'ready'
+      : listing?.reason === 'unreadable' ? 'unreadable' : 'not-installed'
+  } catch {
+    if (token !== previewRequest) return
+    previewStatus.value = 'unreadable'
+  }
+}
+watch(previewReleaseKey, key => { void loadPreviews(key) }, { immediate: true })
+
+/**
+ * Why the pictures are not the pack's own previews, in words.
+ *
+ * Two answers that must never collapse into one (AGENTS.md 6): a pack that is
+ * not here yet, and a pack Story could not read. A kind that carries no
+ * previews at all gets NEITHER - installing it would produce none, so the note
+ * would promise something installing cannot deliver.
+ */
+const previewNote = computed(() => {
+  if (previewStatus.value === 'not-installed' && contentStoreKindCanCarryPreviews(props.product.kind)) {
+    return 'Previews appear after installing. This pack keeps its pictures inside its own archive, so Story can only show them once it is on this Mac.'
+  }
+  if (previewStatus.value === 'unreadable') {
+    return 'Story Studio could not read this pack\u2019s preview pictures, so the cover is shown instead.'
+  }
+  return ''
+})
+
+/**
+ * Tiles that failed, by src - one flag per picture, so a single dead file
+ * degrades that tile only and the rest of the wall stays usable.
+ */
+const brokenTiles = ref<ReadonlySet<string>>(new Set())
+function isTileBroken(src: string): boolean { return brokenTiles.value.has(src) }
+function markTileBroken(src: string): void { brokenTiles.value = new Set(brokenTiles.value).add(src) }
+// A new set of pictures is a new set of requests: a failure on the last pack
+// must not paint over the next one's tiles.
+watch(
+  () => pictures.value.map(row => row.src).join(KEY_SEPARATOR),
+  () => { brokenTiles.value = new Set() },
+)
+
 
 const previewOpen = ref(false)
 const previewIndex = ref(0)
@@ -151,6 +243,16 @@ function openExternalShowcase(url: string): void {
 .preview-tile:hover::after { box-shadow: inset 0 0 0 2px var(--accent); }
 .preview-tile:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
 .preview-tile img { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: cover; }
+/*
+ * A preview that FAILED is not a preview that was never published, and it is
+ * not a hole either. The tile keeps the picture's own 16/9 box so the rest of
+ * the row still lines up, and says what happened in words - the same state
+ * the cover uses, so a dead picture looks the same wherever it appears.
+ */
+.preview-tile-fallback { display: grid; width: 100%; aspect-ratio: 16 / 9; align-content: center; justify-items: center; gap: 4px; padding: 8px; background: color-mix(in srgb, var(--warning) 10%, var(--bg-tertiary)); color: var(--warning); }
+.preview-tile-fallback-icon { display: grid; place-items: center; width: 26px; height: 26px; border: 2px solid currentColor; border-radius: 50%; font-size: 14px; font-weight: 800; line-height: 1; }
+.preview-tile-fallback-label { max-width: 14ch; color: var(--text-secondary); font-size: var(--font-xs); font-weight: 650; line-height: 1.3; text-align: center; }
+.preview-note { max-width: 70ch; padding: 12px; border-radius: var(--radius-lg); background: color-mix(in srgb, var(--accent-dim) 34%, var(--bg-secondary)); color: var(--text-secondary); line-height: 1.5; overflow-wrap: anywhere; }
 .detail-warning { display: grid; min-width: 0; gap: 4px; padding: 13px; border-radius: var(--radius-lg); background: color-mix(in srgb, var(--warning) 9%, var(--bg-secondary)); color: var(--text-secondary); overflow-wrap: anywhere; }.detail-warning strong { color: var(--warning); }.detail-pending { min-width: 0; padding: 13px; border-radius: var(--radius-lg); background: var(--bg-secondary); color: var(--text-secondary); line-height: 1.5; overflow-wrap: anywhere; }.detail-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; }.back-to-store { color: var(--accent); font-weight: 650; text-decoration: underline; text-underline-offset: 4px; }
 @media (max-width: 680px) { .detail-hero { grid-template-columns: 1fr; }.detail-hero :deep(.product-cover), .detail-hero :deep(.product-cover img), .detail-hero :deep(.product-cover-fallback) { min-height: 190px; }.detail-actions { align-items: stretch; flex-direction: column; }.detail-actions .btn { width: 100%; min-height: 44px; justify-content: center; } }.component-list li { align-items: start; } @media (max-width: 360px) { .component-list li { grid-template-columns: 1fr; }.component-list li span:last-child { text-align: left; } }
 </style>

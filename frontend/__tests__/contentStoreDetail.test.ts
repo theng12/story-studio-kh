@@ -15,6 +15,26 @@ function stripImports(code: string): string {
 }
 
 ;(globalThis as any).__contentStoreErrorPresentation = contentStoreErrorPresentation
+;(globalThis as any).__contentStoreKindCanCarryPreviews = (kind: string) =>
+  ['visual_style', 'thumbnail_recipe', 'font_pack'].includes(kind)
+// Default: no previews are readable, so the detail view keeps its cover view.
+;(globalThis as any).__contentStoreApiGet = async () => ({ available: false, reason: 'not-installed', pictures: [] })
+// Child components the harness strips out of the source; the real ones are
+// exercised by their own tests, and the detail view only needs their shape.
+;(globalThis as any).__PackPreviewViewer = defineComponent({
+  props: ['pictures', 'index', 'title'],
+  emits: ['close', 'update:index'],
+  setup(props, { emit }) {
+    return () => h('div', { 'data-test': 'preview-viewer' }, [
+      h('span', { 'data-test': 'viewer-count' }, String(props.pictures.length)),
+      h('button', { type: 'button', onClick: () => emit('close') }, 'close'),
+    ])
+  },
+})
+;(globalThis as any).__ContentProductCover = defineComponent({
+  props: ['product'],
+  setup() { return () => h('div', { 'data-test': 'cover-fallback' }) },
+})
 
 const detail = readFileSync(fileURLToPath(new URL('../components/content-store/ContentProductDetail.vue', import.meta.url)), 'utf8')
 const route = readFileSync(fileURLToPath(new URL('../pages/library/[productId].vue', import.meta.url)), 'utf8')
@@ -31,6 +51,11 @@ async function loadComponent(relative: string): Promise<Component> {
   const support = `
     import { computed, defineComponent as _defineComponent, nextTick, ref, watch } from 'vue'
     const contentStoreErrorPresentation = globalThis.__contentStoreErrorPresentation
+    const contentStoreKindCanCarryPreviews = globalThis.__contentStoreKindCanCarryPreviews
+    const useApi = () => ({ get: globalThis.__contentStoreApiGet })
+    const contentStoreKindLabel = (kind: string) => kind
+    const PackPreviewViewer = globalThis.__PackPreviewViewer
+    const ContentProductCover = globalThis.__ContentProductCover
   `
   const code = `${support}\n${stripImports(script.content).replace('export default', 'const __sfc__ =')}\n${template.code}\n__sfc__.render = render\nexport default __sfc__`
   const transformed = await transform(code, { loader: 'ts', format: 'esm' })
@@ -369,5 +394,120 @@ describe('Studio Library proof route contract', () => {
     assert.match(storePage, /<PlainBackLink \/>/)
     assert.doesNotMatch(storePage, /<PlainBackLink[^>]*label=/, 'no page overrides the shared Back wording')
     assert.match(readFileSync(fileURLToPath(new URL('../components/content-store/ContentProductCard.vue', import.meta.url)), 'utf8'), /\.proof-action\s*\{[^}]*min-height:\s*44px/)
+  })
+})
+
+
+/**
+ * The pack's three preview pictures, and the viewer they open into.
+ *
+ * The complaint behind this: every card showed alt text in an empty box, and
+ * there was no way to look at a pack's pictures. What is pinned here is the
+ * detail view's half of that - the wall shows the pack's OWN previews when it
+ * has them, a dead picture degrades its own tile instead of emptying the row,
+ * and the viewer opens with all three.
+ */
+describe('Studio Library preview pictures', () => {
+  function styleProduct(overrides: Record<string, unknown> = {}) {
+    return {
+      productId: 'com.storystudio.pack.style.previews',
+      entitlementFamily: 'family.previews',
+      kind: 'visual_style',
+      title: 'Oil Study',
+      summary: 'Painterly.',
+      description: '',
+      publisherId: 'com.storystudio',
+      free: true,
+      owned: true,
+      retired: false,
+      successorProductId: null,
+      currentRelease: { releaseId: 'rel_1', packId: 'com.storystudio.pack.style.previews', version: '1.0.0' },
+      compatible: true,
+      compatibilityReason: null,
+      bundleComponents: [],
+      showcaseVideos: [],
+      presentation: {
+        cover: { src: '/api/content-store/covers/com.storystudio.pack.style.previews/1.0.0', alt: 'Oil Study' },
+        hero: null,
+        licenseLabel: null,
+        licenseText: null,
+        tags: [],
+      },
+      ...overrides,
+    }
+  }
+
+  const THREE = [
+    { src: '/api/content-packs/p/1.0.0/assets/aaa', alt: 'Oil Study — Hero' },
+    { src: '/api/content-packs/p/1.0.0/assets/bbb', alt: 'Oil Study — Quiet wide scene' },
+    { src: '/api/content-packs/p/1.0.0/assets/ccc', alt: 'Oil Study — Hardest legal case' },
+  ]
+
+  test('an installed style pack shows its three previews, and the viewer opens with all three', async () => {
+    ;(globalThis as any).__contentStoreApiGet = async () => ({ available: true, reason: null, pictures: THREE })
+    const Detail = await loadComponent('../components/content-store/ContentProductDetail.vue')
+    const rendered = await mount(Detail, { product: styleProduct() })
+    await nextTick()
+
+    const tiles = rendered.host.querySelectorAll('.preview-tile')
+    assert.equal(tiles.length, 3, 'the pack wall shows the pack\'s own three previews')
+    // The cover is one of them, so it must not be listed twice.
+    const srcs = [...rendered.host.querySelectorAll('.preview-tile img')].map(img => img.getAttribute('src'))
+    assert.equal(new Set(srcs).size, 3)
+
+    rendered.host.querySelector<HTMLButtonElement>('.preview-tile')!.click()
+    await nextTick()
+    assert.match(rendered.host.outerHTML, /data-test="preview-viewer"/, 'a tile opens the viewer')
+    assert.equal(rendered.host.querySelector('[data-test="viewer-count"]')!.textContent, '3')
+    rendered.unmount()
+    delete (globalThis as any).__contentStoreApiGet
+    ;(globalThis as any).__contentStoreApiGet = async () => ({ available: false, reason: 'not-installed', pictures: [] })
+  })
+
+  test('one picture that fails shows the fallback and leaves the other two standing', async () => {
+    ;(globalThis as any).__contentStoreApiGet = async () => ({ available: true, reason: null, pictures: THREE })
+    const Detail = await loadComponent('../components/content-store/ContentProductDetail.vue')
+    const rendered = await mount(Detail, { product: styleProduct() })
+    await nextTick()
+
+    const dead = rendered.host.querySelectorAll<HTMLImageElement>('.preview-tile img')[1]!
+    dead.dispatchEvent(new Event('error'))
+    await nextTick()
+
+    // Not an empty box: the failed tile says what happened, in words.
+    assert.equal(rendered.host.querySelectorAll('.preview-tile-fallback').length, 1)
+    assert.match(rendered.host.querySelector('.preview-tile-fallback')!.textContent || '', /Couldn.t load preview/)
+    // The other two still show their pictures.
+    assert.equal(rendered.host.querySelectorAll('.preview-tile img').length, 2)
+    assert.equal(rendered.host.querySelectorAll('.preview-tile').length, 3, 'the row keeps its shape')
+    rendered.unmount()
+    delete (globalThis as any).__contentStoreApiGet
+    ;(globalThis as any).__contentStoreApiGet = async () => ({ available: false, reason: 'not-installed', pictures: [] })
+  })
+
+  test('a style pack that is not installed says previews appear after installing', async () => {
+    ;(globalThis as any).__contentStoreApiGet = async () => ({ available: false, reason: 'not-installed', pictures: [] })
+    const Detail = await loadComponent('../components/content-store/ContentProductDetail.vue')
+    const rendered = await mount(Detail, { product: styleProduct() })
+    await nextTick()
+    assert.match(rendered.host.textContent || '', /Previews appear after installing/)
+    // The cover still stands in, so the section is never empty.
+    assert.equal(rendered.host.querySelectorAll('.preview-tile').length, 1)
+    rendered.unmount()
+    delete (globalThis as any).__contentStoreApiGet
+    ;(globalThis as any).__contentStoreApiGet = async () => ({ available: false, reason: 'not-installed', pictures: [] })
+  })
+
+  test('a pack with no previews of its own keeps the cover view and promises nothing', async () => {
+    ;(globalThis as any).__contentStoreApiGet = async () => ({ available: true, reason: null, pictures: [] })
+    const Detail = await loadComponent('../components/content-store/ContentProductDetail.vue')
+    const rendered = await mount(Detail, { product: styleProduct({ kind: 'topic_pack' }) })
+    await nextTick()
+    assert.doesNotMatch(rendered.host.textContent || '', /Previews appear after installing/,
+      'a pack that carries no previews must not promise some')
+    assert.equal(rendered.host.querySelectorAll('.preview-tile').length, 1)
+    rendered.unmount()
+    delete (globalThis as any).__contentStoreApiGet
+    ;(globalThis as any).__contentStoreApiGet = async () => ({ available: false, reason: 'not-installed', pictures: [] })
   })
 })

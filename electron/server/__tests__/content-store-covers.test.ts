@@ -1,6 +1,12 @@
 import assert from 'node:assert/strict'
+import { createHash, generateKeyPairSync, sign } from 'node:crypto'
 import { afterEach, beforeEach, describe, test } from 'node:test'
 
+import JSZip from 'jszip'
+import sharp from 'sharp'
+import { installContentPack } from '../content-packs/installer.js'
+import { createContentPackKeyring } from '../content-packs/keyring.js'
+import { getContentPackRuntimePaths } from '../content-packs/runtime-paths.js'
 import express from 'express'
 import request from 'supertest'
 
@@ -199,6 +205,9 @@ describe('a cover reaches a remote browser through Story', () => {
     discount: null,
     removeFromInstalls: false,
     removeFromInstallsAt: null,
+    // `rewriteCoverSrc` takes a whole product, so the fixture carries the
+    // canonical envelope too - it only ever reads `cover.url`.
+    raw: { value: {}, canonicalJson: '{}', canonicalBytes: new Uint8Array() },
   }
 
   test('the server hands the page Story\'s own proxy path, not the Gateway\'s', () => {
@@ -247,5 +256,178 @@ describe('a cover reaches a remote browser through Story', () => {
     const response = await request(remoteApp).get('/api/content-store/covers/com.storystudio.pack.style.oil/1.0.1')
       .set('X-Forwarded-For', '127.0.0.1')
     assert.equal(response.status, 200)
+  })
+})
+
+
+// Preview pictures of an installed pack.
+//
+// The Gateway publishes only `cover` and `hero: null` per product, so a shelf
+// pack's previews are NOT on the wire at all. What IS readable is the pack this
+// Mac already has: its previews live inside the signed archive. These tests pin
+// the four answers that must stay distinct - installed, not installed, not a
+// known pack, and an identity that tries to climb out.
+
+const PREVIEW_KEY_ID = 'com.storystudio.test-previews'
+const PREVIEW_PUBLISHER = 'com.storystudio'
+const previewKeyPair = generateKeyPairSync('ed25519')
+const previewPolicy = createContentPackKeyring([{
+  keyId: PREVIEW_KEY_ID,
+  publisherId: PREVIEW_PUBLISHER,
+  publicKeyPem: previewKeyPair.publicKey.export({ type: 'spki', format: 'pem' }).toString(),
+}])
+
+const STYLE_PACK_ID = 'com.storystudio.pack.style.previews'
+const TOPIC_PACK_ID = 'com.storystudio.pack.topic.previews'
+const PACK_VERSION = '1.0.0'
+const PREVIEW_PATHS = ['assets/hero.webp', 'assets/quiet-wide.webp', 'assets/hardest.webp']
+
+// A real 1672x941 WebP, the size a style pack's previews actually are. The
+// archive verifier DECODES every declared raster and checks the declared mime
+// against what it decoded, so a stand-in file would be refused outright.
+async function previewRaster(index: number): Promise<Buffer> {
+  return sharp({
+    create: { width: 1672, height: 941, channels: 3, background: { r: 30 + index * 40, g: 60, b: 90 + index * 30 } },
+  }).webp().toBuffer()
+}
+
+function sha256(bytes: Uint8Array): string {
+  return createHash('sha256').update(bytes).digest('hex')
+}
+
+function previewStyleDocument(): Record<string, unknown> {
+  return {
+    kind: 'visual-style', schema_version: 1,
+    id: 'com.storystudio.style.preview-probe', name: 'Preview Probe',
+    description: 'A style whose previews are the point.',
+    category: 'painterly', tags: ['test'], style_bible: 'Loose brushwork.', negative_prompt: 'text',
+    preview_assets: PREVIEW_PATHS, compatible_formula_ids: [],
+  }
+}
+
+function topicDocument(): Record<string, unknown> {
+  return {
+    kind: 'topic-pack', schema_version: 1,
+    id: 'com.storystudio.topic.preview-probe', name: 'Topic Probe',
+    description: 'A pack with no pictures at all.',
+    compatible_formula_ids: ['com.storystudio.formula.sleep-story'],
+    subjects: ['sleep'], episode_objects: ['bed'], time_place_scopes: ['night'],
+    mechanisms: ['rest'], evidence_lenses: ['observation'], exclusions: [], max_siblings_per_subject: 4,
+    prompt_context: 'Quiet nights.',
+  }
+}
+
+async function installPreviewFixture(spec: {
+  packId: string
+  documentPath: string
+  document: Record<string, unknown>
+  rasters?: readonly string[]
+}): Promise<void> {
+  const documentBytes = Buffer.from(JSON.stringify(spec.document), 'utf8')
+  const rasters = spec.rasters ?? []
+  const rasterBytes = new Map(await Promise.all(rasters.map(async path => [path, await previewRaster(rasters.indexOf(path))] as const)))
+  const files = [
+    { path: spec.documentPath, sha256: sha256(documentBytes), bytes: documentBytes.byteLength, mime: 'application/json' },
+    ...rasters.map(path => ({
+      path, sha256: sha256(rasterBytes.get(path)!), bytes: rasterBytes.get(path)!.byteLength, mime: 'image/webp',
+    })),
+  ]
+  const manifest = Buffer.from(JSON.stringify({
+    pack_format: 1, pack_id: spec.packId, publisher_id: PREVIEW_PUBLISHER, key_id: PREVIEW_KEY_ID,
+    version: PACK_VERSION, min_app_version: '1.0.0', lifecycle: 'active',
+    entitlement: { sku: spec.packId + '.sku', family: spec.packId + '.family' },
+    bundles: [],
+    items: [{ id: spec.document.id, kind: spec.document.kind, schema_version: 1, path: spec.documentPath }],
+    files,
+  }), 'utf8')
+  const zip = new JSZip()
+  zip.file('manifest.json', manifest, { createFolders: false })
+  zip.file('signature.ed25519', sign(null, manifest, previewKeyPair.privateKey), { createFolders: false })
+  zip.file(spec.documentPath, documentBytes, { createFolders: false })
+  for (const path of rasters) zip.file(path, rasterBytes.get(path)!, { createFolders: false })
+  const archiveBytes = await zip.generateAsync({ type: 'uint8array', compression: 'DEFLATE', platform: 'UNIX' })
+  await installContentPack(
+    { archiveBytes, source: 'local-import', expectedArchiveSha256: sha256(archiveBytes) },
+    { paths: getContentPackRuntimePaths(), policy: previewPolicy },
+  )
+}
+
+function previewApp(paths: ReturnType<typeof getContentPackRuntimePaths>): express.Express {
+  const built = express()
+  // The previews route reads pack state through the same seam the Content Pack
+  // routes use, so the test hands it the temp runtime directly.
+  built.locals.contentPackOptions = { paths, policy: previewPolicy }
+  built.use('/api', contentStoreCoversRouter)
+  built.use(errorBoundary)
+  return built
+}
+
+describe('the preview pictures of an installed pack', () => {
+  test('an installed style pack lists its three previews in archive order', async () => {
+    const app = previewApp(getContentPackRuntimePaths())
+    await installPreviewFixture({
+      packId: STYLE_PACK_ID, documentPath: 'content/style.json', document: previewStyleDocument(), rasters: PREVIEW_PATHS,
+    })
+    const response = await request(app).get('/api/content-store/previews/' + STYLE_PACK_ID + '/' + PACK_VERSION)
+    assert.equal(response.status, 200)
+    assert.equal(response.body.available, true)
+    assert.equal(response.body.reason, null)
+    assert.equal(response.body.pictures.length, 3)
+
+    // Order is the archive's: hero, quiet wide scene, hardest use.
+    assert.deepEqual(response.body.pictures.map((row: { alt: string }) => row.alt), [
+      'Preview Probe — Hero',
+      'Preview Probe — Quiet wide scene',
+      'Preview Probe — Hardest legal case',
+    ])
+    // Every picture is a Story same-origin URL, never a Gateway path the CSP
+    // would refuse, and never a filesystem path.
+    for (const row of response.body.pictures) {
+      assert.match(row.src, /^\/api\/content-packs\//)
+      assert.equal(row.src.includes('..'), false)
+    }
+  })
+
+  test('a pack that is not installed says so, and fetches nothing', async () => {
+    const app = previewApp(getContentPackRuntimePaths())
+    const response = await request(app).get('/api/content-store/previews/' + STYLE_PACK_ID + '/' + PACK_VERSION)
+    assert.equal(response.status, 200)
+    assert.equal(response.body.available, false)
+    // Distinct from a pack Story could not read (AGENTS.md 6).
+    assert.equal(response.body.reason, 'not-installed')
+    assert.deepEqual(response.body.pictures, [])
+  })
+
+  test('an unknown pack identity is the same honest not-installed answer', async () => {
+    const app = previewApp(getContentPackRuntimePaths())
+    const response = await request(app).get('/api/content-store/previews/com.storystudio.pack.style.never-existed/9.9.9')
+    assert.equal(response.status, 200)
+    assert.equal(response.body.available, false)
+    assert.equal(response.body.reason, 'not-installed')
+  })
+
+  test('a pack installed with no previews lists none, and stays available', async () => {
+    const app = previewApp(getContentPackRuntimePaths())
+    await installPreviewFixture({
+      packId: TOPIC_PACK_ID, documentPath: 'content/topic.json', document: topicDocument(),
+    })
+    const response = await request(app).get('/api/content-store/previews/' + TOPIC_PACK_ID + '/' + PACK_VERSION)
+    assert.equal(response.status, 200)
+    assert.equal(response.body.available, true)
+    assert.deepEqual(response.body.pictures, [])
+  })
+
+  test('a pack identity that could carry a path is refused before any read', async () => {
+    const app = previewApp(getContentPackRuntimePaths())
+    for (const url of [
+      '/api/content-store/previews/..%2F..%2Fetc/' + PACK_VERSION,
+      '/api/content-store/previews/' + STYLE_PACK_ID + '/..%2F1.0.0',
+      '/api/content-store/previews/p%2F..%2Fq/' + PACK_VERSION,
+      '/api/content-store/previews/%2e%2e%2f%2e%2e/' + PACK_VERSION,
+    ]) {
+      const response = await request(app).get(url)
+      assert.equal(response.status, 400, url)
+      assert.equal(response.body.code, 'CONTENT_STORE_PREVIEW_INVALID', url)
+    }
   })
 })
