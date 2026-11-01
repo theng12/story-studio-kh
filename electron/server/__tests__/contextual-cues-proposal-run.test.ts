@@ -221,7 +221,6 @@ describe('Contextual Cues proposal runs', () => {
     })
     mock.queueScenario('chat', answer('scene-1', 'Berlin'))
     mock.queueScenario('chat', answer('scene-2', 'Paris'))
-    mock.queueScenario('chat', answer('scene-3', 'Fresh Rome'))
     await generator.generateContextualCues(job('onebad'))
     const saved = (await cues.readContextualCueTimeline(planPath))!
     const titles = saved.cues.map(cue => cue.title)
@@ -243,13 +242,38 @@ describe('Contextual Cues proposal runs', () => {
     })
     mock.queueScenario('chat', answer('scene-1', 'Berlin'))
     mock.queueScenario('chat', answer('scene-2', 'Paris'))
-    mock.queueScenario('chat', answer('scene-3', 'Fresh Rome'))
     const runJob = job('named')
     await generator.generateContextualCues(runJob)
     const line = runJob.output_lines.find((text: string) => /need attention/.test(text))
     assert.ok(line, `the run names the label: ${runJob.output_lines.join(' | ')}`)
     assert.match(line!, /Stale Rome/)
     assert.match(line!, /inside its scene timing/)
+  })
+
+  /**
+   * v1.4.374 — a scene that already carries a reviewer's label is LEFT OUT of
+   * the request, and a candidate that still comes back for it is named.
+   */
+  test('a scene with an approved label is left out of the request and keeps its own label', async () => {
+    await reset()
+    await cues.writeContextualCueTimeline(planPath, {
+      schema_version: 1, generated_at: '', source_scene_plan_generated_at: plan.generated_at,
+      cues: [{ id: 'cue-scene-1', scene_id: 'scene-1', start_sec: 1, end_sec: 4, title: 'Reviewed Berlin', kind: 'location_date',
+        placement: 'top-right', template: 'map-pin', entrance: 'fade', exit: 'dissolve', status: 'approved',
+        created_at: '', updated_at: '' } as any],
+    })
+    mock.queueScenario('chat', answer('scene-2', 'Paris'))
+    mock.queueScenario('chat', answer('scene-3', 'Rome'))
+    await generator.generateContextualCues(job('occupied'))
+    // Only the two open scenes were asked about: scene-1 was never sent.
+    assert.equal(chatSubmissions().length, 2, 'the occupied scene was not proposed for again')
+    const bodies = chatSubmissions().map((s: any) => String(s.parsedBody?.messages?.[1]?.content || ''))
+    assert.ok(!bodies.some((body: string) => body.includes('scene-1')), 'the occupied scene is not in the prompt')
+    const saved = (await cues.readContextualCueTimeline(planPath))!
+    const scene1 = saved.cues.filter(cue => cue.scene_id === 'scene-1')
+    assert.equal(scene1.length, 1, 'the reviewer\'s label survives untouched')
+    assert.equal(scene1[0]!.title, 'Reviewed Berlin')
+    assert.equal(scene1[0]!.status, 'approved')
   })
 
   test('the preset auto-approve holds a crowding cue back instead of failing the whole run', async () => {
@@ -261,7 +285,8 @@ describe('Contextual Cues proposal runs', () => {
         placement: 'top-right', template: 'map-pin', entrance: 'fade', exit: 'dissolve', status: 'approved',
         created_at: '', updated_at: '' } as any],
     })
-    mock.queueScenario('chat', { outputText: JSON.stringify({ cues: [] }) })
+    // v1.4.374 — scene-1 carries the reviewer's approved label, so it is left
+    // out of the request: only scenes 2 and 3 are asked about.
     mock.queueScenario('chat', answer('scene-2', 'Paris', 0))
     mock.queueScenario('chat', answer('scene-3', 'Rome'))
     await generator.generateContextualCues(job('E', { auto_approve: true }))

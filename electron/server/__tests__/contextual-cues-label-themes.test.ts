@@ -214,6 +214,35 @@ describe('Contextual Cues label choices', () => {
   })
 
   /**
+   * v1.4.374 — the drop for a scene the reviewer already resolved is NAMED.
+   *
+   * It used to be filtered away with no reason at all, so a run that saved 1
+   * of 4 candidates reported `dropped: []` and the numbers did not add up
+   * (owner, 2026-11-01). Every candidate the model returned is now either
+   * saved or dropped with a reason.
+   */
+  test('a candidate for a scene the reviewer already resolved is dropped WITH its reason', async () => {
+    const candidates = [
+      { scene_id: 's1', title: 'Taken' },
+      { scene_id: 's2', title: 'Free' },
+    ]
+    const { proposed, dropped } = await accountCueCandidates(
+      candidates,
+      plan,
+      normalizeContextualCueProposalSettings({}),
+      NOW,
+      new Set(['cue-s1']),
+    )
+    assert.deepEqual(proposed.map(cue => cue.title), ['Free'], 'the occupied scene keeps the reviewer\'s cue')
+    assert.equal(dropped.length, 1, 'the candidate is accounted for, not vanished')
+    assert.equal(dropped[0]!.title, 'Taken')
+    assert.equal(dropped[0]!.scene_id, 's1')
+    assert.match(dropped[0]!.reason, /already has a label the reviewer approved or turned off/)
+    // The count adds up: saved + dropped = every candidate the model returned.
+    assert.equal(proposed.length + dropped.length, candidates.length)
+  })
+
+  /**
    * v1.4.374 — one bad cue does not lose every other cue.
    *
    * "Generated cues did not pass safe pacing validation: Cue must remain

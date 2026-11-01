@@ -518,6 +518,11 @@ function cueDropReason(candidate: CueCandidate, plan: ScenePlan, allow: CueChoic
  * Every candidate the model returned, split into the cues that will be saved
  * and the ones dropped — each with its reason (2026-10-07). This used to drop
  * silently, and the job certified a constant 1/1 whatever happened.
+ *
+ * v1.4.374 — the drop for a scene the reviewer already resolved is now
+ * RECORDED too. It used to be filtered away by `resolvedIds` with no reason
+ * at all, so a run that saved 1 of 4 candidates reported `dropped: []` and
+ * the count did not add up (owner, 2026-11-01).
  */
 export function accountCueCandidates(
   candidates: CueCandidate[],
@@ -552,7 +557,21 @@ export function accountCueCandidates(
     }
   }
   // One cue per scene: a scene the reviewer already resolved keeps that cue.
-  return { proposed: paced.filter(cue => !resolvedIds.has(cue.id)), dropped }
+  // The cue is NOT saved — the reviewer's is — and it is now NAMED, so the
+  // candidates the model returned and the cues that were saved add up.
+  const kept: ContextualCue[] = []
+  for (const cue of paced) {
+    if (resolvedIds.has(cue.id)) {
+      dropped.push({
+        scene_id: cue.scene_id,
+        title: cue.title,
+        reason: 'the scene already has a label the reviewer approved or turned off',
+      })
+      continue
+    }
+    kept.push(cue)
+  }
+  return { proposed: kept, dropped }
 }
 
 /**
@@ -706,7 +725,21 @@ export async function generateContextualCues(job: Job): Promise<void> {
     await removeContextualCueProgress(planPath)
     throw new Error('The Gateway now accepts a different number of scenes per request, so the saved partial proposal cannot be reused. Press Propose cues again to start over.')
   }
-  const batches = chunk(plan.scenes, resolvedBatchSize)
+  // v1.4.374 — the scenes a reviewer has already resolved are LEFT OUT of the
+  // prompt, so the model is never asked for a label that would be thrown away
+  // (owner, 2026-11-01). Before this, an occupied scene was still sent, the
+  // model proposed for it, and the candidate was then dropped with no reason
+  // recorded — so a run saved 1 of 4 candidates and reported no drops at all.
+  //
+  // The timeline is read HERE as well as at the end of the run. The end-read
+  // is what saves an approval made while this run was in flight; this read is
+  // what keeps the prompt honest about which scenes are already taken.
+  const timelineBeforeRun = await readContextualCueTimeline(planPath)
+  const occupiedSceneIds = new Set(
+    (timelineBeforeRun?.cues || []).filter(cue => cue.status !== 'proposed').map(cue => cue.scene_id),
+  )
+  const openScenes = plan.scenes.filter(scene => !occupiedSceneIds.has(scene.id))
+  const batches = chunk(openScenes, resolvedBatchSize)
   const completed = new Map((saved?.completed_batches || []).map(batch => [batch.index, batch]))
   const candidates: CueCandidate[] = [...completed.values()].flatMap(batch => batch.candidates as CueCandidate[])
   const snapshot = genStudioAdmissionSnapshot(apiKey)
@@ -717,7 +750,7 @@ export async function generateContextualCues(job: Job): Promise<void> {
     source_scene_plan_generated_at: plan.generated_at,
     model,
     batch_size: resolvedBatchSize,
-    total_scenes: plan.scenes.length,
+    total_scenes: openScenes.length,
     total_batches: batches.length,
     completed_batches: [],
     updated_at: new Date().toISOString(),
@@ -736,6 +769,15 @@ export async function generateContextualCues(job: Job): Promise<void> {
     + `(sized to the model's published output allowance); ${completed.size} saved batch(es) will be reused. `
     + 'Existing approved or disabled cues stay untouched.',
   )
+  // Say how many scenes were left out, and why — a scene that carries a
+  // reviewer's label is not proposed for again, and the count has to be
+  // visible or the candidates do not add up to the scenes.
+  if (occupiedSceneIds.size) {
+    job.output_lines.push(
+      `${occupiedSceneIds.size} scene(s) already carry a label the reviewer approved or turned off; `
+      + 'they are left out of the request and keep their own label.',
+    )
+  }
   for (const [index, scenes] of batches.entries()) {
     if (isCancelled(job.job_id)) throw new Error('Cancelled by user')
     if (completed.has(index)) continue
@@ -1023,6 +1065,13 @@ export async function generateContextualCues(job: Job): Promise<void> {
       : {}),
   }
   job.output_lines.push(`Saved ${proposed.length} of ${candidates.length} candidate cue(s) the model proposed.`)
+  // The count has to ADD UP: every candidate the model returned is either
+  // saved or dropped with a reason. A run that reported "saved 1 of 4" and
+  // "dropped []" is the silent-drop defect this line exists to make
+  // impossible (owner, 2026-11-01).
+  job.output_lines.push(
+    `Candidates accounted for: ${proposed.length} saved + ${dropped.length} dropped = ${proposed.length + dropped.length} of ${candidates.length} the model returned.`,
+  )
   for (const drop of dropped.slice(0, 20)) {
     job.output_lines.push(`  dropped: scene ${drop.scene_id}${drop.title ? ` "${drop.title}"` : ''} — ${drop.reason}`)
   }
