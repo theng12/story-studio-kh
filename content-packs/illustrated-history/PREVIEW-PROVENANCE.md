@@ -243,3 +243,47 @@ Original close three-quarter portrait of one anonymous middle-aged Southeast Asi
 Rendering contract: Soft-painted full-colour historical illustration, visibly made of blended brush strokes rather than captured by a camera. Model forms with broad, opaque-to-translucent painted colour planes, soft transitions and selective lost-and-found edges; reserve small crisp strokes for the focal eyes, a tool or an architectural joint. No enclosing ink contour and no hard cel-shadow steps. Keep a fine, unobtrusive painted surface, with neither thick impasto nor distressed paper. Use a broad natural palette: foliage greens, river blues, terracotta, limestone, indigo textiles and varied human skin tones, with colours chosen by each setting instead of a fixed gold or brown grade. Light comes from a believable natural source such as open sky, a window, morning sun or bright cloud; carry coloured reflected light into legible shadows, with gentle highlights and restrained contrast. Historical people have plausible adult proportions, individual understated expressions and simple period-appropriate dress; faces remain brush-modelled at close range rather than pore-sharp or doll-smooth. Allow individuals, small groups, working communities and unoccupied environments as the narrative requires. Stage history at human eye level through lived-in architecture, landscapes, craft and ordinary gestures; ceremonial or dramatic subjects may occur without requiring regal dress, combat or spectacle. Compose a continuous cinematic sixteen-by-nine scene with asymmetrical balance and clear foreground, middle distance and background. Use scale, overlap and softly simplified distant brushwork for depth; keep focal detail selective instead of making every distant object equally sharp. Do not reserve a title block or assemble a promotional montage. Adapt period, place, cast, weather and time of day to the scene. The contract contains no fixed ruler, dynasty, landmark, channel identity, named artist, copied composition or written caption.
 Exclude: sepia, monochrome brown, gold-and-bronze colour lock, desaturated wash, photorealism, photograph, film still, camera-sharp pores, glossy 3D render, plastic skin, hyper-detailed cinematic poster, promotional key art, heroic regalia portrait over an empire panorama, collage montage, title block, theatrical god-rays, orange-teal blockbuster grading, thick ink outline, comic contour, flat vector, hard cel shading, anime, heavy impasto, distressed parchment, neon, oversharpening, malformed anatomy, extra fingers, gore, lettering, captions, watermarks, signatures, logos, borders, copied composition, recognisable living person
 ```
+
+# Style-text clean-up pass — 2026-11-01
+
+status: authored; archive built and validated; no stocking, publication or installation performed.
+
+The Bold Illustrated History style text was rewritten so it names a drawing style and no longer names
+its subjects. The old text's own wording — "battles, sieges, burning cities", "charging figures,
+raised banners", the walled city, the market and the crowd — was what drew cavalry and banners into
+canal scenes on Qwen 2.1 Turbo. The cleaned text is the owner's, byte for byte:
+2,367 characters, SHA-256 `1e0c91359da77ef2d50feaf5d422c11974a6f2fc72e18700267b306c5b12a131`.
+
+**No preview was regenerated.** The three rasters below were copied byte-for-byte from the published
+1.0.1 directory; they were not re-encoded, re-rendered or re-reviewed. Their digests are therefore
+identical to the 1.0.1 pins above, which is the point: the 1.0.2 change is to the text, not to the
+pictures.
+
+| Final asset | SHA-256 | Bytes | Dimensions | Decode |
+|---|---|---:|---|---|
+| `content-packs/illustrated-history/style/bold-illustrated-history-v1.0.2/assets/bold-illustrated-history.webp` | `7c4b7f21e95202600559f95add22317717c2d0dc297936d5f2108879c2b24073` | 216104 | 1672x941 | full decode passed |
+| `content-packs/illustrated-history/style/bold-illustrated-history-v1.0.2/assets/bold-illustrated-history-scene.webp` | `dd7990b32e9e42705705d7008eaf53a1e10fafbcb1175f76d9cb2e0edd6f6966` | 287662 | 1672x941 | full decode passed |
+| `content-packs/illustrated-history/style/bold-illustrated-history-v1.0.2/assets/bold-illustrated-history-face.webp` | `bed4f8f6f511c14d636e7b18a90a8dbb08bed7325814309ab30e431f9e58e80b` | 190328 | 1672x941 | full decode passed |
+
+**A caveat the owner should see, recorded rather than hidden.** The cleaned text no longer promises
+any subject, but two of the three carried-over previews still show one:
+
+- `bold-illustrated-history.webp` (the hero) shows a walled harbour city in flames with cavalry and
+  a crowd on the quay.
+- `bold-illustrated-history-face.webp` shows a close face with raised banners, torches and a mounted
+  charge behind it.
+
+Both were drawn under the old text, which promised exactly those subjects. The previews are not
+wrong pictures — the style's drawing contract (closed ink outline, flat saturated colour, hard cel
+shadows, warm-against-cool depth) is intact in all three — but the two of them show the style doing
+the thing the new text deliberately stops naming. They are kept as they are because the owner asked
+for the same three files unredrawn; whether a later pass replaces them with subjects the cleaned text
+still allows is the owner's call, not this change's.
+
+The third preview, `bold-illustrated-history-scene.webp`, is an unoccupied harbour courtyard with a
+stone gate, teal shutters and no figure at all. It shows the cleaned contract directly and needs no
+replacement.
+
+Archive: `style-bold-illustrated-history-1.0.2.sspack`, 697,774 bytes, SHA-256
+`83389e347e6f7ed303c40ec48c7eee9564cc763042ded9eae67d315ef8a7ed3d`. The style bible inside that
+archive hashes to the cleaned file's digest, proven by reading the bytes back out of the built ZIP.
