@@ -100,7 +100,6 @@ type PreviewListing = { available: boolean; reason: 'not-installed' | 'unreadabl
 
 const KEY_SEPARATOR = '\u0000'
 
-const { get } = useApi()
 const previewStatus = ref<PreviewStatus>('idle')
 const previewPictures = ref<PackPicture[]>([])
 let previewRequest = 0
@@ -110,10 +109,33 @@ const previewReleaseKey = computed(() => {
   return release?.packId && release.version ? release.packId + KEY_SEPARATOR + release.version : ''
 })
 
+/**
+ * The preview reader, resolved when it is first needed.
+ *
+ * Pictures are an enhancement, not the product: a page with no API client under
+ * it (a missing Nuxt runtime, a component mounted bare) or one whose client
+ * throws must still show the pack. Resolving the reader here and treating "no
+ * reader" as its own honest state keeps a broken preview service from taking
+ * the whole detail page down in setup.
+ */
+type PreviewGet = <T>(path: string, options?: Record<string, unknown>) => Promise<T>
+function previewReader(): PreviewGet | null {
+  try {
+    if (typeof useApi !== 'function') return null
+    const client = useApi()
+    return typeof client?.get === 'function' ? client.get : null
+  } catch {
+    return null
+  }
+}
+
 async function loadPreviews(key: string): Promise<void> {
   const token = ++previewRequest
   previewPictures.value = []
   if (!key) { previewStatus.value = 'idle'; return }
+  const get = previewReader()
+  // No reader is not "no pictures" — it is "could not find out", and says so.
+  if (!get) { previewStatus.value = 'unreadable'; return }
   previewStatus.value = 'loading'
   const parts = key.split(KEY_SEPARATOR)
   const packId = parts[0] || ''
@@ -140,6 +162,22 @@ async function loadPreviews(key: string): Promise<void> {
 watch(previewReleaseKey, key => { void loadPreviews(key) }, { immediate: true })
 
 /**
+ * Whether this kind installs preview pictures at all.
+ *
+ * Read defensively for the same reason as the reader: a component mounted
+ * without its module graph must not crash on the way to the note. False is the
+ * safe side — it withholds the promise rather than making one installing cannot
+ * keep.
+ */
+function kindCarriesPreviews(kind: ContentStoreProduct['kind']): boolean {
+  try {
+    return typeof contentStoreKindCanCarryPreviews === 'function' && contentStoreKindCanCarryPreviews(kind)
+  } catch {
+    return false
+  }
+}
+
+/**
  * Why the pictures are not the pack's own previews, in words.
  *
  * Two answers that must never collapse into one (AGENTS.md 6): a pack that is
@@ -148,7 +186,7 @@ watch(previewReleaseKey, key => { void loadPreviews(key) }, { immediate: true })
  * would promise something installing cannot deliver.
  */
 const previewNote = computed(() => {
-  if (previewStatus.value === 'not-installed' && contentStoreKindCanCarryPreviews(props.product.kind)) {
+  if (previewStatus.value === 'not-installed' && kindCarriesPreviews(props.product.kind)) {
     return 'Previews appear after installing. This pack keeps its pictures inside its own archive, so Story can only show them once it is on this Mac.'
   }
   if (previewStatus.value === 'unreadable') {

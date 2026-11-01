@@ -62,7 +62,7 @@ async function loadComponent(name: SfcName): Promise<Component> {
     const useContentInstallQueue = () => ({ statusOf: () => 'idle', enqueue: () => undefined, enqueueAll: () => undefined, clearFinished: () => undefined, running: ref(false), finished: ref(false), batchDone: ref(0), batchTotal: ref(0), batchFailed: ref(0), haltReason: ref(''), activeTitle: ref(''), batchInstalled: ref(0), failures: ref([]) })
   `
   const support = `
-    import { computed, defineComponent as _defineComponent, h, nextTick, onMounted, ref } from ${JSON.stringify(vueUrl)}
+    import { computed, defineComponent as _defineComponent, h, nextTick, onMounted, ref, watch } from ${JSON.stringify(vueUrl)}
     const ContentProductCover = { props: ['product'], render: () => null }
     const ContentProductCard = { props: ['product'], render() { return h('article', { class: 'component-card' }, this.product.title) } }
     const ContentProductDetail = { props: ['product'], render() { return h('article', { class: 'detail-stub' }, this.product.title) } }
@@ -86,6 +86,12 @@ async function loadComponent(name: SfcName): Promise<Component> {
     const navigateTo = (...args) => globalThis.__contentStoreNavigations.push(args)
     const contentStoreErrorPresentation = globalThis.__contentStoreErrorPresentation
     const contentStoreKindLabel = globalThis.__contentStoreKindLabel
+    // The detail view reads its pack's preview pictures through the shared API
+    // client and asks which kinds carry them. Both are stripped with the other
+    // imports, so they are provided here as the shipped wiring: a reader that
+    // answers "no pictures published", and the real kind list.
+    const useApi = () => ({ get: async () => ({ available: false, reason: null, pictures: [] }) })
+    const contentStoreKindCanCarryPreviews = (kind) => ['visual_style', 'thumbnail_recipe', 'font_pack'].includes(kind)
     ${componentSupport}
     ${pageSupport}
   `

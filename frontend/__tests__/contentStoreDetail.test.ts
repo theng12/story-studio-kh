@@ -510,4 +510,36 @@ describe('Studio Library preview pictures', () => {
     delete (globalThis as any).__contentStoreApiGet
     ;(globalThis as any).__contentStoreApiGet = async () => ({ available: false, reason: 'not-installed', pictures: [] })
   })
+
+  /**
+   * The pictures are an enhancement, so the page must outlive their reader.
+   *
+   * Two failures that must not look alike, and neither may look like "no
+   * previews published" (AGENTS.md 6): a reader that is NOT THERE AT ALL, and
+   * one that THROWS. Both leave the whole product on screen and say the pack's
+   * pictures could not be read — they never promise previews installing cannot
+   * deliver, and they never blank the page.
+   */
+  test('a preview reader that is missing or that throws leaves the page standing and says which', async () => {
+    const Detail = await loadComponent('../components/content-store/ContentProductDetail.vue')
+
+    ;(globalThis as any).__contentStoreApiGet = undefined
+    const missing = await mount(Detail, { product: styleProduct() })
+    await nextTick()
+    assert.equal(missing.host.querySelector('h1')?.textContent, 'Oil Study', 'a missing reader must not take the page down')
+    assert.match(missing.host.textContent || '', /could not read/i, 'and it says it could not read, not that there are none')
+    assert.doesNotMatch(missing.host.textContent || '', /Previews appear after installing/)
+    assert.equal(missing.host.querySelectorAll('.preview-tile').length, 1, 'the cover still stands in')
+    missing.unmount()
+
+    ;(globalThis as any).__contentStoreApiGet = async () => { throw new Error('Gateway did not answer') }
+    const threw = await mount(Detail, { product: styleProduct() })
+    await nextTick()
+    assert.equal(threw.host.querySelector('h1')?.textContent, 'Oil Study', 'a throwing reader must not take the page down either')
+    assert.match(threw.host.textContent || '', /could not read/i)
+    assert.doesNotMatch(threw.host.textContent || '', /Previews appear after installing/)
+    threw.unmount()
+
+    ;(globalThis as any).__contentStoreApiGet = async () => ({ available: false, reason: 'not-installed', pictures: [] })
+  })
 })
