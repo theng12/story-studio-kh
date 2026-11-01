@@ -579,6 +579,12 @@ export const UpdateConfigSchema = z.object({
   delete current.audio_launch_stagger_ms
   delete current.video_launch_stagger_ms
   delete current.generation_timeouts
+  // The channel's Sketch Draw defaults (renderer, pen, hold, reveal, line weight) live behind
+  // PUT /projects/:slug/motion-presentation, which pins every following episode that has clips to
+  // the value it is replacing before the save lands. A wholesale config save must never reach this
+  // key: it would move the default without pinning, and re-render every following episode's clips
+  // (the 2026-11-02 line-weight incident). The stored value stays on disk untouched.
+  delete current.motion_presentation
   return current
 })
 export type UpdateConfigBody = z.infer<typeof UpdateConfigSchema>
