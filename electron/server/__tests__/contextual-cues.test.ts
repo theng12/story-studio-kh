@@ -14,6 +14,7 @@ import {
   normalizeContextualCueProposalSettings,
   normalizeContextualCueTemplate,
   resolveContextualCueBatchSize,
+  resolveContextualCueBatchSizeForOutput,
   readContextualCueProgress,
   removeContextualCueProgress,
   validateContextualCueTimeline,
@@ -58,6 +59,40 @@ describe('Contextual Cues contract', () => {
     assert.equal(resolveContextualCueBatchSize(80), 50, 'a maximum is not a recommendation to grow the batch')
     assert.equal(resolveContextualCueBatchSize(20, 40), 20, 'a newly lower live cap wins over stale saved work')
     assert.equal(resolveContextualCueBatchSize(80, 40), 40, 'an interrupted run keeps its saved grouping when still legal')
+  })
+
+  /**
+   * v1.4.374 — the batch is sized from the OUTPUT allowance too, not only from
+   * the structured-item cap.
+   *
+   * A 68-scene episode failed three times with the Gateway's "answer stopped
+   * early (length)": the batch was sized by `max_structured_items_per_request`
+   * alone, which says how many ITEMS a product accepts, not how long its ANSWER
+   * may be. Fifty cues of the shape the output contract allows is far more text
+   * than the output allowance the request asked for, so the provider cut the
+   * answer off mid-JSON.
+   *
+   * Every figure here is the product's OWN published allowance. Nothing in
+   * this function is a number Story Studio remembers about a model.
+   */
+  test('the batch also fits the model\'s published output allowance, so a long answer is not cut off', () => {
+    // 4,096 published output tokens → the `standard` tier asks for the
+    // 4,096 floor → 4,096 ÷ 520 tokens per candidate = 7 scenes per request.
+    assert.equal(resolveContextualCueBatchSizeForOutput(null, 4_096), 7)
+    // A roomier product carries more scenes in one answer.
+    assert.equal(resolveContextualCueBatchSizeForOutput(null, 32_768), 15)
+    // The smaller of the two rules wins: a published item cap of 3 beats an
+    // output allowance that would carry 7.
+    assert.equal(resolveContextualCueBatchSizeForOutput(3, 32_768), 3)
+    // A product that publishes NO output allowance keeps today's behaviour
+    // exactly — the item cap alone decides, and the request omits the ceiling.
+    assert.equal(resolveContextualCueBatchSizeForOutput(null, null), 50)
+    assert.equal(resolveContextualCueBatchSizeForOutput(null, 0), 50)
+    // A product with a tiny allowance still gets ONE scene per request: a
+    // batch of zero would ask for nothing at all.
+    assert.equal(resolveContextualCueBatchSizeForOutput(null, 512), 1)
+    // The policy default is still a ceiling, never a floor to grow past.
+    assert.equal(resolveContextualCueBatchSizeForOutput(null, 1_000_000), 50)
   })
 
   test('persists incomplete proposal batches separately from the final timeline and resumes exact matching work', async () => {

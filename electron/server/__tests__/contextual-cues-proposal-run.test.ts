@@ -130,6 +130,37 @@ describe('Contextual Cues proposal runs', () => {
     assert.deepEqual(titles, ['Berlin', 'Paris', 'Rome'])
   })
 
+  /**
+   * v1.4.374 — a batch that fails no longer takes the whole proposal with it.
+   *
+   * A 68-scene episode failed three times on the Gateway's "answer stopped
+   * early (length)" and lost every label each time, because the first bad
+   * batch ended the run and the progress file was thrown away with it. The
+   * batches that DID succeed are paid for and must survive: they are saved,
+   * the failure is named, and a Retry asks only for the missing batch.
+   */
+  test('a failed batch keeps the labels the other batches bought, and names what is missing', async () => {
+    await reset()
+    mock.queueScenario('chat', answer('scene-1', 'Berlin'))
+    // Batch 2 fails at the provider; the run must not lose batch 1.
+    mock.queueScenario('chat', { states: ['failed'], failureCode: 'LANGUAGE_PROVIDER_INCOMPLETE', outputText: '' })
+    mock.queueScenario('chat', answer('scene-3', 'Rome'))
+    const run = generator.generateContextualCues(job('partial'))
+    await assert.rejects(run, (error: Error) => {
+      assert.match(error.message, /Contextual cue proposal incomplete/, 'the run says it is incomplete')
+      assert.match(error.message, /batch 2/, 'the failed batch is named')
+      return true
+    })
+    // The two successful batches are on disk, not thrown away.
+    const saved = (await cues.readContextualCueTimeline(planPath))!
+    assert.deepEqual(saved.cues.map(cue => cue.title).sort(), ['Berlin', 'Rome'])
+    // And the paid batches stay on the progress file, so a Retry buys only the
+    // one batch that is missing.
+    const progress = await cues.readContextualCueProgress(planPath)
+    assert.ok(progress, 'the paid batches are still recorded')
+    assert.equal(progress!.completed_batches.length, 2)
+  })
+
   test('progress for a different Scene Plan is never reused', async () => {
     await reset()
     await savePartialRunFromActionA({ ...plan, generated_at: '2026-09-01T00:00:00.000Z' })

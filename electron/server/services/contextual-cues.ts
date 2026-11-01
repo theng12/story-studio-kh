@@ -14,6 +14,7 @@ import type {
   VideoSubtitleConfig,
 } from '../models/types.js'
 import { writeJsonAtomic } from '../lib/atomic-store.js'
+import { resolveOutputTokenBudget } from './output-token-budget.js'
 import { isContextualCueCorner, resolveContextualCuePosition } from '../contracts/contextual-cue-position.js'
 import { isLabelDesignId } from '../contracts/label-design.js'
 
@@ -161,6 +162,70 @@ export function resolveContextualCueBatchSize(
     : DEFAULT_CONTEXTUAL_CUE_BATCH_SIZE
   return published === null ? policySize : Math.min(policySize, published)
 }
+
+/**
+ * The output tokens ONE candidate costs, worst case, from the contract the
+ * proposal is validated against (`CONTEXTUAL_CUES_OUTPUT_CONTRACT`).
+ *
+ * The contract caps a cue's `title` at 80 characters, its `subtitle` at 100,
+ * its `point_at` at 80, its `anchor_word` at 80 and its sound description at
+ * 120, and a cue may carry all of them plus its ids and numbers. That is the
+ * answer's own published shape, so the number is derived from it rather than
+ * guessed — but tokens are not characters (AGENTS.md §1), so this is a
+ * deliberately PESSIMISTIC upper bound on the tokens those characters can
+ * occupy: every character is counted as a whole token, which over-counts
+ * English by roughly 4x and never under-counts it.
+ */
+const CUE_OUTPUT_TOKENS_PER_CANDIDATE = 520
+
+/**
+ * How many scenes one proposal request can carry, from the SELECTED product's
+ * published output allowance.
+ *
+ * WHY THIS EXISTS (owner, 2026-11-01). A 68-scene episode failed three times
+ * with the Gateway's "answer stopped early (length)": the batch was sized by
+ * the published STRUCTURED-ITEM cap alone (`max_structured_items_per_request`),
+ * which says how many ITEMS the product accepts, not how long its ANSWER may
+ * be. 50 cues of the shape the contract allows is far more text than the
+ * output allowance the request asked for, so the provider cut the answer off
+ * mid-JSON and the whole proposal was lost three times over.
+ *
+ * So the batch is now sized from the OUTPUT allowance too, and the smaller of
+ * the two rules wins:
+ *
+ *   - the published item cap, when the product publishes one (unchanged);
+ *   - the published `max_output_tokens` divided by the tokens one candidate
+ *     costs, with a safety fraction so the answer does not sit on the
+ *     ceiling (this rule).
+ *
+ * NOTHING HERE IS A CONSTANT OF STORY STUDIO'S OWN ABOUT A MODEL. The
+ * allowance is the product's published figure; the tokens-per-candidate is
+ * derived from this app's own published output contract, not from a
+ * remembered catalogue number.
+ *
+ * A product that publishes NO output allowance keeps today's behaviour
+ * exactly: the batch is sized by the item cap alone, and the request omits
+ * the ceiling so the provider decides (owner decision #6, 2026-09-20). A
+ * product with a published allowance always gets at least one scene per
+ * request — a batch of zero would ask for nothing.
+ */
+export function resolveContextualCueBatchSizeForOutput(
+  publishedMaximumItems: unknown,
+  publishedMaxOutputTokens: unknown,
+  savedBatchSize?: unknown,
+): number {
+  const byItems = resolveContextualCueBatchSize(publishedMaximumItems, savedBatchSize)
+  // The number the request will ACTUALLY ask for, from the same resolver the
+  // request itself uses (`outputBudget: 'standard'`). Reading it here rather
+  // than restating a fraction is what keeps the sizer and the request from
+  // drifting apart: a product with a small ceiling asks for the tier's floor,
+  // not a quarter of it.
+  const allowance = resolveOutputTokenBudget('standard', publishedMaxOutputTokens)
+  if (allowance === null) return byItems
+  const affordable = Math.floor(allowance / CUE_OUTPUT_TOKENS_PER_CANDIDATE)
+  return Math.max(1, Math.min(byItems, affordable))
+}
+
 
 export function contextualCueProgressPath(scenePlanPath: string): string {
   return path.join(path.dirname(scenePlanPath), CONTEXTUAL_CUES_PROGRESS_FILENAME)

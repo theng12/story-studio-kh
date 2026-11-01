@@ -25,6 +25,7 @@ import {
   removeContextualCueProgress,
   normalizeContextualCueProposalSettings,
   resolveContextualCueBatchSize,
+  resolveContextualCueBatchSizeForOutput,
   normalizeContextualCueTemplate,
   validateContextualCueTimeline,
   writeContextualCueProgress,
@@ -632,7 +633,7 @@ export async function generateContextualCues(job: Job): Promise<void> {
     model = saved.model
   }
   const resolvedBatchSize = catalogModel
-    ? resolveContextualCueBatchSize(catalogModel.max_structured_items_per_request, saved?.batch_size)
+    ? resolveContextualCueBatchSizeForOutput(catalogModel.max_structured_items_per_request, catalogModel.max_output_tokens, saved?.batch_size)
     : batchSize
   if (saved && catalogModel && saved.batch_size !== resolvedBatchSize) {
     // The saved batches no longer line up with what GenStudio accepts. Drop
@@ -657,6 +658,7 @@ export async function generateContextualCues(job: Job): Promise<void> {
     updated_at: new Date().toISOString(),
   }
   let lastSubmissionAt = 0
+  const failedBatches: Array<{ index: number; detail: string }> = []
   job.item_progress = {
     total: batches.length,
     completed: completed.size,
@@ -665,7 +667,9 @@ export async function generateContextualCues(job: Job): Promise<void> {
     active: [],
   }
   job.output_lines.push(
-    `Proposing contextual cues in ${batches.length} paced Gateway batch(es); ${completed.size} saved batch(es) will be reused. Existing approved or disabled cues stay untouched.`,
+    `Proposing contextual cues in ${batches.length} paced Gateway batch(es) of up to ${resolvedBatchSize} scene(s) each `
+    + `(sized to the model's published output allowance); ${completed.size} saved batch(es) will be reused. `
+    + 'Existing approved or disabled cues stay untouched.',
   )
   for (const [index, scenes] of batches.entries()) {
     if (isCancelled(job.job_id)) throw new Error('Cancelled by user')
@@ -689,6 +693,12 @@ export async function generateContextualCues(job: Job): Promise<void> {
     let attemptNum = 1
     let backpressureRetries = 0
     let fleetBusyRetries = 0
+    // The failure that ended THIS batch, if any. Kept here rather than thrown
+    // out of the loop, because a batch that fails must not take the batches
+    // that already succeeded with it (owner, 2026-11-01): a 68-scene episode
+    // failed three times on "answer stopped early (length)" and lost every
+    // label each time, because the first bad batch ended the whole run.
+    let batchFailure: { detail: string; error: unknown } | null = null
     // The ceiling shown to the owner. It starts at exactly the number this
     // generator has always displayed, so a run that only ever meets
     // backpressure looks identical; a busy fleet raises it to cover the
@@ -785,18 +795,25 @@ export async function generateContextualCues(job: Job): Promise<void> {
             attemptNum++
             continue
           }
-          throw error
+          batchFailure = { detail: error instanceof Error ? error.message : String(error), error }
+          break
         }
         const releasedBackpressure = error instanceof GenStudioChatTerminalFailureError
           && isReleasedContextualCueBackpressure(error)
-        if (!releasedBackpressure) throw error
+        if (!releasedBackpressure) {
+          batchFailure = { detail: error instanceof Error ? error.message : String(error), error }
+          break
+        }
         progress = {
           ...progress,
           retry_scopes: { ...(progress.retry_scopes || {}), [String(index)]: error.jobId },
           updated_at: new Date().toISOString(),
         }
         await writeContextualCueProgress(planPath, progress)
-        if (backpressureRetries >= CONTEXTUAL_CUE_BACKPRESSURE_RETRIES) throw error
+        if (backpressureRetries >= CONTEXTUAL_CUE_BACKPRESSURE_RETRIES) {
+          batchFailure = { detail: error instanceof Error ? error.message : String(error), error }
+          break
+        }
         backpressureRetries++
         // Same widening as the fleet branch, and a no-op when only this ladder
         // ever fires: 1+1+1 and 2+1+0 are both 3, today's number exactly. It
@@ -811,7 +828,20 @@ export async function generateContextualCues(job: Job): Promise<void> {
         attemptNum++
       }
     }
-    if (!batchCandidates) throw new Error(`Contextual cue batch ${index + 1} produced no result.`)
+    if (!batchCandidates) {
+      // This batch failed. The batches that succeeded stay — they are already
+      // on disk in the progress file and are written into the timeline below —
+      // and the failure is reported by name, with the batch it came from.
+      // A Cancel still ends the run at once: the owner's last word outranks
+      // saving what was bought.
+      if (isCancelled(job.job_id)) throw new Error('Cancelled by user')
+      const detail = batchFailure?.detail || `Contextual cue batch ${index + 1} produced no result.`
+      failedBatches.push({ index, detail })
+      job.item_progress.failed = failedBatches.length
+      job.item_progress.active = []
+      job.output_lines.push(`Batch ${index + 1} of ${batches.length} failed: ${detail}`)
+      continue
+    }
     candidates.push(...batchCandidates)
     const completedBatch = { index, scene_ids: scenes.map(scene => scene.id), candidates: batchCandidates }
     completed.set(index, completedBatch)
@@ -878,9 +908,13 @@ export async function generateContextualCues(job: Job): Promise<void> {
   const issues = validateContextualCueTimeline(timeline, plan).filter(issue => !issue.cue_id || !heldIds.has(issue.cue_id))
   if (issues.length) throw new Error(`Generated cues did not pass safe pacing validation: ${issues.slice(0, 3).map(issue => issue.detail).join('; ')}`)
   await writeContextualCueTimeline(planPath, timeline)
-  await removeContextualCueProgress(planPath)
+  // The progress file is the record of what was PAID for. It is removed only
+  // when every batch is accounted for; if a batch failed, the successful
+  // batches stay in it, so a Retry asks again for the missing batch alone
+  // instead of buying the whole proposal a second time.
+  if (!failedBatches.length) await removeContextualCueProgress(planPath)
   job.output_dir = paths.episode_dir
-  job.progress = 100
+  job.progress = failedBatches.length ? Math.round((completed.size / Math.max(1, batches.length)) * 100) : 100
   const approvedNow = proposed.filter(cue => cue.status === 'approved').length
   job.result = {
     proposed: proposed.length - approvedNow,
@@ -890,6 +924,9 @@ export async function generateContextualCues(job: Job): Promise<void> {
     candidates: candidates.length,
     saved: proposed.length,
     dropped,
+    ...(failedBatches.length
+      ? { failed_batches: failedBatches.map(batch => ({ batch: batch.index + 1, detail: batch.detail })) }
+      : {}),
   }
   job.output_lines.push(`Saved ${proposed.length} of ${candidates.length} candidate cue(s) the model proposed.`)
   for (const drop of dropped.slice(0, 20)) {
@@ -1007,12 +1044,21 @@ export async function generateContextualCues(job: Job): Promise<void> {
 
   // Real counts: every scene batch must have returned an answer. (Dropped
   // candidates are editorial — reported above, not a failure.)
+  //
+  // A failed batch is named with the reason the provider gave, and the labels
+  // the OTHER batches produced are already saved on disk (written above), so a
+  // Retry asks again only for what is missing — it never buys the whole
+  // proposal twice.
   requireJobCompletion(job, {
     label: 'Contextual cue proposal',
     expected: batches.length,
     completed: batches.filter((_, index) => completed.has(index)).length,
-    missing: batches.map((_, index) => index).filter(index => !completed.has(index)).map(index => `batch ${index + 1}`),
-    retry_hint: 'Retry asks again only for the missing batches.',
+    missing: batches.map((_, index) => index).filter(index => !completed.has(index))
+      .map(index => {
+        const failure = failedBatches.find(batch => batch.index === index)
+        return failure ? `batch ${index + 1} (${failure.detail})` : `batch ${index + 1}`
+      }),
+    retry_hint: 'Retry asks again only for the missing batches; the labels already saved stay.',
   })
 }
 
