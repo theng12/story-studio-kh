@@ -18,10 +18,12 @@
 
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { test } from 'node:test'
+import { beforeEach, test } from 'node:test'
 import { createApp, defineComponent, h, nextTick, ref } from 'vue'
 import { compileScript, compileTemplate, parse } from '@vue/compiler-sfc'
 import { transform } from 'esbuild'
+
+let mountSequence = 0
 
 async function component() {
   const filename = new URL('../pages/publishing.vue', import.meta.url).pathname
@@ -33,8 +35,23 @@ async function component() {
     id: 'publishing',
     compilerOptions: { bindingMetadata: script.bindings },
   })
-  const code = script.content.replace(/^import .* from ['"]~\/.*['"]\s*$/gm, '').replace('export default', 'const __sfc__ =')
-  const support = 'const usePublishingOverview = () => globalThis.__po;'
+  // `@shared/*` has no import map inside a data: module — point the page's
+  // status vocabulary (the same module the server validates against) at the
+  // real file, so these tests read the shipping constants rather than a copy.
+  const shared = (name: string) => JSON.stringify(new URL(`../../electron/server/contracts/${name}.ts`, import.meta.url).href)
+  const code = script.content
+    .replace(/^import .* from ['"]~\/.*['"]\s*$/gm, '')
+    .replaceAll("'@shared/publishing-overview'", shared('publishing-overview'))
+    .replace('export default', 'const __sfc__ =')
+  // A fresh module per mount, so page state that is deliberately remembered
+  // (the status filter) is re-read from localStorage exactly as a real page
+  // load would be, instead of a shared data: URL handing back last time's ref.
+  mountSequence += 1
+  const support = `
+    const usePublishingOverview = () => globalThis.__po;
+    const useApi = () => globalThis.__poApi;
+    // mount ${mountSequence}
+  `
   const transformed = await transform(
     `${support}\n${code}\n${template.code}\n__sfc__.render = render; export default __sfc__`,
     { loader: 'ts', format: 'esm' },
@@ -47,6 +64,18 @@ async function flush() { await nextTick(); await new Promise(resolve => setTimeo
 
 interface MountOptions { error?: string | null; overview?: any }
 
+/** Every PUT the page makes, so a test can prove it called nothing else. */
+const puts: Array<{ path: string; body: any }> = []
+let putError: { message: string; data?: any } | null = null
+
+// The status filter is remembered in localStorage on purpose; a test that
+// leaves one set must not decide the next test's starting chip.
+beforeEach(() => {
+  localStorage.clear()
+  puts.length = 0
+  putError = null
+})
+
 async function mount(options: MountOptions = {}) {
   const refreshCalls = { count: 0 }
   ;(globalThis as any).__po = {
@@ -56,6 +85,16 @@ async function mount(options: MountOptions = {}) {
     refreshing: ref(false),
     load: () => {},
     refresh: () => { refreshCalls.count++; return Promise.resolve(null) },
+  }
+  // The label editor's one write path. Tests never touch a real route.
+  puts.length = 0
+  putError = null
+  ;(globalThis as any).__poApi = {
+    put: async (path: string, body: any) => {
+      if (putError) { const failure = putError; putError = null; throw failure }
+      puts.push({ path, body })
+      return { ok: true }
+    },
   }
   const Comp = await component()
   const host = document.body.appendChild(document.createElement('div'))
@@ -88,10 +127,12 @@ function channel(overrides: any = {}) {
   return {
     slug: 'alpha', name: 'Alpha Channel',
     channel: null,
+    // Absent = Unclassified. Never inferred from anything below.
+    channel_status: null,
     plan_set: false, plan_name: null, timezone: null,
     confirmed: { next_at: null, count: 0, last_checked_at: null, freshness: 'unknown', error: 'no_channel_assigned', schedules: [] },
     planned: { next_slot_at: null, next_uncovered_slot_at: null, next_unplanned_slot_at: null, last_slot_at: null, slots: [], assignments: [] },
-    coverage: { last_confirmed_date: null, last_planned_date: null, next_uncovered_slot: null, scheduled_video_count: 0, planned_date_count: 0, ready_video_count: null, at_risk: false },
+    coverage: { last_confirmed_date: null, last_planned_date: null, next_uncovered_slot: null, scheduled_video_count: 0, planned_date_count: 0, ready_video_count: null, missing_slots_4w: null, oldest_checked_at: null, oldest_checked_stale: false, at_risk: false },
     readiness: { episodes: 3, episodes_with_code: 3, ready_to_publish: null, ready_unknown: 0, on_youtube: null, in_progress: 0, needs_attention: 0 },
     priority: { reason: 'none', at: null },
     recommendations: [],
@@ -173,7 +214,9 @@ function overviewWith(channels: any[], calendar: any[] = []) {
 function coverage(overrides: any = {}) {
   return {
     last_confirmed_date: null, last_planned_date: null, next_uncovered_slot: null,
-    scheduled_video_count: 0, planned_date_count: 0, ready_video_count: null, at_risk: false,
+    scheduled_video_count: 0, planned_date_count: 0, ready_video_count: null,
+    missing_slots_4w: null, oldest_checked_at: null, oldest_checked_stale: false,
+    at_risk: false,
     ...overrides,
   }
 }
@@ -321,7 +364,7 @@ test('a failed link read is unknown on screen: the backend reason, and no publis
     assert.doesNotMatch(unknownRow.textContent || '', /Publish/)
     // The Ready cell says unknown and carries the reason the BACKEND gave —
     // not a number, and not a message the page invented.
-    const cell = [...unknownRow.querySelectorAll('td span.muted')]
+    const cell = [...unknownRow.querySelectorAll('td span.ready-unknown')]
       .find(span => (span.textContent || '').startsWith('unknown'))
     assert.ok(cell, 'the Ready cell renders unknown')
     assert.equal(cell!.getAttribute('title'), NO_LINKS_REASON)
@@ -360,7 +403,7 @@ test('an unresolved planned identity is spelled differently from a key that name
     const titles = [...ui.host.querySelectorAll('.event-title')].map(el => (el.textContent || '').trim()).sort()
     assert.deepEqual(titles, ['Locally planned date — episode unknown', 'NR0001'].sort())
     // And the channel's readiness cell says unknown, not a count.
-    const cell = [...ui.host.querySelectorAll('td span.muted')]
+    const cell = [...ui.host.querySelectorAll('td span.ready-unknown')]
       .find(span => (span.textContent || '').startsWith('unknown'))
     assert.ok(cell, 'the Ready cell renders unknown')
   } finally { ui.close() }
@@ -439,7 +482,9 @@ test('the page fills the window, contains wide tables, and compacts without drop
   )
   assert.match(mainCss, /\*\s*\{[^}]*box-sizing:\s*border-box/, 'border-box is global, so the frame width includes its padding')
   assert.match(source, /\.coverage-scroll\s*\{[^}]*overflow-x:\s*auto/, 'wide tables scroll inside their container')
-  assert.match(source, /\.coverage-table\s*\{[^}]*min-width:\s*860px/)
+  // Three columns were added to the Coverage table (Status, Missing (4 weeks),
+  // Oldest checked), so the table scrolls at a wider floor than it used to.
+  assert.match(source, /\.coverage-table\s*\{[^}]*min-width:\s*1180px/)
   assert.match(source, /@media \(max-width: 420px\)/, '375px gets its own layout')
 
   const ui = await mount({ overview: OVERVIEW })
@@ -733,13 +778,21 @@ function freshnessText(host: HTMLElement, channelName: string): string {
   return (row!.querySelector('.freshness')?.textContent || '').trim()
 }
 
-/** The coverage cell of one coverage row, by the channel name in that row. */
-function coverageText(host: HTMLElement, channelName: string): string {
+/**
+ * One coverage cell of a row, resolved by its COLUMN HEADER rather than by
+ * position — the table gained columns, and an index would silently start
+ * reading the wrong one.
+ */
+function coverageText(host: HTMLElement, channelName: string, header = 'Next uncovered slot'): string {
   const row = [...host.querySelectorAll('table.coverage-table tbody tr')]
     .find(candidate => (candidate.querySelector('.channel-link')?.textContent || '').trim() === channelName)
   assert.ok(row, `a coverage row for ${channelName}`)
+  const headers = [...host.querySelectorAll('table.coverage-table thead th')]
+    .map(th => (th.textContent || '').replace(/[\u25b2\u25bc]\s*$/, '').trim())
+  const index = headers.findIndex(text => text.startsWith(header))
+  assert.ok(index >= 0, `the "${header}" column exists`)
   const cells = row!.querySelectorAll('td')
-  return (cells[1]?.textContent || '').trim()
+  return (cells[index]?.textContent || '').trim()
 }
 
 test('the freshness label names the artifact that is old, and the plan-versus-releases disagreement is stated', async () => {
@@ -825,5 +878,215 @@ test('the freshness label names the artifact that is old, and the plan-versus-re
     const text = ui.host.textContent || ''
     assert.match(text, /12 confirmed releases land on a day the plan does not expect/)
     assert.match(text, /\(Tue\)/)
+  } finally { ui.close() }
+})
+
+// ── Channel status labels + the two new coverage columns (Brief A) ──────────
+
+/** One filter chip: its label (the button's own text node) and its count. */
+function chip(host: HTMLElement, label: string): HTMLButtonElement {
+  const button = [...host.querySelectorAll('.status-filter')]
+    .find(candidate => (candidate.firstChild?.textContent || '').trim() === label)
+  assert.ok(button, `the "${label}" filter chip exists`)
+  return button as HTMLButtonElement
+}
+
+function chipCount(button: HTMLElement): number {
+  return Number(button.querySelector('span')?.textContent ?? NaN)
+}
+
+function statusCell(host: HTMLElement, channelName: string): { chip: string; select: HTMLSelectElement } {
+  const row = [...host.querySelectorAll('table.coverage-table tbody tr')]
+    .find(candidate => (candidate.querySelector('.channel-link')?.textContent || '').trim() === channelName)
+  assert.ok(row, `a coverage row for ${channelName}`)
+  const select = row!.querySelector('select.status-editor') as HTMLSelectElement | null
+  assert.ok(select, `the status editor for ${channelName} renders`)
+  return {
+    chip: (row!.querySelector('.status-chip')?.textContent || '').trim(),
+    select: select!,
+  }
+}
+
+/** Drive the row's own editor the way a person does: pick, then change. */
+async function chooseStatus(host: HTMLElement, channelName: string, value: string): Promise<void> {
+  const { select } = statusCell(host, channelName)
+  select.value = value
+  select.dispatchEvent(new Event('change', { bubbles: true }))
+  await flush()
+}
+
+test('status chips count every label with a real zero, default to All, and remember the choice', async () => {
+  // No channel is Live yet: "Live 0" is a counted zero, not an unknown — the
+  // owner has simply not labelled anything Live.
+  const overview = overviewWith([
+    channel({ slug: 'komsan', name: 'Komsan', channel_status: 'testing', priority: { reason: 'none', at: null } }),
+    channel({ slug: 'paused-one', name: 'Paused One', channel_status: 'paused' }),
+    channel({ slug: 'retired-one', name: 'Retired One', channel_status: 'retired' }),
+    channel({ slug: 'unlabelled', name: 'Unlabelled One' }),
+  ])
+  const ui = await mount({ overview })
+  try {
+    const all = chip(ui.host, 'All')
+    assert.equal(all.getAttribute('aria-pressed'), 'true', 'All is the default')
+    assert.equal(chipCount(all), 4)
+    assert.equal(chipCount(chip(ui.host, 'Unclassified')), 1, 'an absent key counts as Unclassified')
+    assert.equal(chipCount(chip(ui.host, 'Live')), 0, 'a real zero, not an unknown')
+    assert.equal(chipCount(chip(ui.host, 'Preparing')), 0)
+    assert.equal(chipCount(chip(ui.host, 'Testing')), 1)
+    assert.equal(chipCount(chip(ui.host, 'Paused')), 1)
+    assert.equal(chipCount(chip(ui.host, 'Retired')), 1)
+    assert.deepEqual(rowNames(ui.host), ['Komsan', 'Paused One', 'Retired One', 'Unlabelled One'])
+    assert.equal(localStorage.getItem('storyStudio:publishingStatusFilter'), null, 'All needs no entry')
+
+    chip(ui.host, 'Testing').click(); await flush()
+    assert.deepEqual(rowNames(ui.host), ['Komsan'], 'the filter narrows the table')
+    assert.equal(chip(ui.host, 'Testing').getAttribute('aria-pressed'), 'true')
+    assert.equal(chip(ui.host, 'All').getAttribute('aria-pressed'), 'false')
+    assert.equal(localStorage.getItem('storyStudio:publishingStatusFilter'), 'testing', 'the choice is remembered')
+
+    // An empty chip says so with its own label rather than an empty table.
+    chip(ui.host, 'Live').click(); await flush()
+    assert.equal(rowNames(ui.host).length, 0)
+    assert.match(ui.host.textContent || '', /No channel has the status “Live”/)
+    assert.equal(localStorage.getItem('storyStudio:publishingStatusFilter'), 'live')
+  } finally { ui.close() }
+
+  // Remembered across a fresh load of the same page: the choice made above is
+  // still the one the page comes back with.
+  const again = await mount({ overview })
+  try {
+    assert.equal(chip(again.host, 'Live').getAttribute('aria-pressed'), 'true')
+    assert.equal(chip(again.host, 'All').getAttribute('aria-pressed'), 'false')
+    assert.equal(rowNames(again.host).length, 0)
+    assert.match(again.host.textContent || '', /No channel has the status “Live”/)
+
+    chip(again.host, 'All').click(); await flush()
+    assert.equal(localStorage.getItem('storyStudio:publishingStatusFilter'), null, 'All clears the entry')
+    assert.equal(rowNames(again.host).length, 4)
+    assert.equal(chip(again.host, 'All').getAttribute('aria-pressed'), 'true')
+  } finally { again.close() }
+})
+
+test('a status label is saved through the channel-settings route and to nothing else', async () => {
+  const overview = overviewWith([
+    channel({ slug: 'komsan', name: 'Komsan' }),
+    channel({ slug: 'other', name: 'Other Channel' }),
+  ])
+  const ui = await mount({ overview })
+  try {
+    assert.equal(statusCell(ui.host, 'Komsan').chip, 'Unclassified')
+    await chooseStatus(ui.host, 'Komsan', 'testing')
+
+    // ONE call, to the ordinary channel-settings route, with just the key.
+    assert.equal(puts.length, 1, `exactly one write, got ${JSON.stringify(puts)}`)
+    assert.equal(puts[0]!.path, '/projects/komsan')
+    assert.deepEqual(puts[0]!.body, { channel_status: 'testing' })
+    // No schedule, no upload, no publishing write — nothing else was called.
+    assert.equal(puts.some(entry => /schedule|upload|publish|youtube/i.test(entry.path)), false)
+
+    // The row and the counts follow the saved value.
+    assert.equal(statusCell(ui.host, 'Komsan').chip, 'Testing')
+    assert.equal(statusCell(ui.host, 'Komsan').select.value, 'testing')
+    assert.equal(chipCount(chip(ui.host, 'Testing')), 1)
+    assert.equal(chipCount(chip(ui.host, 'Unclassified')), 1)
+
+    // Reversible: clearing it sends null and lands on the same answer an
+    // absent key already gives.
+    await chooseStatus(ui.host, 'Komsan', 'unclassified')
+    assert.equal(puts.length, 2)
+    assert.deepEqual(puts[1]!.body, { channel_status: null })
+    assert.equal(statusCell(ui.host, 'Komsan').chip, 'Unclassified')
+    assert.equal(chipCount(chip(ui.host, 'Unclassified')), 2)
+  } finally { ui.close() }
+})
+
+test('a failed status save says so in the row, keeps the stored label and puts the editor back', async () => {
+  const ui = await mount({ overview: overviewWith([channel({ slug: 'komsan', name: 'Komsan' })]) })
+  try {
+    putError = { message: 'Project not found', data: { detail: 'Project not found' } }
+    await chooseStatus(ui.host, 'Komsan', 'paused')
+
+    assert.equal(puts.length, 0, 'a refused write is not recorded as a save')
+    const row = [...ui.host.querySelectorAll('table.coverage-table tbody tr')][0]!
+    assert.equal((row.querySelector('.status-chip')?.textContent || '').trim(), 'Unclassified', 'the stored label stands')
+    assert.equal(row.querySelector('select.status-editor')!.value, 'unclassified', 'the editor goes back')
+    assert.match(row.querySelector('.status-error')?.textContent || '', /Project not found/)
+    assert.equal(chipCount(chip(ui.host, 'Paused')), 0)
+  } finally { ui.close() }
+})
+
+test('missing slots and the oldest check read unknown — never a zero — and Ready stays its own column', async () => {
+  const now = new Date()
+  const iso = (offsetDays: number) => new Date(now.getTime() + offsetDays * 86400000).toISOString()
+  const covered = channel({
+    slug: 'covered', name: 'Covered Channel',
+    plan_set: true, plan_name: 'Covered plan', timezone: 'UTC',
+    coverage: coverage({ missing_slots_4w: 0, oldest_checked_at: iso(-2), oldest_checked_stale: false, ready_video_count: 0 }),
+  })
+  const gap = channel({
+    slug: 'gap', name: 'Gap Channel',
+    plan_set: true, plan_name: 'Gap plan', timezone: 'UTC',
+    coverage: coverage({ missing_slots_4w: 3, oldest_checked_at: iso(-40), oldest_checked_stale: true, ready_video_count: 2 }),
+  })
+  // No plan, never checked, and an unreadable ready count: three different
+  // unknowns, none of them 0.
+  const blind = channel({
+    slug: 'blind', name: 'Blind Channel',
+    coverage: coverage({ missing_slots_4w: null, oldest_checked_at: null, oldest_checked_stale: false, ready_video_count: null }),
+    readiness: { episodes: 3, episodes_with_code: 3, ready_to_publish: null, ready_unknown: 0, on_youtube: null, in_progress: 0, needs_attention: 0, error: 'Story Studio could not read which episodes are already on YouTube.' },
+  })
+
+  const ui = await mount({ overview: overviewWith([covered, gap, blind]) })
+  try {
+    // A real zero is kept apart from "could not work it out".
+    assert.equal(coverageText(ui.host, 'Covered Channel', 'Missing (4 weeks)'), '0')
+    assert.equal(coverageText(ui.host, 'Gap Channel', 'Missing (4 weeks)'), '3')
+    assert.equal(coverageText(ui.host, 'Blind Channel', 'Missing (4 weeks)'), 'unknown')
+
+    // The OLDEST check, fresh, is a date; a stale one and a missing one are
+    // both unknown, and neither is ever a zero.
+    const freshDay = iso(-2).slice(0, 10)
+    assert.equal(coverageText(ui.host, 'Covered Channel', 'Oldest checked'), freshDay)
+    assert.equal(coverageText(ui.host, 'Gap Channel', 'Oldest checked'), 'unknown')
+    assert.equal(coverageText(ui.host, 'Blind Channel', 'Oldest checked'), 'unknown')
+
+    // Ready stock is still its own column with its own unknown.
+    assert.equal(coverageText(ui.host, 'Covered Channel', 'Ready'), '0')
+    assert.equal(coverageText(ui.host, 'Gap Channel', 'Ready'), '2')
+    assert.equal(coverageText(ui.host, 'Blind Channel', 'Ready'), 'unknown')
+
+    // Nothing here moved a date: the confirmed/planned columns still read what
+    // the fixture put there.
+    assert.equal(coverageText(ui.host, 'Gap Channel', 'Last confirmed'), '—')
+    assert.equal(coverageText(ui.host, 'Gap Channel', 'Last planned'), '—')
+  } finally { ui.close() }
+})
+
+test('a real gap still sorts first under a status filter, on the API priority alone', async () => {
+  const at = '2026-10-22T18:00:00.000Z'
+  const urgent = channel({
+    slug: 'urgent', name: 'Urgent Channel', channel_status: 'live',
+    plan_set: true, plan_name: 'Urgent plan', timezone: 'UTC',
+    coverage: coverage({ next_uncovered_slot: at, at_risk: true }),
+    priority: { reason: 'earliest_uncovered_slot', at },
+  })
+  const calm = channel({
+    slug: 'calm', name: 'Calm Channel', channel_status: 'live',
+    priority: { reason: 'none', at: null },
+  })
+  const other = channel({ slug: 'other', name: 'Other Status', channel_status: 'paused' })
+  // The API already returns channels in priority order; the page preserves it.
+  const ui = await mount({ overview: overviewWith([urgent, calm, other]) })
+  try {
+    // The API's own order: the channel with the real gap first, not alphabetical.
+    assert.deepEqual(rowNames(ui.host), ['Urgent Channel', 'Calm Channel', 'Other Status'])
+
+    chip(ui.host, 'Live').click(); await flush()
+    assert.deepEqual(
+      rowNames(ui.host),
+      ['Urgent Channel', 'Calm Channel'],
+      'the filter narrows the set but never re-orders it: real gaps stay first',
+    )
+    assert.equal(rowNames(ui.host).includes('Other Status'), false)
   } finally { ui.close() }
 })

@@ -30,6 +30,7 @@ import {
   normalizeProjectLabels,
 } from './project-labels.js'
 import { MAX_PROJECT_SLUG_LENGTH } from './project-slug.js'
+import { CHANNEL_STATUSES } from './publishing-overview.js'
 
 // ── Projects ────────────────────────────────────────────────────────────────
 
@@ -134,6 +135,16 @@ export const UpdateProjectSchema = z.object({
     MAX_PROJECT_LABELS,
     `a channel can have at most ${MAX_PROJECT_LABELS} labels`,
   ).transform(normalizeProjectLabels).optional(),
+  // The owner-set status label for this channel — Live, Preparing, Testing,
+  // Paused, Retired. A deliberate choice he makes on the channel, saved through
+  // this same channel-settings route; it is NOT a preset field (§5) and no
+  // upload or publishing path reads it.
+  //
+  // `null` is the explicit "clear it" sentinel and lands on the same answer an
+  // absent key already gives: Unclassified. An unknown word is refused here
+  // rather than stored — a label the vocabulary does not have is a typo, and
+  // silently keeping it would leave a chip the page cannot render.
+  channel_status: z.enum(CHANNEL_STATUSES).nullable().optional(),
   // The Facebook / Instagram / TikTok accounts this channel posts with. The ids
   // are platform identities, validated against the connection registry by the
   // social route — this schema only refuses shapes the registry can never hold.

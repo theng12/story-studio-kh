@@ -8,6 +8,7 @@ import type { ContentPackItemKind } from '../content-packs/types.js'
 import type { MotionScope } from '../contracts/motion-scope.js'
 import type { ScenePacing, ScenePacingPeriod } from '../contracts/pacing.js'
 import type { ContextualCueCorner } from '../contracts/contextual-cue-position.js'
+import type { ChannelStatus } from '../contracts/publishing-overview.js'
 import type { SketchHoldSetting } from '../lib/sketch-hold.js'
 import type { SketchRevealSetting, SketchRevealType } from '../lib/sketch-reveal.js'
 import type { SketchLineWeight } from '../lib/sketch-line-weight.js'
@@ -145,6 +146,20 @@ export interface ProjectMeta {
    * own word and is never re-cased or re-ordered for him.
    */
   labels?: string[]
+
+  /**
+   * The owner-set status label for this channel — `live`, `preparing`,
+   * `testing`, `paused` or `retired` (see `CHANNEL_STATUSES`). ABSENT (or
+   * null) means **Unclassified**, and is NEVER inferred from the schedule,
+   * readiness, freshness or anything else: a channel he has not labelled is
+   * unlabelled, and an app that guessed would be deciding for him.
+   *
+   * Written only through `updateProject` (`UpdateProjectSchema`), the ordinary
+   * channel-settings route. It is deliberately not a preset field (§5), and is
+   * read by exactly one place — the Publishing Overview — so setting it
+   * changes nothing about upload or publishing.
+   */
+  channel_status?: ChannelStatus | null
 
   /**
    * Format primitive (Phase 1 of the format/character/pattern system).
@@ -1776,6 +1791,11 @@ export interface UpdateProjectRequest {
    * (`contracts/project-labels.ts`); `[]` clears them. See `ProjectMeta.labels`.
    */
   labels?: string[]
+  /**
+   * The owner-set status label. `null` clears it back to Unclassified — the
+   * same answer an absent key gives. See `ProjectMeta.channel_status`.
+   */
+  channel_status?: ChannelStatus | null
 }
 
 /**
