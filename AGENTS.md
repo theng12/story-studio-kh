@@ -439,6 +439,10 @@ side by side has actually broken a result.
   empty evidence manifest, a killed child): rerun that file alone before treating it as a defect,
   and say in the report that it ran alongside other work.
 
+**Long tests run outside the app — owner, 2026-10-31.** Before a full gate, run lint, typecheck and the frontend lane; start the gate only if they pass. Run gates and other long jobs through `_orchestra/tools/run-detached.sh <name> <script>`, then read `<name>.exit` and the log. The gate itself is never narrowed. A launchd job has no app behind it for macOS privacy answers, so a test opening a protected folder can hang: point such paths at temp dirs, and never change privacy settings to answer it.
+
+**Every release refreshes the graphs — owner, 2026-10-31.** `_orchestra/tools/refresh-graphs.sh`, detached, beside the changelog step. A worker uses `_graphs/<app>/graphify-out/graph.json` and asks for a refresh when it is missing or older than its code; never "if a graph exists".
+
 **Installer tests never touch the real install.** Every installer test copies the real script into a
 private temporary project with its own source, target and trash, so it cannot read, move or remove
 the owner's `_trash/app` or replace the app in `/Applications`. Keep that property in any new

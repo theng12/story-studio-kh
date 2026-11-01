@@ -1,5 +1,15 @@
 # HANDOFF — Story Studio KH
 
+### Release 1.4.374 — Sketch Draw finish and weight, re-plan staleness, cancel, grouped sound mix (2026-11-01)
+
+- **Sketch:** helper 7, compatible [2-7], so old clips stay fresh. `line_weight` factors thin 0.62, normal 1.0, bold 1.45; absent means normal. GOLDEN_V6 was re-recorded from the new helper, so it guards change from here on, not the old look; `_orchestra/sketch-finish-374-samples` is the evidence for that. Frame-hash goldens flake at quality 0.7 with encoders side by side.
+- **Re-plan:** `services/scene-plan-staleness.ts`, proved end to end by `scene-plan-replan-image-batch-e2e` against the mock Gateway. A picture with no `rendered_prompt` is not stale.
+- **Sound mix:** `SPOT_MIX_GROUP_SIZE` 24, lossless stems. EP0002's FFmpeg code 221 on the mini is NOT explained and does not reproduce on the Mac Studio. `ffmpegExitErrorLine` keeps the real line for next time.
+- **Handoff recovery:** runs at project load only. How the record reached queued-with-finished_at is not proved.
+- **Screens:** checked with Playwright and API mocks, `_orchestra/story-374-release/screens/`. Persistent channel create and Jobs at 375 px not seen.
+- **Next after install:** Production retries EP0002; set The Curious Why to thin; check EP0001 doesn't read stale; try a real label proposal (the too-close reason line is unproven live, and 520 output tokens per label is unmeasured).
+- **Style packs:** the live shelf styles are mostly `-v2` ids with no repo source; the shelf refuses the old ids as historical. Patch those from their shelf archives. See `_orchestra/neutral-styles-20261101/`.
+
 ### Release 1.4.373 — the bugs found running The Curious Why (2026-10-31)
 
 - **Labels:** preset `min_gap_sec` (default 10, 1-600). Pacing judges the times as they read back after anchoring. Render skips a crowded label and names it. A saved start time clears `anchor_word` and stores `anchor_offset_sec`.

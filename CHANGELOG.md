@@ -4,6 +4,23 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.374 — 2026-11-01
+
+- Every Sketch Draw reveal now ends on the actual scene image. Clips you already made stay as they are and do not redraw.
+- Sketch Draw has a line weight: thin, normal or bold, for a channel or an episode, saved in the Motion Review preset. Normal draws exactly what it drew before.
+- A re-plan no longer keeps pictures drawn for different narration. Changed and new scenes are redrawn, unchanged scenes keep their pictures and prompts, and clips follow the same answer.
+- Cancel stops a running job for good. It no longer schedules a retry, and a cancelled job no longer shows an Auto-retry badge.
+- Old failed Scene Images and Labels rows clear once the files on disk show the work is complete.
+- A finished Pipeline step wrongly saved as queued is recovered when the project loads, and the next step starts without redoing it.
+- Sound Design mixes spot sounds in small groups, so an episode with hundreds of cues opens far fewer files at once. Every cue stays in. When FFmpeg fails, the job now keeps its actual error line.
+- Label proposals work in batches on long plans and keep the batches that worked. One bad label is dropped with its reason, and a label you approved or disabled is kept and named.
+- The sentence splitter no longer breaks at a name's initial or a short abbreviation.
+- A publish date that has passed or is too close is refused, both when the upload is admitted and right before it is sent. A past date would otherwise publish the video at once.
+- Assembled image prompts fit the model's published limit: the scene stays whole, the style is cut at a sentence end, and the job log says what was left out.
+- Thumbnail candidates can be scored and the best one picked. All three scores are shown, and an unscored image says Not scored.
+- A new channel can start from a saved channel's Formula, art style and presets.
+- Finished Shorts can upload to YouTube automatically, off for every channel until you choose it.
+
 ## v1.4.373 — 2026-10-31
 
 - Labels sit at least 10 seconds apart by default. The Sound & Labels preset offers 10, 20, 30, 45 or 60 seconds; a label you place by hand is not refused for it.
