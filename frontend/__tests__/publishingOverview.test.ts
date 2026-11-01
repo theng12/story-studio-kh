@@ -426,9 +426,18 @@ test('multiple channels render one row each and events group into local days', a
 // ---- Responsive controls -----------------------------------------------------
 test('the page fills the window, contains wide tables, and compacts without dropping recommendations', async () => {
   const source = readFileSync(new URL('../pages/publishing.vue', import.meta.url), 'utf8')
+  const mainCss = readFileSync(new URL('../assets/css/main.css', import.meta.url), 'utf8')
   assert.doesNotMatch(source, /max-width:\s*1180px/, 'the old 1180px cap is gone')
-  assert.match(source, /\.publishing-page\s*\{[^}]*width:\s*100%/, 'the page uses the full width')
-  assert.match(source, /\.publishing-page\s*\{[^}]*box-sizing:\s*border-box/)
+  // The frame is shared: this page composes .page-frame and declares no width,
+  // max-width, margin or padding of its own (owner, 2026-11-01: the pages were
+  // "different width… no consistency"). Anything here would fight the frame.
+  assert.match(source, /class="publishing-page page-frame"/, 'the page composes the shared frame')
+  assert.doesNotMatch(
+    source,
+    /\.publishing-page\s*\{[^}]*(?:max-width|width|margin|padding)\s*:/,
+    'the page declares no frame geometry of its own',
+  )
+  assert.match(mainCss, /\*\s*\{[^}]*box-sizing:\s*border-box/, 'border-box is global, so the frame width includes its padding')
   assert.match(source, /\.coverage-scroll\s*\{[^}]*overflow-x:\s*auto/, 'wide tables scroll inside their container')
   assert.match(source, /\.coverage-table\s*\{[^}]*min-width:\s*860px/)
   assert.match(source, /@media \(max-width: 420px\)/, '375px gets its own layout')
