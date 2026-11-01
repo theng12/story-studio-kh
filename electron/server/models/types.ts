@@ -10,6 +10,7 @@ import type { ScenePacing, ScenePacingPeriod } from '../contracts/pacing.js'
 import type { ContextualCueCorner } from '../contracts/contextual-cue-position.js'
 import type { SketchHoldSetting } from '../lib/sketch-hold.js'
 import type { SketchRevealSetting, SketchRevealType } from '../lib/sketch-reveal.js'
+import type { SketchLineWeight } from '../lib/sketch-line-weight.js'
 import type { AssignedPipelineModelPolicy, PipelinePolicyCheckpointStore } from '../lib/pipeline-model-policy.js'
 
 // ── Project ─────────────────────────────────────────────────────────────────
@@ -2242,6 +2243,12 @@ export interface MotionPresentationSettings {
    * keeps every clip rendered before this control existed fresh.
    */
   reveal?: SketchRevealSetting
+  /**
+   * How heavy the ink is drawn — the CHANNEL DEFAULT only: an episode that has chosen its own
+   * weight (in its own `sketch_line_weight.json`) ignores it. ABSENT means NORMAL, the engine's
+   * own weight, which is what every clip drawn before this setting existed was drawn with.
+   */
+  line_weight?: SketchLineWeight
 }
 
 /**
@@ -4931,6 +4938,11 @@ export interface ScenePlanEntry {
     hold_fingerprint?: string
     /** The reveal type this clip actually resolved to. Absent on clips rendered before reveal styles. */
     reveal_type?: SketchRevealType
+    /**
+     * The ink weight this clip was actually drawn with. Absent on clips rendered before the weight
+     * existed — and such a clip IS a normal one, so choosing normal never stales it.
+     */
+    line_weight?: SketchLineWeight
   }
   /** The exact paid clip duration accepted for this scene. External clips clear
    * this provider receipt; it is not a catalogue limit or preset value. */

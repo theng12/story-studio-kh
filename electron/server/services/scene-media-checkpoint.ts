@@ -13,6 +13,9 @@ import {
   DEFAULT_SKETCH_REVEAL, resolveSketchRevealPlan, sketchRevealChoice, sketchRevealFingerprint,
   sketchRevealForSingleScene, sketchRevealNeedsScenes, type SketchRevealSetting, type SketchRevealType,
 } from '../lib/sketch-reveal.js'
+import {
+  DEFAULT_SKETCH_LINE_WEIGHT, sketchLineWeightSelection, type SketchLineWeight,
+} from '../lib/sketch-line-weight.js'
 import { resolveRenderCanvas } from '../lib/render-canvas.js'
 import { readChannelProfileAsset } from './channel-profile.js'
 import type { MotionPresentationSettings, ProjectConfig, ScenePlan, ScenePlanEntry, SketchDrawPenMode } from '../models/types.js'
@@ -20,6 +23,7 @@ import { EpisodeSettingFileUnreadable, readEpisodeSketchPen } from './episode-sk
 import { readEpisodeSketchHold } from './episode-sketch-hold.js'
 import { sceneImageStaleReason } from './scene-plan-staleness.js'
 import { readEpisodeSketchReveal } from './episode-sketch-reveal.js'
+import { readEpisodeSketchLineWeight } from './episode-sketch-line-weight.js'
 import { sceneReviewAutoApproveOn } from './preset-authority.js'
 import * as pm from './project-manager.js'
 
@@ -66,6 +70,13 @@ export interface SketchDrawSettings {
    */
   reveal: SketchRevealSetting | null
   revealFingerprint: string
+  /**
+   * The ink weight this episode renders with: its own, else the channel's, else NORMAL. Normal is
+   * the engine's own weight, so a channel and an episode that have never chosen one keep every
+   * clip they have — the weight a clip was drawn with is recorded on its receipt, and a receipt
+   * with no weight IS a normal one.
+   */
+  lineWeight: SketchLineWeight
 }
 
 export interface EpisodePenChoice {
@@ -120,18 +131,45 @@ export async function resolveEpisodeReveal(slug: string, episodeId: string, load
   return { reveal, reveal_source: episode_reveal ? 'episode' : channel_reveal ? 'channel' : 'none', episode_reveal, channel_reveal }
 }
 
+export interface EpisodeLineWeightChoice {
+  /** The weight this episode renders with: its own when it has one, else the channel's, else normal. */
+  line_weight: SketchLineWeight
+  line_weight_source: 'episode' | 'channel'
+  episode_line_weight: SketchLineWeight | null
+  channel_line_weight: SketchLineWeight
+}
+
+/**
+ * The one place an episode's effective ink weight is decided, as `resolveEpisodeReveal` is for the
+ * reveal. A channel that never chose one reads NORMAL, which is the engine's own weight — so a
+ * clip drawn before the control existed keeps the look it has.
+ */
+export async function resolveEpisodeLineWeight(slug: string, episodeId: string, loaded?: ProjectConfig | null): Promise<EpisodeLineWeightChoice> {
+  const config = loaded ?? await pm.getConfig(slug)
+  if (!config) throw new Error('Channel configuration is unavailable.')
+  const channel_line_weight = sketchLineWeightSelection(config.motion_presentation?.line_weight)
+  const episode_line_weight = await readEpisodeSketchLineWeight(slug, episodeId)
+  return {
+    line_weight: episode_line_weight ?? channel_line_weight,
+    line_weight_source: episode_line_weight ? 'episode' : 'channel',
+    episode_line_weight,
+    channel_line_weight,
+  }
+}
+
 /**
  * A channel default for the pen, hold or reveal just changed: drop the cached status of every
  * episode whose readiness it can move, so Motion Review reads it again. An episode with its own pen,
  * hold or reveal is untouched by a change to that setting, as are its clips.
  */
-export async function invalidateEpisodesFollowingChannelSketch(slug: string, changed: { pen: boolean; hold: boolean; reveal?: boolean }): Promise<void> {
-  if (!changed.pen && !changed.hold && !changed.reveal) return
+export async function invalidateEpisodesFollowingChannelSketch(slug: string, changed: { pen: boolean; hold: boolean; reveal?: boolean; line_weight?: boolean }): Promise<void> {
+  if (!changed.pen && !changed.hold && !changed.reveal && !changed.line_weight) return
   const { episodeStatusCache } = await import('./episode-status-cache.js')
   await episodeStatusCache.invalidateWhere(slug, async code =>
     (changed.pen && await readEpisodeSketchPen(slug, code) === null)
     || (changed.hold && await readEpisodeSketchHold(slug, code) === null)
-    || (changed.reveal === true && await readEpisodeSketchReveal(slug, code) === null))
+    || (changed.reveal === true && await readEpisodeSketchReveal(slug, code) === null)
+    || (changed.line_weight === true && await readEpisodeSketchLineWeight(slug, code) === null))
 }
 
 /** Frames of closing hold for one scene of an episode under these settings; the freshness rule and the generator share it. */
@@ -146,6 +184,7 @@ export async function resolveSketchDrawSettings(slug: string, episodeId: string)
   const mode = (await resolveEpisodePen(slug, episodeId, config)).pen
   const { hold } = await resolveEpisodeHold(slug, episodeId, config)
   const { reveal } = await resolveEpisodeReveal(slug, episodeId, config)
+  const { line_weight: lineWeight } = await resolveEpisodeLineWeight(slug, episodeId, config)
   if (!['none', 'plain', 'name', 'logo'].includes(mode)) throw new Error('Choose a valid Sketch Draw pen.')
   const store = config.video_assembly_last_used
   const own = store?.episodes?.[episodeId.trim().toUpperCase()]?.settings
@@ -173,7 +212,8 @@ export async function resolveSketchDrawSettings(slug: string, episodeId: string)
   return { fps, width: canvas.w, height: canvas.h, pen, logoBytes,
     penFingerprint: createHash('sha256').update(JSON.stringify(identity)).digest('hex'),
     hold, holdFingerprint: sketchHoldFingerprint(hold),
-    reveal, revealFingerprint: sketchRevealFingerprint(reveal ?? DEFAULT_SKETCH_REVEAL) }
+    reveal, revealFingerprint: sketchRevealFingerprint(reveal ?? DEFAULT_SKETCH_REVEAL),
+    lineWeight }
 }
 
 export interface SceneClipFreshnessContext {
@@ -373,6 +413,14 @@ export async function sceneClipStaleReason(scene: ScenePlanEntry, context?: Scen
     if (wanted === null) return REVEAL_NEEDS_EPISODE
     const recorded = receipt.reveal_type ?? 'line'
     if (recorded !== wanted) return `stale reveal style (${recorded} → ${wanted})`
+  }
+
+  // The ink weight is compared as the weight THIS clip was drawn with. A clip recorded before the
+  // weight existed was drawn NORMAL, so choosing normal never stales it, and a channel or episode
+  // that never chose a weight (normal) stales nothing at all.
+  const recordedWeight = receipt.line_weight ?? DEFAULT_SKETCH_LINE_WEIGHT
+  if (recordedWeight !== settings.lineWeight) {
+    return `stale line weight (${recordedWeight} → ${settings.lineWeight})`
   }
 
   const clipSha = scene.clip_source_image_sha256

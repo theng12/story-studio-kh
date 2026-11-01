@@ -452,6 +452,7 @@ describe('clips after a retime', () => {
     holdFingerprint: sha(Buffer.from('auto')),
     reveal: null,
     revealFingerprint: sha(Buffer.from('null')),
+    lineWeight: 'normal',
   }
 
   function sketchScene(over: Partial<ScenePlanEntry> & { id: string; start_sec: number; end_sec: number }): ScenePlanEntry {

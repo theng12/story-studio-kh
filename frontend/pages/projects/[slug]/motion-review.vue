@@ -188,6 +188,26 @@
           <button v-if="isSketchDraw && revealLoaded && episodeReveal && JSON.stringify(episodeReveal) !== JSON.stringify(channelReveal)" type="button" class="btn btn-sm btn-ghost" :disabled="revealSaving || presentationSaving" @click="setChannelRevealDefault">
             Make this the channel default reveal
           </button>
+          <label v-if="isSketchDraw" class="model-field renderer-field">
+            <span>Line weight for {{ episodeId }}</span>
+            <select v-model="lineWeightChoice" class="select" :disabled="!lineWeightLoaded || lineWeightSaving" aria-label="Sketch Draw line weight for this episode" aria-describedby="sketch-line-weight-help" @change="onLineWeightChoice">
+              <option v-if="lineWeightUnreadable" value="" disabled>Choose a line weight…</option>
+              <option value="channel">Channel default ({{ lineWeightLabel(channelLineWeight) }})</option>
+              <option v-for="weight in LINE_WEIGHTS" :key="weight" :value="weight">{{ lineWeightLabel(weight) }}</option>
+            </select>
+          </label>
+          <button v-if="isSketchDraw && lineWeightLoaded && episodeLineWeight && episodeLineWeight !== channelLineWeight" type="button" class="btn btn-sm btn-ghost" :disabled="lineWeightSaving || presentationSaving" @click="setChannelLineWeightDefault">
+            Make this the channel default weight
+          </button>
+          <p v-if="isSketchDraw" id="sketch-line-weight-help" class="renderer-help" role="status">
+            How heavy the ink is drawn. This is {{ episodeId }}'s setting; other episodes are not affected. Each scene records the weight it actually drew with, so changing it re-generates only the scenes whose weight moved.
+            <span v-if="!lineWeightLoaded">Loading this episode's line weight.</span>
+            <span v-else-if="lineWeightUnreadable">{{ lineWeightUnreadable }} Choose a line weight to replace it; Sketch Draw waits until you do.</span>
+            <span v-else-if="episodeLineWeight">{{ episodeId }} uses its own weight: {{ lineWeightLabel(episodeLineWeight) }}. Other episodes are not affected.</span>
+            <span v-else>{{ episodeId }} follows the channel default weight: {{ lineWeightLabel(channelLineWeight) }}. Choosing a weight here changes only {{ episodeId }}.</span>
+            <span v-if="lineWeightError" class="stale-note" role="alert">{{ lineWeightError }}</span>
+            <span>Clips made before this setting keep their weight until you re-generate them.</span>
+          </p>
           <p v-if="isSketchDraw" id="sketch-reveal-help" class="renderer-help" role="status">
             How each scene's finished drawing arrives. This is {{ episodeId }}'s setting; other episodes are not affected. Each scene records the style it actually drew with, so changing it re-generates only the scenes whose style moved.
             <span v-if="!revealLoaded">Loading this episode's reveal style.</span>
@@ -553,6 +573,7 @@ import { emptyDefaultModels, normalizeDefaultModels, resolveEffectiveModel } fro
 import { motionBatchEligible, sketchSelectionReady } from '~/utils/motion-review-sketch'
 import { HOLD_MAX_SECONDS, holdDrafts, holdFromDraft, holdLabel, type HoldChoice, type HoldDrafts, type SketchHold } from '~/utils/sketch-hold'
 import { REVEAL_LABELS, REVEAL_TYPES, applyRevealPreset, revealChoiceOf, revealForPreset, revealFromDraft, revealLabel, revealMixDraft as revealMixFor, type SketchReveal, type SketchRevealStyle, type SketchRevealType } from '~/utils/sketch-reveal'
+import { LINE_WEIGHTS, lineWeightFromDraft, lineWeightLabel, type LineWeightChoice, type SketchLineWeight } from '~/utils/sketch-line-weight'
 
 // usePresets captures the project slug at setup. Recreate this page for a
 // project navigation so controls and scene state cannot carry into another project.
@@ -721,6 +742,18 @@ const revealPending = computed(() => {
   const parsed = revealFromDraft('mix', revealMixDraft.value)
   return !parsed.ok || JSON.stringify(parsed.reveal) !== JSON.stringify(episodeReveal.value)
 })
+// The ink weight follows the same pattern: a channel default, and this episode's own when it has
+// one. Absent means normal, the engine's own weight, so a clip keeps the look it was drawn with.
+const channelLineWeight = ref<SketchLineWeight>('normal')
+const episodeLineWeight = ref<SketchLineWeight | null>(null)
+const lineWeightChoice = ref<LineWeightChoice>('channel')
+const lineWeightLoaded = ref(false)
+const lineWeightSaving = ref(false)
+// Set when this episode's saved weight file cannot be read: the effective weight is then unknown.
+const lineWeightUnreadable = ref('')
+const lineWeightError = ref('')
+const acceptedLineWeightChoice = (): LineWeightChoice =>
+  lineWeightUnreadable.value ? '' : episodeLineWeight.value ?? 'channel'
 const channelName = ref('')
 const channelHasLogo = ref(false)
 const presentationLoaded = ref(false)
@@ -729,12 +762,14 @@ const presentationError = ref('')
 let acceptedRenderer: 'image_to_video' | 'sketch_draw' = 'image_to_video'
 async function loadMotionPresentation() {
   try {
-    const result = await get<{ renderer: typeof clipRenderer.value; pen: PenMode; hold?: SketchHold; reveal?: SketchReveal | null; channel_name: string; has_logo: boolean }>(`/projects/${slug.value}/motion-presentation`)
+    const result = await get<{ renderer: typeof clipRenderer.value; pen: PenMode; hold?: SketchHold; reveal?: SketchReveal | null; line_weight?: SketchLineWeight; channel_name: string; has_logo: boolean }>(`/projects/${slug.value}/motion-presentation`)
     clipRenderer.value = result.renderer
     channelPen.value = result.pen
     if (result.hold) channelHold.value = result.hold
     // Absent and null both mean "never chosen"; a stored value that cannot be read is a server error.
     channelReveal.value = result.reveal ?? null
+    // Absent means normal, the engine's own weight.
+    channelLineWeight.value = result.line_weight ?? 'normal'
     channelName.value = result.channel_name
     channelHasLogo.value = result.has_logo
     acceptedRenderer = result.renderer
@@ -867,6 +902,75 @@ async function saveReveal(next: SketchReveal | null) {
     revealError.value = error?.data?.detail || error?.message || `Could not save the reveal style for ${ep}. Try again.`
     showError(revealError.value)
   } finally { if (ep === episodeId.value) revealSaving.value = false }
+}
+// AGENTS.md §4: the weight belongs to one episode. A late answer for the previous episode is dropped.
+async function loadEpisodeLineWeight() {
+  const ep = episodeId.value
+  if (!ep) return
+  try {
+    const result = await get<{ episode_line_weight: SketchLineWeight | null; channel_line_weight: SketchLineWeight; error?: string }>(`/projects/${slug.value}/scene-review/${encodeURIComponent(ep)}/motion-line-weight`)
+    if (ep !== episodeId.value) return
+    episodeLineWeight.value = result.episode_line_weight
+    channelLineWeight.value = result.channel_line_weight
+    lineWeightUnreadable.value = result.error || ''
+    lineWeightChoice.value = acceptedLineWeightChoice()
+    lineWeightLoaded.value = true
+  } catch (error: any) {
+    if (ep === episodeId.value) presentationError.value = error?.data?.detail || error?.message || `Could not load the line weight for ${ep}. Switch episodes and back to retry.`
+  }
+}
+// This episode's weight, or null to follow the channel default again.
+async function saveLineWeight(next: SketchLineWeight | null) {
+  const ep = episodeId.value
+  lineWeightSaving.value = true
+  lineWeightError.value = ''
+  presentationError.value = ''
+  try {
+    await put(`/projects/${slug.value}/scene-review/${encodeURIComponent(ep)}/motion-line-weight`, { line_weight: next })
+    if (ep !== episodeId.value) return
+    episodeLineWeight.value = next
+    lineWeightUnreadable.value = ''
+    lineWeightChoice.value = acceptedLineWeightChoice()
+    success(next
+      ? `Sketch Draw line weight for ${ep} is now ${lineWeightLabel(next)}. Scenes whose weight changed need re-generating; the rest are kept.`
+      : `${ep} follows the channel default line weight again. Its clips keep the weight they were drawn with until you re-generate them.`)
+    await loadReview()
+  } catch (error: any) {
+    if (ep !== episodeId.value) return
+    lineWeightChoice.value = acceptedLineWeightChoice()
+    lineWeightError.value = error?.data?.detail || error?.message || `Could not save the line weight for ${ep}. Try again.`
+    showError(lineWeightError.value)
+  } finally { if (ep === episodeId.value) lineWeightSaving.value = false }
+}
+// A weight needs no further picking, so it saves at once.
+function onLineWeightChoice() {
+  if (!lineWeightChoice.value) return
+  lineWeightError.value = ''
+  if (lineWeightChoice.value === 'channel') { void saveLineWeight(null); return }
+  const parsed = lineWeightFromDraft(lineWeightChoice.value)
+  if (parsed.ok) void saveLineWeight(parsed.weight)
+}
+// Deliberate: moves the channel default, so episodes without a weight of their own follow it.
+async function setChannelLineWeightDefault() {
+  const ep = episodeId.value
+  const weight = episodeLineWeight.value
+  if (!weight) return
+  if (!await ask({
+    title: 'Make this the channel default line weight?',
+    message: `Episodes without their own weight will use ${lineWeightLabel(weight)}; their Sketch Draw clips whose weight changes will need re-generating. ${ep} and episodes with their own weight are not affected.`,
+    confirmLabel: 'Make channel default',
+  })) return
+  presentationSaving.value = true
+  presentationError.value = ''
+  try {
+    await put(`/projects/${slug.value}/motion-presentation`, { renderer: clipRenderer.value, line_weight: weight })
+    channelLineWeight.value = weight
+    success(`Channel default line weight is now ${lineWeightLabel(weight)}. Episodes without their own weight follow it.`)
+    if (ep === episodeId.value) await loadReview()
+  } catch (error: any) {
+    presentationError.value = error?.data?.detail || error?.message || 'Could not save the channel default line weight. Try again.'
+    showError(presentationError.value)
+  } finally { presentationSaving.value = false }
 }
 // A single style and "follow the channel" need no picking, so they save at once; a Mix waits for Apply.
 function onRevealChoice() {
@@ -1066,6 +1170,9 @@ const motionPresets = usePresets({
     ...(Object.keys(switchChoices.value).length ? { switches: { ...switchChoices.value } } : {}),
     // The reveal look (style + mix) travels; `revealForPreset` drops the pins explicitly.
     ...(revealForPreset(episodeReveal.value) ? { reveal: revealForPreset(episodeReveal.value) } : {}),
+    // The ink weight is a reusable look, so it belongs in the preset (AGENTS.md §5). Absent means
+    // normal, the engine's own weight, so a preset with no weight leaves the live one alone.
+    ...(episodeLineWeight.value ? { line_weight: episodeLineWeight.value } : {}),
   }),
   apply: (data: any) => {
     // A model the live catalogue does not have is never restored: the picker
@@ -1093,6 +1200,12 @@ const motionPresets = usePresets({
     if (revealLoaded.value) {
       const nextReveal = applyRevealPreset(data?.reveal, episodeReveal.value)
       if (JSON.stringify(nextReveal) !== JSON.stringify(episodeReveal.value)) void saveReveal(nextReveal)
+    }
+    // The ink weight is applied to THIS episode, and only once this episode's own weight is known,
+    // so an apply never races its load. A preset that stored no weight leaves the live one alone.
+    if (lineWeightLoaded.value && typeof data?.line_weight === 'string' && LINE_WEIGHTS.includes(data.line_weight as SketchLineWeight)) {
+      const nextWeight = data.line_weight as SketchLineWeight
+      if (nextWeight !== episodeLineWeight.value) void saveLineWeight(nextWeight)
     }
   },
 })
@@ -2122,6 +2235,13 @@ function resetEpisodeScopedMotionState() {
   revealUnreadable.value = ''
   revealError.value = ''
   pinSavingId.value = null
+  // Likewise the ink weight, which is this episode's own too.
+  episodeLineWeight.value = null
+  lineWeightChoice.value = 'channel'
+  lineWeightLoaded.value = false
+  lineWeightSaving.value = false
+  lineWeightUnreadable.value = ''
+  lineWeightError.value = ''
 }
 
 watch(episodeId, () => {
@@ -2131,6 +2251,7 @@ watch(episodeId, () => {
   void loadEpisodePen()
   void loadEpisodeHold()
   void loadEpisodeReveal()
+  void loadEpisodeLineWeight()
 }, { immediate: true })
 </script>
 

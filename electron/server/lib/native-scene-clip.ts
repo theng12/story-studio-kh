@@ -29,6 +29,7 @@ import { appendCappedTail } from './ffmpeg-utils.js'
 import { trackChild } from '../services/job-queue.js'
 import { NATIVE_SCENE_CLIP_VERSION, SKETCH_DRAW_COMPATIBLE_HELPER_VERSIONS } from './native-scene-clip-version.js'
 import { SKETCH_REVEAL_TYPES, type SketchRevealType } from './sketch-reveal.js'
+import { SKETCH_LINE_WEIGHTS, type SketchLineWeight } from './sketch-line-weight.js'
 export { NATIVE_SCENE_CLIP_VERSION, SKETCH_DRAW_COMPATIBLE_HELPER_VERSIONS }
 // One definition, in a dependency-free module the freshness rule can import; mirrors the helper's default.
 export { sketchDefaultHoldFrames } from './sketch-hold.js'
@@ -209,6 +210,11 @@ export interface SketchDrawJob {
    * ANSWER; the helper never sees the mix set, so a re-render cannot drift from freshness.
    */
   reveal: SketchRevealType
+  /**
+   * The ink weight this scene is drawn with. Omit for NORMAL, the engine's own weight — a job with
+   * no weight draws exactly as it always has.
+   */
+  line_weight?: SketchLineWeight
   quality?: number
   /**
    * This scene's own depth map (an 8-bit greyscale image), used only by the `colour` reveal to
@@ -241,6 +247,7 @@ export function validateSketchDrawJob(job: SketchDrawJob): void {
   if (typeof job.input !== 'string' || typeof job.output !== 'string' || !path.isAbsolute(job.input) || !path.isAbsolute(job.output) || path.resolve(job.input) === path.resolve(job.output)) invalid('input and output must be different absolute paths')
   if (typeof job.paper !== 'string' || !/^#[a-f\d]{6}$/i.test(job.paper)) invalid('paper must be a six-digit hex colour')
   if (typeof job.reveal !== 'string' || !(SKETCH_REVEAL_TYPES as readonly string[]).includes(job.reveal)) invalid('reveal must be one of line, buildup, swipes, patches, bloom, colour')
+  if (job.line_weight !== undefined && !(SKETCH_LINE_WEIGHTS as readonly string[]).includes(job.line_weight)) invalid('line_weight must be one of thin, normal, bold')
   if (job.mask !== undefined && (typeof job.mask !== 'string' || !path.isAbsolute(job.mask))) invalid('mask must be an absolute path')
   if (job.quality !== undefined && (!Number.isFinite(job.quality) || job.quality < 0 || job.quality > 1)) invalid('quality must be 0–1')
   const pen = job.pen

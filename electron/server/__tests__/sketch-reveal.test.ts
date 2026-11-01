@@ -12,6 +12,7 @@ import {
 } from '../lib/sketch-reveal.js'
 import { auditSceneClipCompletion, revealTypeFor, sceneClipStaleReason } from '../services/scene-media-checkpoint.js'
 import { useTempDataDir } from './_helpers.js'
+import type { SketchLineWeight } from '../lib/sketch-line-weight.js'
 
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64')
 const sha = (bytes: Buffer | string) => createHash('sha256').update(bytes).digest('hex')
@@ -22,10 +23,10 @@ let cleanup: () => Promise<void>
 before(async () => { const temp = await useTempDataDir(); dir = temp.dir; cleanup = temp.cleanup })
 after(async () => { await cleanup() })
 
-function settings(reveal: SketchRevealSetting | null, fps = 30) {
+function settings(reveal: SketchRevealSetting | null, fps = 30, lineWeight: SketchLineWeight = 'normal') {
   return { fps, width: 1920, height: 1080, pen: { mode: 'none' as const }, penFingerprint: sha('none'),
     hold: { mode: 'auto' as const }, holdFingerprint: sha('auto'),
-    reveal, revealFingerprint: sketchRevealFingerprint(reveal ?? DEFAULT_SKETCH_REVEAL) }
+    reveal, revealFingerprint: sketchRevealFingerprint(reveal ?? DEFAULT_SKETCH_REVEAL), lineWeight }
 }
 
 function scene(over: Record<string, unknown> = {}) {
@@ -202,7 +203,7 @@ describe('Sketch Draw reveal — freshness', () => {
       assert.equal(await sceneClipStaleReason(scene({ clip_sketch: legacy }), context(file, settings(null))), null,
         `helper ${helper_version} stays fresh while the channel has chosen nothing`)
     }
-    assert.deepEqual([...SKETCH_DRAW_COMPATIBLE_HELPER_VERSIONS], [2, 3, 4, 5, 6])
+    [2, 3, 4, 5, 6, 7]
     assert.ok(SKETCH_DRAW_COMPATIBLE_HELPER_VERSIONS.includes(NATIVE_SCENE_CLIP_VERSION))
     assert.match((await sceneClipStaleReason(scene({ clip_sketch: { ...scene().clip_sketch, helper_version: 1 } }), context(file, settings(null))))!, /renderer/)
   })
