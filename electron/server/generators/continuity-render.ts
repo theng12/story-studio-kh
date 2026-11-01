@@ -37,7 +37,8 @@ import type { Job, ScenePlan, ScenePlanEntry } from '../models/types.js'
 import { awaitingApprovalLabel } from '../contracts/episode-step-jobs.js'
 import { assertScenePromptsRenderable } from '../services/scene-prompt-integrity.js'
 import { resolveStyleBible } from '../lib/style-bible.js'
-import { composeSceneRenderPrompt, loadAnchorCharacters } from '../services/scene-prompt-assembly.js'
+import { composeSceneRenderPrompt, fitRenderedStyleBible, loadAnchorCharacters } from '../services/scene-prompt-assembly.js'
+import { publishedSceneRenderPromptCap } from '../services/image-prompt-cap.js'
 import { assertSubtitleTimelineComplete } from '../services/scene-timeline-integrity.js'
 import { requireJobCompletion } from '../services/job-completion.js'
 import { auditSceneImageCompletion, checkpointSceneImage, markSceneImageStandIn, countScenesAwaitingApproval, liveSceneAutoApprove } from '../services/scene-media-checkpoint.js'
@@ -496,8 +497,50 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
   // the guide's descriptor text so the prompt describes ONLY the subject. Plans
   // with no scene_type behave as before (the guide everywhere).
   const isCharacterScene = (s: ScenePlanEntry): boolean => !s.scene_type || s.scene_type === 'character'
-  const composePrompt = (visualPrompt: string, includeCharacter = true): string =>
-    composeSceneRenderPrompt(visualPrompt, characterDescs, styleBible, includeCharacter)
+
+  // ── Meeting the model's published prompt ceiling ───────────────────────
+  //
+  // The assembly above is roughly 3,300 characters on a channel with a full
+  // Style Bible, and a model such as FLUX.2 Klein or Z-Image publishes only a
+  // few hundred tokens of prompt — the submit guard in
+  // `providers/image/genstudio.ts` refuses the rest, and Studio Hub refuses
+  // anything past its published figure outright. A render that cannot be sent
+  // at all is worse than one that is a little less styled, so the Style Bible
+  // is shortened at a SENTENCE end and the scene text and character details
+  // are sent whole.
+  //
+  // The figure is read LIVE, here, on every render, and is never stored: a
+  // catalogue change or a different model takes effect on the next render with
+  // nothing to reload (§1). No published figure means no trimming at all and
+  // no invented number — the prompt is sent exactly as composed.
+  const promptCharCap = await publishedSceneRenderPromptCap(apiKey, model).catch(() => undefined)
+
+  /** One summary per RUN, never one line per scene: what the fit actually cut. */
+  const promptFit = { trimmedScenes: 0, maxDroppedStyleCharacters: 0 }
+
+  const composePrompt = (visualPrompt: string, includeCharacter = true): string => {
+    const full = composeSceneRenderPrompt(visualPrompt, characterDescs, styleBible, includeCharacter)
+    if (!promptCharCap) return full
+    const fit = fitRenderedStyleBible({
+      full,
+      // The exact text this prompt would have been WITHOUT the Style Bible, so
+      // the head that is kept whole is byte-identical to the one composed.
+      head: composeSceneRenderPrompt(visualPrompt, characterDescs, '', includeCharacter),
+      styleBible,
+      limit: promptCharCap,
+    })
+    // A scene whose own text and character details will not fit is sent
+    // UNCHANGED: the model's own submit guard refuses it, naming its ceiling
+    // and this prompt's length, and that refusal stays typed and
+    // non-retryable. Trimming it further would mean deciding what the picture
+    // shows, which is not this generator's call.
+    if (fit.kind === 'scene-too-long') return full
+    if (fit.kind === 'trimmed') {
+      promptFit.trimmedScenes++
+      promptFit.maxDroppedStyleCharacters = Math.max(promptFit.maxDroppedStyleCharacters, fit.droppedStyleCharacters)
+    }
+    return fit.prompt
+  }
   // The log names only layers that are actually in the prompt. It used to add
   // "+ negative prompt", which told him something had been applied when nothing
   // had been sent.
@@ -1909,6 +1952,20 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
     }
 
     if (paidImageWaitRequested) return { kind: 'paid-image-wait' }
+
+    // ONE line for the run, not one per scene: the owner needs to know that a
+    // look was shortened and by how much, not a paragraph per image. Silent
+    // trimming would be the §1 defect in reverse — a limit that is enforced
+    // must also be shown.
+    if (promptFit.trimmedScenes > 0) {
+      job.output_lines.push(
+        `Prompt fit: the Style Bible was shortened at a sentence end for ${promptFit.trimmedScenes} of ${toRender.length} scene(s) `
+        + `so each prompt fits ${model}'s published ${promptCharCap!.toLocaleString()}-character limit; `
+        + `at most ${promptFit.maxDroppedStyleCharacters.toLocaleString()} style characters were dropped. `
+        + 'The scene text and character details were kept whole. '
+        + 'The Style Bible itself is unchanged on disk — only the text submitted for this render was shortened.',
+      )
+    }
 
     // Free fleet, last automatic try (the earlier tries already waited and asked again):
     // a scene that still could not be made borrows the nearest scene's picture instead
