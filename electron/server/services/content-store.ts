@@ -331,6 +331,27 @@ function publicRelease(
   }
 }
 
+/**
+ * Rewrite Gateway cover paths to Story's same-origin proxy route.
+ *
+ * The Discover shelf renders `presentation.cover.src` directly in an `<img>`.
+ * A Gateway path like `/admin/api/content-library/covers/packId/version` would
+ * be blocked by CSP (only `localhost` and `127.0.0.1` are in `img-src`). Story
+ * proxies covers through `/api/content-store/covers/:packId/:version` which is
+ * same-origin and bypasses auth for loopback requests.
+ *
+ * The Library tab already does this rewrite in `buildLibraryCards` using
+ * `coverProxyPath`. This makes the Discover shelf consistent so both surfaces
+ * load covers through the same route.
+ */
+export function rewriteCoverSrc(product: GenStudioContentProduct): string {
+  const url = product.cover!.url
+  const match = /^\/admin\/api\/content-library\/covers\/([^/]+)\/([^/]+)$/.exec(url)
+  if (!match) return url
+  const [, packId, version] = match
+  return `/api/content-store/covers/${encodeURIComponent(packId!)}/${encodeURIComponent(version!)}`
+}
+
 function publicProduct(product: GenStudioContentProduct): PublicContentProduct {
   return {
     productId: product.productId,
@@ -359,7 +380,7 @@ function publicProduct(product: GenStudioContentProduct): PublicContentProduct {
     ownedComponentCreditValue: product.ownedComponentCreditValue,
     showcaseVideos: product.showcaseVideos,
     presentation: {
-      cover: product.cover ? { src: product.cover.url, alt: product.cover.alt } : null,
+      cover: product.cover ? { src: rewriteCoverSrc(product), alt: product.cover.alt } : null,
       hero: product.hero ? { src: product.hero.url, alt: product.hero.alt } : null,
       licenseLabel: product.license?.label ?? null,
       licenseText: product.license?.text ?? null,
