@@ -203,7 +203,7 @@ describe('Sketch Draw reveal — freshness', () => {
       assert.equal(await sceneClipStaleReason(scene({ clip_sketch: legacy }), context(file, settings(null))), null,
         `helper ${helper_version} stays fresh while the channel has chosen nothing`)
     }
-    [2, 3, 4, 5, 6, 7]
+    [2, 3, 4, 5, 6, 7, 8]
     assert.ok(SKETCH_DRAW_COMPATIBLE_HELPER_VERSIONS.includes(NATIVE_SCENE_CLIP_VERSION))
     assert.match((await sceneClipStaleReason(scene({ clip_sketch: { ...scene().clip_sketch, helper_version: 1 } }), context(file, settings(null))))!, /renderer/)
   })
@@ -260,4 +260,16 @@ describe('Sketch Draw reveal — completion is unchanged', () => {
     assert.equal(gone.completed, 0)
     assert.deepEqual(gone.invalid, ['scene-9 (missing from scene plan)'])
   })
+})
+
+test('the six new styles are selectable alone, in mixes and as scene pins', () => {
+  const added = ['blueprint', 'chalkboard', 'parchment', 'shadows', 'backtofront', 'rough'] as const
+  for (const style of added) {
+    assert.ok(SKETCH_REVEAL_TYPES.includes(style))
+    assert.equal(parseSketchReveal({ style }).ok, true, style)
+    assert.equal(parseSketchReveal({ style: 'line', overrides: { 'scene-1': style } }).ok, true, style)
+  }
+  const mixed = parseSketchReveal({ style: 'mix', mix: [...added] })
+  assert.ok(mixed.ok)
+  if (mixed.ok) assert.equal(resolveSketchRevealPlan('EP001', SCENES, mixed.reveal).size, SCENES.length)
 })

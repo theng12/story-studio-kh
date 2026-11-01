@@ -227,7 +227,7 @@ describe('per-episode Sketch Draw reveal', () => {
     const ghost = await paths.resolveEpisodePathsByCode(slug, 'EP099')
     await assert.rejects(revealStore.writeEpisodeSketchReveal(slug, 'EP099', { style: 'line', mix: [] }), /no folder yet/)
     await assert.rejects(fs.stat(ghost.episode_dir), { code: 'ENOENT' })
-    await assert.rejects(revealStore.writeEpisodeSketchReveal(slug, 'EP001', { style: 'mix', mix: ['line'] }), /between 2 and 6/)
+    await assert.rejects(revealStore.writeEpisodeSketchReveal(slug, 'EP001', { style: 'mix', mix: ['line'] }), /between 2 and 12/)
     assert.deepEqual(await revealStore.readEpisodeSketchReveal(slug, 'EP001'), { style: 'patches', mix: [] }, 'a refused write changes nothing')
   })
 

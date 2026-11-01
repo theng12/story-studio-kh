@@ -289,7 +289,7 @@ describe('the weight is stored per channel and per episode', () => {
 
     const seen: any[] = []
     const render = async (job: any) => {
-      seen.push({ line_weight: job.line_weight })
+      seen.push({ line_weight: job.line_weight, reveal: job.reveal, mask: job.mask })
       await runFfmpeg(['-y', '-f', 'lavfi', '-i', `color=c=white:s=${job.width}x${job.height}:r=${job.fps}:d=${job.frames / job.fps}`,
         '-frames:v', String(job.frames), '-r', String(job.fps), '-pix_fmt', 'yuv420p', '-c:v', 'libx264', job.output])
     }
@@ -312,11 +312,34 @@ describe('the weight is stored per channel and per episode', () => {
     assert.equal(seen[1]!.line_weight, 'bold')
     assert.equal(second.clip_sketch.line_weight, 'bold')
 
+    // Both depth-aware reveals receive only this scene's usable analysis map.
+    const { SCENE_ANALYSIS_DIR, SCENE_ANALYSIS_SCHEMA } = await import('../services/scene-analysis.js')
+    const { writeEpisodeSketchReveal } = await import('../services/episode-sketch-reveal.js')
+    const analysis = path.join(ep.dir, SCENE_ANALYSIS_DIR)
+    await fs.mkdir(analysis, { recursive: true })
+    const mask = path.join(analysis, 'scene-1.depth.png')
+    await fs.writeFile(mask, PNG)
+    await fs.writeFile(path.join(analysis, 'scene-1.json'), JSON.stringify({
+      schema: SCENE_ANALYSIS_SCHEMA, scene_id: 'scene-1', image_sha256: sha(PNG), analysed_at: '2026-10-29T00:00:00.000Z',
+      models: {}, depth: { file: 'scene-1.depth.png', w: 8, h: 8, p5: 0, p50: 0.5, p95: 1, range: 1, usable: true },
+      subject: null, points: [], caption: '', segments: {}, regions: {},
+    }))
+    for (const reveal of ['colour', 'backtofront'] as const) {
+      await writeEpisodeSketchReveal(slug, 'EP001', { style: reveal, mix: [] })
+      const receipt = await run()
+      assert.equal(seen.at(-1)!.reveal, reveal)
+      assert.equal(seen.at(-1)!.mask, mask)
+      assert.equal(receipt.clip_sketch.reveal_type, reveal)
+    }
+    await writeEpisodeSketchReveal(slug, 'EP001', { style: 'shadows', mix: [] })
+    await run()
+    assert.equal(seen.at(-1)!.mask, undefined, 'other reveals do not consume a depth map')
+
     // The helper's own validation accepts every job the generator built.
     const { validateSketchDrawJob } = await import('../lib/native-scene-clip.js')
     for (const item of seen) {
       assert.doesNotThrow(() => validateSketchDrawJob({ kind: 'sketch', input: '/in/a.png', output: '/out/a.mp4',
-        width: 1920, height: 1080, fps: 30, frames: 60, paper: '#ffffff', pen: { mode: 'none' }, reveal: 'line', ...item }))
+        width: 1920, height: 1080, fps: 30, frames: 60, paper: '#ffffff', pen: { mode: 'none' }, ...item }))
     }
     assert.ok(resolved)
   })

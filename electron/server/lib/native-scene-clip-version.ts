@@ -8,7 +8,7 @@
  * MUST equal `HELPER_VERSION` in `native/scene-clip/main.swift`; the backend regression
  * reads both files and the build script's version probe enforces it at build time.
  */
-export const NATIVE_SCENE_CLIP_VERSION = 7
+export const NATIVE_SCENE_CLIP_VERSION = 8
 
 /**
  * Helper versions whose Sketch Draw clips are still a valid render for freshness. Version 3 only
@@ -30,5 +30,6 @@ export const NATIVE_SCENE_CLIP_VERSION = 7
  * was drawn with on its receipt, and a version-6 clip has no such record — it IS a normal clip, so
  * choosing normal never stales it and a channel or episode that never chose a weight stales
  * nothing. Accepted clips stay fresh and only re-render when the owner asks for them again.
+ * Version 8 adds six reveal styles without changing the existing six; older receipts stay fresh.
  */
-export const SKETCH_DRAW_COMPATIBLE_HELPER_VERSIONS: readonly number[] = [2, 3, 4, 5, 6, 7]
+export const SKETCH_DRAW_COMPATIBLE_HELPER_VERSIONS: readonly number[] = [2, 3, 4, 5, 6, 7, 8]
