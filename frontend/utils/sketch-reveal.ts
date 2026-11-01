@@ -8,8 +8,8 @@
  * starting default for an episode that has none. Per-scene pins are keyed by scene id, so they are
  * episode state and are excluded from presets (AGENTS.md §5).
  */
-export const REVEAL_TYPES = ['line', 'buildup', 'swipes', 'patches', 'bloom', 'colour'] as const
-export type SketchRevealType = (typeof REVEAL_TYPES)[number]
+export const REVEAL_TYPES: string[] = ['line', 'buildup', 'swipes', 'patches', 'bloom', 'colour']
+export type SketchRevealType = string
 export type SketchRevealStyle = SketchRevealType | 'mix'
 
 export interface SketchReveal {
@@ -24,11 +24,18 @@ export interface SketchReveal {
 export type RevealChoice = '' | SketchRevealStyle
 
 export const REVEAL_MIN_MIX = 2
-export const REVEAL_MAX_MIX = REVEAL_TYPES.length
+export let REVEAL_MAX_MIX = REVEAL_TYPES.length
 
 export const REVEAL_LABELS: Record<SketchRevealType, string> = {
   line: 'Line', buildup: 'Build-up', swipes: 'Swipes', patches: 'Patches', bloom: 'Bloom',
   colour: 'Colour it in',
+}
+
+/** The engine is authoritative, including newly added reveals. */
+export function setRevealCatalog(reveals: Array<{ id: string; label: string }>): void {
+  REVEAL_TYPES.splice(0, REVEAL_TYPES.length, ...reveals.map(item => item.id))
+  for (const item of reveals) REVEAL_LABELS[item.id] = item.label
+  REVEAL_MAX_MIX = REVEAL_TYPES.length
 }
 
 /** What the customer picked: null for "not chosen", a setting, or the sentence to show. */
@@ -44,8 +51,8 @@ export function revealFromDraft(choice: RevealChoice, mix: SketchRevealType[]): 
 /** The words for a setting, used in the select and the help line. */
 export function revealLabel(reveal: SketchReveal | null): string {
   if (!reveal) return 'not chosen'
-  if (reveal.style !== 'mix') return REVEAL_LABELS[reveal.style]
-  return `Mix: ${reveal.mix.map(type => REVEAL_LABELS[type]).join(', ')}`
+  if (reveal.style !== 'mix') return REVEAL_LABELS[reveal.style] || reveal.style
+  return `Mix: ${reveal.mix.map(type => REVEAL_LABELS[type] || type).join(', ')}`
 }
 
 /** The mix checkboxes as loaded; a single style leaves the usual starting set. */

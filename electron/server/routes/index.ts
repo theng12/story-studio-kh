@@ -62,6 +62,7 @@ import { router as brollFetchRouter } from './broll-fetch.js'
 import { router as researchRouter } from './research.js'
 import { router as scenePlanRouter } from './scene-plan.js'
 import { router as sceneReviewRouter } from './scene-review.js'
+import { router as sketchRevealSamplesRouter } from './sketch-reveal-samples.js'
 import { router as contextualCuesRouter } from './contextual-cues.js'
 import { router as effectsLibraryRouter } from './effects-library.js'
 import { router as soundDesignRouter } from './sound-design.js'
@@ -140,6 +141,7 @@ export function mountRoutes(app: Express): void {
   app.use('/api', researchRouter)
   app.use('/api', scenePlanRouter)
   app.use('/api', sceneReviewRouter)
+  app.use('/api', sketchRevealSamplesRouter)
   app.use('/api', contextualCuesRouter)
   app.use('/api', effectsLibraryRouter)
   app.use('/api', continuityRouter)
