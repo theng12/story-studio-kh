@@ -116,6 +116,12 @@ function cloneSettingValue<T>(value: T): T {
 
 export interface PaidImageReplacementSetting {
   enabled: boolean
+  /**
+   * Left in place for the paid-replacement consumers, which still read it until
+   * their own slice retires them. Story no longer enforces a ceiling itself —
+   * Gateway owns every credit decision — so this is carried, never acted on here.
+   */
+  additional_credit_ceiling: number | null
 }
 
 export const PAID_IMAGE_REPLACEMENT_KEY = 'paid_image_replacement'
@@ -174,6 +180,7 @@ function parsePrivateFinalRenderSetting(
 
 const PAID_REPLACEMENT_DEFAULT: PaidImageReplacementSetting = {
   enabled: false,
+  additional_credit_ceiling: null,
 }
 
 function invalidPaidReplacementSetting(kind: 'image' | 'subtitle' | 'audio' | 'writing'): never {
@@ -195,12 +202,19 @@ function parsePaidReplacementSetting(
   const record = value as Record<string, unknown>
   const keys = Object.keys(record)
   // Accept both the new shape (enabled only) and legacy records that also carry
-  // additional_credit_ceiling — the ceiling is ignored (credits retired 2026-11-02).
+  // additional_credit_ceiling. The ceiling is carried for the paid-replacement
+  // consumers only; Story itself no longer enforces it (credits retired).
   if (!keys.includes('enabled') || typeof record.enabled !== 'boolean') {
     if (invalid === 'throw') return invalidPaidReplacementSetting(kind)
     return { ...PAID_REPLACEMENT_DEFAULT }
   }
-  return { enabled: record.enabled }
+  const ceiling = record.additional_credit_ceiling
+  return {
+    enabled: record.enabled,
+    additional_credit_ceiling: typeof ceiling === 'number' && Number.isSafeInteger(ceiling)
+      ? ceiling
+      : null,
+  }
 }
 
 // Legacy installs wrote this file with default 0644. On the first read after

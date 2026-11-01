@@ -43,7 +43,7 @@ import {
   GenStudioChatIncompleteError,
   GenStudioChatProductUnavailableError,
   GenStudioChatRecoveryUnresolvedError,
-  isGenStudioInsufficientCredits,
+  isGenStudioPaymentRefusal,
   isGenStudioRequestInProgress,
   isGenStudioSubmissionUncertain,
   type GenStudioChatModel,
@@ -2101,7 +2101,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
           )
         }
       } catch (error: any) {
-        if (isGenStudioInsufficientCredits(error)) throw error
+        if (isGenStudioPaymentRefusal(error)) throw error
         if (input.deferLostResend && isGenStudioSubmissionUncertain(error)) {
           return { results, checkpointErrors, diagnostics, requestError: '', requestUnresolved: false, responseReceived: false, lostResend: true }
         }

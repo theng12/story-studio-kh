@@ -15,7 +15,7 @@ import {
   buildGenStudioSubmission,
   generateTtsToFile as generateTtsGenStudio,
   GenStudioArtifactUnavailableError,
-  isGenStudioInsufficientCredits,
+  isGenStudioPaymentRefusal,
   isGenStudioRouteExhausted,
   evidenceHoldsUnknownOutcome,
   isClosedHoldCode,
@@ -1350,7 +1350,7 @@ export async function generateAudio(job: Job): Promise<void> {
             .catch((error: any) => job.output_lines.push(`  Section timing for ${chunkFilename} was not kept (${error?.message || error}); its subtitles will be timed over the whole part.`))
           return
         } catch (e: any) {
-          if (isGenStudioInsufficientCredits(e)) throw e
+          if (isGenStudioPaymentRefusal(e)) throw e
           if (e instanceof jq.JobPausedError) {
             notePause()
             return
@@ -1536,7 +1536,7 @@ export async function generateAudio(job: Job): Promise<void> {
       try {
         await processTask(tasks[i]!)
       } catch (error) {
-        if (!isGenStudioInsufficientCredits(error)) throw error
+        if (!isGenStudioPaymentRefusal(error)) throw error
         creditFailure ||= error
         return
       }

@@ -32,7 +32,7 @@ import {
   GenStudioCatalogUnavailableError,
   GenStudioTerminalFailureError,
   GenStudioTranscriptionQuoteExpiredError,
-  isGenStudioInsufficientCredits,
+  isGenStudioPaymentRefusal,
   listTranscriptionModels,
   refreshGenStudioAdmission,
 } from '../lib/genstudio-client.js'
@@ -1028,7 +1028,7 @@ async function transcribePerChapter(
         try {
           await transcribeSection(sec)
         } catch (e) {
-          if (isGenStudioInsufficientCredits(e)) {
+          if (isGenStudioPaymentRefusal(e)) {
             creditFailure ||= e
             return
           }

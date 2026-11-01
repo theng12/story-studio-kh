@@ -8888,21 +8888,36 @@ function chatEntries(job: Job): NonNullable<Job['genstudio_jobs']> {
   return (job.genstudio_jobs || []).filter(entry => entry.operation === 'chat.response')
 }
 
+/**
+ * A submission the Gateway refused BEFORE dispatch. No provider job was ever
+ * created for it, so there is nothing to look up by idempotency key and a
+ * by-key recovery can only ever find nothing.
+ *
+ * This predicate used to be keyed on the retired `waiting_credits` queue state.
+ * The property that mattered was never the credit: it was that the work never
+ * reached the Gateway at all. Stating it in dispatch terms keeps the same
+ * guarantee without Story knowing anything about credits, and old records
+ * written under `waiting_credits` still satisfy it unchanged.
+ */
+function isPreDispatchRefusal(entry: NonNullable<Job['genstudio_jobs']>[number]): boolean {
+  return entry.state === 'failed' && entry.dispatch_state === 'pre_dispatch'
+}
+
 function isResolvedChatEntry(entry: NonNullable<Job['genstudio_jobs']>[number]): boolean {
-  return typeof entry.id === 'string'
+  return isPreDispatchRefusal(entry) || (typeof entry.id === 'string'
     && !!entry.id
     && !entry.id.startsWith('pending:')
-    && (entry.state === 'succeeded' || entry.state === 'failed')
+    && (entry.state === 'succeeded' || entry.state === 'failed'))
 }
 
 function chapterChatRetryMode(job: Job): ChapterChatRetryMode | undefined {
   const chats = chatEntries(job)
   if (chats.length === 0) return undefined
   const terminalFailure = chats.find(entry =>
-    entry.state === 'failed'
-    && typeof entry.id === 'string'
-    && !!entry.id
-    && !entry.id.startsWith('pending:'),
+    isPreDispatchRefusal(entry) || (entry.state === 'failed'
+      && typeof entry.id === 'string'
+      && !!entry.id
+      && !entry.id.startsWith('pending:')),
   )
   // A Story retry may replace the provider key only after every chat batch is
   // resolved. Any pending preview or unknown/nonterminal state can still be
@@ -8915,6 +8930,11 @@ function chapterChatRetryMode(job: Job): ChapterChatRetryMode | undefined {
 
 function terminalChatRetryScope(job: Job): string | undefined {
   if (chapterChatRetryMode(job) !== 'fresh-replacement') return undefined
+  const refusal = chatEntries(job).find(isPreDispatchRefusal)
+  if (refusal) {
+    const key = refusal.request?.idempotency_key?.trim() || String(refusal.id).replace(/^pending:/, '')
+    return `pre-dispatch:${key}:${job.job_id}`
+  }
   const terminalFailure = chatEntries(job).find(entry => entry.state === 'failed' && !entry.id.startsWith('pending:'))
   return terminalFailure ? `terminal:${terminalFailure.id}:${job.job_id}` : undefined
 }

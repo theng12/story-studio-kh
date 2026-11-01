@@ -132,7 +132,7 @@ describe('both paid tracks are kept', () => {
 describe('the run stops for the right things and continues for the rest', () => {
   test('insufficient credits stops the whole top-up', async () => {
     const body = await readFile(SRC, 'utf8')
-    assert.match(body, /if \(isGenStudioInsufficientCredits\(error\)\) throw error/,
+    assert.match(body, /if \(isGenStudioPaymentRefusal\(error\)\) throw error/,
       'every later request would fail identically; twenty failures help nobody')
   })
 

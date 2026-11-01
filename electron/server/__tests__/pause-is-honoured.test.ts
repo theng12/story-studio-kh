@@ -185,7 +185,7 @@ describe('one refused clip no longer ends the episode', () => {
     for (const rethrow of [
       /if \(error instanceof jq\.JobPausedError \|\| jq\.isPauseRequested\(job\.job_id\)\) throw error/,
       /if \(jq\.isCancelled\(job\.job_id\)\) throw error/,
-      /if \(isGenStudioInsufficientCredits\(error\)\) throw error/,
+      /if \(isGenStudioPaymentRefusal\(error\)\) throw error/,
     ]) assert.match(batch, rethrow,
       'continuing past this would be wrong: the owner stopped it, or every later scene fails identically')
   })

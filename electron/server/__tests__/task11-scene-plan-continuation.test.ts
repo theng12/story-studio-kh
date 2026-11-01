@@ -465,7 +465,7 @@ test('a provider refusal keeps approved work and ordinary Retry submits only the
     return originalFetch(input, init)
   }
   try {
-    await assert.rejects(runScenePlanJob(pipelineJob(fixture)), genstudio.isGenStudioInsufficientCredits)
+    await assert.rejects(runScenePlanJob(pipelineJob(fixture)), genstudio.isGenStudioPaymentRefusal)
   } finally {
     globalThis.fetch = originalFetch
   }
@@ -479,7 +479,7 @@ test('a provider refusal keeps approved work and ordinary Retry submits only the
   // Restoring fetch is not a top-up: admission correctly retains the 402
   // until the account reports more credits. Prove that gate, then replenish
   // the fake account through its existing public overview fixture.
-  await assert.rejects(runScenePlanJob(pipelineJob(fixture)), genstudio.isGenStudioInsufficientCredits)
+  await assert.rejects(runScenePlanJob(pipelineJob(fixture)), genstudio.isGenStudioPaymentRefusal)
   assert.equal(chatSubmissions().length, 0)
   service.setAccountOverviewForKey(MOCK_GENSTUDIO_FULL_KEY, { credit_balance: 2_000 })
   queuePromptResult([fixture.missingId])

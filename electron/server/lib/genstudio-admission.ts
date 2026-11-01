@@ -19,6 +19,12 @@ export interface GenStudioServiceTierStanding {
 }
 
 export interface GenStudioAccountCapacity {
+  /**
+   * Kept OPTIONAL so later slices can drop its consumers without a compile break.
+   * Story no longer reads or enforces a balance: Gateway owns every credit
+   * decision, and a 402 from it is a terminal refusal (see genstudio-client).
+   */
+  credit_balance?: number | null
   paid_concurrency_limit: number
   paid_active_jobs: number
   paid_queued_jobs: number

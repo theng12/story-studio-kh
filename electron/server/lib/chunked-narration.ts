@@ -52,7 +52,7 @@ import { assertPipelineModelRequestCapabilities, callAi, callAiWithRetry, execut
 import { boundOutputTokensToContext, nonAsciiCharacterCount } from '../services/output-token-budget.js'
 import { pipelinePolicyInputFingerprint, type AssignedPipelineModelPolicy, type PipelinePolicyCheckpointStore } from './pipeline-model-policy.js'
 import { freshGenerationRequestIdentity } from './fresh-generation-action.js'
-import { GenStudioChatIncompleteError, isGenStudioInsufficientCredits, listChatModels } from './genstudio-client.js'
+import { GenStudioChatIncompleteError, isGenStudioPaymentRefusal, listChatModels } from './genstudio-client.js'
 import { stripGenStudioModelPrefix } from '../services/genstudio-model-migration.js'
 import { outlineOutputContract } from './story-output-contracts.js'
 import { getOutlineHeadroom } from '../services/app-settings.js'
@@ -2287,7 +2287,7 @@ async function expandListicleParallel(
         // A normal finish that simply left a requested slot out.
         for (const entry of missing) unwritten.set(entry.n, 'the answer did not contain it')
       } catch (e: any) {
-        if (isGenStudioInsufficientCredits(e)) {
+        if (isGenStudioPaymentRefusal(e)) {
           creditFailure ||= e
           return
         }

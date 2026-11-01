@@ -268,6 +268,13 @@ export interface GenStudioJob {
   /** USD the provider charged, present only when it stated one (`cost_source: "provider"`). Absent is not $0. */
   cost_usd?: number
   cost_source?: 'provider'
+  // Credit fields kept optional for backward compatibility with stored job records.
+  // Story no longer parses, tracks or acts on these values. Gateway owns credit logic.
+  credit_cost?: number
+  remaining_credits?: number
+  reserved_credits?: number | null
+  settled_credits?: number | null
+  released_credits?: number | null
   routing_status_code?: string | null
   retry_after_seconds?: number | null
   retry_at?: string | null
@@ -336,6 +343,11 @@ export type GenStudioCancellationFields = {
   cancellation_requested?: boolean
   cancellation_note?: string | null
   failure_code?: string | null
+  // Credit fields kept optional for backward compatibility with stored job records.
+  // Story no longer parses, tracks or acts on these values. Gateway owns credit logic.
+  reserved_credits?: number
+  settled_credits?: number
+  released_credits?: number
   retry_after_seconds?: number | null
   retry_at?: string | null
   last_provider_progress_at?: string | null
@@ -369,10 +381,6 @@ function parseGenStudioCancellationResponse(value: unknown): GenStudioJob & GenS
   const optionalText = (name: string): string | null | undefined => (
     typeof body[name] === 'string' || body[name] === null ? body[name] as string | null : undefined
   )
-  const optionalSettlement = (name: string): number | undefined => {
-    const field = body[name]
-    return isValidSettlement(field) ? field : undefined
-  }
   const optionalNumberOrNull = (name: string): number | null | undefined => {
     const field = body[name]
     return field === null || isValidSettlement(field) ? field as number | null : undefined
@@ -524,6 +532,11 @@ export interface GenStudioSettledJobShape {
   /** `studio-hub::…` is the owner's free fleet (see `isFreeFleetModelId`). */
   model_id?: string | null
   failure_code?: string | null
+  // Credit fields kept optional for backward compatibility with stored job records.
+  // Story no longer parses, tracks or acts on these values. Gateway owns credit logic.
+  reserved_credits?: number | null
+  settled_credits?: number | null
+  released_credits?: number | null
   /** image / TTS / transcription jobs. */
   cancelled?: boolean | null
   cancellation_note?: string | null
@@ -654,8 +667,14 @@ export class GenStudioTerminalFailureError extends Error {
   readonly cancelled: boolean
   /** The gateway holds this failure as an unknown outcome: never resubmit it by machine. */
   readonly unknownOutcome: boolean
+  // Credit settlement properties kept as null for backward compatibility.
+  // Story no longer tracks credits; Gateway owns credit logic.
+  readonly reservedCredits: number | null
+  readonly settledCredits: number | null
+  readonly releasedCredits: number | null
   /** The model id the job envelope published; `studio-hub::…` is the owner's free fleet. */
   readonly modelId: string | null
+  constructor(modality: GenStudioModality, job: GenStudioSettledJobShape, message: string) {
     // Appended HERE rather than in each of the six subclasses, and rather than
     // at the render sites, because every surface that shows a failed job shows
     // `.message`: the job card's red error line, `Thumbnail N: FAILED — ...`,
@@ -680,8 +699,20 @@ export class GenStudioTerminalFailureError extends Error {
     this.failureClass = failureClass
     this.cancelled = job.cancelled === true
     this.unknownOutcome = holdsUnknownOutcome(job)
+    this.reservedCredits = null
+    this.settledCredits = null
+    this.releasedCredits = null
     this.modelId = typeof job.model_id === 'string' && job.model_id ? job.model_id : null
   }
+}
+
+/**
+ * Credits are no longer tracked by Story Studio. This stub always returns true
+ * because no credits can be charged when credits do not exist in this service.
+ * Callers use this to decide if a retry is safe from a double-charge perspective.
+ */
+export function hasFullyReleasedZeroSettlement(_error: GenStudioTerminalFailureError): boolean {
+  return true
 }
 
 export class GenStudioImageTerminalFailureError extends GenStudioTerminalFailureError {
@@ -1516,8 +1547,7 @@ interface GenStudioTranscriptionJob {
   srt_url?: string | null
   credit_cost?: number
   remaining_credits?: number
-  /**
-   price_version?: string | null
+  price_version?: string | null
   cancellable?: boolean | null
   cancelled?: boolean | null
   cancellation_note?: string | null
@@ -3133,8 +3163,9 @@ const genStudioAdmission = new GenStudioAdmissionPool(async (apiKey): Promise<Ge
   }
   const burstCeiling = positiveInteger(overview.burst_concurrency_ceiling)
   const tierStanding = parseServiceTierStanding(overview.service_tier)
+  // Gateway publishes `credit_balance` here; Story deliberately drops it. Gateway
+  // owns every credit decision, so a Story-side balance is never read or enforced.
   return {
-    credit_balance: overview.credit_balance,
     paid_concurrency_limit: overview.paid_concurrency_limit,
     paid_active_jobs: overview.paid_active_jobs,
     paid_queued_jobs: overview.paid_queued_jobs,
@@ -3539,7 +3570,7 @@ interface GenStudioSubmissionEvidence {
   preview: GenStudioRequestPreview
 }
 
-async function recordGenStudioCreditRefusal(
+async function recordGenStudioTerminalRefusal(
   evidence: GenStudioSubmissionEvidence,
   error: GenStudioApiError,
 ): Promise<void> {
@@ -3553,7 +3584,8 @@ async function recordGenStudioCreditRefusal(
     state: 'failed',
     dispatch_state: 'pre_dispatch',
     model_id: evidence.preview.model_id,
-    queue_state: 'waiting_credits',
+    // Story no longer tracks credits; this is a terminal refusal with Gateway's reason.
+    queue_state: 'failed',
     failure_code: error.code || null,
     updated_at: new Date().toISOString(),
     request: evidence.preview,
@@ -4224,7 +4256,10 @@ export class GenStudioApiError extends Error {
       : status === 401
       ? `The Gateway did not accept this Gateway API Key: ${detail}. Save a valid Gateway API Key in Settings → This Mac.`
       : status === 402
-        ? `The Gateway has insufficient credits for this request: ${detail}. Add credits, then Retry.`
+        // A terminal refusal in Gateway's own words. Story holds no balance and
+        // never coaches the owner on credits — Gateway owns that entirely — so
+        // this is shown as-is, never as a wait state and never auto-requeued.
+        ? `The Gateway refused this request: ${detail}`
         : status === 403
           ? `This Gateway API Key or account is not allowed to use the selected product: ${detail}. Check its scopes and product access.`
           : status === 422
@@ -4263,7 +4298,7 @@ export class GenStudioTransportTimeoutError extends Error {
   }
 }
 
-export function isGenStudioInsufficientCredits(error: unknown): error is GenStudioApiError {
+export function isGenStudioPaymentRefusal(error: unknown): error is GenStudioApiError {
   return error instanceof GenStudioApiError && error.status === 402
 }
 
@@ -4523,8 +4558,9 @@ async function requestJsonWithRetry(
         }
         if (apiKey) genStudioAdmission.noteSubmissionReachable()
         if (response.status === 402) {
-          if (apiKey) genStudioAdmission.noteInsufficientCredits(apiKey, error)
-          await request.onQueueState?.('waiting_credits')
+          // Gateway refused due to insufficient credits. Story no longer tracks credits or waits;
+          // this is a terminal refusal carrying Gateway's reason. No retry, no waiting state.
+          await request.onQueueState?.('failed')
           throw error
         }
         if (noRetryApiErrors || !retryableStatus(response.status)) {
@@ -4607,8 +4643,8 @@ async function submitJsonWithAdmission(
       () => requestJsonWithRetry(url, init, request, deadline, apiKey, operationTimeoutMs, noRetryStatuses),
     )
   } catch (error) {
-    if (evidence && isGenStudioInsufficientCredits(error)) {
-      await recordGenStudioCreditRefusal(evidence, error)
+    if (evidence && isGenStudioPaymentRefusal(error)) {
+      await recordGenStudioTerminalRefusal(evidence, error)
     }
     throw error
   }
@@ -9400,9 +9436,10 @@ async function recoverImageWithGenStudioAdmitted(
     request.onState?.(initial.state)
   }
   const url = await downloadImageArtifact(baseUrl, apiKey, completed, request, deadline)
+  // No `settledCredits`: Story no longer tracks settlement. Gateway owns every
+  // credit decision, so the optional field on GenStudioImageResult stays unfilled.
   return {
     url, jobId: completed.id, modelId: completed.model_id,
-    ...(isValidSettlement(completed.settled_credits) ? { settledCredits: completed.settled_credits } : {}),
   }
 }
 
@@ -9836,8 +9873,8 @@ async function generateImageWithGenStudioAdmitted(
       ) as GenStudioImageJob
       break
     } catch (error) {
-      if (isGenStudioInsufficientCredits(error)) {
-        await recordGenStudioCreditRefusal({ operation: 'image.generation', preview: requestPreview }, error)
+      if (isGenStudioPaymentRefusal(error)) {
+        await recordGenStudioTerminalRefusal({ operation: 'image.generation', preview: requestPreview }, error)
       }
       if (!request.requiresAdmissionPermit || !isAuthoritativelyUnchargedPermitFailure(error)) throw error
       permitId = await acquireImageAdmissionPermit(
@@ -9853,7 +9890,6 @@ async function generateImageWithGenStudioAdmitted(
     const url = await downloadImageArtifact(baseUrl, apiKey, completed, request, deadline)
     return {
       url, jobId: completed.id, modelId: completed.model_id,
-      ...(isValidSettlement(completed.settled_credits) ? { settledCredits: completed.settled_credits } : {}),
     }
   } catch (error) {
     if (!shouldReconnectAcceptedTask(error, request)) throw error

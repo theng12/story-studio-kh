@@ -218,7 +218,7 @@ describe('Image Pool: the retry does not change the shape of the run', () => {
     const catchBody = source.split('} catch (e: any) {')[1] || ''
     const firstStatement = catchBody.split('\n').map(l => l.trim())
       .filter(l => l && !l.startsWith('//'))[0]
-    assert.equal(firstStatement, 'if (isGenStudioInsufficientCredits(e)) throw e',
+    assert.equal(firstStatement, 'if (isGenStudioPaymentRefusal(e)) throw e',
       'the insufficient-credits rethrow must run before anything else in the catch')
     // Belt and braces on the rule itself: the shared guard only ever answers
     // yes for a settled GenStudio terminal failure, so an insufficient-credits

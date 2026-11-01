@@ -14,7 +14,7 @@ test('Scene Plan stops at the first credit refusal without repairs or later pack
     const ideas = await import('../services/idea-manager.js')
     const settings = await import('../services/app-settings.js')
     const { setApiKey } = await import('../services/app-secrets-store.js')
-    const { clearGenStudioCatalogCache, isGenStudioInsufficientCredits } = await import('../lib/genstudio-client.js')
+    const { clearGenStudioCatalogCache, isGenStudioPaymentRefusal } = await import('../lib/genstudio-client.js')
     const { resolveEpisodePathsByCode } = await import('../services/utils.js')
     await import('../providers/text/genstudio.js')
     const { runScenePlanJob } = await import('../generators/scene-plan.js')
@@ -99,7 +99,7 @@ test('Scene Plan stops at the first credit refusal without repairs or later pack
 
     await assert.rejects(
       runScenePlanJob(job),
-      error => isGenStudioInsufficientCredits(error),
+      error => isGenStudioPaymentRefusal(error),
     )
     assert.equal(chatPosts, 1)
     assert.equal(job.output_lines.some((line: string) => line.includes('prompt repair')), false)

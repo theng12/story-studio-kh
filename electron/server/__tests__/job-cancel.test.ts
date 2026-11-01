@@ -353,7 +353,7 @@ describe('remote cancellation checkpoints', () => {
     assert.deepEqual(claims.sort(), [false, true])
     assert.equal(jq.getJob(job.job_id)?.remote_cancellations?.['voice.tts:claim-target']?.status, 'submitting')
     await jq.reconcileRemoteCancellationFromProvider(job.job_id, 'voice.tts', 'claim-target', {
-      state: 'succeeded', released_credits: 0,
+      state: 'succeeded',
     })
     assert.equal(jq.getJob(job.job_id)?.remote_cancellations?.['voice.tts:claim-target']?.status, 'rejected')
     release()

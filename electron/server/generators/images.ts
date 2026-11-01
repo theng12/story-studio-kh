@@ -28,7 +28,7 @@ import {
   tryRecoverImageFromManifestEntry,
   type ImageRecoveryOutcome,
 } from '../lib/manifest-recovery.js'
-import { buildGenStudioImageIdempotencyKey, GenStudioImageTerminalFailureError, isGenStudioInsufficientCredits, isGenStudioRouteExhausted, refreshGenStudioAdmission } from '../lib/genstudio-client.js'
+import { buildGenStudioImageIdempotencyKey, GenStudioImageTerminalFailureError, isGenStudioPaymentRefusal, isGenStudioRouteExhausted, refreshGenStudioAdmission } from '../lib/genstudio-client.js'
 import { readManifest, type Manifest } from '../services/task-manifest.js'
 import { findReferencedCharacters } from '../lib/character-name-match.js'
 import { resolveProjectArtStyle } from '../services/art-style-resolver.js'
@@ -1314,7 +1314,7 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
           job.output_lines.push(`Scene ${scene.number}/${totalToProcess}: ${scene.title} — saved ${urls.length} variant(s)`)
           return
         } catch (e: any) {
-          if (isGenStudioInsufficientCredits(e)) throw e
+          if (isGenStudioPaymentRefusal(e)) throw e
           // Remember a settled provider failure so the next Retry mints a fresh
           // identity instead of replaying this dead job forever.
           //
@@ -1734,7 +1734,7 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
           job.output_lines.push(`Thumbnail ${thumb.number}/${totalToProcess}: ${thumb.title} — saved ${urls.length} variant(s)`)
           return
         } catch (e: any) {
-          if (isGenStudioInsufficientCredits(e)) throw e
+          if (isGenStudioPaymentRefusal(e)) throw e
           if (e instanceof GenStudioImageTerminalFailureError && attempt) {
             const failedTaskId = e.jobId || acceptedTaskId
             if (attempt.paidReplacement) {

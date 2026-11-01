@@ -33,7 +33,7 @@ import {
   terminalImageManifestEntry,
   tryRecoverImageFromManifestEntry,
 } from '../lib/manifest-recovery.js'
-import { GenStudioImageTerminalFailureError, buildGenStudioImageIdempotencyKey, isGenStudioInsufficientCredits } from '../lib/genstudio-client.js'
+import { GenStudioImageTerminalFailureError, buildGenStudioImageIdempotencyKey, isGenStudioPaymentRefusal } from '../lib/genstudio-client.js'
 import { fleetBusyRetryPlan, freeMacWaitLine, isFleetBusyFailure, isFreeMacPlan } from '../lib/genstudio-fleet-busy.js'
 import { imageRouteRetryDelayMs } from '../services/image-route-retry.js'
 import { resolveConfiguredAspectRatio, resolveConfiguredOutputOption, resolveImageModelConfig } from '../services/image-model-resolver.js'
@@ -718,7 +718,7 @@ export async function generateImagePoolImages(job: Job): Promise<jq.JobExecutorR
       } catch (e: any) {
         // Running out of money is not a busy fleet. This rethrow stays first and
         // unchanged: no wait, no resubmission, the whole run stops.
-        if (isGenStudioInsufficientCredits(e)) throw e
+        if (isGenStudioPaymentRefusal(e)) throw e
         if (e instanceof GenStudioImageTerminalFailureError && attemptScope) {
           const failedTaskId = e.jobId || acceptedTaskId
           // Persist the settled failure BEFORE deciding to retry, so the next
