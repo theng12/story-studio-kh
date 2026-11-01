@@ -1,15 +1,15 @@
 # Content pack index
 
 Regenerate: `npm run content-pack:index` (runs `node scripts/content-packs/index.mjs`)
-Generated: 2026-10-30
+Generated: 2026-11-01
 
 One line per pack item, deduped to the highest version per `pack_id`. Format:
 
 `- <id> | <name> | <collection dir> | <category/tags or axis> | <description> | v<version> <lifecycle>`
 
-Totals — 236 items. Visual styles: 60, Lettering styles: 50, Thumbnail recipes: 37, Series formulas: 30, Metadata formulas: 13, Topic packs: 46.
+Totals — 237 items. Visual styles: 61, Lettering styles: 50, Thumbnail recipes: 37, Series formulas: 30, Metadata formulas: 13, Topic packs: 46.
 
-## Visual styles (60)
+## Visual styles (61)
 
 - com.storystudio.style.academic-classical-oil | Academic Classical Oil | royal-history/style/academic-classical-oil | Illustration | The calm in-video scene look for sleep narration — nineteenth-century academic oil painting of marble interiors, draped… | v1.0.0 active
 - com.storystudio.style.academic-classical-oil-v2 | Academic Classical Oil | rebuilt/style/academic-classical-oil-v2-v1.0.1 | Illustration | The calm in-video scene look for sleep narration — nineteenth-century academic oil painting of marble interiors, draped… | v1.0.1 active
@@ -17,7 +17,8 @@ Totals — 236 items. Visual styles: 60, Lettering styles: 50, Thumbnail recipes
 - com.storystudio.style.archival-documentary-reconstruction | Archival Documentary Reconstruction | paid/archival-ledger/style/archival-documentary-reconstruction-v1.0.1 | Realistic | Period-photographic historical reconstructions with restrained sepia monochrome, authentic materials, and aged document… | v1.0.1 active
 - com.storystudio.style.baroque-mythological-sky | Baroque Mythological Sky | baroque-myth/style/baroque-mythological-sky | Illustration | Gods and heroes carried on banks of cloud in the high-baroque manner — long diagonal compositions, drapery billowing in… | v1.0.0 active
 - com.storystudio.style.bold-gory-cartoon | Bold Gory Cartoon | gory-cartoon-history/style/bold-gory-cartoon | Illustration | Thick black outlines and flat saturated fills, one subject per panel on a plain coloured backdrop, faces pushed all the… | v1.0.0 active
-- com.storystudio.style.bold-illustrated-history | Bold Illustrated History | illustrated-history/style/bold-illustrated-history-v1.0.1 | Illustration | Hand-drawn historical illustration built on strong ink outlines and flat, rich colour: detailed landmarks and cityscape… | v1.0.1 active
+- com.storystudio.style.bold-illustrated-history | Bold Illustrated History | illustrated-history/style/bold-illustrated-history-v1.0.2 | Illustration | Hand-drawn historical illustration built on strong ink outlines and flat, rich colour: detailed landmarks and cityscape… | v1.0.2 active
+- com.storystudio.style.bold-line-field-explainer | Bold-Line Field Explainer | standalone-looks/style/bold-line-field-explainer | Illustration | Simple stick figures in dense, flat-coloured places, with smooth black outlines and explanatory devices built into the… | v1.0.0 active
 - com.storystudio.style.carved-woodcut-print | Carved Woodcut Print | custom-looks/style/carved-woodcut-print | Illustration | A hand-pulled relief print: gouged white-line carving, two or three muted inks on off-white handmade paper, and a calm… | v1.0.0 active
 - com.storystudio.style.chinese-ink-wash-storytelling | Chinese Ink-Wash Storytelling | storytelling-looks/style/chinese-ink-wash-storytelling-v1.0.1 | Illustration | Monochrome brush-and-wash storytelling with calligraphic contours, wet blooms, dry-brush texture, and spacious rice-pap… | v1.0.1 active
 - com.storystudio.style.cinematic-historical-illustration | Cinematic Historical Illustration | illustrated-history/style/cinematic-historical-illustration | Illustration | Soft-painted historical storytelling in full colour and natural daylight: human-scale moments, believable places, gentl… | v1.0.0 active

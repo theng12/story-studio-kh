@@ -1,6 +1,6 @@
 {
-  "generated": "2026-10-30T07:22:00.069Z",
-  "count": 236,
+  "generated": "2026-11-01T04:09:44.033Z",
+  "count": 237,
   "items": [
     {
       "kind": "lettering-style",
@@ -1826,10 +1826,20 @@
       "kind": "visual-style",
       "id": "com.storystudio.style.bold-illustrated-history",
       "name": "Bold Illustrated History",
-      "collection_dir": "illustrated-history/style/bold-illustrated-history-v1.0.1",
+      "collection_dir": "illustrated-history/style/bold-illustrated-history-v1.0.2",
       "axis": "Illustration",
       "description": "Hand-drawn historical illustration built on strong ink outlines and flat, rich colour: detailed landmarks and cityscape…",
-      "version": "1.0.1",
+      "version": "1.0.2",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "visual-style",
+      "id": "com.storystudio.style.bold-line-field-explainer",
+      "name": "Bold-Line Field Explainer",
+      "collection_dir": "standalone-looks/style/bold-line-field-explainer",
+      "axis": "Illustration",
+      "description": "Simple stick figures in dense, flat-coloured places, with smooth black outlines and explanatory devices built into the…",
+      "version": "1.0.0",
       "lifecycle": "active"
     },
     {

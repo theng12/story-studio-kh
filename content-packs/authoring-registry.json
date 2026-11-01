@@ -1,5 +1,5 @@
 {
-  "revision": 367,
+  "revision": 369,
   "batches": [
     {
       "revision": 2,
@@ -7350,6 +7350,42 @@
           }
         ]
       }
+    },
+    {
+      "revision": 368,
+      "receipt_ref": "authoring:f10aa5eb19ecb5915b70ff670b54ff03728004f422c0917706539613887a00a5",
+      "request": {
+        "expected_revision": 367,
+        "coordinator": {
+          "task": "20261101 Bold Illustrated History cleaned style text 1.0.2",
+          "branch": "content/bold-illustrated-clean-20261101"
+        },
+        "proposal_ref": "Owner 2026-11-01: the cleaned style text replaces the subject wording in the actual pack as a patch and becomes the default. On Qwen 2.1 Turbo the old wording drew cavalry and banners into canal scenes; three channels already use the cleaned text as their channel style.",
+        "records": [
+          {
+            "pack_id": "com.storystudio.pack.style.bold-illustrated-history",
+            "item_id": "com.storystudio.style.bold-illustrated-history",
+            "version": "1.0.2",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "visual-style",
+            "source_path": "content-packs/illustrated-history/style/bold-illustrated-history-v1.0.2",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.style.bold-illustrated-history",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.style.bold-illustrated-history",
+                "status": "proposed"
+              }
+            }
+          }
+        ]
+      }
     }
   ],
   "transitions": [
@@ -12563,6 +12599,23 @@
         "receipt_ref": "authoring:3f5f65161dd89381a7ccb37ba519524376273ddf4f5e175095dda23f6edc6f68",
         "pack_id": "com.storystudio.pack.style.bold-line-field-explainer",
         "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 369,
+      "transition_ref": "lifecycle:7d6a3e722bd06caf6c11deed0faaf3213e6aca51b4dae0dabe2861ad460bef93",
+      "request": {
+        "expected_revision": 368,
+        "coordinator": {
+          "task": "20261101 Bold Illustrated History cleaned style text 1.0.2",
+          "branch": "content/bold-illustrated-clean-20261101"
+        },
+        "receipt_ref": "authoring:f10aa5eb19ecb5915b70ff670b54ff03728004f422c0917706539613887a00a5",
+        "pack_id": "com.storystudio.pack.style.bold-illustrated-history",
+        "version": "1.0.2",
         "changes": {
           "status": "authored"
         }
@@ -20859,6 +20912,29 @@
         },
         "sku": {
           "id": "com.storystudio.sku.style.bold-line-field-explainer",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:f10aa5eb19ecb5915b70ff670b54ff03728004f422c0917706539613887a00a5",
+      "pack_id": "com.storystudio.pack.style.bold-illustrated-history",
+      "item_id": "com.storystudio.style.bold-illustrated-history",
+      "version": "1.0.2",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "visual-style",
+      "source_path": "content-packs/illustrated-history/style/bold-illustrated-history-v1.0.2",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.style.bold-illustrated-history",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.style.bold-illustrated-history",
           "status": "proposed"
         }
       }

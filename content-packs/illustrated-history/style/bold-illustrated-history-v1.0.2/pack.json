@@ -1,0 +1,15 @@
+{
+  "pack_format": 1,
+  "pack_id": "com.storystudio.pack.style.bold-illustrated-history",
+  "publisher_id": "com.storystudio",
+  "key_id": "{{KEY_ID}}",
+  "version": "1.0.2",
+  "min_app_version": "{{MIN_APP_VERSION}}",
+  "lifecycle": "active",
+  "changelog": "Rewrites the style text so it names a drawing style and no longer names its subjects: the battles, sieges, burning cities, charging figures and raised banners are taken out of the style bible, and the description and tags drop the same subject wording. On Qwen 2.1 Turbo the old wording pulled cavalry and banners into canal and market scenes that had no business containing them. The negative prompt, the compatible formula and the three previews are unchanged.",
+  "entitlement": {
+    "sku": "com.storystudio.sku.style.bold-illustrated-history",
+    "family": "com.storystudio.family.style.bold-illustrated-history"
+  },
+  "dependencies": []
+}
