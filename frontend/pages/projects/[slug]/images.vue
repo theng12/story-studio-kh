@@ -243,6 +243,38 @@
 
     </div>
 
+    <!-- ── Thumbnail scoring (owner, 2026-11-01) ─────────────────────────
+         The automatic pick: score this episode's candidates and choose the
+         strongest. Its failure never stops anything — the board still works,
+         and the thumbnails read "Not scored" with the reason. -->
+    <div v-if="form.episode_id" class="card workspace-section thumbnail-scoring" aria-labelledby="thumbnail-scoring-heading">
+      <div class="thumbnail-scoring-copy">
+        <h3 id="thumbnail-scoring-heading">Thumbnail scoring</h3>
+        <p class="text-muted text-sm">
+          <template v-if="autoPickedThumbnailFilename">
+            {{ autoPickedThumbnailFilename }} was chosen automatically as the strongest thumbnail.
+            Pin a different one on the board to overrule it.
+          </template>
+          <template v-else-if="hasAnyScore">
+            These thumbnails were scored, but none was picked automatically. Pin one on the board to choose it.
+          </template>
+          <template v-else>
+            Story Studio scores this episode's thumbnails for clarity, curiosity and match with the title,
+            then picks the strongest one. You can still pin any thumbnail to overrule it.
+          </template>
+        </p>
+        <p v-if="thumbnailScoreNotice" class="text-muted text-xs">{{ thumbnailScoreNotice }}</p>
+      </div>
+      <button
+        type="button"
+        class="btn btn-secondary"
+        :disabled="thumbnailScoring"
+        @click="scoreThumbnailsNow"
+      >
+        {{ thumbnailScoring ? 'Scoring…' : 'Score thumbnails now' }}
+      </button>
+    </div>
+
     <!-- ── Thumbnail board ────────────────────────────────────────────────
          Lists the episode's thumbnail prompts, shows the rendered image
          inline per row, and exposes per-row Generate / Regenerate buttons.
@@ -260,6 +292,8 @@
       :prompt-char-cap="thumbnailModelInfo.cap"
       :model-label="thumbnailModelInfo.label"
       :pinned-filename="pinnedThumbnailFilename"
+      :auto-picked-filename="autoPickedThumbnailFilename"
+      :scores="thumbnailScores"
       :show-text-layer="thumbnailTextEnabled"
       @open-preview="openLightboxAt"
       @refresh="onPanelRefresh"
@@ -369,9 +403,11 @@
         <p class="text-muted text-sm">
           {{ pinnedThumbnailFilename
             ? `${pinnedThumbnailFilename} is pinned for upload.`
-            : autoThumbnailFilename
-              ? `${autoThumbnailFilename} will be selected automatically for upload.`
-              : 'All thumbnail artwork is ready. Choose one from the board before uploading if you want to pin it.' }}
+            : autoPickedThumbnailFilename
+              ? `${autoPickedThumbnailFilename} was chosen automatically as the strongest thumbnail.`
+              : autoThumbnailFilename
+                ? `${autoThumbnailFilename} will be selected automatically for upload.`
+                : 'All thumbnail artwork is ready. Choose one from the board before uploading if you want to pin it.' }}
         </p>
       </div>
       <button type="button" class="btn btn-primary" @click="navigateTo(`/projects/${slug}/upload`)">
@@ -1001,6 +1037,14 @@ function openLightboxAt(path: string) {
 // scan, so the pin badge stays in sync with the disk view.
 const pinnedThumbnailFilename = ref<string | null>(null)
 const autoThumbnailFilename = ref<string | null>(null)
+// The scores (owner, 2026-11-01) and the file the automatic pick chose.
+const thumbnailScores = ref<Record<string, {
+  state: 'scored' | 'rejected_by_rule' | 'not_scored'
+  score?: number
+  reason?: string
+  text_issue?: string
+}>>({})
+const autoPickedThumbnailFilename = ref<string | null>(null)
 
 async function loadThumbnailPinState() {
   const ep = form.episode_id
@@ -1010,6 +1054,8 @@ async function loadThumbnailPinState() {
   if (!ep) {
     pinnedThumbnailFilename.value = null
     autoThumbnailFilename.value = null
+    thumbnailScores.value = {}
+    autoPickedThumbnailFilename.value = null
     return
   }
   try {
@@ -1019,15 +1065,21 @@ async function loadThumbnailPinState() {
       pinned_missing: boolean
       resolved: string
       auto_pick: string
+      scored_pick?: string
+      scores?: Record<string, any>
     }>(`/projects/${project}/episodes/${ep}/thumbnails?platform=youtube`)
     if (!current()) return
     pinnedThumbnailFilename.value = r.pinned
     autoThumbnailFilename.value = r.auto_pick || null
+    thumbnailScores.value = r.scores || {}
+    autoPickedThumbnailFilename.value = r.scored_pick || null
   } catch {
     if (!current()) return
     // Non-fatal — fall back to "no pin known", grid still renders fine.
     pinnedThumbnailFilename.value = null
     autoThumbnailFilename.value = null
+    thumbnailScores.value = {}
+    autoPickedThumbnailFilename.value = null
   }
 }
 
@@ -1048,6 +1100,39 @@ async function setThumbnailPin(filename: string | null) {
 
 async function toggleThumbnailPin(filename: string) {
   await setThumbnailPin(filename === pinnedThumbnailFilename.value ? null : filename)
+}
+
+// ── Scoring the candidates on demand (owner, 2026-11-01) ─────────────────
+//
+// The same route the Pipeline's scoring job uses. Its failure never stops
+// anything: the button reports what happened and the board still works.
+const thumbnailScoring = ref(false)
+const thumbnailScoreNotice = ref('')
+const hasAnyScore = computed(() => Object.keys(thumbnailScores.value).length > 0)
+
+async function scoreThumbnailsNow() {
+  const code = form.episode_id
+  if (!code || thumbnailScoring.value) return
+  thumbnailScoring.value = true
+  thumbnailScoreNotice.value = ''
+  try {
+    const r = await post<{ picked: string; summary: string; not_scored: boolean }>(
+      `/projects/${slug.value}/episodes/${code}/thumbnail-scores`,
+      {},
+    )
+    thumbnailScoreNotice.value = r.summary || ''
+    if (r.not_scored) {
+      showInfo(r.summary || 'The thumbnails were not scored.')
+    } else {
+      success(r.summary || 'Thumbnails scored.')
+    }
+    await loadThumbnailPinState()
+  } catch (e: any) {
+    thumbnailScoreNotice.value = e?.data?.detail || e?.message || 'The thumbnails could not be scored.'
+    showError(thumbnailScoreNotice.value)
+  } finally {
+    thumbnailScoring.value = false
+  }
 }
 
 async function onLightboxPinToggle(payload: { filename: string; pin: boolean }) {
@@ -1591,6 +1676,20 @@ async function submit() {
 .thumbnail-handoff p { margin: 0; max-width: 720px; }
 @media (max-width: 720px) {
   .thumbnail-handoff { align-items: stretch; flex-direction: column; }
+}
+
+.thumbnail-scoring {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+}
+.thumbnail-scoring-copy { min-width: 0; }
+.thumbnail-scoring h3 { margin: 0 0 4px; }
+.thumbnail-scoring p { margin: 0; max-width: 720px; }
+.thumbnail-scoring p + p { margin-top: 6px; }
+@media (max-width: 720px) {
+  .thumbnail-scoring { align-items: stretch; flex-direction: column; }
 }
 
 .help-note {

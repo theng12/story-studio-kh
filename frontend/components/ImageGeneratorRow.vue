@@ -81,6 +81,16 @@
       >
         {{ pinnedForUpload ? 'Pinned for Upload' : 'Pin for Upload' }}
       </button>
+      <!-- The score this picture got, and why. Plain words: a number when one
+           was measured, "Not scored" when it was not, and the model's own
+           reason either way. -->
+      <span
+        v-if="score"
+        :class="['igr-score', `igr-score-${score.state}`, { 'is-picked': autoPicked }]"
+        :title="scoreTitle"
+      >
+        {{ scoreLabel }}
+      </span>
       <!-- Add text: only present when the channel has the thumbnail text layer
            switched on. It opens the editor against THIS rendered file, so the
            headline is drawn onto a copy and the artwork itself is never changed. -->
@@ -94,6 +104,10 @@
         Add text
       </button>
     </div>
+
+    <!-- The reason, in one line under the row. Never hidden: a score without
+         its reason is a number nobody can act on. -->
+    <div v-if="score && scoreReason" class="igr-score-reason">{{ scoreReason }}</div>
 
     <div v-if="expanded" class="igr-prompt">{{ row.prompt }}</div>
     <div v-if="error" class="igr-error" :title="error">⚠ {{ error }}</div>
@@ -132,6 +146,20 @@ const props = defineProps<{
   paid?: boolean
   /** Channel has the thumbnail text layer on — shows the Add text button. */
   showTextLayer?: boolean
+  /**
+   * This picture's score (owner, 2026-11-01).
+   *
+   * `state` is `scored`, `rejected_by_rule` or `not_scored` — never a bare
+   * number, because "no score" and "a score of zero" are different facts.
+   */
+  score?: {
+    state: 'scored' | 'rejected_by_rule' | 'not_scored'
+    score?: number
+    reason?: string
+    text_issue?: string
+  } | null
+  /** True when this picture is the automatic pick. */
+  autoPicked?: boolean
 }>()
 
 defineEmits<{
@@ -162,6 +190,43 @@ const statusVariant = computed<'busy' | 'error' | 'done' | 'empty'>(() => {
   if (props.error) return 'error'
   if (props.imagePath) return 'done'
   return 'empty'
+})
+
+// ── The score (owner, 2026-11-01) ─────────────────────────────────────────
+//
+// Plain words on purpose. A score is shown as a number WITH the model's own
+// reason; a picture that was not measured says "Not scored" and says why.
+// A picture a local rule set aside says so too — it was not judged by the
+// model, so it has no model score to show.
+
+const scoreLabel = computed(() => {
+  const entry = props.score
+  if (!entry) return ''
+  if (entry.state === 'scored') {
+    const number = typeof entry.score === 'number' ? entry.score : null
+    return number === null ? 'Scored' : `Score ${number}`
+  }
+  if (entry.state === 'rejected_by_rule') return 'Set aside'
+  return 'Not scored'
+})
+
+/** The model's reason, plus any text problem it reported. */
+const scoreReason = computed(() => {
+  const entry = props.score
+  if (!entry) return ''
+  const parts: string[] = []
+  if (entry.reason) parts.push(entry.reason)
+  if (entry.text_issue) parts.push(`Text: ${entry.text_issue}`)
+  return parts.join(' — ')
+})
+
+/** The tooltip: the same words, with the reason shown in full. */
+const scoreTitle = computed(() => {
+  const entry = props.score
+  if (!entry) return ''
+  const picked = props.autoPicked ? ' Chosen automatically for upload.' : ''
+  if (!entry.reason && !entry.text_issue) return picked.trim()
+  return `${scoreReason.value}${picked}`
 })
 
 const actionTitle = computed(() => {
@@ -285,6 +350,46 @@ const charBadgeTooltip = computed(() => {
   border-color: var(--accent);
   color: var(--accent);
   background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+/* The score badge. One quiet register: the number when a model gave one,
+   plain words when it did not. */
+.igr-score {
+  flex: 0 0 auto;
+  font-size: var(--font-xs);
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 3px;
+  white-space: nowrap;
+  border: 1px solid transparent;
+}
+.igr-score-scored {
+  color: rgb(21, 128, 61);
+  background: rgba(34, 197, 94, 0.10);
+  border-color: rgba(34, 197, 94, 0.25);
+}
+.igr-score-rejected_by_rule {
+  color: rgb(161, 98, 7);
+  background: rgba(234, 179, 8, 0.12);
+  border-color: rgba(234, 179, 8, 0.30);
+}
+.igr-score-not_scored {
+  color: var(--text-muted);
+  background: var(--bg-tertiary);
+  border-color: var(--border);
+}
+/* The automatic pick. The accent ring is the only thing that says "chosen",
+   so it reads at a glance without a louder badge. */
+.igr-score.is-picked {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+.igr-score-reason {
+  margin-top: 6px;
+  font-size: var(--font-xs);
+  line-height: 1.45;
+  color: var(--text-secondary);
 }
 
 .igr-chars {

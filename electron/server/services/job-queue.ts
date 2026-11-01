@@ -1671,6 +1671,9 @@ const queues: Record<JobType, QueueState> = {
   // narration job and can be cancelled on its own.
   still_post_write: { pending: [], running: false, executor: null },
   still_post_render: { pending: [], running: false, executor: null },
+  // Thumbnail scoring (owner 2026-11-01). Its own lane: it must never hold up
+  // a thumbnail render, and a scoring run that fails never fails the episode.
+  thumbnail_score: { pending: [], running: false, executor: null },
 }
 
 /**
@@ -8028,6 +8031,7 @@ export const EPISODE_CODE_JOB_TYPES: ReadonlySet<JobType> = new Set<JobType>([
   'scene_image_generate', 'scene_clip_generate', 'scene_clips_batch', 'continuity_render',
   'composition_generate', 'contextual_cues', 'translate_episode',
   'music_video', 'music_episode_build', 'music_scene_polish',
+  'thumbnail_score',
 ])
 
 /**

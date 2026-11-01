@@ -1617,6 +1617,14 @@ export async function getSafeConfig(slug: string): Promise<any | null> {
     thumbnail_text_layer_enabled: typeof (config as any).thumbnail_text_layer_enabled === 'boolean'
       ? (config as any).thumbnail_text_layer_enabled
       : undefined,
+    // Thumbnail scoring (owner, 2026-11-01). The channel's switch and its
+    // SELECTION of a vision model. An allow-list read, like the toggles above:
+    // without an entry the saved choice would be invisible on the next read
+    // and the page would show its own default. Absent means "on, no model
+    // named" — the service resolves the default, never this response.
+    thumbnail_auto_pick: ((config as any).thumbnail_auto_pick && typeof (config as any).thumbnail_auto_pick === 'object')
+      ? (config as any).thumbnail_auto_pick
+      : undefined,
     branded_opening_duration_sec: typeof (config as any).branded_opening_duration_sec === 'number'
       ? (config as any).branded_opening_duration_sec
       : undefined,

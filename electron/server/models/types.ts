@@ -2276,6 +2276,20 @@ export interface ProjectConfig {
    * routes still work: the page decides what to show, the server never gates on this.
    */
   thumbnail_text_layer_enabled?: boolean
+  /**
+   * Thumbnail scoring (owner, 2026-11-01) — score the episode's thumbnail
+   * candidates and pick the best one automatically.
+   *
+   * `enabled` is ON by default: the owner approved this as the default
+   * behaviour. `model` is the channel's SELECTION of a free, vision-capable
+   * Gateway chat product; every capability, price and limit behind it is read
+   * live from the catalogue on every run (AGENTS §1). No model named means the
+   * thumbnails read "not scored" — Story Studio never picks one for the owner.
+   */
+  thumbnail_auto_pick?: {
+    enabled?: boolean
+    model?: string
+  }
   /** 1.4.300 — per-channel Off / Warn / Block for each safety check; only changed rows are saved. */
   safety_checks?: Record<string, 'off' | 'warn' | 'block'>
   /**
@@ -2697,6 +2711,8 @@ export const JOB_TYPES = [
   'still_post_write',
   /** Still Posts: draw the missing artwork with reference to image, then burn in text/handle/logo. */
   'still_post_render',
+  /** Score an episode's thumbnail candidates and pick the best (owner 2026-11-01). Optional; spends nothing by default. */
+  'thumbnail_score',
 ] as const
 
 export type JobType = typeof JOB_TYPES[number]

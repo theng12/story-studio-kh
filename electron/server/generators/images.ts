@@ -2071,4 +2071,25 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
   // they can see both scene + thumbnail folders side-by-side. Otherwise
   // drop them straight into the specific folder that just got populated.
   job.output_dir = mode === 'scenes' ? bgDir : mode === 'thumbs' ? thumbDir : resolvedEpDir
+
+  // Thumbnail scoring (owner 2026-11-01): after the thumbnails are VERIFIED
+  // done, queue the scoring as its own OPTIONAL job. It never fails this job
+  // and never holds an upload — a scoring run that cannot score records
+  // "not scored" and finishes.
+  if (mode === 'thumbs' && !req.thumb_number) {
+    try {
+      const scoring = await jq.enqueue({
+        project_slug,
+        episode_id,
+        type: 'thumbnail_score',
+        title: `Thumbnail scoring — ${episode_id}`,
+        params: { episode_id },
+      })
+      job.output_lines.push(`→ Queued thumbnail scoring (${scoring.job_id}). It picks the best candidate and never holds this episode up.`)
+    } catch (error: any) {
+      // A scoring job that could not be queued is a note, never a failure of
+      // the thumbnails themselves (AGENTS §8).
+      job.output_lines.push(`Thumbnail scoring was not queued (${error?.message || 'unknown error'}). The thumbnails are unaffected.`)
+    }
+  }
 }

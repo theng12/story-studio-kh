@@ -1190,6 +1190,43 @@
         </p>
         <span v-if="thumbnailTextSaveMessage" class="text-muted" style="font-size: var(--font-xs)">{{ thumbnailTextSaveMessage }}</span>
       </div>
+
+      <!-- Thumbnail scoring — owner-approved 2026-11-01. On by default.
+           Saves straight to config on change, like the two switches above. -->
+      <div class="form-group" data-setting="thumbnail-auto-pick">
+        <label>Automatic thumbnail choice</label>
+        <label class="thumbnail-text-toggle">
+          <input
+            v-model="thumbnailAutoPickEnabled"
+            type="checkbox"
+            :disabled="thumbnailAutoPickSaving"
+          />
+          Score this channel's thumbnails and pick the strongest one
+        </label>
+        <p class="settings-hint">
+          Story Studio looks at each thumbnail, scores it for clarity, curiosity and how well it matches
+          the title, then picks the best one for upload. You can still pin a thumbnail to overrule it.
+          If scoring cannot run, nothing is chosen and the newest thumbnail is used as before.
+        </p>
+        <div class="thumbnail-auto-pick-model">
+          <ModelMenu
+            :model-value="thumbnailAutoPickModel"
+            :options="thumbnailAutoPickModels"
+            media-type="llm"
+            title="Choose the model that scores thumbnails"
+            placeholder="No model chosen"
+            search-placeholder="Search vision models…"
+            aria-label="Thumbnail scoring model options"
+            :loading="thumbnailAutoPickModelsLoading"
+            @update:model-value="chooseThumbnailAutoPickModel"
+          />
+        </div>
+        <p class="settings-hint">
+          A free model that can read pictures. Story Studio does not choose one for you — without a model
+          the thumbnails are simply not scored.
+        </p>
+        <span v-if="thumbnailAutoPickSaveMessage" class="text-muted" style="font-size: var(--font-xs)">{{ thumbnailAutoPickSaveMessage }}</span>
+      </div>
           </section>
 
           <CollapsibleCard title="Writing instructions" description="Channel guidance and intro rules, with reusable presets" data-setting="writing-instructions">
@@ -4260,6 +4297,90 @@ watch(thumbnailTextLayerEnabled, async next => {
     thumbnailTextSaving.value = false
   }
 })
+
+// ── Thumbnail scoring switch (owner-approved 2026-11-01) ─────────────────
+//
+// ON by default: the owner approved this as the default behaviour. The model
+// is the channel's own CHOICE — Story Studio never picks one for the owner,
+// so the field stays empty until it is chosen (AGENTS §1).
+const thumbnailAutoPickEnabled = ref(true)
+const thumbnailAutoPickModel = ref('')
+const thumbnailAutoPickSaving = ref(false)
+const thumbnailAutoPickSaveMessage = ref('')
+const thumbnailAutoPickModelsLoading = ref(false)
+const thumbnailAutoPickModels = ref<Array<{ id: string; label: string; provider?: string; meta?: string }>>([])
+let thumbnailAutoPickInitialized = false
+let thumbnailAutoPickRollback = false
+
+watch(() => (config.value as any)?.thumbnail_auto_pick, value => {
+  if (thumbnailAutoPickSaving.value) return
+  thumbnailAutoPickRollback = true
+  const body = (value && typeof value === 'object') ? value : {}
+  thumbnailAutoPickEnabled.value = body.enabled !== false
+  thumbnailAutoPickModel.value = typeof body.model === 'string' ? body.model : ''
+  thumbnailAutoPickInitialized = true
+}, { immediate: true })
+
+watch(thumbnailAutoPickEnabled, async next => {
+  if (thumbnailAutoPickRollback) { thumbnailAutoPickRollback = false; return }
+  if (!thumbnailAutoPickInitialized || thumbnailAutoPickSaving.value) return
+  await saveThumbnailAutoPick({ enabled: next })
+})
+
+async function saveThumbnailAutoPick(patch: Record<string, unknown>): Promise<void> {
+  const targetSlug = slug.value
+  thumbnailAutoPickSaving.value = true
+  thumbnailAutoPickSaveMessage.value = 'Saving…'
+  try {
+    const existing = ((config.value as any)?.thumbnail_auto_pick || {}) as Record<string, unknown>
+    await put(`/projects/${targetSlug}/settings/config`, {
+      thumbnail_auto_pick: { ...existing, ...patch },
+    })
+    if (slug.value !== targetSlug) return
+    await refreshConfig(targetSlug)
+    thumbnailAutoPickSaveMessage.value = patch.model
+      ? 'The scoring model was saved for this channel.'
+      : (patch.enabled
+        ? 'Automatic thumbnail choice is on for this channel.'
+        : 'Automatic thumbnail choice is off for this channel.')
+    setTimeout(() => { thumbnailAutoPickSaveMessage.value = '' }, 2500)
+  } catch (e: any) {
+    if (slug.value !== targetSlug) return
+    thumbnailAutoPickSaveMessage.value = e?.data?.detail || e?.message || 'Failed to save the thumbnail scoring setting'
+    thumbnailAutoPickRollback = true
+    thumbnailAutoPickEnabled.value = !patch.enabled
+  } finally {
+    thumbnailAutoPickSaving.value = false
+  }
+}
+
+async function loadThumbnailAutoPickModels(): Promise<void> {
+  const project = slug.value
+  if (!project) return
+  thumbnailAutoPickModelsLoading.value = true
+  try {
+    const data = await get<{ models?: Array<{ id: string; display_name: string; provider_name?: string }> }>(
+      `/projects/${project}/thumbnail-scores/vision-models`,
+    )
+    thumbnailAutoPickModels.value = (data?.models || []).map(row => ({
+      id: row.id,
+      label: row.display_name || row.id,
+      provider: row.provider_name,
+      meta: 'Free · can read pictures',
+    }))
+  } catch {
+    thumbnailAutoPickModels.value = []
+  } finally {
+    thumbnailAutoPickModelsLoading.value = false
+  }
+}
+
+async function chooseThumbnailAutoPickModel(modelId: string): Promise<void> {
+  await saveThumbnailAutoPick({ model: modelId || undefined })
+}
+
+onMounted(() => { void loadThumbnailAutoPickModels() })
+watch(slug, () => { void loadThumbnailAutoPickModels() })
 
 // Confirmation preferences
 // `group: 'generation'` → action-only dialogs before generation begins.

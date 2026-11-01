@@ -13,6 +13,8 @@ import { getImagesReconcileStatus, reconcileImages } from '../services/image-rec
 import { settleCompletedFailures } from '../services/stale-failures.js'
 import { resolveEpisodePaths } from '../services/utils.js'
 import { readSelectedThumbnail, writeSelectedThumbnail, resolveOverrideEpisodePaths } from '../services/upload-overrides.js'
+import { sortByNewestVersion } from '../lib/upload-metadata.js'
+import { readThumbnailScoreRecord, thumbnailAutoPickEnabled } from '../services/thumbnail-scoring.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 import { freshActionMatch } from '../lib/fresh-generation-action.js'
 import { noThumbnailModelMessage, resolveThumbnailModel } from '../services/thumbnail-presets.js'
@@ -318,8 +320,10 @@ router.get('/projects/:slug/episodes/:code/thumbnails', async (req, res) => {
       }
       // Sort matches the Images-page render order (auto-pick = first
       // entry after sort), so the picker grid + auto-resolve preview
-      // line up visually.
-      files.sort((a, b) => versionOf(b.filename) - versionOf(a.filename) || b.filename.localeCompare(a.filename))
+      // line up visually. The rule itself lives with the uploader, so the
+      // picker and the upload can never disagree about which file is newest.
+      const order = sortByNewestVersion(files.map(file => file.filename))
+      files.sort((a, b) => order.indexOf(a.filename) - order.indexOf(b.filename))
     }
 
     const pinned = await readSelectedThumbnail(slug, code, fallbackTitle, platform as any)
@@ -328,11 +332,24 @@ router.get('/projects/:slug/episodes/:code/thumbnails', async (req, res) => {
       if (idx >= 0) files[idx]!.is_pinned = true
     }
 
-    // What the resolver WILL pick (pinned wins if it still exists,
-    // otherwise the first file post-sort = auto-pick).
+    // The scores for this episode, and the scored pick among them. Read from
+    // this episode's OWN record beside its thumbnails — never another
+    // episode's (§4). The switch decides whether a scored pick is live: with
+    // the switch off, today's newest-version rule stands and the page must
+    // not claim a picture was chosen automatically.
+    const scoreRecord = await readThumbnailScoreRecord(paths.episode_dir, code)
+    const autoPickLive = thumbnailAutoPickEnabled(await pm.getConfig(slug))
+    const scoredPick = (autoPickLive && scoreRecord.pick?.basis === 'score')
+      ? scoreRecord.pick.filename
+      : ''
+
+    // What the resolver WILL pick (a human pin wins if it still exists, then
+    // the scored pick, then the first file post-sort = auto-pick).
     let resolved = ''
     if (pinned && files.some(f => f.filename === pinned)) {
       resolved = pinned
+    } else if (scoredPick && files.some(f => f.filename === scoredPick)) {
+      resolved = scoredPick
     } else if (files.length > 0) {
       resolved = files[0]!.filename
     }
@@ -343,6 +360,8 @@ router.get('/projects/:slug/episodes/:code/thumbnails', async (req, res) => {
       pinned_missing: !!(pinned && !files.some(f => f.filename === pinned)),
       resolved,
       auto_pick: files[0]?.filename || '',
+      scored_pick: scoredPick,
+      scores: scoreRecord.candidates || {},
     })
   } catch (e: any) {
     // A refusal from the shared resolver — more than one folder for this
@@ -399,13 +418,3 @@ router.post('/projects/:slug/episodes/:code/thumbnails/pin', async (req, res) =>
     res.status(500).json(humanizeBackendError(e, 'Failed to pin thumbnail'))
   }
 })
-
-/**
- * Mirrors the resolver in lib/upload-metadata.ts. Pulls the `_v{N}`
- * version off a thumbnail filename so the picker can sort by version
- * the same way uploads will. Returns 0 when no `_v{N}` suffix is found.
- */
-function versionOf(filename: string): number {
-  const m = /_v(\d+)/.exec(filename)
-  return m ? parseInt(m[1]!, 10) : 0
-}

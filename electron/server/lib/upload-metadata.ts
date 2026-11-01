@@ -106,9 +106,9 @@ export async function listUploadThumbnails(input: ResolveUploadMetadataInput): P
   )
   if (!existsSync(paths.thumb_dir)) return []
 
-  const filenames = (await fsp.readdir(paths.thumb_dir))
-    .filter(filename => /\.(png|jpe?g)$/i.test(filename))
-    .sort((a, b) => versionOf(b) - versionOf(a) || b.localeCompare(a))
+  const filenames = sortByNewestVersion(
+    (await fsp.readdir(paths.thumb_dir)).filter(filename => /\.(png|jpe?g)$/i.test(filename)),
+  )
 
   let pinned = ''
   const overridesPath = path.join(paths.episode_dir, OVERRIDES_FILENAME)
@@ -156,6 +156,54 @@ export async function stalePinnedTextLayer(input: ResolveUploadMetadataInput): P
   } catch { return null }
   if (!pinned || !existsSync(path.join(paths.thumb_dir, pinned))) return null
   return await assertVariantUploadable(pinned, paths.thumb_dir)
+}
+
+/**
+ * The scored pick for this episode, when one is usable.
+ *
+ * `undefined` means "no scored pick" — the caller falls back to today's
+ * newest-version rule. A scored pick is used only when ALL of these hold:
+ *
+ *   - the channel's auto-pick switch is on,
+ *   - the record names a pick whose basis was the SCORE (a pin was already
+ *     honoured, and a newest-version fallback is today's rule, not a pick),
+ *   - the scored file is still one of this episode's own candidates,
+ *   - the file's CONTENT HASH still matches the one that was scored — a
+ *     regenerated or edited picture's score is stale, so it is not used.
+ *
+ * The record is this episode's own sidecar, resolved through the SAME folder
+ * resolver every other reader uses, so one episode's scores can never reach
+ * another (§4).
+ */
+export async function scoredThumbnailPick(
+  input: ResolveUploadMetadataInput,
+  options: UploadThumbnailOption[],
+): Promise<UploadThumbnailOption | undefined> {
+  try {
+    const { readChannelConfig } = await import('./optional-steps.js')
+    const { thumbnailAutoPickEnabled, readThumbnailScoreRecord, thumbnailFileHash } =
+      await import('../services/thumbnail-scoring.js')
+    const config = readChannelConfig(input.slug)
+    if (!config || !thumbnailAutoPickEnabled(config)) return undefined
+    const platform = input.platform || 'youtube'
+    const paths = await resolveOverrideEpisodePaths(
+      input.slug, input.episode_code, input.fallback_title || '', platform,
+    )
+    const record = await readThumbnailScoreRecord(paths.episode_dir, input.episode_code)
+    const pick = record.pick
+    if (!pick || pick.basis !== 'score') return undefined
+    const option = options.find(item => item.filename === pick.filename)
+    if (!option) return undefined
+    const entry = record.candidates?.[pick.filename]
+    if (!entry?.sha256) return undefined
+    const hash = await thumbnailFileHash(option.path).catch(() => '')
+    if (!hash || hash !== entry.sha256) return undefined
+    return option
+  } catch {
+    // A scoring record that cannot be read is no scored pick. The upload
+    // falls back to the newest-version rule and nothing else changes.
+    return undefined
+  }
 }
 
 export async function resolveUploadMetadata(input: ResolveUploadMetadataInput): Promise<EpisodeMetadataForUpload> {
@@ -334,13 +382,18 @@ export async function resolveUploadMetadata(input: ResolveUploadMetadataInput): 
     title = input.fallback_title || input.episode_code
   }
 
-  // Resolve the thumbnail file. Two-tier:
+  // Resolve the thumbnail file. Three-tier (owner, 2026-11-01):
   //   1. Pinned (per-platform `selected_thumbnail` in
   //      upload_metadata_overrides.json, set via the Images-page picker
-  //      in v1.0.41+). Wins if the pinned filename still exists on disk.
-  //   2. Auto-pick: highest `_v{N}` version, lex-desc tie-break. Files
+  //      in v1.0.41+). Wins if the pinned filename still exists on disk, and
+  //      is NEVER overwritten by a score.
+  //   2. Scored pick: the highest-scoring candidate from this episode's own
+  //      score record, when the channel's auto-pick switch is on and the
+  //      scored file's content hash still matches (a regenerated picture's
+  //      score is stale, so it is not used).
+  //   3. Auto-pick: highest `_v{N}` version, lex-desc tie-break. Files
   //      follow `{code}_Thumb{NN}_v{V}.png` or similar.
-  // The auto rule preserves pre-v1.0.41 behaviour for episodes the user
+  // Tiers 2 and 3 preserve pre-v1.0.41 behaviour for episodes the user
   // never touched the picker for, so installs upgrade silently.
   let thumbnailPath = ''
   if (input.thumbnail_filename === undefined) {
@@ -366,7 +419,14 @@ export async function resolveUploadMetadata(input: ResolveUploadMetadataInput): 
       }
       thumbnailPath = exact.path
     } else {
-      thumbnailPath = (options.find(option => option.is_pinned) || options[0])?.path || ''
+      // The order is the owner's: a HUMAN PIN ALWAYS WINS, then the scored
+      // pick, then today's newest-version rule. The scored pick is only used
+      // when this channel's auto-pick switch is on AND the scored file's
+      // content hash still matches — a regenerated picture's score is stale,
+      // so it is not used (§4: episode state must not survive a change).
+      const pinned = options.find(option => option.is_pinned)
+      const scored = pinned ? undefined : await scoredThumbnailPick(input, options)
+      thumbnailPath = (pinned || scored || options[0])?.path || ''
     }
   } catch (error) {
     // Explicit choices are a completion contract: never silently replace the
@@ -448,6 +508,19 @@ function pickUsableTitle(candidates: string[]): string {
 function versionOf(filename: string): number {
   const m = filename.match(/_v(\d+)\./i)
   return m ? parseInt(m[1], 10) : 0
+}
+
+/**
+ * Today's newest-version rule, as ONE function.
+ *
+ * Highest `_v{N}` first, then lexicographic descending — the order
+ * `listUploadThumbnails` puts the files in, and the order the upload takes
+ * when nothing else chose. Exported so every other reader of "which file
+ * would the upload pick" applies the SAME rule instead of carrying its own
+ * copy: a second copy is how the picker and the uploader drift apart.
+ */
+export function sortByNewestVersion(filenames: string[]): string[] {
+  return filenames.slice().sort((a, b) => versionOf(b) - versionOf(a) || b.localeCompare(a))
 }
 
 // ── snippetFromMeta sanitization ──────────────────────────────────────────
