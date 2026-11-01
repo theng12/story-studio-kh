@@ -131,9 +131,9 @@ function context(imagePath: string, sketchSettings = settings(null)) {
   return { slug: 'channel', episodeId: 'EP001', episodeDir: dir, imagePath, sketchSettings, revealScenes: ['scene-1'] }
 }
 
-test('version-4 clips — every clip accepted before this change — stay fresh under helper 5', async () => {
+test('version-4 and version-5 clips — every clip accepted before this change — stay fresh under helper 6', async () => {
   const file = await still()
-  for (const helper_version of [4, 5]) {
+  for (const helper_version of [4, 5, 6]) {
     const receipt = { ...scene().clip_sketch, helper_version, reveal_type: 'line' as SketchRevealType }
     assert.equal(await sceneClipStaleReason(scene({ clip_sketch: receipt }), context(file, settings({ style: 'line', mix: [] }))), null,
       `helper ${helper_version} line clip stays fresh while the episode renders Line`)
@@ -141,7 +141,7 @@ test('version-4 clips — every clip accepted before this change — stay fresh 
     assert.equal(await sceneClipStaleReason(scene({ clip_sketch: legacy }), context(file, settings(null))), null,
       'a clip that recorded no type keeps the reveal it was made with')
   }
-  assert.deepEqual([...SKETCH_DRAW_COMPATIBLE_HELPER_VERSIONS], [2, 3, 4, 5])
+  assert.deepEqual([...SKETCH_DRAW_COMPATIBLE_HELPER_VERSIONS], [2, 3, 4, 5, 6])
   assert.ok(SKETCH_DRAW_COMPATIBLE_HELPER_VERSIONS.includes(NATIVE_SCENE_CLIP_VERSION))
   assert.match((await sceneClipStaleReason(scene({ clip_sketch: { ...scene().clip_sketch, helper_version: 1 } }), context(file, settings(null))))!, /renderer/)
 })
@@ -192,13 +192,25 @@ const helper = process.platform === 'darwin' && process.arch === 'arm64' ? resol
 const FF = spawnSync('ffmpeg', ['-version']).status === 0 ? 'ffmpeg' : null
 const realTest = helper && FF ? test : test.skip
 
-/** What the version-4 helper produced for this exact fixture: decoded-frame hashes, per reveal. */
-const GOLDEN_V4: Record<string, string> = {
-  line: '9270b8dc25b0bebdd368c372ac0bcbc3',
-  buildup: '8d89ee61ada7d97d33e8f94823dd8fef',
-  swipes: '06f5ca914c408ba33e740cd4cae0a722',
-  patches: '711f49667a2b797c62dbc4f2c3739031',
-  bloom: 'c4a51eb64dabe55e51348fa4c11821e1',
+/**
+ * What the version-6 helper produces for this exact fixture: decoded-frame hashes, per reveal.
+ *
+ * The version-4 helper's golden pinned every frame, which was right while every reveal ended on
+ * its drawing. Version 6 gives every reveal a closing dissolve, so the closing frames differ by
+ * design; the frames before the dissolve are pinned separately in sketch-finish.test.ts, which
+ * proves the approved look is unchanged up to that point.
+ *
+ * These are rendered at quality 1.0 on purpose. At the app's own quality (0.7) the H.264 encoder
+ * is not bit-exact when other encoders run at the same time — a pre-existing property of the
+ * encoder, measured — so a frame-hash golden there flakes under the test pool. At 1.0 the same
+ * render is bit-exact every time.
+ */
+const GOLDEN_V6: Record<string, string> = {
+  line: '317bb80975d88721b507ee896bad401a',
+  buildup: '7ecc9c86640a80351cb7d0fe7675fc55',
+  swipes: '6c0f285b36f231b332d30b90a79454c7',
+  patches: '5ec7f06db7118a83c2ad7c182abadb6a',
+  bloom: 'af9e437a0e251f685484e28cfa38cc17',
 }
 
 const W = 640, H = 360, FPS = 12, FRAMES = 12, HOLD = 3
@@ -233,7 +245,7 @@ after(async () => { if (work) await fs.rm(work, { recursive: true, force: true }
 async function render(name: string, reveal: SketchDrawJob['reveal'], mask?: string): Promise<string> {
   const output = path.join(work, `${name}.mp4`)
   await renderSketchDraw({ kind: 'sketch', input: sourcePath, output, width: W, height: H, fps: FPS,
-    frames: FRAMES, hold_frames: HOLD, paper: '#ffffff', pen: { mode: 'none' }, reveal, ...(mask ? { mask } : {}) })
+    frames: FRAMES, hold_frames: HOLD, paper: '#ffffff', pen: { mode: 'none' }, reveal, quality: 1, ...(mask ? { mask } : {}) })
   return output
 }
 
@@ -264,13 +276,13 @@ function difference(a: Buffer, b: Buffer): { mean: number; p99: number } {
   return { mean: sum / a.length, p99 }
 }
 
-realTest('the five approved reveals decode exactly as the version-4 helper\'s clips did', async () => {
-  for (const [reveal, golden] of Object.entries(GOLDEN_V4)) {
+realTest('the five approved reveals decode exactly as the version-6 helper\'s clips did', async () => {
+  for (const [reveal, golden] of Object.entries(GOLDEN_V6)) {
     const file = await render(`golden-${reveal}`, reveal as SketchDrawJob['reveal'])
     const digests = frameDigests(file)
     assert.equal(digests.length, FRAMES, `${reveal}: the frame budget is structural`)
     assert.equal(createHash('md5').update(digests.join('\n')).digest('hex'), golden,
-      `${reveal} must decode frame-for-frame as helper 4 did (golden recorded from helper 4 on this fixture)`)
+      `${reveal} must decode frame-for-frame as helper 6 did (golden recorded from helper 6 on this fixture)`)
   }
 })
 
@@ -302,7 +314,7 @@ async function renderCapturing(name: string, mask?: string): Promise<{ digests: 
   const output = path.join(work, `${name}.mp4`)
   let stderr = ''
   await renderSketchDraw({ kind: 'sketch', input: sourcePath, output, width: W, height: H, fps: FPS,
-    frames: FRAMES, hold_frames: HOLD, paper: '#ffffff', pen: { mode: 'none' }, reveal: 'colour', ...(mask ? { mask } : {}) },
+    frames: FRAMES, hold_frames: HOLD, paper: '#ffffff', pen: { mode: 'none' }, reveal: 'colour', quality: 1, ...(mask ? { mask } : {}) },
     { run: async (_placeholder, jobPath) => {
       // The seam's path is a placeholder; the real helper is the one under test.
       const result = spawnSync(helper!, ['--job', jobPath], { encoding: 'utf8' })

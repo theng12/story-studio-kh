@@ -273,7 +273,7 @@ describe('the hold in settings and freshness', () => {
   })
 
   test('version-2 clips (old 15% hold) stay fresh under every hold setting until they are regenerated', async () => {
-    assert.deepEqual([...version.SKETCH_DRAW_COMPATIBLE_HELPER_VERSIONS], [2, 3, 4, 5])
+    assert.deepEqual([...version.SKETCH_DRAW_COMPATIBLE_HELPER_VERSIONS], [2, 3, 4, 5, 6])
     const slug = await channel('Legacy v2')
     const ep = await episode(slug, 'EP001')
     const legacy = await renderedNow(slug, 'EP001', 8)
@@ -288,9 +288,9 @@ describe('the hold in settings and freshness', () => {
     assert.equal(await reason(slug, ep, noHold), 'stale closing hold')
     // Versions outside the compatible list are still a stale renderer.
     assert.match((await reason(slug, ep, { ...legacy, clip_sketch: { ...legacy.clip_sketch, helper_version: 1 } }))!, /renderer/)
-    // Helper 5 is the current version (it added the Colour it in reveal) and IS compatible;
+    // Helper 6 is the current version (it gave every reveal a closing dissolve) and IS compatible;
     // a version this build does not know is the stale renderer.
-    assert.match((await reason(slug, ep, { ...legacy, clip_sketch: { ...legacy.clip_sketch, helper_version: 6 } }))!, /renderer/)
+    assert.match((await reason(slug, ep, { ...legacy, clip_sketch: { ...legacy.clip_sketch, helper_version: 7 } }))!, /renderer/)
   })
 
   test("an episode's own hold overrides the channel default, and each stales only itself", async () => {

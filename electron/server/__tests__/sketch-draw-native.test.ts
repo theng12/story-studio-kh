@@ -21,7 +21,7 @@ async function scratch(t: { after: (fn: () => Promise<void>) => void }) {
 }
 
 test('Sketch Draw job has exact integer frames and accepts the four pen modes and supported frame rates', () => {
-  assert.equal(NATIVE_SCENE_CLIP_VERSION, 5)
+  assert.equal(NATIVE_SCENE_CLIP_VERSION, 6)
   for (const fps of [24, 25, 30, 60]) {
     for (const pen of [{ mode: 'none' }, { mode: 'plain' }, { mode: 'name', text: 'Channel Name' }, { mode: 'logo', logo: '/profile/logo.webp' }] as SketchDrawJob['pen'][]) {
       assert.doesNotThrow(() => validateSketchDrawJob({ ...base, fps, pen }))
@@ -129,7 +129,7 @@ test('closing hold is min(2.5 s, half the clip) with the documented tiny-clip de
 })
 
 test('version-2 and version-3 Sketch Draw clips stay valid renders for freshness', () => {
-  assert.deepEqual([...SKETCH_DRAW_COMPATIBLE_HELPER_VERSIONS], [2, 3, 4, 5])
+  assert.deepEqual([...SKETCH_DRAW_COMPATIBLE_HELPER_VERSIONS], [2, 3, 4, 5, 6])
   assert.ok(SKETCH_DRAW_COMPATIBLE_HELPER_VERSIONS.includes(NATIVE_SCENE_CLIP_VERSION))
   assert.ok(!SKETCH_DRAW_COMPATIBLE_HELPER_VERSIONS.includes(1))
 })
