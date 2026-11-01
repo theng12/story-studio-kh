@@ -37,6 +37,19 @@ function armWatchdog(proc: ChildProcess, timeoutMs: number): { wasKilled: () => 
   }
 }
 
+/** Retain useful FFmpeg failure details without the startup banner. */
+export function ffmpegExitErrorLine(stderr: string): string {
+  const lines = stderr.split('\n').map(l => l.trim()).filter(Boolean)
+  if (!lines.length) return '(no stderr captured)'
+  // The startup banner (version, build flags, lib table) never carries the
+  // reason; skip it so the first line kept is the first line of real output.
+  let start = /^ffmpeg version /.test(lines[0]!) ? 1 : 0
+  while (start < lines.length && /^(built with |configuration: |lib\S+\s+\d)/.test(lines[start]!)) start++
+  const body = lines.slice(start)
+  const reason = body.find(l => !/^Error opening input/.test(l))
+  return [...new Set([reason ?? '', ...body.slice(-2)])].filter(Boolean).join('\n')
+}
+
 function formatWatchdogError(timeoutMs: number, stderr: string): Error {
   const label = timeoutMs < 60_000
     ? `${Math.round(timeoutMs / 1000)}-second`
@@ -230,9 +243,7 @@ export async function runFfmpeg(args: string[], opts: { timeoutMs?: number } = {
         reject(new Error(`FFmpeg killed (${signal})`))
         return
       }
-      const lines = stderr.split('\n').filter(l => l.trim())
-      const errorLine = lines.slice(-5).join('\n')
-      reject(new Error(`FFmpeg exited with code ${code}:\n${errorLine}`))
+      reject(new Error(`FFmpeg exited with code ${code}:\n${ffmpegExitErrorLine(stderr)}`))
     })
   })
 }

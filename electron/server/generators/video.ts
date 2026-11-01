@@ -27,7 +27,7 @@ import { resolveSubfolderNames, resolveScenePlanPath, resolveEpisodePathsByCodeW
 import { findEpisodeDir, findSubfolder as resolveSubfolder } from '../lib/folder-resolver.js'
 import { findEpisodeSubfolderDir, resolveEpisodeSubfolderDir } from '../services/media-root.js'
 import { homogenizeForConcat } from '../lib/audio-concat.js'
-import { runFfmpeg, lowerFfmpegPriority, withX264ThreadCap, getAudioDuration, checkFfmpeg, hasDrawtextFilter, formatConcatFileLine, appendCappedTail, stillDecoderArgs, escapeFilterPath, escapeFilterArgValue } from '../lib/ffmpeg-utils.js'
+import { runFfmpeg, lowerFfmpegPriority, withX264ThreadCap, getAudioDuration, checkFfmpeg, hasDrawtextFilter, formatConcatFileLine, appendCappedTail, stillDecoderArgs, escapeFilterPath, escapeFilterArgValue, ffmpegExitErrorLine } from '../lib/ffmpeg-utils.js'
 import { renderRevealClip, revealClipPath } from '../lib/reveal-render.js'
 import {
   plannedRevealForScene,
@@ -441,9 +441,7 @@ async function spawnFinalEncode(
       }
       // Preserve stderr on the Error object so the retry decision can
       // inspect it. Input paths go straight into the job log for repro.
-      const lines = stderr.split('\n').filter(l => l.trim())
-      const errorLine = lines.slice(-5).join('\n')
-      const err = new Error(`FFmpeg exited with code ${code}:\n${errorLine}`)
+      const err = new Error(`FFmpeg exited with code ${code}:\n${ffmpegExitErrorLine(stderr)}`)
       ;(err as any).stderr = stderr
       ;(err as any).exitCode = code
       reject(err)
