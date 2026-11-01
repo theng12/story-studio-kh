@@ -25,7 +25,7 @@
           </button>
         </div>
         <p v-if="Object.values(failed).some(Boolean)" class="error" role="status">One or more samples could not be rendered. Check that the current Sketch Draw helper is available.</p>
-        <button v-if="multiple" type="button" class="btn btn-primary" :disabled="draftMix.length < 2" @click="applyMix">Use {{ draftMix.length }} styles</button>
+        <button v-if="multiple" type="button" class="btn btn-primary" :disabled="draftMix.length < 2" @click="applyMix">{{ draftMix.length < 2 ? `Pick ${2 - draftMix.length} more` : `Use these ${draftMix.length} styles` }}</button>
       </div>
     </PickerDialog>
   </div>
