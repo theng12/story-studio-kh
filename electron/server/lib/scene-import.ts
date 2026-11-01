@@ -53,6 +53,25 @@ export function pickClipLength(
 }
 
 /**
+ * The motion prompt an external tool receives: the scene's own prompt, with the
+ * clip length stated first so the tool makes the right one. A scene longer than
+ * the longest allowed clip says so — the app trims or holds it to fit, and the
+ * owner needs to know before they make the file.
+ */
+export function clipPrompt(
+  exceeds_max: boolean,
+  clip_seconds: number,
+  scene_seconds: number,
+  prompt: string,
+): string {
+  const length = `${clip_seconds}s clip`
+  const over = exceeds_max
+    ? ` (scene runs ${scene_seconds}s — longer than any allowed clip; trim or hold to fit)`
+    : ''
+  return `${length}${over}: ${prompt}`
+}
+
+/**
  * Match imported files to scenes by filename or order.
  *
  * Matching priority:
@@ -172,7 +191,11 @@ export function generateHandoffData(
         duration_seconds: duration,
         clip_seconds,
         exceeds_max,
-        motion_prompt: scene.rendered_motion_prompt || scene.motion_prompt,
+        // v1.4.375 — the copied prompt states the clip length, so the external tool
+        // makes the right one (Flow's default is 8s; a longer scene needs a longer
+        // pick). A scene past the longest allowed length is said here too, not only
+        // in the UI badge, because this is the text that leaves the app.
+        motion_prompt: clipPrompt(exceeds_max, clip_seconds, duration, scene.rendered_motion_prompt || scene.motion_prompt),
         suggested_filename: `${scene.id}.mp4`,
       })
     }

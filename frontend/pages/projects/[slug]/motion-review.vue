@@ -41,6 +41,9 @@
         on import to the same shape this render uses. Long clips are trimmed and short external or legacy clips loop to
         fill the narration window. Clips generated with Follow narration hold their final frame instead when they cannot
         reach the full scene.
+        <template #actions>
+          <NuxtLink :to="`/projects/${slug}/scene-import?episode_id=${encodeURIComponent(episodeId)}`" class="btn btn-sm btn-secondary">Import clips made outside the app</NuxtLink>
+        </template>
       </WorkspaceNotice>
     </div>
 

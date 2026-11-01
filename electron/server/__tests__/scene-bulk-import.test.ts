@@ -158,7 +158,7 @@ test('generateHandoffData lists scenes needing clips with prompts and filenames'
   assert.equal(handoff.scenes_needing_clips.length, 1)
   assert.equal(handoff.scenes_needing_clips[0]!.scene_id, 'scene-a')
   assert.equal(handoff.scenes_needing_clips[0]!.clip_seconds, 8)
-  assert.equal(handoff.scenes_needing_clips[0]!.motion_prompt, 'Slow drift.')
+  assert.equal(handoff.scenes_needing_clips[0]!.motion_prompt, '8s clip: Slow drift.')
   assert.equal(handoff.scenes_needing_clips[0]!.suggested_filename, 'scene-a.mp4')
   assert.equal(handoff.scenes_needing_clips[0]!.exceeds_max, false)
 })

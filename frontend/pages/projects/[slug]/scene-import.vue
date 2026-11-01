@@ -19,7 +19,6 @@
  :project-slug="slug"
  v-model:episode-id="episodeId"
  filter-field="scene_review"
- :presets="importPresets"
  generate-label="Load Hand-off Data"
  :generate-loading="loading"
  :generate-disabled="!canLoad"
@@ -66,7 +65,7 @@
  readonly
  class="import-prompt-text"
  rows="2"
- @click="$event.target.select()"
+ @click="selectOnFocus"
  ></textarea>
  <button class="btn btn-sm btn-ghost" @click="copyToClipboard(clip.motion_prompt)">Copy</button>
  </div>
@@ -97,7 +96,7 @@
  readonly
  class="import-prompt-text"
  rows="2"
- @click="$event.target.select()"
+ @click="selectOnFocus"
  ></textarea>
  <button class="btn btn-sm btn-ghost" @click="copyToClipboard(img.visual_prompt)">Copy</button>
  </div>
@@ -196,6 +195,7 @@ import WorkspaceNotice from '~/components/WorkspaceNotice.vue'
 import TopActionBar from '~/components/TopActionBar.vue'
 
 const route = useRoute()
+const { success: showSuccess, error: showError } = useToast()
 const slug = computed(() => route.params.slug as string)
 const episodeId = ref(route.query.episode_id as string || '')
 
@@ -211,10 +211,6 @@ const importSuccess = ref('')
 const fileInput = ref<HTMLInputElement | null>(null)
 
 const canLoad = computed(() => !!episodeId.value)
-
-const importPresets = computed(() => [
- { id: 'import-handoff', label: 'Load Hand-off Data' }
-])
 
 async function loadHandoff() {
  if (!episodeId.value) return
@@ -234,6 +230,12 @@ async function loadHandoff() {
  } finally {
  loading.value = false
  }
+}
+
+/** Select the whole prompt on click so one Copy gets all of it. */
+function selectOnFocus(event: MouseEvent) {
+ const target = event.currentTarget as HTMLTextAreaElement | null
+ target?.select?.()
 }
 
 function copyToClipboard(text: string) {
@@ -329,15 +331,9 @@ async function confirmImport() {
  }
 }
 
-function showSuccess(message: string) {
- // Use your project's success notification system
- console.log('Success:', message)
-}
 
-function showError(message: string) {
- // Use your project's error notification system
- console.error('Error:', message)
-}
+
+
 
 onMounted(() => {
  if (episodeId.value) {
