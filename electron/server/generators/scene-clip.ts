@@ -332,7 +332,7 @@ export async function requireSceneClipGenStudioModel(
 }
 
 /**
- * This scene's own depth map, for the colour reveal's subject phase — or undefined. Ownership is
+ * This scene's own depth map, for the colour and back-to-front reveals — or undefined. Ownership is
  * looked up, never inferred: the analysis entry must be this scene's and its picture must still be
  * the one about to be drawn. Anything else is "no mask", never a substitute.
  */
@@ -393,16 +393,14 @@ export async function generateSketchDrawSceneClip(job: Job, render = renderSketc
       ? { mode: 'logo' as const, logo: path.join(workDir, 'logo.png') }
       : settings.pen
     if (pen.mode === 'logo') await fs.writeFile(pen.logo, settings.logoBytes!)
-    // The colour reveal paints the subject before the background when this scene has its own
-    // usable depth map (Scene Analysis, per channel, off by default). It is an input, not a gate:
-    // no analysis, a picture that changed since it was analysed, or a map too flat to use leaves
-    // the subject phase out — the reveal never invents a subject.
-    const colourMask = revealType === 'colour' ? await sceneDepthMask(paths.episode_dir, sceneId, imagePath) : undefined
+    // Both styles may use this scene's own usable depth map. Without one, colour omits its subject
+    // phase and back to front uses the engine's model-free salience estimate.
+    const colourMask = revealType === 'colour' || revealType === 'backtofront' ? await sceneDepthMask(paths.episode_dir, sceneId, imagePath) : undefined
     const helperJob = { kind: 'sketch' as const, input: snapshotPath, output: candidatePath,
       width: settings.width, height: settings.height, fps: settings.fps, frames,
       hold_frames: holdFrames, paper: '#ffffff', pen, reveal: revealType, line_weight: settings.lineWeight, quality: NATIVE_CLIP_QUALITY,
       ...(colourMask ? { mask: colourMask } : {}) }
-    job.output_lines.push(`Scene ${sceneId}: Sketch Draw locally, ${REVEAL_LABEL[revealType]} reveal, ${frames} frames at ${settings.fps} fps (${window}s), closing hold ${holdFrames} frames (${(holdFrames / settings.fps).toFixed(1)}s).${colourMask ? " Subject phase from this scene's depth map." : ''}`)
+    job.output_lines.push(`Scene ${sceneId}: Sketch Draw locally, ${REVEAL_LABEL[revealType]} reveal, ${frames} frames at ${settings.fps} fps (${window}s), closing hold ${holdFrames} frames (${(holdFrames / settings.fps).toFixed(1)}s).${colourMask ? " Using this scene's depth map." : ''}`)
     job.progress = 10
     assertActive()
     await render(helperJob, { trackChild: jq.trackChild })

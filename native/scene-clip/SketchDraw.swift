@@ -49,11 +49,10 @@ struct SketchJob: Decodable {
     var paper: String
     var pen: SketchPen
     var quality: Double?
-    var reveal: String?        // line | buildup | swipes | patches | bloom | colour. Default: line.
+    var reveal: String?        // A SketchReveal name. Default: line.
     var line_weight: String?   // thin | normal | bold. Default: normal — the engine's own weight.
-    // Optional 8-bit depth map for THIS scene (the episode's own Scene Analysis depth), used only by
-    // `colour` to paint the subject first. Absent, unreadable or flat: no subject phase, never an
-    // invented one — the reveal never guesses where the subject is.
+    // Optional 8-bit depth map for THIS scene. Colour uses it for its subject phase; back to front
+    // uses it for depth order, falling back to model-free salience if it is absent or unusable.
     var mask: String?
 }
 
@@ -65,8 +64,8 @@ func sketchDefaultHold(frames: Int, fps: Int) -> Int {
 
 /// The reveal styles this engine draws. `mix` is resolved per scene by the app, never here.
 enum SketchReveal: String {
-    case line, buildup, swipes, patches, bloom, colour
-    static let names = ["line", "buildup", "swipes", "patches", "bloom", "colour"]
+    case line, buildup, swipes, patches, bloom, colour, blueprint, chalkboard, parchment, shadows, backtofront, rough
+    static let names = ["line", "buildup", "swipes", "patches", "bloom", "colour", "blueprint", "chalkboard", "parchment", "shadows", "backtofront", "rough"]
 }
 
 /// The ink weights this engine draws. `normal` is the engine's own weight — the band widths the
@@ -574,6 +573,10 @@ private final class SketchV2 {
     private let fSweep: [Float]
     private let fBloom: [Float]
     private let fPatches: [Float]
+    private var newPaper: [UInt8] = []
+    private var newGrain: [Float] = []
+    private var newTiming: [Float] = []
+    private var roughLayers: [[UInt8]] = []
     private let swipeProj: [Float]
     private let swipeProjInv: [Float]
     private let pictureF: [[Float]]               // 3 planes kept separately for the poster passes
@@ -647,9 +650,9 @@ private final class SketchV2 {
             let g = (0.299 * Float(picture[i * 3]) + 0.587 * Float(picture[i * 3 + 1]) + 0.114 * Float(picture[i * 3 + 2])) / 255.0
             toneRGB[i] = UInt8(max(0, min(255, (0.58 * g + 0.14) * 255.0)))
         }
-        fSweep = reveal == .line ? SketchV2.fieldSweep(depth, w, h) : []
-        fBloom = (reveal == .buildup || reveal == .bloom) ? SketchV2.fieldBloom(lum, depth, w, h) : []
-        fPatches = reveal == .patches ? SketchV2.fieldPatches(picture, depth, w, h) : []
+        fSweep = (reveal == .line || reveal == .chalkboard) ? SketchV2.fieldSweep(depth, w, h) : []
+        fBloom = (reveal == .buildup || reveal == .bloom || reveal == .parchment) ? SketchV2.fieldBloom(lum, depth, w, h) : []
+        fPatches = (reveal == .patches || reveal == .shadows || reveal == .backtofront || reveal == .rough) ? SketchV2.fieldPatches(picture, depth, w, h) : []
         var proj = [Float](repeating: 0, count: n)
         for y in 0..<h { for x in 0..<w { proj[y * w + x] = Float(x) / Float(w) * 0.94 + Float(y) / Float(h) * 0.34 } }
         v2Unit(&proj)
@@ -658,6 +661,31 @@ private final class SketchV2 {
         // Paper under the picture, always: the reveal is of the subject, not of a rectangle.
         for i in 0..<n {
             swipeBase[i * 4] = paper[0]; swipeBase[i * 4 + 1] = paper[1]; swipeBase[i * 4 + 2] = paper[2]; swipeBase[i * 4 + 3] = 255
+        }
+        if reveal == .blueprint || reveal == .chalkboard || reveal == .parchment {
+            prepareNewPaper()
+        }
+        if reveal == .shadows || reveal == .backtofront {
+            var values = lum
+            if reveal == .backtofront {
+                values = depth
+                if let mask = mask, let plane = colourDepthPlane(mask.path, w, h, mask.rect),
+                   let low = plane.min(), let high = plane.max(), high - low > 1 {
+                    values = plane.map { ($0 - low) / (high - low) }
+                }
+            }
+            newTiming = bandTimes(values, patches: fPatches, depth: reveal == .backtofront)
+        }
+        if reveal == .rough {
+            for (sigma, levels) in [(Float(22), 4), (11, 6), (5, 9), (2, 14)] {
+                let planes = pictureF.map { v2Blur($0, w, h, sigma) }
+                let step = Float(levels - 1)
+                var layer = [UInt8](repeating: 0, count: n * 3)
+                for i in 0..<n { for c in 0..<3 {
+                    layer[i * 3 + c] = UInt8(max(0, min(255, (planes[c][i] / 255 * step).rounded() / step * 255)))
+                } }
+                roughLayers.append(layer)
+            }
         }
         buildStrokes(lum, depth)
         if strokes.isEmpty {
@@ -1241,6 +1269,92 @@ private final class SketchV2 {
         }
     }
 
+    // The added papers and timelines are prepared only for their own reveal, preserving old renders.
+    private func prepareNewPaper() {
+        let fine = v2UnitNoise(w, h, 21, 1.2)
+        let coarse = reveal == .blueprint ? [] : v2UnitNoise(w, h, 22, reveal == .chalkboard ? 26 : 55)
+        let stain = reveal == .parchment ? v2UnitNoise(w, h, 32, 110) : []
+        newGrain = reveal == .blueprint ? [] : v2UnitNoise(w, h, 41, 1.1)
+        let chalkCoarse = reveal == .chalkboard ? v2UnitNoise(w, h, 42, 9) : []
+        newPaper = [UInt8](repeating: 0, count: n * 3)
+        for y in 0..<h { for x in 0..<w {
+            let i = y * w + x
+            var rgb: [Float]
+            if reveal == .blueprint {
+                let grid: Float = x % 64 == 0 || y % 64 == 0 ? 1 : 0
+                rgb = [10 + 10 * grid, 40 + 22 * grid, 92 + 34 * grid]
+                for c in 0..<3 { rgb[c] += (fine[i] - 0.5) * 8 }
+            } else if reveal == .chalkboard {
+                rgb = [26, 34, 30]
+                let smudge = coarse[i] - 0.5
+                for c in 0..<3 { rgb[c] += smudge * (c == 1 ? 16 : 14) + (fine[i] - 0.5) * 9 }
+                newGrain[i] = min(1.35, 0.52 + 0.62 * newGrain[i] + 0.22 * chalkCoarse[i])
+            } else {
+                rgb = [222, 205, 168]
+                let dx = Float(x) - Float(w) / 2, dy = Float(y) - Float(h) / 2
+                let edge = min(1, (dx * dx + dy * dy).squareRoot() / (Float(h) * 0.72))
+                let spot = max(0, stain[i] - 0.70) * 2
+                let mottle: [Float] = [15, 15, 12], stains: [Float] = [16, 12, 6], edges: [Float] = [42, 38, 26]
+                for c in 0..<3 { rgb[c] += (coarse[i] - 0.5) * mottle[c] - spot * stains[c] - edge * edges[c] + (fine[i] - 0.5) * 7 }
+                newGrain[i] = min(1.3, 0.75 + 0.45 * newGrain[i])
+            }
+            for c in 0..<3 { newPaper[i * 3 + c] = UInt8(max(0, min(255, rgb[c]))) }
+        } }
+    }
+
+    private func bandTimes(_ value: [Float], patches: [Float], depth: Bool) -> [Float] {
+        var lo = v2Percentile(value, n, 1), hi = v2Percentile(value, n, 99)
+        if hi - lo < 0.001 { lo = value.min() ?? 0; hi = value.max() ?? 1 }
+        if hi - lo < 0.000001 { hi = lo + 1 }
+        let t1 = min(max(v2Percentile(value, n, depth ? 55 : 40), lo + (hi - lo) * 0.10), lo + (hi - lo) * 0.50)
+        let t2 = min(max(v2Percentile(value, n, depth ? 82 : 78), t1 + (hi - lo) * 0.10), lo + (hi - lo) * 0.90)
+        var times = [Float](repeating: 0, count: n)
+        for i in 0..<n {
+            let v = value[i]
+            if v <= t1 { times[i] = 0.30 * max(0, min(1, (v - lo) / max(0.000001, t1 - lo))) }
+            else if v <= t2 { times[i] = 0.30 + 0.31 * max(0, min(1, (v - t1) / max(0.000001, t2 - t1))) }
+            else { times[i] = 0.61 + 0.31 * max(0, min(1, (v - t2) / max(0.000001, hi - t2))) }
+            times[i] += 0.10 * patches[i]
+        }
+        let low = times.min() ?? 0, high = times.max() ?? 0
+        if high - low < 0.000000001 { return [Float](repeating: 0.92, count: n) }
+        return times.map { ($0 - low) / (high - low) * 0.92 }
+    }
+
+    private func newFront(_ field: [Float], _ p: Float, _ soft: Float, timing: Bool = false) {
+        for i in 0..<n {
+            let t = timing ? field[i] : field[i] * (1 - soft)
+            alpha[i] = UInt8(sketchSmoothstep((p - t) / soft) * 255 + 0.5)
+        }
+    }
+
+    private func fillNewPaper(_ dst: UnsafeMutablePointer<UInt8>) {
+        if newPaper.isEmpty { fillPaper(dst); return }
+        for i in 0..<n { for c in 0..<3 { dst[i * 4 + c] = newPaper[i * 3 + c] }; dst[i * 4 + 3] = 255 }
+    }
+
+    private func overNewInk(_ dst: UnsafeMutablePointer<UInt8>, _ u: Float, _ start: Float, _ end: Float, _ opacity: Float = 1) {
+        guard inked else { return }
+        let colour: [Int32]
+        switch reveal {
+        case .blueprint: colour = [236, 243, 255]
+        case .chalkboard: colour = [238, 240, 232]
+        case .parchment: colour = [108, 74, 42]
+        case .rough: colour = [58, 56, 54]
+        default: colour = [56, 54, 52]
+        }
+        let fade = (1 - ramp(u, start, end)) * opacity
+        for i in 0..<n {
+            let grain = newGrain.isEmpty ? 1 : newGrain[i]
+            let a = Int32(max(0, min(255, Float(inkAcc[i]) * fade * grain)))
+            if a == 0 { continue }
+            for c in 0..<3 {
+                let d = i * 4 + c, v = Int32(dst[d]) * 255 + (colour[c] - Int32(dst[d])) * a
+                dst[d] = UInt8((v + 1 + (v >> 8)) >> 8)
+            }
+        }
+    }
+
     // ── Per-frame composite ──────────────────────────────────────────────────
 
     private func fillPaper(_ dst: UnsafeMutablePointer<UInt8>) {
@@ -1465,6 +1579,32 @@ private final class SketchV2 {
         // drawing. Before the dissolve starts the frame is byte-identical to the approved look.
         let fade = 1 - sketchSmoothstep(ramp(u, sketchFadeStart, 1))
         switch reveal {
+        case .blueprint, .chalkboard, .parchment, .shadows, .backtofront, .rough:
+            let paperStyle = reveal == .blueprint || reveal == .chalkboard || reveal == .parchment
+            let end: Float = reveal == .blueprint ? 0.62 : (reveal == .chalkboard ? 0.64 : (reveal == .parchment ? 0.66 : (reveal == .rough ? 0.22 : 0.24)))
+            drawInk("line", 0.03 + 0.97 * ramp(u, 0, end))
+            fillNewPaper(dst)
+            if reveal == .blueprint {
+                alpha.update(repeating: UInt8(sketchSmoothstep(ramp(u, 0.10, 0.90)) * 255 + 0.5), count: n)
+                overPicture(dst)
+            } else if reveal == .chalkboard || reveal == .parchment {
+                let field = reveal == .chalkboard ? fSweep : fBloom
+                newFront(field, ramp(u, 0.14, 0.90), reveal == .chalkboard ? 0.34 : 0.28)
+                overPicture(dst)
+            } else if reveal == .rough {
+                let windows: [(Float, Float)] = [(0, 0.44), (0.22, 0.62), (0.44, 0.80), (0.66, 0.93), (0.86, 1)]
+                for layer in 0..<5 {
+                    newFront(fPatches, ramp(u, windows[layer].0, windows[layer].1), 0.16)
+                    if layer == 4 { overPicture(dst) }
+                    else { roughLayers[layer].withUnsafeBufferPointer { poster.update(from: $0.baseAddress!, count: n * 3) }; overPosterIntoBase(dst) }
+                }
+            } else {
+                newFront(newTiming, u, 0.075, timing: true)
+                overPicture(dst)
+            }
+            let start: Float = reveal == .chalkboard ? 0.48 : (reveal == .rough ? 0.55 : (paperStyle ? 0.40 : 0.62))
+            let finish: Float = reveal == .parchment ? 0.88 : (reveal == .rough ? 0.92 : (paperStyle ? 0.94 : 0.95))
+            overNewInk(dst, u, start, finish, paperStyle ? 1 : (reveal == .rough ? 0.5 : 0.55))
         case .line:
             drawInk("line", ramp(u, 0.00, 0.66))
             let p = ramp(u, 0.60, 1.00)

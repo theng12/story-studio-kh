@@ -20,7 +20,7 @@ import { createHash } from 'crypto'
  * Mix is resolved per scene and NEVER persisted per scene: what the customer picks is the SET, and
  * each rendered clip records only the type it actually resolved to.
  */
-export const SKETCH_REVEAL_TYPES = ['line', 'buildup', 'swipes', 'patches', 'bloom', 'colour'] as const
+export const SKETCH_REVEAL_TYPES = ['line', 'buildup', 'swipes', 'patches', 'bloom', 'colour', 'blueprint', 'chalkboard', 'parchment', 'shadows', 'backtofront', 'rough'] as const
 export type SketchRevealType = (typeof SKETCH_REVEAL_TYPES)[number]
 
 export const SKETCH_REVEAL_STYLES = [...SKETCH_REVEAL_TYPES, 'mix'] as const
@@ -32,7 +32,7 @@ export const SKETCH_REVEAL_MAX_MIX = SKETCH_REVEAL_TYPES.length
 
 export interface SketchRevealSetting {
   style: SketchRevealStyle
-  /** Read only when `style` is `mix`: 2–5 distinct types, in the customer's order. */
+  /** Read only when `style` is `mix`: 2 or more distinct types, in the customer's order. */
   mix: SketchRevealType[]
   /**
    * Optional per-scene pins, keyed by the scene id the rest of the app uses. A pin wins over the
@@ -55,14 +55,14 @@ export function parseSketchReveal(value: unknown): { ok: true; reveal: SketchRev
   const raw = (value ?? null) as Record<string, unknown> | null
   const bad = (error: string) => ({ ok: false as const, error })
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
-    return bad('Choose a reveal style: Line, Build-up, Swipes, Patches, Bloom, Colour it in, or a Mix of them.')
+    return bad('Choose a valid reveal style or a Mix of styles.')
   }
-  if (!isStyle(raw.style)) return bad('Choose a reveal style: Line, Build-up, Swipes, Patches, Bloom, Colour it in, or a Mix of them.')
+  if (!isStyle(raw.style)) return bad('Choose a valid reveal style or a Mix of styles.')
   const mix: SketchRevealType[] = []
   if (raw.mix !== undefined && raw.mix !== null) {
     if (!Array.isArray(raw.mix)) return bad('A Mix needs a list of styles to choose from.')
     for (const entry of raw.mix) {
-      if (!isType(entry)) return bad('A Mix may only contain Line, Build-up, Swipes, Patches, Bloom and Colour it in.')
+      if (!isType(entry)) return bad('A Mix may only contain valid reveal styles.')
       if (mix.includes(entry)) return bad('Each style may appear once in a Mix.')
       mix.push(entry)
     }
@@ -177,5 +177,6 @@ export function sketchRevealForSingleScene(reveal: SketchRevealSetting, sceneId:
 /** The words Motion Review shows for a resolved type. */
 export const SKETCH_REVEAL_LABELS: Record<SketchRevealType, string> = {
   line: 'Line', buildup: 'Build-up', swipes: 'Swipes', patches: 'Patches', bloom: 'Bloom',
-  colour: 'Colour it in',
+  colour: 'Colour it in', blueprint: 'Blueprint', chalkboard: 'Chalkboard', parchment: 'Old parchment',
+  shadows: 'Shadows first', backtofront: 'Back to front', rough: 'Rough to fine',
 }

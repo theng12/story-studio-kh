@@ -43,15 +43,15 @@ const sha = (bytes: Buffer | string) => createHash('sha256').update(bytes).diges
 // ── The type, its label and the Mix ─────────────────────────────────────────
 
 test('colour is the sixth reveal type, labelled "Colour it in", and a Mix may hold it', () => {
-  assert.deepEqual([...SKETCH_REVEAL_TYPES], ['line', 'buildup', 'swipes', 'patches', 'bloom', 'colour'])
+  assert.deepEqual(SKETCH_REVEAL_TYPES.slice(0, 6), ['line', 'buildup', 'swipes', 'patches', 'bloom', 'colour'])
   assert.equal(SKETCH_REVEAL_LABELS.colour, 'Colour it in')
-  assert.equal(SKETCH_REVEAL_MAX_MIX, 6)
+  assert.equal(SKETCH_REVEAL_MAX_MIX, 12)
   assert.deepEqual(parseSketchReveal({ style: 'colour', mix: [] }), { ok: true, reveal: { style: 'colour', mix: [] } })
   assert.deepEqual(parseSketchReveal({ style: 'mix', mix: ['line', 'colour'] }),
     { ok: true, reveal: { style: 'mix', mix: ['line', 'colour'] } })
   assert.deepEqual(parseSketchReveal({ style: 'mix', mix: ['line', 'buildup', 'swipes', 'patches', 'bloom', 'colour'] }),
     { ok: true, reveal: { style: 'mix', mix: ['line', 'buildup', 'swipes', 'patches', 'bloom', 'colour'] } })
-  assert.match((parseSketchReveal({ style: 'mix', mix: ['line', 'sparkle'] }) as { error: string }).error, /Colour it in/)
+  assert.match((parseSketchReveal({ style: 'mix', mix: ['line', 'sparkle'] }) as { error: string }).error, /valid reveal styles/)
 })
 
 test('a Mix resolves Colour it in deterministically and never twice in a row', () => {
@@ -142,7 +142,7 @@ test('version-4 and version-5 clips — every clip accepted before this change �
     assert.equal(await sceneClipStaleReason(scene({ clip_sketch: legacy }), context(file, settings(null))), null,
       'a clip that recorded no type keeps the reveal it was made with')
   }
-  assert.deepEqual([...SKETCH_DRAW_COMPATIBLE_HELPER_VERSIONS], [2, 3, 4, 5, 6, 7])
+  assert.deepEqual([...SKETCH_DRAW_COMPATIBLE_HELPER_VERSIONS], [2, 3, 4, 5, 6, 7, 8])
   assert.ok(SKETCH_DRAW_COMPATIBLE_HELPER_VERSIONS.includes(NATIVE_SCENE_CLIP_VERSION))
   assert.match((await sceneClipStaleReason(scene({ clip_sketch: { ...scene().clip_sketch, helper_version: 1 } }), context(file, settings(null))))!, /renderer/)
 })

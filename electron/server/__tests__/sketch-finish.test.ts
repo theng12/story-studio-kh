@@ -79,13 +79,13 @@ test('a clip receipt from the old helper stays fresh: the ending changes, the cl
   for (const reveal of REVEALS) {
     const ctx = { slug: 'channel', episodeId: 'EP001', episodeDir: dir, imagePath: file,
       sketchSettings: settings({ style: reveal, mix: [] }), revealScenes: ['scene-1'] }
-    for (const helper_version of [2, 3, 4, 5, 6, 7]) {
+    for (const helper_version of [2, 3, 4, 5, 6, 7, 8]) {
       const receipt = { ...scene(reveal).clip_sketch, helper_version }
       assert.equal(await sceneClipStaleReason(scene(reveal, { clip_sketch: receipt }), ctx), null,
         `helper ${helper_version} ${reveal} clip stays fresh under helper ${NATIVE_SCENE_CLIP_VERSION}`)
     }
   }
-  assert.deepEqual([...SKETCH_DRAW_COMPATIBLE_HELPER_VERSIONS], [2, 3, 4, 5, 6, 7])
+  assert.deepEqual([...SKETCH_DRAW_COMPATIBLE_HELPER_VERSIONS], [2, 3, 4, 5, 6, 7, 8])
   assert.ok(SKETCH_DRAW_COMPATIBLE_HELPER_VERSIONS.includes(NATIVE_SCENE_CLIP_VERSION))
 })
 
@@ -204,5 +204,42 @@ realTest('the dissolve is the only change to the approved look: the frames befor
     assert.equal(digests.length, FRAMES, `${reveal}: the frame budget is structural`)
     assert.equal(createHash('md5').update(digests.slice(0, 8).join('\n')).digest('hex'), PRE_FADE_V5[reveal],
       `${reveal}: the frames before the dissolve decode exactly as the version-5 helper drew them`)
+  }
+})
+
+realTest('the six new reveals finish on the source and respect line weight', async () => {
+  const source = await sharp(sourcePath).removeAlpha().raw().toBuffer()
+  for (const reveal of ['blueprint', 'chalkboard', 'parchment', 'shadows', 'backtofront', 'rough'] as const) {
+    const outputs: string[] = []
+    for (const line_weight of ['thin', 'bold'] as const) {
+      const output = path.join(work, `new-${reveal}-${line_weight}.mp4`)
+      await renderSketchDraw({ kind: 'sketch', input: sourcePath, output, width: W, height: H, fps: FPS,
+        frames: FRAMES, hold_frames: HOLD, paper: '#ffffff', pen: { mode: 'none' }, reveal, line_weight,
+        quality: 1, ...(reveal === 'backtofront' ? { mask: depthPath } : {}) })
+      const final = difference(decoded(output, FRAMES - 1), source)
+      assert.ok(final.mean < 4 && final.p99 <= 20, `${reveal} ${line_weight}: final frame is the scene`)
+      assert.ok(difference(decoded(output, 3), source).mean > 4, `${reveal}: early frame differs from the source`)
+      outputs.push(output)
+    }
+    assert.notEqual(frameDigests(outputs[0]!)[3], frameDigests(outputs[1]!)[3], `${reveal}: line weight changes ink`)
+  }
+})
+
+realTest('back to front follows the supplied depth map, including its direction', async () => {
+  const sample = (frame: Buffer, x: number, y: number) => {
+    let sum = 0
+    for (let dy = 0; dy < 8; dy++) for (let dx = 0; dx < 8; dx++) sum += frame[((y + dy) * W + x + dx) * 3]!
+    return sum / 64
+  }
+  for (const reverse of [false, true]) {
+    const mask = path.join(work, `depth-direction-${reverse}.png`)
+    const left = reverse ? 'white' : 'black', right = reverse ? 'black' : 'white'
+    await sharp(Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}"><rect width="320" height="360" fill="${left}"/><rect x="320" width="320" height="360" fill="${right}"/></svg>`)).png().toFile(mask)
+    const output = path.join(work, `depth-direction-${reverse}.mp4`)
+    await renderSketchDraw({ kind: 'sketch', input: sourcePath, output, width: W, height: H, fps: FPS,
+      frames: FRAMES, hold_frames: HOLD, paper: '#ffffff', pen: { mode: 'none' }, reveal: 'backtofront', mask, quality: 1 })
+    const frame = decoded(output, 4)
+    const l = sample(frame, 180, 20), r = sample(frame, 430, 20)
+    assert.ok(reverse ? r + 20 < l : l + 20 < r, `the low-depth side appears first: left=${l}, right=${r}`)
   }
 })
