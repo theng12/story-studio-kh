@@ -54,9 +54,12 @@ import {
 } from '../services/sound-design.js'
 import {
   describeAnchorMoves,
+  findSceneEscapes,
+  flagCueOutsideScene,
   persistReanchoredLabels,
   persistReanchoredSounds,
   readAnchoredEpisodeCues,
+  snapCueIntoScene,
 } from '../services/sound-cue-anchors.js'
 import { stitchedSrtPath } from '../services/subtitle-correction.js'
 import type { ContextualCue, ContextualCueTimeline, ScenePlan, SoundDesignCue, SoundDesignTimeline } from '../models/types.js'
@@ -247,7 +250,11 @@ async function loadEpisode(slug: string, episodeId: string) {
   const anchored = await readAnchoredEpisodeCues(
     planPath, plan, stitchedSrtPath(paths.subtitles_dir, episodeId),
   )
-  return { paths, planPath, plan, cueConfig, soundConfig, anchored }
+  // The seconds ON DISK, before re-anchoring. `findSceneEscapes` has to judge
+  // those: a cue whose stored window is outside its scene is the thing that
+  // needs repairing, and the re-anchored copy above has already moved it.
+  const rawLabels = await readContextualCueTimeline(planPath)
+  return { paths, planPath, plan, cueConfig, soundConfig, anchored, rawLabels }
 }
 
 /**
@@ -261,7 +268,7 @@ async function loadEpisode(slug: string, episodeId: string) {
  */
 router.get('/projects/:slug/sound-and-labels/:episodeId', async (req, res) => {
   try {
-    const { plan, cueConfig, soundConfig, anchored } = await loadEpisode(req.params.slug, req.params.episodeId)
+    const { plan, cueConfig, soundConfig, anchored, rawLabels } = await loadEpisode(req.params.slug, req.params.episodeId)
     const { labels, sounds } = anchored
     // A read REPORTS; it never refuses. `resolveRenderable*` throws for exactly
     // the defects the renderer throws for, and the page has to be able to show
@@ -283,6 +290,12 @@ router.get('/projects/:slug/sound-and-labels/:episodeId', async (req, res) => {
       // What the last read moved because a Scene Plan re-run moved its scene.
       moved: anchored.moves,
       moved_notes: describeAnchorMoves(anchored.moves),
+      // Labels whose SAVED window sits outside the scene they name, each with
+      // one plain sentence saying which scene and how far out. Two honest
+      // outcomes, chosen by the person — Repair snaps it inside with its words
+      // intact, or it is turned off carrying this reason — so a label can
+      // never sit in needs-attention with nothing to do (EP0006, 2026-11-02).
+      scene_escapes: findSceneEscapes(rawLabels, plan, anchored.subtitles),
       // Full validation, including warnings, for the rows themselves.
       validation: {
         labels: labels ? validateContextualCueTimeline(labels, plan, { subtitles: { enabled: false } as any }) : [],
@@ -320,6 +333,63 @@ router.post('/projects/:slug/sound-and-labels/:episodeId/accept-moves', async (r
 })
 
 // ── On-screen text (labels) ────────────────────────────────────────────────
+
+/**
+ * The two honest outcomes for a label whose SAVED window sits outside its
+ * scene — chosen by the person, never decided by the app for them.
+ *
+ *   `snap`  move it inside its scene. The text, the anchor and the review
+ *           state are kept; nothing about the label is lost.
+ *   `flag`  turn it off and carry the reason with it. The times stay exactly
+ *           where they were, and an off label is not a defect, so it stops
+ *           blocking instead of sitting in needs-attention forever.
+ *
+ * Nothing here runs on its own: an APPROVED label is only ever moved by a
+ * button someone pressed (AGENTS.md §4 — announce it, never move it silently).
+ */
+router.post('/projects/:slug/sound-and-labels/:episodeId/labels/repair', async (req, res) => {
+  try {
+    const { planPath, plan, anchored, rawLabels } = await loadEpisode(req.params.slug, req.params.episodeId)
+    if (!rawLabels) return res.status(404).json({ detail: 'There are no labels on this episode yet.' })
+    const cueId = String(req.body?.cue_id || '')
+    const action = req.body?.action === 'flag' ? 'flag' : 'snap'
+    const cue = rawLabels.cues.find(row => row.id === cueId)
+    if (!cue) return res.status(404).json({ detail: 'That label is no longer on this episode.' })
+    const escape = findSceneEscapes(rawLabels, plan, anchored.subtitles).find(item => item.cue_id === cueId)
+    if (!escape) {
+      return res.status(409).json({ detail: `"${cue.title}" is already inside its scene; there is nothing to repair.` })
+    }
+    const now = new Date().toISOString()
+    const repaired = action === 'flag'
+      ? flagCueOutsideScene(cue, escape)
+      : snapCueIntoScene(cue, plan, anchored.subtitles)
+    if (!repaired) {
+      return res.status(422).json({
+        detail: `"${cue.title}" names a scene this Scene Plan no longer has, so there is nothing to move it into. Set its scene in Advanced, or leave it off.`,
+      })
+    }
+    const timeline: ContextualCueTimeline = {
+      ...rawLabels,
+      schema_version: 2,
+      generated_at: now,
+      // The ORIGINAL stamp is kept: one label repaired does not make this
+      // timeline a product of the current plan, and claiming it would hide the
+      // next re-plan the way the old stamp did.
+      cues: rawLabels.cues.map(row => row.id === cueId ? repaired : row),
+    }
+    await writeContextualCueTimeline(planPath, timeline)
+    res.json({
+      action,
+      note: action === 'flag'
+        ? `Turned "${cue.title}" off. ${escape.detail}`
+        : `Moved "${cue.title}" inside Scene ${escape.scene_index} (${escape.scene_start_sec.toFixed(2)}–${escape.scene_end_sec.toFixed(2)}s). Its text, anchor and review state are unchanged.`,
+      validation: validateContextualCueTimeline(timeline, plan),
+      scene_escapes: findSceneEscapes(timeline, plan, anchored.subtitles),
+    })
+  } catch (error: any) {
+    res.status(400).json(humanizeBackendError(error, 'Could not repair that label.'))
+  }
+})
 
 router.put('/projects/:slug/sound-and-labels/:episodeId/labels', async (req, res) => {
   try {
@@ -362,6 +432,19 @@ router.put('/projects/:slug/sound-and-labels/:episodeId/labels', async (req, res
       }
       delete cue.anchor_word
       cue.anchor_offset_sec = offset
+    }
+    // A "this could not be placed" reason lives only while it is still true.
+    // Keeping it after the person turns the label back on, or moves it inside
+    // its scene by hand, would make the row say something that is no longer so
+    // (AGENTS.md §6 — one state must not carry two meanings).
+    for (const cue of cues) {
+      const reason = typeof cue.disabled_reason === 'string' ? cue.disabled_reason.trim().slice(0, 300) : ''
+      if (!reason) { delete cue.disabled_reason; continue }
+      const scene = plan.scenes.find(row => row.id === cue.scene_id)
+      const stillOff = cue.status === 'disabled'
+      const stillOut = !!scene && (cue.start_sec < scene.start_sec - 0.01 || cue.end_sec > scene.end_sec + 0.01)
+      if (stillOff && stillOut) cue.disabled_reason = reason
+      else delete cue.disabled_reason
     }
     // A hold reason stays with its cue while that cue is still awaiting review.
     const stillProposed = new Set(cues.filter((cue: ContextualCue) => cue.status === 'proposed').map((cue: ContextualCue) => cue.id))

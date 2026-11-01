@@ -56,7 +56,7 @@ import { inspectScenePromptIntegrity } from './scene-prompt-integrity.js'
 import { readSubtitleTimelineIntegrity } from './scene-timeline-integrity.js'
 import { allowedSubtitleCueGapSec } from './scene-plan-pacing.js'
 import { inspectSubtitleCompletion, inspectSubtitleSourceFreshness } from './subtitle-completion.js'
-import { inspectExistingTranscriptSource } from './subtitle-correction.js'
+import { inspectExistingTranscriptSource, stitchedSrtPath } from './subtitle-correction.js'
 import { safetyModeFromConfig } from './safety-checks.js'
 import { inspectPromptCompletion, legacyPromptsPresent } from './prompt-completion.js'
 import { inspectMetadataCompletion, legacyMetadataPresent } from './metadata-completion.js'
@@ -67,6 +67,7 @@ import { isEpisodeMergedAudioFilename, resolveEpisodeMergedAudioChoice } from '.
 import { inspectSceneReviewCompletion } from './scene-review-completion.js'
 import { normalizeContextualCueConfig, readContextualCueTimeline, resolveRenderableContextualCues } from './contextual-cues.js'
 import { normalizeSoundDesignConfig, readSoundDesignTimeline, resolveRenderableSoundCues } from './sound-design.js'
+import { readEpisodeCueTiming, reanchorLabels, reanchorSounds } from './sound-cue-anchors.js'
 
 /**
  * Does this optional layer have anything the renderer would REFUSE over?
@@ -1431,11 +1432,27 @@ export async function computeEpisodeStatus(
         // sound that cannot be mixed. A row still waiting on a reviewer is
         // SILENCE and a note, never a pending episode — otherwise the board
         // would hold an episode the renderer would happily assemble.
-        const contextualCueTimeline = await readContextualCueTimeline(planPath)
+        //
+        // The timelines are RE-ANCHORED first, exactly as Video Assembly and
+        // the Sound & Labels page re-anchor them. Reading the stored seconds
+        // instead made this the ONE reader in the app that judged a cue by
+        // seconds a Scene Plan re-run had already moved, so a label the
+        // renderer draws correctly still put the episode in needs-attention —
+        // with a message the person could not act on, forever (EP0006,
+        // 2026-11-02). The `_generated` flags below still answer from the
+        // files themselves: a read that cannot place a cue has not un-made it.
+        const cueSubtitles = await readEpisodeCueTiming(stitchedSrtPath(byCode.subtitles_dir, code))
+        const contextualCueRaw = await readContextualCueTimeline(planPath)
+        const contextualCueTimeline = contextualCueRaw
+          ? reanchorLabels(contextualCueRaw, plan, cueSubtitles).timeline
+          : null
         status.contextual_cues = !cueConfig.enabled || !contextualCueTimeline
           || !refusesToRender(() => resolveRenderableContextualCues(cueConfig, contextualCueTimeline, plan))
-        status.contextual_cues_generated = !!contextualCueTimeline
-        const soundDesignTimeline = await readSoundDesignTimeline(planPath)
+        status.contextual_cues_generated = !!contextualCueRaw
+        const soundDesignRaw = await readSoundDesignTimeline(planPath)
+        const soundDesignTimeline = soundDesignRaw
+          ? reanchorSounds(soundDesignRaw, plan, cueSubtitles).timeline
+          : null
         status.sound_design = !soundConfig.enabled || !soundDesignTimeline
           || !refusesToRender(() => resolveRenderableSoundCues(soundConfig, soundDesignTimeline, plan))
         // Scene Review done = the plan is complete, every scene has a generated

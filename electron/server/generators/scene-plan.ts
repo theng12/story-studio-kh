@@ -79,6 +79,7 @@ import { scanEpisodeAssets } from './video.js'
 import { assertSubtitleTimelineComplete, readSubtitleTimelineIntegrity, restitchIfBroken, safetyCarriesOn, type SubtitleCueGap } from '../services/scene-timeline-integrity.js'
 import { allowedSubtitleCueGapSec, resolveScenePlanPacing, type ScenePlanPacing } from '../services/scene-plan-pacing.js'
 import { resolveTranscriptSrt, describeTranscriptCorrection, stitchedSrtPath } from '../services/subtitle-correction.js'
+import { announceCueDriftAfterReplan } from '../services/sound-cue-anchors.js'
 import { requireJobCompletion } from '../services/job-completion.js'
 import { freshGenerationRequestIdentity } from '../lib/fresh-generation-action.js'
 import { auditScenePromptCompletion, checkpointScenePrompt } from '../services/scene-prompt-checkpoint.js'
@@ -1438,7 +1439,14 @@ export async function runScenePlanJob(job: Job): Promise<void> {
           `Timeline cleanup: removed ${timelineCleanup.removed_ids.length} non-renderable zero-duration scene(s) before prompt generation.`,
         )
       }
+      // A re-plan is what strands labels and sounds: the cues keep the seconds
+      // they were saved at and the scenes move under them. Say so NOW, in this
+      // job, rather than leaving it for whoever opens Sound & Labels next
+      // (AGENTS.md §4 — a value that changes under the customer without a word
+      // is the quiet version of the same fault). Only on the path that ENDS
+      // here, so a run that continues into prompts does not say it twice.
       if (!pipelineAutoVisual) {
+        await announceCueDriftAfterReplan(job, outPath, paths.subtitles_dir, episode_id)
         job.progress = 100
         return
       }
@@ -3023,6 +3031,12 @@ export async function runScenePlanJob(job: Job): Promise<void> {
   // the one on disk, so this replaces the file — under the lock, so it cannot be
   // interleaved with someone else's read-modify-write.
   await withLock(outPath, () => writeJsonAtomic(outPath, plan, { compact: true }))
+  // The timeline was just re-cut, which is the moment labels and sounds go
+  // stale under it. Say what moved while this job is still the thing the
+  // person is watching, instead of leaving it for whoever opens Sound & Labels
+  // next (AGENTS.md §4 — a value that changes under the customer without a
+  // word is the quiet version of the same fault).
+  await announceCueDriftAfterReplan(job, outPath, paths.subtitles_dir, episode_id)
   const visualIntegrity = inspectScenePromptIntegrity(plan.scenes)
   requireJobCompletion(job, {
     label: 'Scene planning visual prompts',
