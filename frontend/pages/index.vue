@@ -2040,7 +2040,7 @@ onMounted(async () => {
 @media (max-width: 680px) {
   .home-header { align-items: flex-start; }
   .home-brand small { display: none; }
-  .home-main { width: min(100% - 24px, 1180px); padding-top: 28px; }
+  .home-main { padding-top: 28px; }
   .home-intro { align-items: stretch; flex-direction: column; margin-bottom: 24px; }
   .home-create { width: 100%; justify-content: center; }
   .project-grid,
