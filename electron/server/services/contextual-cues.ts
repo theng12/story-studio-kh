@@ -226,7 +226,6 @@ export function resolveContextualCueBatchSizeForOutput(
   return Math.max(1, Math.min(byItems, affordable))
 }
 
-
 export function contextualCueProgressPath(scenePlanPath: string): string {
   return path.join(path.dirname(scenePlanPath), CONTEXTUAL_CUES_PROGRESS_FILENAME)
 }

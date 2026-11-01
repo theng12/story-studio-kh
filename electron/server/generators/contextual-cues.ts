@@ -24,7 +24,6 @@ import {
   readContextualCueTimeline,
   removeContextualCueProgress,
   normalizeContextualCueProposalSettings,
-  resolveContextualCueBatchSize,
   resolveContextualCueBatchSizeForOutput,
   normalizeContextualCueTemplate,
   validateContextualCueTimeline,
@@ -226,8 +225,8 @@ function assertContextualCueCapability(model: GenStudioChatModel, itemCount: num
   // absent number decided that the model could not do work it may well be able
   // to do, and the refusal read "above its published unpublished item limit".
   // Now only a PUBLISHED limit can refuse. When nothing is published the batch
-  // goes out bounded by the token budget (`resolveContextualCueBatchSize` sizes
-  // from the policy default rather than inventing a cap), and a provider
+  // goes out bounded by the token budget (`resolveContextualCueBatchSizeForOutput`
+  // sizes from the policy default rather than inventing a cap), and a provider
   // refusal is the answer if the lane disagrees.
   const published = model.max_structured_items_per_request
   const structuredItemLimit = typeof published === 'number' && Number.isInteger(published) && published > 0
