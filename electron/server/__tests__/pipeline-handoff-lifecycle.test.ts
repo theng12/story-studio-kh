@@ -461,10 +461,11 @@ test('persistent checkpoint refusal holds the completed parent idle and starts n
   assert.equal(jq.getJob(fixture.parent.job_id)?.local_execution_complete, true)
 })
 
-test('reopening a checkpointed successful parent terminalizes then drains its private exact continuation once', async t => {
-  const f = await retainedFixture(t, 'Pipeline exact edge reopen')
-  const childId = 'pipeline-handoff-exact-edge'
-  const parentId = 'pipeline-parent-terminal'
+
+for (const savedStatus of ['running', 'queued'] as const) test(`reopening a checkpointed ${savedStatus} parent drains its continuation once`, async t => {
+  const f = await retainedFixture(t, `Pipeline exact edge reopen ${savedStatus}`)
+  const childId = `pipeline-handoff-exact-edge-${savedStatus}`
+  const parentId = `pipeline-parent-terminal-${savedStatus}`
   const capturedVoice = 'studio-hub-local::voice-a9aedc5c6bd3'
   const exactParams = {
     episode_id: 'EDGE001',
@@ -481,10 +482,10 @@ test('reopening a checkpointed successful parent terminalizes then drains its pr
     type: 'expand_chapters',
     episode_id: 'EDGE001',
     title: 'checkpointed expansion',
-    status: 'running',
+    status: savedStatus,
     created_at: '2026-10-15T00:00:00.000Z',
-    started_at: '2026-10-15T00:00:01.000Z',
-    finished_at: null,
+    started_at: savedStatus === 'queued' ? null : '2026-10-15T00:00:01.000Z',
+    finished_at: savedStatus === 'queued' ? '2026-10-15T00:00:02.000Z' : null,
     error: null,
     output_lines: [],
     local_execution_complete: true,
@@ -550,8 +551,46 @@ test('reopening a checkpointed successful parent terminalizes then drains its pr
   assert.equal(jobs.filter(job => job.job_id === childId).length, 1)
   const durableParent = await jq.loadAuthoritativeJob(f.project.slug, parentId) as Job & Record<string, any>
   assert.equal(durableParent.status, 'done')
+  assert.equal(durableParent.error, null)
   assert.equal(durableParent.pipeline_handoff?.state, 'dispatched')
   assert.equal(durableParent.pipeline_handoff?.child_job_id, childId)
+})
+
+test('finished queued continuation with audited output resumes its captured next step', async t => {
+  const f = await retainedFixture(t, 'Pipeline finished child reopen')
+  const parentId = 'pipeline-saved-upstream'
+  const childId = 'pipeline-handoff-16610d59'
+  const nextId = jq._pipelineHandoffChildIdForTesting({ job_id: childId, type: 'contextual_cues' }, { type: 'metadata' })
+  const nextStep = { type: 'metadata', title: 'metadata', params: {} }
+  const acceptedParams = { episode_id: 'EP0003', pipeline_batch_id: 'f7a87ef0', pipeline_chain: [nextStep] }
+  const child = {
+    job_id: childId, project_slug: f.project.slug, type: 'contextual_cues', episode_id: 'EP0003',
+    title: 'contextual cues', status: 'queued', created_at: '2026-10-31T18:00:00.000Z',
+    started_at: null, finished_at: '2026-10-31T18:30:00.000Z', error: null,
+    output_lines: [], local_execution_complete: true, result: { complete: true },
+    params: { ...acceptedParams, saved_executor_detail: true },
+  }
+  const parent = {
+    ...child, job_id: parentId, type: 'expand_chapters', title: 'upstream', status: 'done',
+    pipeline_handoff: {
+      version: 1, state: 'dispatched', parent_job_id: parentId, child_job_id: childId,
+      options: { project_slug: f.project.slug, type: child.type, episode_id: child.episode_id,
+        title: child.title, params: acceptedParams }, content_pack_provenance: [],
+    },
+  }
+  await fs.writeFile(path.join(tempDir, 'projects', f.project.slug, 'jobs.json'), JSON.stringify({ jobs: [parent, child] }))
+  let reruns = 0
+  let nextRuns = 0
+  f.restoreWith(jq._setExecutorForTesting('contextual_cues', async job => { reruns++; auditedSuccess(job) }))
+  f.restoreWith(jq._setExecutorForTesting('metadata', async job => { nextRuns++; auditedSuccess(job) }))
+  await jq.getJobs(f.project.slug)
+  await waitFor(async () => (await jq.getJobs(f.project.slug)).some(job => job.job_id === nextId && job.status === 'done'),
+    { label: 'the recovered continuation to finish' })
+  const saved = await jq.loadAuthoritativeJob(f.project.slug, childId)
+  assert.equal(saved?.status, 'done')
+  assert.equal(saved?.error, null)
+  assert.equal(reruns, 0)
+  assert.equal(nextRuns, 1)
 })
 
 test('a mismatched row under the stable child id is retained and the private edge fails closed once', async t => {

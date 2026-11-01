@@ -4967,6 +4967,16 @@ async function readPersistedJobs(projectSlug: string): Promise<Job[]> {
             }
             continue
           }
+          // Recover only a finished, audited queued row; unfinished or ambiguous rows keep their safeguards.
+          if (j.status === 'queued' && j.finished_at && j.local_execution_complete === true
+            && !pipelineHandoffBlocked(j) && !j.error
+            && (pipelineHandoffOf(j) || (!hasPipelineHandoffField(j) && j.result?.complete === true))) {
+            j.status = 'running'
+            if (!hasPipelineHandoffField(j)) {
+              await completeSuccessfulJob(j)
+              mutated = true
+            }
+          }
           if (j.status === 'queued' && hasPipelineHandoffField(j)) {
             j.status = 'error'
             j.error = 'Saved Pipeline continuation was attached to a queued parent. The parent was not rerun and no child was started.'
