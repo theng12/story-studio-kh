@@ -955,7 +955,8 @@ export interface JobEnqueuedResponse {
     enabled: boolean
     wait_minutes: 30
     max_replacements_per_asset: 1
-    additional_credit_ceiling: number | null
+    /** Legacy records only; ignored. The switch alone decides. */
+    additional_credit_ceiling?: number | null
     snapshotted_at: string
   }
   /** Latest bounded paid-image replacement state, redacted for renderer use. */

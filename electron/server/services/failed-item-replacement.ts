@@ -64,17 +64,20 @@ function originalFailureWasSuperseded(job: Job, entry: Evidence): boolean {
   )))
 }
 
-function settledFailure(live: GenStudioJob): boolean {
+/**
+ * The job's own state is what proves this failure is safe to replace: it is
+ * terminal, not cancelled, was dispatched (so nothing is still in flight), is
+ * not held as an unknown outcome, and its code is one Story may re-ask for.
+ * Credits do not exist here; Gateway owns every charge.
+ */
+function confirmedEligibleFailure(live: GenStudioJob): boolean {
   if (live.state !== 'failed' || live.cancelled === true || live.dispatch_state === 'pre_dispatch') return false
   if (holdsUnknownOutcome(live)) return false
   const failureCode = typeof live.failure_code === 'string' ? live.failure_code.trim() : ''
   const failureClass = typeof live.failure_class === 'string' ? live.failure_class.trim() : ''
   if (failureClass === 'content_refused' || isSubmissionUncertainCode(failureCode) || BLOCKED_FAILURE.test(failureCode)) return false
-  if (!['provider_transient', 'provider_error'].includes(failureClass)
-    && !KNOWN_REPLACEABLE_FAILURES.has(failureCode)) return false
-  const credits = [live.reserved_credits, live.settled_credits, live.released_credits]
-  if (!credits.every(value => typeof value === 'number' && Number.isFinite(value) && value >= 0)) return false
-  return Math.abs((live.reserved_credits as number) - (live.settled_credits as number) - (live.released_credits as number)) < 1e-9
+  return ['provider_transient', 'provider_error'].includes(failureClass)
+    || KNOWN_REPLACEABLE_FAILURES.has(failureCode)
 }
 
 function withLiveEvidence(entry: Evidence, live: GenStudioJob): Evidence {
@@ -84,11 +87,6 @@ function withLiveEvidence(entry: Evidence, live: GenStudioJob): Evidence {
     state: live.state,
     ...(live.dispatch_state !== undefined ? { dispatch_state: live.dispatch_state } : {}),
     ...(live.model_id || live.model_revision_id ? { model_id: live.model_id || live.model_revision_id } : {}),
-    ...(typeof live.credit_cost === 'number' && Number.isFinite(live.credit_cost) ? { credit_cost: live.credit_cost } : {}),
-    ...(typeof live.reserved_credits === 'number' && Number.isFinite(live.reserved_credits) ? { reserved_credits: live.reserved_credits } : {}),
-    ...(typeof live.settled_credits === 'number' && Number.isFinite(live.settled_credits) ? { settled_credits: live.settled_credits } : {}),
-    ...(typeof live.released_credits === 'number' && Number.isFinite(live.released_credits)
-      ? { released_credits: live.released_credits, returned_credits: live.released_credits } : {}),
     ...(live.failure_code !== undefined ? { failure_code: live.failure_code } : {}),
     ...(live.failure_class !== undefined ? { failure_class: live.failure_class } : {}),
     ...(live.cancelled !== undefined ? { cancelled: live.cancelled } : {}),
@@ -120,8 +118,8 @@ async function verifyFailure(entry: Evidence, operation: 'voice.tts' | 'chat.res
   if (live.id !== entry.id) {
     return conflict('The Gateway returned a different task for the saved request identity. No replacement was queued.')
   }
-  if (!settledFailure(live)) {
-    return conflict('The request is not a confirmed eligible failure with settled credits. No replacement was queued.')
+  if (!confirmedEligibleFailure(live)) {
+    return conflict('The request is not a confirmed eligible failure. No replacement was queued.')
   }
   return withLiveEvidence(entry, live)
 }

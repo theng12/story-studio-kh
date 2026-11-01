@@ -1719,7 +1719,7 @@ router.post('/projects/:slug/video-editor/subtitles/buy-missing/:jobId', async (
     return await withLock(`subtitle-purchase:${slug}`, async () => {
       const source = await loadAuthoritativeJob(slug, jobId)
       if (!source || source.project_slug !== slug) return res.status(404).json({ detail: 'Subtitle job not found.' })
-      const params = subtitlePurchaseParams(source, req.body?.additional_credit_ceiling)
+      const params = subtitlePurchaseParams(source)
       params.subtitle_finalizer_job_id = subtitleFinalizerJobId(source)
       const job = await enqueueEpisodeRecoveryOnce(`subtitle-purchase-${jobId}`, { project_slug: slug, episode_id: source.episode_id,
         type: 'subtitles_transcribe', title: `Buy missing subtitles (${source.episode_id})`, params })

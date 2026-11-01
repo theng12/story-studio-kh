@@ -276,7 +276,6 @@ export type PaidImageReplacementPublicReason =
   | 'original_failure_not_eligible'
   | 'replacement_disabled'
   | 'not_verified'
-  | 'budget_limit'
 
 export interface PaidImageCommitPersistence {
   loadAuthoritativeJob(projectSlug: string, jobId: string): Promise<Job | null>
@@ -302,15 +301,12 @@ type PaidImageControl = {
   cancelled?: boolean | null
   recovery_required?: boolean | null
   recovery_state?: string | null
-  reserved_credits?: number | null
-  settled_credits?: number | null
-  released_credits?: number | null
 }
 
 export interface PaidImageReplacementDependencies {
   readControl(): Promise<PaidImageControl>
   artifactExists(outputPath: string): Promise<boolean>
-  getSetting(): Promise<{ enabled: boolean; additional_credit_ceiling: number | null }>
+  getSetting(): Promise<{ enabled: boolean }>
   resolveRate(input: Omit<Parameters<typeof resolvePaidImagePublishedRate>[0], 'models'>): Promise<PaidImagePublishedRate>
   refreshAdmission(): Promise<GenStudioAdmissionSnapshot>
 }
@@ -366,12 +362,13 @@ function blocked(
   return { action: 'blocked', reason, public_reason }
 }
 
-function validPolicy(job: Job): number | null {
+/**
+ * The switch alone is the policy. Gateway owns the charge, so there is no
+ * budget beside `enabled` for this to compare against.
+ */
+function validPolicy(job: Job): boolean {
   const policy = job.paid_image_replacement
   return policy?.enabled === true && policy.wait_minutes === 30 && policy.max_replacements_per_asset === 1
-    && Number.isSafeInteger(policy.additional_credit_ceiling) && (policy.additional_credit_ceiling as number) > 0
-    ? policy.additional_credit_ceiling as number
-    : null
 }
 
 function sameAttemptFacts(attempt: PaidImageReplacementAttempt, asset: PaidImageReplacementDecisionInput['asset'], entry: TaskManifestEntry): boolean {
@@ -393,11 +390,16 @@ function validWaitClock(attempt: PaidImageReplacementAttempt): boolean {
   return Number.isFinite(observed) && Number.isFinite(eligible) && eligible === observed + PAID_WAIT_MS
 }
 
+/**
+ * The same eligible failure, still. What answers that is the job's own state —
+ * terminal, not cancelled, not held — plus the failure code the attempt was
+ * written under. There is no settlement to compare.
+ */
 function sameTerminalFacts(attempt: PaidImageReplacementAttempt, control: PaidImageControl): boolean {
   return attempt.failure_code === String(control.failure_code)
-    && attempt.reserved_credits === control.reserved_credits
-    && attempt.settled_credits === control.settled_credits
-    && attempt.released_credits === control.released_credits
+    && control.state === 'failed'
+    && control.cancelled !== true
+    && !holdsUnknownOutcome(control)
 }
 
 function replacementScope(asset: PaidImageReplacementDecisionInput['asset'], attempt: PaidImageReplacementAttempt): string {
@@ -407,11 +409,6 @@ function replacementScope(asset: PaidImageReplacementDecisionInput['asset'], att
     selector: attempt.output_selector,
     reference_identity_hash: attempt.reference_identity_hash,
   })}`
-}
-
-function countedQuote(attempt: PaidImageReplacementAttempt): number | null {
-  if (!['committed', 'submitted', 'succeeded', 'failed'].includes(attempt.state)) return 0
-  return isFiniteCredit(attempt.quoted_credits) ? attempt.quoted_credits : null
 }
 
 async function defaultPersistence(): Promise<PaidImageCommitPersistence> {
@@ -486,8 +483,7 @@ function overwriteJob(target: Job, source: Job): void {
  * Task 5 consumes only its `commit` permission after both records agree.
  */
 export async function decidePaidImageReplacement(input: PaidImageReplacementDecisionInput): Promise<PaidImageReplacementDecision> {
-  const ceiling = validPolicy(input.job)
-  if (ceiling === null) return {
+  if (!validPolicy(input.job)) return {
     action: 'not-eligible', reason: 'the job has no valid paid image replacement policy', public_reason: 'replacement_disabled',
   }
   const persistence = input.persistence || await defaultPersistence()
@@ -525,17 +521,14 @@ export async function decidePaidImageReplacement(input: PaidImageReplacementDeci
   if (control.state !== 'failed') return { action: 'recover-original' }
   const failureCode = String(control.failure_code || '')
   if (!isRetryableZeroSettlementImageFailureCode(failureCode)) return blocked('the original failure is not an allow-listed transient infrastructure result', 'original_failure_not_eligible')
-  if (!isFiniteCredit(control.reserved_credits) || !isFiniteCredit(control.settled_credits) || !isFiniteCredit(control.released_credits)
-    || control.reserved_credits !== control.settled_credits + control.released_credits) {
-    return blocked('the original settlement is incomplete or imbalanced')
-  }
   const initialArtifact = await dependencies.artifactExists(asset.outputPath).catch(() => null)
   if (initialArtifact === null) return blocked('the original artifact could not be audited')
   if (initialArtifact) return { action: 'recover-original' }
-  if (control.settled_credits === 0) {
-    if (control.released_credits !== control.reserved_credits) return blocked('the zero settlement was not fully released')
-    const setting = await dependencies.getSetting().catch(() => null)
-    if (!setting?.enabled) return blocked('paid image replacement is currently off on this machine', 'replacement_disabled')
+  // The failure code is the only evidence Story has that nothing was taken: the
+  // allow-list above is the set of Gateway endings where no machine kept the
+  // work. A placement that DID reach a machine is the paid lane, and that lane
+  // is decided by its switch alone.
+  if (!FLEET_FAILURE_CODES.has(failureCode)) {
     let zeroReason: string | null = null
     try {
       const authorized = await withCommitLock(input.job.job_id, async () => {
@@ -544,7 +537,7 @@ export async function decidePaidImageReplacement(input: PaidImageReplacementDeci
           return null
         }
         return persistence.inspectAuthoritativeJob(input.job.project_slug, input.job.job_id, (job) => {
-          if (validPolicy(job) === null) { zeroReason = 'the authoritative job has no valid paid image replacement policy'; return false }
+          if (!validPolicy(job)) { zeroReason = 'the authoritative job has no valid paid image replacement policy'; return false }
           const matches = (job.paid_image_replacement_attempts || []).filter(candidate => candidate.asset_key === asset.assetKey)
           if (matches.length > 1) { zeroReason = 'the authoritative job has multiple replacement attempts for this asset'; return false }
           if (matches[0]) {
@@ -558,12 +551,9 @@ export async function decidePaidImageReplacement(input: PaidImageReplacementDeci
       })
       if (authorized !== true) return blocked(zeroReason || 'the authoritative job is unavailable')
     } catch (error: any) {
-      return blocked(error?.message || 'the zero settlement retry could not be verified')
+      return blocked(error?.message || 'the free retry could not be verified')
     }
     return { action: 'safe-zero-settlement-retry' }
-  }
-  if (!FLEET_FAILURE_CODES.has(failureCode)) {
-    return blocked('exhausted failover is eligible only after a fully released zero settlement', 'original_failure_not_eligible')
   }
 
   let attempt: PaidImageReplacementAttempt | undefined
@@ -571,7 +561,7 @@ export async function decidePaidImageReplacement(input: PaidImageReplacementDeci
   try {
     const waiting = await withCommitLock(input.job.job_id, () => mutateAuthoritativeJob(
       persistence, input.job.project_slug, input.job.job_id, (authoritative) => {
-        if (validPolicy(authoritative) === null) { waitingReason = 'the authoritative job has no valid paid image replacement policy'; return null }
+        if (!validPolicy(authoritative)) { waitingReason = 'the authoritative job has no valid paid image replacement policy'; return null }
         const attempts = authoritative.paid_image_replacement_attempts || []
         const current = attempts.filter(candidate => candidate.asset_key === asset.assetKey)
         if (current.length > 1) { waitingReason = 'the authoritative job has multiple replacement attempts for this asset'; return null }
@@ -590,8 +580,7 @@ export async function decidePaidImageReplacement(input: PaidImageReplacementDeci
           output_path: asset.outputPath, state: 'waiting', original_task_id: entry!.task_id,
           original_idempotency_key: entry!.idempotency_key!, input_hash: entry!.input_hash!, output_selector: original.selector,
           reference_inputs: original.references, reference_identity_hash: original.referenceIdentityHash,
-          failure_code: String(control.failure_code), reserved_credits: control.reserved_credits!,
-          settled_credits: control.settled_credits!, released_credits: control.released_credits!,
+          failure_code: String(control.failure_code),
           terminal_observed_at: observed.toISOString(), eligible_at: new Date(observed.getTime() + PAID_WAIT_MS).toISOString(),
         }
         authoritative.paid_image_replacement_attempts = [...attempts, attempt]
@@ -620,9 +609,10 @@ export async function decidePaidImageReplacement(input: PaidImageReplacementDeci
     return blocked(error?.message || 'the current price or account capacity could not be verified')
   }
   const queue = await import('./job-queue.js')
-  if (!isFiniteCredit(rate.credits) || !rate.priceVersion || !queue.hasVerifiedGenStudioAdmission(admission)
-    || !Number.isSafeInteger(admission.credit_balance) || (admission.credit_balance as number) < rate.credits) {
-    return blocked('the current account balance or capacity cannot authorize this replacement')
+  // Capacity is the Gateway's answer, not a balance Story keeps. A price it did
+  // not publish is still a reason to stop: the attempt records that figure.
+  if (!rate.priceVersion || !queue.hasVerifiedGenStudioAdmission(admission)) {
+    return blocked('the current account capacity cannot authorize this replacement')
   }
 
   return withCommitLock(input.job.job_id, async () => {
@@ -633,8 +623,7 @@ export async function decidePaidImageReplacement(input: PaidImageReplacementDeci
     let durable: Job | null
     try {
       durable = await mutateAuthoritativeJob(persistence, input.job.project_slug, input.job.job_id, (authoritative) => {
-        const authoritativeCeiling = validPolicy(authoritative)
-        if (authoritativeCeiling === null) { refusal = 'the authoritative job is unavailable'; return null }
+        if (!validPolicy(authoritative)) { refusal = 'the authoritative job is unavailable'; return null }
         const authoritativeAttempts = authoritative.paid_image_replacement_attempts || []
         const matches = authoritativeAttempts.filter(candidate => candidate.asset_key === asset.assetKey)
         const latest = matches[0]
@@ -646,15 +635,6 @@ export async function decidePaidImageReplacement(input: PaidImageReplacementDeci
           notDue = true
           committed = latest
           return authoritative
-        }
-        let committedQuotes = 0
-        for (const candidate of authoritativeAttempts) {
-          const quote = countedQuote(candidate)
-          if (quote === null) { refusal = 'an existing paid replacement quote is incomplete'; return null }
-          committedQuotes += quote
-        }
-        if (committedQuotes + rate.credits > authoritativeCeiling) {
-          refusal = 'the replacement exceeds the job additional-credit ceiling'; return null
         }
         scope = replacementScope(asset, latest)
         committed = {

@@ -206,7 +206,7 @@ void test('incomplete, unconfirmed or held parts are never joined', async () => 
   const held = await episodeFixture('held')
   const provenance = await readAudioQualityProvenance(held.episodeDir)
   provenance.actions = { a1: { action_id: 'a1', scope_fingerprint: 's', source_fingerprint: 'f', sections: ['Chapter_02'],
-    source_files: { Chapter_02: held.parts }, mode: 'check_and_repair', state: 'confirmed', created_at: 'now', verification_credit_ceiling: 1 } }
+    source_files: { Chapter_02: held.parts }, mode: 'check_and_repair', state: 'confirmed', created_at: 'now' } }
   await writeAudioQualityProvenance(held.episodeDir, provenance)
   assert.deepEqual(await consolidateChapterParts(held), [])
 })

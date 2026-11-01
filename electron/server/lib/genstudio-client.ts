@@ -15,7 +15,7 @@ import path from 'path'
 import { createHash, randomUUID } from 'crypto'
 import { carriesCapacityFacts, humanGatewayText } from './gateway-failure-text.js'
 import { getAppSetting, getGenStudioUrl, getLanguageTimeoutMs, setAppSetting, getPaidAudioReplacementSetting, getPaidWritingReplacementSetting, withPaidAudioConfirmation, withPaidWritingConfirmation } from '../services/app-settings.js'
-import { balancedReplacementSettlement, generationReplacementKey, replacementAllowance, type ReplacementKind } from '../services/generation-paid-replacement.js'
+import { generationReplacementKey, type ReplacementKind } from '../services/generation-paid-replacement.js'
 import type { GenerationReplacementAttempt, Job } from '../models/types.js'
 import { runFfmpeg } from './ffmpeg-utils.js'
 import { probeAudioSignature } from './audio-concat.js'
@@ -704,15 +704,6 @@ export class GenStudioTerminalFailureError extends Error {
     this.releasedCredits = null
     this.modelId = typeof job.model_id === 'string' && job.model_id ? job.model_id : null
   }
-}
-
-/**
- * Credits are no longer tracked by Story Studio. This stub always returns true
- * because no credits can be charged when credits do not exist in this service.
- * Callers use this to decide if a retry is safe from a double-charge perspective.
- */
-export function hasFullyReleasedZeroSettlement(_error: GenStudioTerminalFailureError): boolean {
-  return true
 }
 
 export class GenStudioImageTerminalFailureError extends GenStudioTerminalFailureError {
@@ -4148,19 +4139,17 @@ export function isGenStudioRouteExhausted(error: unknown): error is GenStudioTer
   return error instanceof GenStudioTerminalFailureError
     && !error.cancelled
     && error.failureCode === GENSTUDIO_ROUTE_EXHAUSTED_FAILURE_CODE
-    && hasFullyReleasedZeroSettlement(error)
 }
 
 /**
- * A published temporary language quota exhaustion is safe to leave behind
- * only after the durable settlement proves the request never consumed a
- * credit. Callers still choose whether to park/recheck or surface it.
+ * A published temporary language quota exhaustion is safe to leave behind once
+ * the job is terminal and not cancelled. Callers still choose whether to
+ * park/recheck or surface it.
  */
 export function isGenStudioLanguageQuotaExhausted(error: unknown): error is GenStudioTerminalFailureError {
   return error instanceof GenStudioTerminalFailureError
     && !error.cancelled
     && isQuotaExhaustedCode(error.failureCode)
-    && hasFullyReleasedZeroSettlement(error)
 }
 
 /**
@@ -8162,10 +8151,8 @@ async function restoreReplacementRequest<R extends GenStudioOperationContext>(
     await queue.mutateAuthoritativeJob(job.project_slug, job.job_id, authoritative => {
       authoritative.generation_replacement_attempts = (authoritative.generation_replacement_attempts || []).map(item => {
         if (item.idempotency_key !== key) return item
-        const settled = balancedReplacementSettlement(accepted)
         return { ...item, task_id: accepted.id, revision: item.revision + 1,
-          state: accepted.state === 'succeeded' ? 'succeeded' : accepted.state === 'failed' ? 'failed' : 'submitted',
-          ...(settled !== null && settled <= item.max_credits ? { settled_credits: settled } : {}) }
+          state: accepted.state === 'succeeded' ? 'succeeded' : accepted.state === 'failed' ? 'failed' : 'submitted' }
       })
       return authoritative
     })
@@ -8175,17 +8162,13 @@ async function restoreReplacementRequest<R extends GenStudioOperationContext>(
   }
   const setting = kind === 'audio' ? getPaidAudioReplacementSetting : getPaidWritingReplacementSetting
   const gate = kind === 'audio' ? withPaidAudioConfirmation : withPaidWritingConfirmation
-  const support: any = await requestJsonWithRetry(`${apiBase(baseUrl)}/v1/account/overview`, { headers: authorization(apiKey) }, request,
-    Date.now() + GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS, apiKey, GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS, [], true, 1)
-  if (!Array.isArray(support?.max_charge_credits_supported_operations) || !support.max_charge_credits_supported_operations.includes(operation)) throw new Error('Gateway spending-limit support must be available before replacement can resume.')
   return { key, request: { ...request, replacementChargeLimit: attempt.max_credits,
     withPost: post => gate(async () => {
       const policy = await setting()
       const live = await queue.loadAuthoritativeJob(job.project_slug, job.job_id)
       if (!policy.enabled || !live || live.status !== 'running' || live.pause_requested
-        || request.isCancelled?.() || request.signal?.aborted || await getGenStudioUrl() !== baseUrl
-        || replacementAllowance((live.generation_replacement_attempts || []).filter(item => item.idempotency_key !== key), kind, policy.additional_credit_ceiling ?? 0) < attempt.max_credits) {
-        throw new Error('Automatic replacement stopped before submission: disabled, paused, cancelled, or spending limit changed.')
+        || request.isCancelled?.() || request.signal?.aborted || await getGenStudioUrl() !== baseUrl) {
+        throw new Error('Automatic replacement stopped before submission: disabled, paused or cancelled.')
       }
       return post()
     }),
@@ -8244,20 +8227,8 @@ async function replaceConfirmedGeneration<T>(
     // may still be adopted. `settledFailure` (services/failed-item-replacement.ts) and
     // `replayedSettledChatFailure` already read the hold; this guard read the code alone,
     // so a hold taken between the failure and this read bought a replacement anyway.
-    || holdsUnknownOutcome(original)
-    || balancedReplacementSettlement(original) === null) {
-    return refuse('The previous request is not a confirmed eligible failure with settled credits.')
-  }
-  // Uncached and authenticated. An old API may ignore unknown request fields;
-  // only explicit support allows the cap to be sent as spending authority.
-  let support: any
-  try {
-    support = await requestJsonWithRetry(`${apiBase(baseUrl)}/v1/account/overview`,
-      { headers: authorization(apiKey) }, request, deadline, apiKey, GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS, [], true, 1)
-  } catch { return refuse('Gateway spending-limit support could not be checked.') }
-  if (!Array.isArray(support?.max_charge_credits_supported_operations)
-    || !support.max_charge_credits_supported_operations.includes(operation)) {
-    return refuse('This Gateway does not yet support bounded automatic replacement. Manual Retry remains available.')
+    || holdsUnknownOutcome(original)) {
+    return refuse('The previous request is not a confirmed eligible failure.')
   }
   let quotedMaximum: number | null = null
   if (quoteMaximum) {
@@ -8267,7 +8238,7 @@ async function replaceConfirmedGeneration<T>(
     }
   }
   let attempt: GenerationReplacementAttempt | undefined
-  let blocked = 'The replacement allowance is exhausted, or this item already used its one replacement.'
+  let blocked = 'This item already used its one replacement.'
   await gate(async () => {
     const policy = await setting()
     if (!policy.enabled || request.isCancelled?.() || request.signal?.aborted || await getGenStudioUrl() !== baseUrl) {
@@ -8283,9 +8254,9 @@ async function replaceConfirmedGeneration<T>(
         if (existing.original_idempotency_key === originalKey && existing.state !== 'failed') attempt = existing
         return null
       }
-      const available = replacementAllowance(attempts, kind, policy.additional_credit_ceiling ?? 0)
-      const cap = quotedMaximum ?? available
-      if (available <= 0 || cap > available) return null
+      // The Gateway owns the charge. Story records the price it was quoted, when
+      // there was one, and never compares it to a budget of its own.
+      const cap = quotedMaximum ?? 0
       attempt = {
         kind, item_key: itemKey, connection_fingerprint: replacementConnectionFingerprint(baseUrl, apiKey),
         original_task_id: original.id, original_idempotency_key: originalKey,
@@ -8310,14 +8281,13 @@ async function replaceConfirmedGeneration<T>(
       const policy = await setting()
       const live = await queue.loadAuthoritativeJob(storyJob.project_slug, storyJob.job_id)
       if (!policy.enabled || !live || live.status !== 'running' || live.pause_requested
-        || request.isCancelled?.() || request.signal?.aborted || await getGenStudioUrl() !== baseUrl
-        || replacementAllowance((live.generation_replacement_attempts || []).filter(item => item.idempotency_key !== committed.idempotency_key), kind, policy.additional_credit_ceiling ?? 0) < committed.max_credits) {
-        throw new Error('Automatic replacement stopped before submission: disabled, paused, cancelled, or spending limit changed.')
+        || request.isCancelled?.() || request.signal?.aborted || await getGenStudioUrl() !== baseUrl) {
+        throw new Error('Automatic replacement stopped before submission: disabled, paused or cancelled.')
       }
       return request.withPost ? request.withPost(post) : post()
     }),
   }
-  await notice('queued', 'One failed item is being replaced within your additional-credit limit.')
+  await notice('queued', 'One failed item is being replaced automatically.')
   try {
     const result = await submit(committed.idempotency_key, committed.max_credits, hooks)
     await checkpoint({ state: 'succeeded' })
@@ -8333,9 +8303,7 @@ async function replaceConfirmedGeneration<T>(
     // releases unused allowance, including input, output/reasoning and search.
     try {
       const current = await getGenStudioJobByIdempotencyKey(operation, baseUrl, apiKey, committed.idempotency_key, {}, Date.now() + GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS)
-      const settled = balancedReplacementSettlement(current)
-      await checkpoint({ task_id: current.id, state: current.state === 'succeeded' ? 'succeeded' : current.state === 'failed' ? 'failed' : 'submitted',
-        ...(settled !== null && settled <= committed.max_credits ? { settled_credits: settled } : {}) })
+      await checkpoint({ task_id: current.id, state: current.state === 'succeeded' ? 'succeeded' : current.state === 'failed' ? 'failed' : 'submitted' })
     } catch { /* Unknown outcome retains its durable cap and identity. */ }
   }
 }
@@ -8668,7 +8636,7 @@ async function callChatViaResponsesOnce(
           ...(prepared.expectedOutputTokens === null
             ? {}
             : { expected_output_tokens: prepared.expectedOutputTokens }),
-          ...(request.replacementChargeLimit !== undefined ? { max_charge_credits: request.replacementChargeLimit } : {}),
+          // No `max_charge_credits`: the Gateway owns the charge and never required a client cap.
           // Present only for a deliberate web-search request. `web_search` is
           // available on this route too, so web research is durable as well.
           ...(request.webSearch ? { web_search: request.webSearch } : {}),
@@ -10495,7 +10463,7 @@ async function generateTtsToFileAdmitted(
         'Content-Type': 'application/json',
         'Idempotency-Key': idempotencyKey,
       },
-      body: wellFormedJson({ ...jobGroup, ...submission.body, ...(request.replacementChargeLimit !== undefined ? { max_charge_credits: request.replacementChargeLimit } : {}) }),
+      body: wellFormedJson({ ...jobGroup, ...submission.body }),
     },
     request,
     deadline,

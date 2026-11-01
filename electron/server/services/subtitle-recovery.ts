@@ -25,7 +25,6 @@ interface Commitment extends SubtitleReplacementAttempt {
   taskId?: string
   quoteId: string
   committedAt: string
-  ceiling: number
   authorization: 'automatic' | 'manual'
 }
 interface Section {
@@ -74,15 +73,14 @@ type ManualAction = false | 'buy_missing_subtitles' | 'rerun_subtitle_section'
 
 function subtitleFailure(error: GenStudioTerminalFailureError): SubtitleReplacementInput['failure'] {
   return {
-    // A gateway HOLD (`recovery_required` / `unknown_outcome`) is not a settled failure: its
+    // A gateway HOLD (`recovery_required` / `unknown_outcome`) is not a finished failure: its
     // answer may still be adopted, so it is not an eligible transient failure and buying a
-    // replacement would pay for the same words twice. Every other hold reader in the app says
-    // the same (`holdsUnknownOutcome`, `isGenStudioSubmissionUncertain`, `settledFailure`);
+    // replacement would ask for the same words twice. Every other hold reader in the app says
+    // the same (`holdsUnknownOutcome`, `isGenStudioSubmissionUncertain`, `confirmedEligibleFailure`);
     // this one read `failureClass` alone.
     transient: !error.unknownOutcome
       && (error.failureClass === 'provider_transient' || isFleetBusyFailure(error, 'transcription')),
-    cancelled: error.cancelled, reservedCredits: error.reservedCredits,
-    settledCredits: error.settledCredits, releasedCredits: error.releasedCredits,
+    cancelled: error.cancelled,
   }
 }
 
@@ -95,7 +93,7 @@ async function readLedger(file: string): Promise<Ledger> {
       || Object.values(parsed.plans).some(plan => !Array.isArray(plan.attempts) || plan.attempts.some(a =>
         !a || ![a.section, a.originalTaskId, a.originalIdempotencyKey, a.inputHash, a.outputPath,
           a.idempotencyKey, a.priceVersion, a.quoteId, a.committedAt].every(text)
-        || a.replacementOrdinal !== 1 || !credits(a.quotedCredits) || !Number.isSafeInteger(a.ceiling) || a.ceiling < 1))
+        || a.replacementOrdinal !== 1 || !credits(a.quotedCredits)))
       || Object.values(parsed.sections).some(s => !s || ![s.section, s.planId, s.ownerJobId, s.inputHash,
         s.outputPath, s.idempotencyKey, s.submittedAt, s.state].every(text)
         || !parsed.plans[s.planId] || typeof s.taskId !== 'string' || typeof s.identityVerified !== 'boolean'
@@ -151,8 +149,8 @@ export interface SubtitleRecoveryInput {
   generationActionId?: string
   /** A pipeline-stamped action may replace one proved-unusable result once. */
   pipelineRepair?: { actionId: string; isResultUsable: (srt: string) => boolean }
-  /** Only the explicit manual purchase route supplies this, never pipeline defaults. */
-  manualCreditCeiling?: number
+  /** Only the explicit manual purchase route turns this on; pipeline defaults never do. */
+  manualPurchase?: boolean
   request: GenStudioTranscriptionRequest
 }
 
@@ -230,18 +228,15 @@ export async function recordSubtitleSourceEvidence(
 }
 
 /** The purchase button cannot widen a failed job to the whole episode. */
-export function subtitlePurchaseParams(job: Job, ceiling: unknown): Job['params'] {
+export function subtitlePurchaseParams(job: Job): Job['params'] {
   if (job.type !== 'subtitles_transcribe' || !['error', 'needs_attention'].includes(job.status)) {
     throw new Error('Buy missing subtitles requires a failed subtitle job.')
-  }
-  if (typeof ceiling !== 'number' || !Number.isSafeInteger(ceiling) || ceiling < 1) {
-    throw new Error('Review and supply a positive whole-number subtitle credit ceiling.')
   }
   const missing = job.result?.missing_sections
   if (!Array.isArray(missing) || !missing.length || missing.some(s => typeof s !== 'string' || !s.trim())) {
     throw new Error('No exact missing subtitle sections are recorded; recover the failed job first.')
   }
-  return { ...job.params, force: false, sections: [...missing], subtitle_purchase: { additional_credit_ceiling: ceiling } }
+  return { ...job.params, force: false, sections: [...missing], subtitle_purchase: {} }
 }
 
 export async function runSubtitleTranscription(input: SubtitleRecoveryInput): Promise<{ srt: string; jobId: string; modelId: string }> {
@@ -352,10 +347,7 @@ export async function runSubtitleTranscription(input: SubtitleRecoveryInput): Pr
     }
     const policy = async () => {
       const setting = await getAppSetting(PAID_SUBTITLE_REPLACEMENT_KEY)
-      return {
-        enabled: input.manualCreditCeiling !== undefined || setting.enabled === true,
-        ceiling: input.manualCreditCeiling ?? setting.additional_credit_ceiling,
-      }
+      return { enabled: input.manualPurchase === true || setting.enabled === true }
     }
     const beginPipelineRepair = async (): Promise<boolean> => {
       if (!pipelineActionId || current!.pipelineRepairActionId === pipelineActionId) return false
@@ -422,7 +414,7 @@ export async function runSubtitleTranscription(input: SubtitleRecoveryInput): Pr
           `${provenance.originalIdempotencyKey}-confirm`, input.request, Date.now() + 30_000)
         if (original.id !== provenance.originalTaskId || original.state !== 'failed') throw new Error('Original task mismatch')
         const failure = subtitleFailure(new GenStudioTerminalFailureError('transcription', original, 'Original transcription failed'))
-        if (classifySubtitleFailure(failure) !== 'paid') throw new Error('Original settlement is not eligible')
+        if (classifySubtitleFailure(failure) !== 'paid') throw new Error('Original failure is not eligible')
         if (initial) {
           // Strict writer appends only while the independently read current binding
           // still matches; later task/current-key writes preserve this original.
@@ -449,7 +441,7 @@ export async function runSubtitleTranscription(input: SubtitleRecoveryInput): Pr
           const existing = attempts.find(a => a.section === section)
           const freeRenewal = !!existing && !!current!.freeRetryFromKey
             && [current!.freeRetryFromKey, current!.idempotencyKey].includes(existing.idempotencyKey)
-          const effectiveAuthority = freeRenewal ? { enabled: true, ceiling: existing.ceiling } : authority
+          const effectiveAuthority = freeRenewal ? { enabled: true } : authority
           const decision = decideSubtitleReplacement({
             ...effectiveAuthority, attempts: attempts.filter(a => a !== existing), section,
             ...current!.replacement!, inputHash: input.inputHash, outputPath: current!.outputPath,
@@ -463,8 +455,8 @@ export async function runSubtitleTranscription(input: SubtitleRecoveryInput): Pr
           const committed: Commitment = {
             ...decision.attempt, idempotencyKey: current!.idempotencyKey, quoteId: quote.id,
             taskId: undefined,
-            committedAt: new Date().toISOString(), ceiling: effectiveAuthority.ceiling,
-            authorization: input.manualCreditCeiling !== undefined ? 'manual' : 'automatic',
+            committedAt: new Date().toISOString(),
+            authorization: input.manualPurchase === true ? 'manual' : 'automatic',
           }
           if (!existing) attempts.push(committed)
           else if (freeRenewal) Object.assign(existing, committed)
@@ -472,8 +464,8 @@ export async function runSubtitleTranscription(input: SubtitleRecoveryInput): Pr
         })
         if (reason) return block(reason, 'buy_missing_subtitles')
         await state(current!.freeRetryFromKey ? 'free_retry' : 'paid_commitment', current!.freeRetryFromKey
-          ? 'Reusing the fully refunded replacement authorization for free; no additional paid allowance.'
-          : `Buying replacement for ${section}; ${quote.quoted_credit_cost} credits within the shared subtitle ceiling.`)
+          ? 'Reusing the replacement authorization that was not charged; nothing more is bought.'
+          : `Buying replacement for ${section} at the Gateway's current quote.`)
       }
       // This write precedes EVERY physical confirm POST, including transport retries.
       current!.confirmStarted = true
@@ -516,7 +508,7 @@ export async function runSubtitleTranscription(input: SubtitleRecoveryInput): Pr
           await reclaimKey(request)
         }
         // Reclaim accepted replacement tasks first for free. Only a new POST
-        // requires binding the claimed original key/task to provider settlement.
+        // requires binding the claimed original key/task to the failed original.
         if (!current.taskId && current.replacement && !originalAuthorityVerified) await rebindOriginalAuthority()
         if (current.taskId) await state('free_recovery', 'Recovering existing subtitle task (free).')
         const result = current.taskId
@@ -555,13 +547,13 @@ export async function runSubtitleTranscription(input: SubtitleRecoveryInput): Pr
             }
           }
           const failure = subtitleFailure(error)
-          // A cancel is the owner's instruction, free or not.
+          // A cancel is the owner's instruction, free or not. A free-fleet model never costs
+          // anything, so it re-runs; every other transient failure is the paid lane, and that
+          // lane is decided by its switch alone.
           const classification = freeFleet && !failure.cancelled ? 'free-retry' : classifySubtitleFailure(failure)
           if (classification === 'blocked') {
-            const unsettled = failure.reservedCredits == null || failure.settledCredits == null || failure.releasedCredits == null
-              || failure.settledCredits + failure.releasedCredits !== failure.reservedCredits
-            return block(unsettled ? 'Waiting for credit settlement; no replacement was bought.' : 'This provider failure is not eligible for automatic subtitle replacement.',
-              !unsettled && !failure.cancelled ? 'rerun_subtitle_section' : false, unsettled ? 'waiting_settlement' : 'needs_attention')
+            return block('This provider failure is not eligible for automatic subtitle replacement.',
+              !failure.cancelled ? 'rerun_subtitle_section' : false, 'needs_attention')
           }
           if (classification === 'paid') {
             if (current.replacement) return block('The one paid replacement failed; needs attention. Review the failure before explicitly re-running this section.', 'rerun_subtitle_section', 'needs_attention')
@@ -574,7 +566,7 @@ export async function runSubtitleTranscription(input: SubtitleRecoveryInput): Pr
             await state('paid_wait', `Preparing one replacement quote for ${section}.`)
             continue
           }
-          // Fully balanced zero settlement remains free, even after a paid quote.
+          // A free-fleet retry after a paid quote keeps its authorization; nothing more is bought.
           if (current.replacement) current.freeRetryFromKey = current.idempotencyKey
         } else if (error instanceof GenStudioTranscriptionTaskUnavailableError) {
           if (!freeFleet) return block(
@@ -612,7 +604,7 @@ export async function runSubtitleTranscription(input: SubtitleRecoveryInput): Pr
         current.freeRetries++
         await state('free_retry', freeFleet
           ? `${sameKey ? 'The Gateway did not answer in time' : 'The earlier request cannot be used'}; asking again, free on your own Macs (attempt ${freeRetriesThisRun} of ${maxFreeRetries}).`
-          : `No charge was settled. Retrying transcription for free (attempt ${freeRetriesThisRun} of ${maxFreeRetries}) without consuming a replacement allowance.`)
+          : `No machine could take the request; asking again with a fresh one (attempt ${freeRetriesThisRun} of ${maxFreeRetries}).`)
         if (isFleetBusyFailure(error) || (error instanceof GenStudioTerminalFailureError && FLEET_BUSY_FAILURE_CODES.has(error.failureCode || ''))) {
           await waitUnlessStopped(delay, () => !!stopped())
         }

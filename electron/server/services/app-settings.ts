@@ -115,13 +115,8 @@ function cloneSettingValue<T>(value: T): T {
 }
 
 export interface PaidImageReplacementSetting {
+  /** The whole switch. Gateway owns the charge, so there is no budget beside it. */
   enabled: boolean
-  /**
-   * Left in place for the paid-replacement consumers, which still read it until
-   * their own slice retires them. Story no longer enforces a ceiling itself —
-   * Gateway owns every credit decision — so this is carried, never acted on here.
-   */
-  additional_credit_ceiling: number | null
 }
 
 export const PAID_IMAGE_REPLACEMENT_KEY = 'paid_image_replacement'
@@ -180,7 +175,6 @@ function parsePrivateFinalRenderSetting(
 
 const PAID_REPLACEMENT_DEFAULT: PaidImageReplacementSetting = {
   enabled: false,
-  additional_credit_ceiling: null,
 }
 
 function invalidPaidReplacementSetting(kind: 'image' | 'subtitle' | 'audio' | 'writing'): never {
@@ -200,21 +194,13 @@ function parsePaidReplacementSetting(
     return { ...PAID_REPLACEMENT_DEFAULT }
   }
   const record = value as Record<string, unknown>
-  const keys = Object.keys(record)
-  // Accept both the new shape (enabled only) and legacy records that also carry
-  // additional_credit_ceiling. The ceiling is carried for the paid-replacement
-  // consumers only; Story itself no longer enforces it (credits retired).
-  if (!keys.includes('enabled') || typeof record.enabled !== 'boolean') {
+  // A legacy record may still carry `additional_credit_ceiling`. It is ignored:
+  // the switch alone decides, and `enabled: true` stays on.
+  if (!('enabled' in record) || typeof record.enabled !== 'boolean') {
     if (invalid === 'throw') return invalidPaidReplacementSetting(kind)
     return { ...PAID_REPLACEMENT_DEFAULT }
   }
-  const ceiling = record.additional_credit_ceiling
-  return {
-    enabled: record.enabled,
-    additional_credit_ceiling: typeof ceiling === 'number' && Number.isSafeInteger(ceiling)
-      ? ceiling
-      : null,
-  }
+  return { enabled: record.enabled }
 }
 
 // Legacy installs wrote this file with default 0644. On the first read after

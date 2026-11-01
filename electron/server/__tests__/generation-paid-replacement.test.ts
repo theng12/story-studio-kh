@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { useTempDataDir } from './_helpers.js'
 import { waitFor } from './_timing.js'
-import { replacementAllowance, mergeGenerationReplacementAttempts, balancedReplacementSettlement } from '../services/generation-paid-replacement.js'
+import { mergeGenerationReplacementAttempts, generationReplacementKey } from '../services/generation-paid-replacement.js'
 import type { GenerationReplacementAttempt } from '../models/types.js'
 
 const receipt: GenerationReplacementAttempt = {
@@ -10,15 +10,11 @@ const receipt: GenerationReplacementAttempt = {
   idempotency_key: 'replacement-key', max_credits: 10, revision: 1, state: 'committed',
 }
 
-test('replacement allowance retains unknown holds, uses balanced settlement and never rolls back receipts', () => {
-  assert.equal(replacementAllowance([receipt], 'writing', 15), 5)
-  assert.equal(replacementAllowance([receipt], 'audio', 15), 15)
-  assert.equal(replacementAllowance([{ ...receipt, settled_credits: 3 }], 'writing', 15), 12)
-  assert.equal(replacementAllowance([{ ...receipt, settled_credits: -1 }], 'writing', 15), 0)
-  assert.equal(balancedReplacementSettlement({ state: 'failed', reserved_credits: 10, settled_credits: 3, released_credits: 7 }), 3)
-  assert.equal(balancedReplacementSettlement({ state: 'failed', reserved_credits: 10, settled_credits: 3, released_credits: 0 }), null)
+test('replacement attempts merge by key and revision, and every item key descends from its original', () => {
   const fresh = { ...receipt, revision: 2, state: 'submitted' as const, task_id: 'accepted' }
   assert.deepEqual(mergeGenerationReplacementAttempts([fresh], [receipt]), [fresh])
+  assert.match(generationReplacementKey('writing', 'original-key'), /^story-writing-replacement-[0-9a-f]{64}$/)
+  assert.notEqual(generationReplacementKey('writing', 'original-key'), generationReplacementKey('audio', 'original-key'))
 })
 
 test('writing replacement enforces opt-in, fresh server support, durable budget, one attempt and Off before POST', async t => {
@@ -44,7 +40,6 @@ test('writing replacement enforces opt-in, fresh server support, durable budget,
     if (url.pathname.endsWith('/account/overview')) return Response.json({
       paid_concurrency_limit: 5, paid_active_jobs: 0, paid_queued_jobs: 0, max_queued_jobs: 25,
       generation_submissions_per_minute: 300,
-      ...(scenario !== 'old-api' ? { max_charge_credits_supported_operations: ['chat.response', 'voice.tts'] } : {}),
     })
     if (url.pathname.includes('/by-idempotency-key/')) {
       const value = byKey.get(decodeURIComponent(url.pathname.split('/').at(-1)!))
@@ -58,11 +53,12 @@ test('writing replacement enforces opt-in, fresh server support, durable budget,
       const key = new Headers(init.headers).get('Idempotency-Key')!
       const body = JSON.parse(String(init.body))
       posts.push({ key, body })
-      const replacement = body.max_charge_credits !== undefined
+      const replacement = key.startsWith('story-writing-replacement-')
+      // Story never sends a credit cap: the Gateway owns the charge.
+      assert.equal((body as any).max_charge_credits, undefined)
       if (replacement) {
         const durable = await queue.loadAuthoritativeJob(project.slug, liveJobId)
         assert.equal(durable?.generation_replacement_attempts?.[0]?.idempotency_key, key, 'commit must land before physical POST')
-        assert.equal(body.max_charge_credits, 10)
       }
       const succeeded = replacement && scenario !== 'fails-again'
       const result = {
@@ -81,19 +77,19 @@ test('writing replacement enforces opt-in, fresh server support, durable budget,
   }
   try {
     await settings.setGenStudioUrl('http://127.0.0.1:19979')
-    for (const name of ['off', 'old-api', 'success', 'fails-again', 'uncertain', 'disable-before-post', 'held-after-post']) {
+    for (const name of ['off', 'success', 'fails-again', 'uncertain', 'disable-before-post', 'held-after-post']) {
       await t.test(name, async () => {
         scenario = name
         posts.length = 0
         byKey.clear()
-        await settings.setPaidWritingReplacementSetting({ enabled: name !== 'off', additional_credit_ceiling: 10 })
+        await settings.setPaidWritingReplacementSetting({ enabled: name !== 'off' })
         queue.registerExecutor('metadata', async job => {
           liveJobId = job.job_id
           await callChatWithGenStudio(`test-key-${name}`, {
             modelId: 'writer-test', system: '', userMessage: name, outputContract: { mode: 'json_object' },
             beforePost: async () => {
               if (name === 'disable-before-post' && posts.length === 1) {
-                await settings.setPaidWritingReplacementSetting({ enabled: false, additional_credit_ceiling: 10 })
+                await settings.setPaidWritingReplacementSetting({ enabled: false })
               }
             },
           })
@@ -104,18 +100,16 @@ test('writing replacement enforces opt-in, fresh server support, durable budget,
         // Owner decision 2026-10-12: a lost writing request gets one fresh resend, never a paid replacement.
         if (name === 'uncertain') {
           assert.match(posts[1]!.key, /^story-chat-resend-/)
-          assert.equal(posts[1]!.body.max_charge_credits, undefined)
           assert.ok(queue.getJob(job.job_id)?.output_lines.some(line => /sent it once more as a fresh request/.test(line)))
         } else if (posts.length === 2) {
           assert.notEqual(posts[0]!.key, posts[1]!.key)
           const persisted = await queue.loadAuthoritativeJob(project.slug, job.job_id)
           assert.equal(persisted?.generation_replacement_attempts?.length, 1)
-          assert.equal(persisted?.generation_replacement_attempts?.[0]?.settled_credits, name === 'success' ? 4 : 0)
+          assert.equal(persisted?.generation_replacement_attempts?.[0]?.idempotency_key, posts[1]!.key)
         }
         if (name === 'success') assert.equal(queue.getJob(job.job_id)?.status, 'done', queue.getJob(job.job_id)?.error || '')
         // A hold is an unknown outcome, not a confirmed failure: no replacement is bought.
         if (name === 'held-after-post') {
-          assert.equal(posts[0]!.body.max_charge_credits, undefined)
           assert.match(queue.getJob(job.job_id)?.error || '', /not a confirmed eligible failure/)
         }
       })

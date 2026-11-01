@@ -46,12 +46,12 @@ test('paid image replacement defaults, validates exactly, and exposes only the f
   const jobsBefore = queue.getQueueStats().total
   await request(app)
     .get('/app-settings/paid-image-replacement')
-    .expect(200, { enabled: false, additional_credit_ceiling: null })
+    .expect(200, { enabled: false })
 
   await request(app)
     .put('/app-settings/paid-image-replacement')
-    .send({ enabled: true, additional_credit_ceiling: 50 })
-    .expect(200, { enabled: true, additional_credit_ceiling: 50 })
+    .send({ enabled: true })
+    .expect(200, { enabled: true })
 
   const beforeInvalid = await request(app)
     .get('/app-settings/paid-image-replacement')
@@ -59,11 +59,11 @@ test('paid image replacement defaults, validates exactly, and exposes only the f
 
   const imageError = await request(app)
     .put('/app-settings/paid-image-replacement')
-    .send({ enabled: true, additional_credit_ceiling: 0 })
+    .send({ enabled: 'yes' })
   assert.equal(imageError.status, 400)
   assert.equal(
     imageError.body.detail,
-    'Paid image replacement requires exactly enabled and additional_credit_ceiling; when enabled, the ceiling must be a positive safe whole number.',
+    'Paid image replacement requires exactly enabled as a boolean.',
     'the shared parser must preserve the existing image API error',
   )
 
@@ -71,15 +71,12 @@ test('paid image replacement defaults, validates exactly, and exposes only the f
   try {
     console.error = () => undefined
     for (const body of [
-      { enabled: true, additional_credit_ceiling: 0 },
-      { enabled: true, additional_credit_ceiling: -1 },
-      { enabled: true, additional_credit_ceiling: 1.5 },
-      { enabled: true, additional_credit_ceiling: '50' },
-      { enabled: true, additional_credit_ceiling: Number.MAX_SAFE_INTEGER + 1 },
-      { paid_image_replacement: { enabled: true, additional_credit_ceiling: 50 } },
-      { settings: { enabled: true, additional_credit_ceiling: 50 } },
-      { enabled: true, additional_credit_ceiling: 50, wait_minutes: 0 },
-      { enabled: true, additional_credit_ceiling: 50, max_replacements_per_asset: 99 },
+      { enabled: 'yes' },
+      {},
+      { enabled: 1 },
+      { enabled: null },
+      { paid_image_replacement: { enabled: true } },
+      { settings: { enabled: true } },
     ]) {
       const rejected = await request(app)
         .put('/app-settings/paid-image-replacement')
@@ -99,27 +96,27 @@ test('paid image replacement defaults, validates exactly, and exposes only the f
   assert.equal(queue.getQueueStats().total, jobsBefore, 'the setting route must not enqueue, retry, or cancel work')
 
   const settings = await import('../services/app-settings.js')
-  for (const value of [NaN, Infinity, -Infinity]) {
+  for (const value of [NaN, Infinity, -Infinity, 'yes']) {
     await assert.rejects(
-      () => settings.setPaidImageReplacementSetting({ enabled: true, additional_credit_ceiling: value }),
-      /positive safe whole number/i,
+      () => settings.setPaidImageReplacementSetting({ enabled: value as any }),
+      /exactly enabled as a boolean/i,
     )
   }
 
-  await settings.setPaidImageReplacementSetting({ enabled: false, additional_credit_ceiling: 50 })
+  await settings.setPaidImageReplacementSetting({ enabled: false })
   assert.deepEqual(
     await settings.getPaidImageReplacementSetting(),
-    { enabled: false, additional_credit_ceiling: 50 },
+    { enabled: false },
     'disabling may retain an already-valid ceiling',
   )
 
   await fs.writeFile(
     path.join(temp.dir, 'app-settings.json'),
-    JSON.stringify({ paid_image_replacement: { enabled: true, additional_credit_ceiling: 'not-a-number' } }),
+    JSON.stringify({ paid_image_replacement: { enabled: 'yes' } }),
   )
   assert.deepEqual(
     await settings.getPaidImageReplacementSetting(),
-    { enabled: false, additional_credit_ceiling: null },
+    { enabled: false },
     'absent or malformed storage must fail closed to the exact off default',
   )
 
@@ -128,7 +125,7 @@ test('paid image replacement defaults, validates exactly, and exposes only the f
       await fs.writeFile(path.join(temp.dir, 'app-settings.json'), JSON.stringify(root))
       assert.deepEqual(
         await settings.getPaidImageReplacementSetting(),
-        { enabled: false, additional_credit_ceiling: null },
+        { enabled: false },
         'a malformed JSON root must fail closed without weakening the shared store',
       )
     }
@@ -137,75 +134,92 @@ test('paid image replacement defaults, validates exactly, and exposes only the f
   }
 })
 
-test('paid subtitle replacement stays independently off until its own whole-credit ceiling is saved', async () => {
+test('a legacy settings file that still carries a ceiling loads, and its enabled switch stays on', async () => {
+  const settings = await import('../services/app-settings.js')
+  await fs.writeFile(
+    path.join(temp.dir, 'app-settings.json'),
+    JSON.stringify({
+      paid_image_replacement: { enabled: true, additional_credit_ceiling: 50 },
+      paid_subtitle_replacement: { enabled: false, additional_credit_ceiling: 17 },
+    }),
+  )
+  try {
+    assert.deepEqual(await settings.getPaidImageReplacementSetting(), { enabled: true })
+    assert.deepEqual(await settings.getPaidSubtitleReplacementSetting(), { enabled: false })
+  } finally {
+    await fs.writeFile(path.join(temp.dir, 'app-settings.json'), '{}')
+  }
+})
+
+test('paid subtitle replacement stays independently off until its own switch is saved', async () => {
   await request(app)
     .get('/app-settings/paid-subtitle-replacement')
-    .expect(200, { enabled: false, additional_credit_ceiling: null })
+    .expect(200, { enabled: false })
 
   await request(app)
     .put('/app-settings/paid-subtitle-replacement')
-    .send({ enabled: true, additional_credit_ceiling: 17 })
-    .expect(200, { enabled: true, additional_credit_ceiling: 17 })
+    .send({ enabled: true })
+    .expect(200, { enabled: true })
 
   const settings = await import('../services/app-settings.js')
   assert.deepEqual(
     await settings.getPaidImageReplacementSetting(),
-    { enabled: false, additional_credit_ceiling: null },
+    { enabled: false },
     'enabling subtitles must never authorise image replacement',
   )
   await assert.rejects(
-    () => settings.setPaidSubtitleReplacementSetting({ enabled: true, additional_credit_ceiling: 0 }),
-    /positive safe whole number/i,
+    () => settings.setPaidSubtitleReplacementSetting({ enabled: 'yes' as any }),
+    /exactly enabled as a boolean/i,
   )
   const subtitleError = await request(app)
     .put('/app-settings/paid-subtitle-replacement')
-    .send({ enabled: true, additional_credit_ceiling: 0 })
+    .send({ enabled: 'yes' })
   assert.equal(subtitleError.status, 400)
   assert.equal(
     subtitleError.body.detail,
-    'Paid subtitle replacement requires exactly enabled and additional_credit_ceiling; when enabled, the ceiling must be a positive safe whole number.',
+    'Paid subtitle replacement requires exactly enabled as a boolean.',
     'the shared parser must preserve the existing subtitle API error',
   )
 })
 
-test('paid audio and writing replacement stay separately off and require their own positive whole-credit ceilings', async () => {
+test('paid audio and writing replacement stay separately off until their own switches are saved', async () => {
   for (const replacement of [
     { name: 'audio', path: '/app-settings/paid-audio-replacement', getter: 'getPaidAudioReplacementSetting', setter: 'setPaidAudioReplacementSetting' },
     { name: 'writing', path: '/app-settings/paid-writing-replacement', getter: 'getPaidWritingReplacementSetting', setter: 'setPaidWritingReplacementSetting' },
   ] as const) {
     await request(app)
       .get(replacement.path)
-      .expect(200, { enabled: false, additional_credit_ceiling: null })
+      .expect(200, { enabled: false })
 
     await request(app)
       .put(replacement.path)
-      .send({ enabled: true, additional_credit_ceiling: 23 })
-      .expect(200, { enabled: true, additional_credit_ceiling: 23 })
+      .send({ enabled: true })
+      .expect(200, { enabled: true })
 
     const settings = await import('../services/app-settings.js') as any
     assert.deepEqual(
       await settings[replacement.getter](),
-      { enabled: true, additional_credit_ceiling: 23 },
+      { enabled: true },
       `${replacement.name} setting persists only at its own machine-local key`,
     )
     await assert.rejects(
-      () => settings[replacement.setter]({ enabled: true, additional_credit_ceiling: 0 }),
-      /positive safe whole number/i,
+      () => settings[replacement.setter]({ enabled: 'yes' }),
+      /exactly enabled as a boolean/i,
     )
     await request(app)
       .get(replacement.path)
-      .expect(200, { enabled: true, additional_credit_ceiling: 23 })
+      .expect(200, { enabled: true })
   }
 
   const settings = await import('../services/app-settings.js')
   assert.deepEqual(
     await settings.getPaidImageReplacementSetting(),
-    { enabled: false, additional_credit_ceiling: null },
+    { enabled: false },
     'new recovery settings cannot enable image replacement after an upgrade',
   )
   assert.deepEqual(
     await settings.getPaidSubtitleReplacementSetting(),
-    { enabled: true, additional_credit_ceiling: 17 },
+    { enabled: true },
     'audio and writing settings do not change subtitle replacement',
   )
 })
@@ -215,14 +229,13 @@ test('only supported image enqueue snapshots the machine policy outside request 
   const queue = await import('../services/job-queue.js')
   const projects = await import('../services/project-manager.js')
   await queue.setQueuePaused(true)
-  await settings.setPaidImageReplacementSetting({ enabled: true, additional_credit_ceiling: 50 })
+  await settings.setPaidImageReplacementSetting({ enabled: true })
 
   const project = await projects.createProject({ name: 'Paid policy snapshot boundary' })
   const callerPolicy = {
     enabled: false,
     wait_minutes: 0,
     max_replacements_per_asset: 99,
-    additional_credit_ceiling: 1,
     snapshotted_at: 'caller-controlled',
   }
   // §8 admission reads the episode code the way the resolver does
@@ -235,7 +248,7 @@ test('only supported image enqueue snapshots the machine policy outside request 
     type,
     episode_id: episode,
     title: type,
-    params: { paid_image_replacement: { enabled: false, additional_credit_ceiling: 1 } },
+    params: { paid_image_replacement: { enabled: false } },
     paid_image_replacement: callerPolicy,
   } as any)
 
@@ -243,16 +256,14 @@ test('only supported image enqueue snapshots the machine policy outside request 
     const job = await serverSnapshot(type, nextEpisode())
     assert.equal(job.params.paid_image_replacement, undefined, 'caller params must not persist paid authority')
     assert.equal(job.paid_image_replacement?.enabled, true)
-    assert.equal(job.paid_image_replacement?.additional_credit_ceiling, 50)
     assert.equal(job.paid_image_replacement?.wait_minutes, 30)
     assert.equal(job.paid_image_replacement?.max_replacements_per_asset, 1)
     assert.match(job.paid_image_replacement?.snapshotted_at || '', /^\d{4}-\d{2}-\d{2}T/)
   }
 
-  await settings.setPaidImageReplacementSetting({ enabled: false, additional_credit_ceiling: null })
+  await settings.setPaidImageReplacementSetting({ enabled: false })
   const disabled = await serverSnapshot('continuity_render', nextEpisode())
   assert.equal(disabled.paid_image_replacement?.enabled, false)
-  assert.equal(disabled.paid_image_replacement?.additional_credit_ceiling, null)
 
   for (const type of ['audio', 'subtitles_transcribe', 'music_generate', 'scene_clips_batch', 'broll_normalize', 'image_prompts']) {
     const job = await serverSnapshot(type, nextEpisode())
@@ -283,7 +294,7 @@ test('machine setting and eligible enqueue leave project and preset bytes unchan
   await fs.writeFile(pipelinePresetPath, '{\n"pipeline" : { "name" : "keep" }\n}\n')
   const before = await Promise.all([configPath, generatorPresetPath, pipelinePresetPath].map(file => fs.readFile(file)))
 
-  await settings.setPaidImageReplacementSetting({ enabled: true, additional_credit_ceiling: 50 })
+  await settings.setPaidImageReplacementSetting({ enabled: true })
   await queue.enqueue({
     project_slug: project.slug,
     type: 'continuity_render',
@@ -308,7 +319,7 @@ test('real usePresets save/apply payloads are identical with the machine policy 
   const { usePresets } = await import(path.join(frontendComposables, 'usePresets.js')) as any
 
   const runFixture = async (enabled: boolean): Promise<{ project: Buffer; preset: Buffer; payloads: unknown[] }> => {
-    await settings.setPaidImageReplacementSetting({ enabled, additional_credit_ceiling: enabled ? 50 : null })
+    await settings.setPaidImageReplacementSetting({ enabled })
     const store: Record<string, any> = {
       fixture: {
         script_presets: [{ id: 'saved', name: 'Saved', data: { model: 'image-model', style: 'old' } }],

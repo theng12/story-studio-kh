@@ -2891,7 +2891,8 @@ export interface PaidImageReplacementPolicySnapshot {
   enabled: boolean
   wait_minutes: 30
   max_replacements_per_asset: 1
-  additional_credit_ceiling: number | null
+  /** Legacy records only; ignored. The switch alone decides. */
+  additional_credit_ceiling?: number | null
   snapshotted_at: string
 }
 
@@ -2909,9 +2910,10 @@ export interface PaidImageReplacementAttempt {
   reference_inputs: import('../services/task-manifest.js').PaidImageReferenceInput[]
   reference_identity_hash: string
   failure_code: string
-  reserved_credits: number
-  settled_credits: number
-  released_credits: number
+  /** Legacy records only; ignored. */
+  reserved_credits?: number
+  settled_credits?: number
+  released_credits?: number
   terminal_observed_at: string
   eligible_at: string
   quoted_credits?: number
@@ -2922,7 +2924,7 @@ export interface PaidImageReplacementAttempt {
   actual_settled_credits?: number
   reason?: string
   /** Allow-listed renderer explanation; never derived from provider prose. */
-  public_reason?: 'original_failure_not_eligible' | 'replacement_disabled' | 'not_verified' | 'budget_limit'
+  public_reason?: 'original_failure_not_eligible' | 'replacement_disabled' | 'not_verified'
 }
 
 export interface GenerationReplacementAttempt {

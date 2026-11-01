@@ -57,7 +57,7 @@ import {
   tryRecoverImageFromManifestEntry,
   type ImageRecoveryOutcome,
 } from '../lib/manifest-recovery.js'
-import { buildGenStudioImageIdempotencyKey, GenStudioImageTerminalFailureError, hasFullyReleasedZeroSettlement, isGenStudioPaymentRefusal, refreshGenStudioAdmission } from '../lib/genstudio-client.js'
+import { buildGenStudioImageIdempotencyKey, GenStudioImageTerminalFailureError, isGenStudioPaymentRefusal, refreshGenStudioAdmission } from '../lib/genstudio-client.js'
 import { checkpointGenStudioAsset } from '../services/genstudio-recovery.js'
 import {
   assertReleasedZeroSettlementImageRetrySubmit,
@@ -1853,7 +1853,6 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
                   const manualZeroSettlementRetry = Boolean(
                     sceneManualFinish
                     && !e.cancelled
-                    && hasFullyReleasedZeroSettlement(e)
                     && isRetryableZeroSettlementImageFailureCode(e.failureCode),
                   )
                   const decision = (!sceneManualFinish || manualZeroSettlementRetry) && attemptPaidSelector

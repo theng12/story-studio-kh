@@ -112,7 +112,6 @@ describe('Episode and Channel Cost Calculations', () => {
     // Paid cost check
     assert.equal(cost.paid.state, 'measured')
     assert.equal(cost.paid.usd, 0.12) // 0.08 + 0.04
-    assert.equal(cost.paid.credits, 7) // 4 + 2 + 1 replacement
 
     // Local cost check
     assert.equal(cost.local.state, 'measured')
@@ -206,7 +205,6 @@ describe('Episode and Channel Cost Calculations', () => {
     const freeResult = computeEpisodeCost([freeJob], 'EP0003', DEFAULT_COST_SETTINGS)
     assert.equal(freeResult.paid.state, 'measured', 'explicit 0 charge must be measured, not unmeasurable')
     assert.equal(freeResult.paid.usd, 0)
-    assert.equal(freeResult.paid.credits, 0)
   })
 
   // ── 3. WASTE COMPUTED ─────────────────────────────────────────────────────
@@ -340,8 +338,6 @@ describe('Episode and Channel Cost Calculations', () => {
     assert.equal(cost.waste.state, 'measured')
     assert.equal(cost.waste.waste_jobs_count, 1, 'Job 1 must be counted ONCE, not twice')
     assert.equal(cost.waste.total_jobs_count, 2)
-    assert.equal(cost.waste.waste_credits, 2)
-    assert.equal(cost.waste.total_credits, 4)
     // Waste percent should be ~50%
     assert.ok(cost.waste.percent! >= 49 && cost.waste.percent! <= 51, `waste % should be ~50%, was ${cost.waste.percent}`)
   })
@@ -386,8 +382,6 @@ describe('Episode and Channel Cost Calculations', () => {
     const cost = computeEpisodeCost(jobs, 'EP0021', DEFAULT_COST_SETTINGS)
     assert.equal(cost.waste.waste_jobs_count, 1, 'Job 1 is superseded and counted once as waste')
     assert.equal(cost.waste.total_jobs_count, 2)
-    assert.equal(cost.waste.waste_credits, 10)
-    assert.equal(cost.waste.total_credits, 20)
     assert.equal(cost.waste.percent, 50)
   })
 
@@ -432,7 +426,6 @@ describe('Episode and Channel Cost Calculations', () => {
     assert.equal(report.project_slug, 'demo-chan')
     assert.equal(report.channel_total.paid.state, 'measured')
     assert.equal(report.channel_total.paid.usd, 0.40)
-    assert.equal(report.channel_total.paid.credits, 20)
     assert.equal(report.channel_total.local.state, 'measured')
     assert.equal(report.channel_total.local.mac_minutes, 30) // 10 + 20
     assert.equal(report.channel_total.waste.state, 'measured')

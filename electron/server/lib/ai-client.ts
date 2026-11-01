@@ -21,7 +21,6 @@ import {
   type GenStudioChatModel,
   GenStudioChatProductUnavailableError,
   GenStudioChatTerminalFailureError,
-  hasFullyReleasedZeroSettlement,
   isGenStudioLanguageQuotaExhausted,
   isGenStudioSubmissionUncertain,
   listChatModels,
@@ -57,7 +56,7 @@ export function _setQuotaRecheckMsForTesting(ms: number): void {
 export function isUnchargedQuotaStop(error: unknown): boolean {
   for (let e: any = error, depth = 0; e && depth < 8; e = e.cause, depth++) {
     if (isGenStudioLanguageQuotaExhausted(e) && !e.cancelled
-      && !isGenStudioSubmissionUncertain(e) && hasFullyReleasedZeroSettlement(e)) return true
+      && !isGenStudioSubmissionUncertain(e)) return true
   }
   return false
 }
@@ -428,7 +427,6 @@ export async function executePipelineModelPolicy<T>(
     const provenUncharged = error instanceof GenStudioChatTerminalFailureError
       && !error.cancelled
       && !isGenStudioSubmissionUncertain(error)
-      && hasFullyReleasedZeroSettlement(error)
     if (provenUncharged || (!acceptedIdempotencyKey && isSafePipelineModelAdvance(error))) {
       // Nothing was charged and the failed key is terminal: a later Retry or
       // quota recheck makes a fresh request instead of replaying this one.
@@ -480,8 +478,7 @@ export function isSafePipelineModelAdvance(error: unknown): boolean {
     || error instanceof GenStudioChatCapabilityUnavailableError
     || (error instanceof GenStudioChatTerminalFailureError
       && !error.cancelled
-      && !isGenStudioSubmissionUncertain(error)
-      && hasFullyReleasedZeroSettlement(error))
+      && !isGenStudioSubmissionUncertain(error))
 }
 
 /**

@@ -22,7 +22,7 @@ import { AsyncLocalStorage } from 'async_hooks'
 import type { ChildProcess } from 'child_process'
 import { createHash, randomUUID } from 'node:crypto'
 import { isDeepStrictEqual } from 'node:util'
-import { balancedReplacementSettlement, mergeGenerationReplacementAttempts } from './generation-paid-replacement.js'
+import { mergeGenerationReplacementAttempts } from './generation-paid-replacement.js'
 import { projectsRoot, getProjectDir, getUserDataDir } from './project-manager.js'
 import { reapRecordedChildren, recordChildProcess } from './orphan-reaper.js'
 import { trackGeneration } from './session-tracker.js'
@@ -223,10 +223,8 @@ export async function recordGenStudioJob(
     await mutateAuthoritativeJob(job.project_slug, job.job_id, authoritative => {
       authoritative.generation_replacement_attempts = (authoritative.generation_replacement_attempts || []).map(attempt => {
         if (attempt.task_id !== snapshot.id && attempt.idempotency_key !== requestKey) return attempt
-        const settled = balancedReplacementSettlement(snapshot)
         return { ...attempt, task_id: snapshot.id, revision: attempt.revision + 1,
-          state: snapshot.state === 'succeeded' ? 'succeeded' : snapshot.state === 'failed' ? 'failed' : 'submitted',
-          ...(settled !== null && settled <= attempt.max_credits ? { settled_credits: settled } : {}) }
+          state: snapshot.state === 'succeeded' ? 'succeeded' : snapshot.state === 'failed' ? 'failed' : 'submitted' }
       })
       return authoritative
     })
@@ -2248,7 +2246,6 @@ const PAID_IMAGE_REPLACEMENT_PUBLIC_CAUSE: Record<NonNullable<PaidImageReplaceme
   original_failure_not_eligible: 'its earlier Gateway task failed in a way that is not safe to resubmit automatically',
   not_verified: 'Story Studio could not verify its earlier Gateway task',
   replacement_disabled: 'automatic replacement of a failed paid image is off',
-  budget_limit: "this job's extra-credit limit for replacements is used up",
 }
 
 /** The public message with its allow-listed cause, so a refusal says why (EP0092 thumbnails, 2026-10-10). */
@@ -4465,9 +4462,6 @@ export function getValidPaidImageWait(job: Job): { attempt: PaidImageReplacement
       isNonEmptyString(reference.role) && isNonEmptyString(reference.path) && isSha256(reference.sha256)
     ))
   ) return null
-  if (![attempt.reserved_credits, attempt.settled_credits, attempt.released_credits].every(value => (
-    typeof value === 'number' && Number.isFinite(value) && value >= 0
-  )) || attempt.reserved_credits !== attempt.settled_credits + attempt.released_credits || attempt.settled_credits <= 0) return null
   const observedAtMs = Date.parse(attempt.terminal_observed_at)
   const dueAtMs = Date.parse(attempt.eligible_at)
   if (!Number.isFinite(observedAtMs) || !Number.isFinite(dueAtMs) || dueAtMs !== observedAtMs + PAID_IMAGE_WAIT_MS) return null
