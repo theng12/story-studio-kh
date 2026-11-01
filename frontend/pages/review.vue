@@ -378,7 +378,12 @@ onUnmounted(() => poller.stop())
   transition: background 0.15s, border-color 0.15s;
 }
 .rv-chip:hover { background: var(--bg-secondary); }
-.rv-chip-active {
+/* Scoped CSS appends [data-v-*] to the end, so `.rv-chip[data-v]:hover`
+   outranks `.rv-chip-active[data-v]`. Without the matching hover, resting the
+   mouse on the selected chip painted it --bg-secondary (#fff here) while its
+   label stayed #fff — an invisible chip. Say so for the active one too. */
+.rv-chip-active,
+.rv-chip-active:hover {
   background: var(--accent, #2563eb);
   border-color: var(--accent, #2563eb);
   color: #fff;

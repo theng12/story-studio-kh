@@ -258,7 +258,11 @@ test('a channel with review off lists nothing and offers the switch', async () =
   try {
     assert.match(host.textContent || '', /No finished videos are waiting/)
     assert.match(host.textContent || '', /Turn review on for a channel above/)
+    // The switch belongs to the selected channel, so select it first.
+    host.querySelector<HTMLButtonElement>('.rv-chip:not(.rv-chip-active)')!.click()
+    await flush()
     const toggle = host.querySelector<HTMLInputElement>('.rv-toggle input')!
+    assert.ok(toggle, 'selecting the channel offers its review switch')
     assert.equal(toggle.checked, false)
     toggle.checked = true
     toggle.dispatchEvent(new Event('change'))
