@@ -30,7 +30,9 @@ test('the create form makes the Formula a required, explicit choice', () => {
 test('submit is impossible until a Formula or Generic is chosen', () => {
   assert.match(home, /const formulaChoiceMade = computed/)
   assert.match(home, /form\.formula_choice === 'formula' && !!form\.niche_id/)
-  assert.match(home, /:disabled="!form\.name\.trim\(\) \|\| !formulaChoiceMade \|\| creating"/)
+  // v1.4.374: a saved starting point carries its own Formula, so it stands in for the choice.
+  assert.match(home, /!!form\.name\.trim\(\) && \(startingFromDefault\.value \? true : formulaChoiceMade\.value\)/)
+  assert.match(home, /:disabled="!canCreateChannel \|\| creating"/)
 })
 
 test('the create payload records which choice was made', () => {
