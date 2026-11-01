@@ -61,6 +61,17 @@ const NuxtLinkStub = defineComponent({
   setup(props, { slots }) { return () => h('a', { href: props.to }, slots.default?.()) },
 })
 const ModelMenuStub = defineComponent({ props: { modelValue: String }, setup: () => () => h('div') })
+const RevealPickerStub = defineComponent({
+  props: { modelValue: String, label: String, reveals: Array, inheritLabel: String, inheritValue: { type: String, default: '' }, disabled: Boolean },
+  emits: ['pick'],
+  setup(props, { emit }) {
+    return () => h('select', { 'aria-label': props.label, value: props.modelValue, disabled: props.disabled, onChange: (event: Event) => emit('pick', (event.target as HTMLSelectElement).value) }, [
+      h('option', { value: props.inheritValue }, props.inheritLabel),
+      ...(props.reveals as Array<{ id: string; label: string }>).map(item => h('option', { value: item.id }, item.label)),
+    ])
+  },
+})
+
 const TopActionBarStub = defineComponent({
   props: { episodeId: String, generateDisabled: Boolean },
   emits: ['update:episodeId', 'generate'],
@@ -116,6 +127,7 @@ async function mount(input: {
   }
   ;(globalThis as any).__mrApi = {
     get: async (path: string) => {
+      if (path === '/sketch-reveals') return { reveals: ['line', 'buildup', 'swipes', 'patches', 'bloom', 'colour'].map(id => ({ id, label: ({ line: 'Line', buildup: 'Build-up', swipes: 'Swipes', patches: 'Patches', bloom: 'Bloom', colour: 'Colour it in' } as Record<string, string>)[id] })) }
       if (path.endsWith('/motion-presentation')) {
         return { renderer: 'sketch_draw', pen: 'none', channel_name: 'Demo', has_logo: false, reveal: input.channelReveal ?? null }
       }
@@ -156,6 +168,7 @@ async function mount(input: {
   app.component('NuxtLink', NuxtLinkStub)
   app.component('MenuMenu', ModelMenuStub)
   app.component('ModelMenu', ModelMenuStub)
+  app.component('SketchRevealPicker', RevealPickerStub)
   app.component('TopActionBar', TopActionBarStub)
   app.mount(el)
   let active = true

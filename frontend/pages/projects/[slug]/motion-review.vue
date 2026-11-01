@@ -169,21 +169,13 @@
           <button v-if="isSketchDraw && holdLoaded && episodeHold && JSON.stringify(episodeHold) !== JSON.stringify(channelHold)" type="button" class="btn btn-sm btn-ghost" :disabled="holdSaving || presentationSaving" @click="setChannelHoldDefault">
             Make this the channel default hold
           </button>
-          <label v-if="isSketchDraw" class="model-field renderer-field">
+          <div v-if="isSketchDraw" class="model-field renderer-field">
             <span>Reveal style for {{ episodeId }}</span>
-            <select v-model="revealChoice" class="select" :disabled="!revealLoaded || revealSaving" aria-label="Sketch Draw reveal style for this episode" aria-describedby="sketch-reveal-help" @change="onRevealChoice">
-              <option v-if="revealUnreadable" value="" disabled>Choose a reveal style…</option>
-              <option value="channel">Channel default ({{ revealLabel(channelReveal) }})</option>
-              <option v-for="type in REVEAL_TYPES" :key="type" :value="type">{{ REVEAL_LABELS[type] }}</option>
-              <option value="mix">Mix — a different style per scene</option>
-            </select>
-          </label>
+            <SketchRevealPicker :model-value="revealChoice" :reveals="revealCatalog" :weight="episodeLineWeight ?? channelLineWeight" :disabled="!revealLoaded || revealSaving || !lineWeightLoaded || lineWeightSaving || !revealCatalog.length" :error="revealCatalogError" label="Sketch Draw reveal style for this episode" title="Choose a reveal" :inherit-label="`Channel default (${revealLabel(channelReveal)})`" inherit-value="channel" allow-mix @pick="pickEpisodeReveal" @weight="saveLineWeight" />
+            <p v-if="revealCatalogError" role="alert">{{ revealCatalogError }} <button type="button" class="btn btn-sm" @click="loadRevealCatalog">Retry</button></p>
+          </div>
           <div v-if="isSketchDraw && revealChoice === 'mix'" class="hold-inputs">
-            <label v-for="type in REVEAL_TYPES" :key="type" class="reveal-mix-item">
-              <input v-model="revealMixDraft" type="checkbox" :value="type" :aria-label="REVEAL_LABELS[type]">
-              <span>{{ REVEAL_LABELS[type] }}</span>
-            </label>
-            <button type="button" class="btn btn-sm" :disabled="revealSaving || !revealPending" @click="applyReveal">Apply mix</button>
+            <SketchRevealPicker model-value="mix" :reveals="revealCatalog" :weight="episodeLineWeight ?? channelLineWeight" :mix="revealMixDraft" :disabled="revealSaving || !revealCatalog.length" multiple label="Choose Mix reveal styles" title="Choose Mix styles" description="Pick at least two styles. Each scene uses one." @mix="pickRevealMix" @weight="saveLineWeight" />
           </div>
           <button v-if="isSketchDraw && revealLoaded && episodeReveal && JSON.stringify(episodeReveal) !== JSON.stringify(channelReveal)" type="button" class="btn btn-sm btn-ghost" :disabled="revealSaving || presentationSaving" @click="setChannelRevealDefault">
             Make this the channel default reveal
@@ -489,20 +481,10 @@
           </details>
           <p v-if="!clipWork(scene) && !scene.clip_exists && generateBlocked(scene)" class="blocked-note">Generate Clip is off: {{ generateBlocked(scene) }}.</p>
           <div v-if="isSketchDraw" class="scene-reveal">
-            <label class="model-field reveal-pin-field">
+            <div class="model-field reveal-pin-field">
               <span>Reveal for this scene</span>
-              <select
-                class="select"
-                :value="scenePinOf(scene)"
-                :disabled="!revealLoaded || !!revealUnreadable || revealSaving || pinSavingId === scene.id"
-                :aria-label="`Reveal style for scene ${scene.scene_index}`"
-                :aria-describedby="`scene-reveal-help-${scene.id}`"
-                @change="setScenePin(scene, ($event.target as HTMLSelectElement).value)"
-              >
-                <option value="">Follow the episode ({{ revealLabel(episodeReveal ?? channelReveal) }})</option>
-                <option v-for="type in REVEAL_TYPES" :key="type" :value="type">{{ REVEAL_LABELS[type] }}</option>
-              </select>
-            </label>
+              <SketchRevealPicker :model-value="scenePinOf(scene)" :reveals="revealCatalog" :weight="episodeLineWeight ?? channelLineWeight" :disabled="!revealLoaded || !!revealUnreadable || revealSaving || pinSavingId === scene.id || !revealCatalog.length || lineWeightSaving" :label="`Reveal style for scene ${scene.scene_index}`" title="Choose a reveal for this scene" :inherit-label="`Follow the episode (${revealLabel(episodeReveal ?? channelReveal)})`" @pick="setScenePin(scene, $event)" @weight="saveLineWeight" />
+            </div>
             <p v-if="scene.reveal_type" :id="`scene-reveal-help-${scene.id}`" class="reveal-note">
               {{ scenePinOf(scene) ? 'Pinned' : 'Draws' }}: {{ REVEAL_LABELS[scene.reveal_type] }}<template
                 v-if="revealIsMix"
@@ -573,7 +555,7 @@ import type { GenStudioVideoControl } from '~/composables/useGenStudioMediaModel
 import { emptyDefaultModels, normalizeDefaultModels, resolveEffectiveModel } from '~/utils/live-genstudio-model-selection'
 import { motionBatchEligible, sketchSelectionReady } from '~/utils/motion-review-sketch'
 import { HOLD_MAX_SECONDS, holdDrafts, holdFromDraft, holdLabel, type HoldChoice, type HoldDrafts, type SketchHold } from '~/utils/sketch-hold'
-import { REVEAL_LABELS, REVEAL_TYPES, applyRevealPreset, revealChoiceOf, revealForPreset, revealFromDraft, revealLabel, revealMixDraft as revealMixFor, type SketchReveal, type SketchRevealStyle, type SketchRevealType } from '~/utils/sketch-reveal'
+import { REVEAL_LABELS, REVEAL_TYPES, setRevealCatalog, applyRevealPreset, revealChoiceOf, revealForPreset, revealFromDraft, revealLabel, revealMixDraft as revealMixFor, type SketchReveal, type SketchRevealStyle, type SketchRevealType } from '~/utils/sketch-reveal'
 import { LINE_WEIGHTS, lineWeightFromDraft, lineWeightLabel, type LineWeightChoice, type SketchLineWeight } from '~/utils/sketch-line-weight'
 
 // usePresets captures the project slug at setup. Recreate this page for a
@@ -710,6 +692,17 @@ const holdPending = computed(() => {
 // The reveal follows the pen's and hold's pattern: a channel default, and this episode's own when
 // it has one. The reveal that renders is the episode's, else the channel's; the server resolves it
 // the same way for freshness, generation and Assembly.
+const revealCatalog = ref<Array<{ id: string; label: string }>>([])
+const revealCatalogError = ref('')
+async function loadRevealCatalog() {
+  try {
+    const result = await get<{ reveals: Array<{ id: string; label: string }> }>('/sketch-reveals')
+    if (!Array.isArray(result.reveals) || !result.reveals.length) throw new Error('No reveal styles were returned.')
+    setRevealCatalog(result.reveals)
+    revealCatalog.value = result.reveals
+    revealCatalogError.value = ''
+  } catch (error: any) { revealCatalogError.value = `Could not load reveal styles: ${error?.message || 'try again.'}` }
+}
 const channelReveal = ref<SketchReveal | null>(null)
 const episodeReveal = ref<SketchReveal | null>(null)
 // `'channel'` follows the channel default; a style (or `'mix'`) is this episode's own; `''` is the
@@ -973,6 +966,14 @@ async function setChannelLineWeightDefault() {
     showError(presentationError.value)
   } finally { presentationSaving.value = false }
 }
+function pickEpisodeReveal(value: string) {
+  revealChoice.value = value
+  onRevealChoice()
+}
+function pickRevealMix(value: string[]) {
+  revealMixDraft.value = value
+  applyReveal()
+}
 // A single style and "follow the channel" need no picking, so they save at once; a Mix waits for Apply.
 function onRevealChoice() {
   // The unreadable-file placeholder is not a choice; nothing to save until a real style is picked.
@@ -984,7 +985,10 @@ function onRevealChoice() {
   }
   if (revealChoice.value === 'channel') { void saveReveal(null); return }
   const parsed = revealFromDraft(revealChoice.value, [])
-  if (parsed.ok) void saveReveal(parsed.reveal)
+  if (parsed.ok) {
+    const overrides = episodeReveal.value?.overrides
+    void saveReveal(parsed.reveal && overrides ? { ...parsed.reveal, overrides: { ...overrides } } : parsed.reveal)
+  }
 }
 function applyReveal() {
   const parsed = revealFromDraft('mix', revealMixDraft.value)
@@ -2146,6 +2150,7 @@ function scrollToTop(): void {
 
 let refreshTimer: ReturnType<typeof setInterval> | null = null
 onMounted(() => {
+  void loadRevealCatalog()
   void loadMotionPresentation()
   // The preset list and last-used choice; `autoApplyOnLoad: false` above means this never re-applies
   // a stored look over the one this episode already has.

@@ -194,27 +194,20 @@ test('skip reasons are named and the per-scene Generate action respects the anim
 })
 
 test('the reveal style control edits THIS episode, offers the channel default, and a Mix waits for Apply', () => {
-  // The select is scoped to Sketch Draw and labelled as this episode's own setting.
+  // The picker receives the engine catalog and preserves channel and Mix choices.
   assert.match(source, /<span>Reveal style for \{\{ episodeId \}\}<\/span>/)
-  assert.match(source, /<select v-model="revealChoice"[^>]*aria-label="Sketch Draw reveal style for this episode"/)
-  // Following the channel again is its own option, as for the pen and hold. There is no separate
-  // "not chosen" episode value: an episode with no style of its own IS following the channel.
-  assert.match(source, /<option value="channel">Channel default \(\{\{ revealLabel\(channelReveal\) \}\}\)<\/option>/)
-  assert.doesNotMatch(source, /<option value="none">Not chosen/)
-  // Each style is offered by name through a v-for loop, so a new reveal appears here for free.
-  assert.match(source, /<option v-for="type in REVEAL_TYPES" :key="type" :value="type">\{\{ REVEAL_LABELS\[type\] \}\}<\/option>/)
-  assert.match(source, /<option value="mix">Mix — a different style per scene<\/option>/)
-  // The Mix expands into checkboxes and an Apply button; a single style saves at once.
+  assert.match(source, /<SketchRevealPicker[^>]*label="Sketch Draw reveal style for this episode"/)
+  assert.match(source, /:reveals="revealCatalog"/)
+  assert.match(source, /inherit-value="channel" allow-mix/)
   assert.match(source, /<div v-if="isSketchDraw && revealChoice === 'mix'" class="hold-inputs">/)
-  assert.match(source, /<label v-for="type in REVEAL_TYPES"[^>]*class="reveal-mix-item">/)
-  assert.match(source, /<input v-model="revealMixDraft" type="checkbox" :value="type"/)
-  assert.match(source, /@click="applyReveal">Apply mix<\/button>/)
+  assert.match(source, /multiple label="Choose Mix reveal styles"/)
+  assert.match(source, /@mix="pickRevealMix"/)
   // A single style and "follow the channel" save at once; a Mix waits for Apply.
   const onChoice = fn('onRevealChoice')
   assert.match(onChoice, /if \(revealChoice\.value === 'mix'\)/)
   assert.match(onChoice, /if \(revealChoice\.value === 'channel'\) \{ void saveReveal\(null\); return \}/)
   assert.match(onChoice, /const parsed = revealFromDraft\(revealChoice\.value, \[\]\)/)
-  assert.match(onChoice, /if \(parsed\.ok\) void saveReveal\(parsed\.reveal\)/)
+  assert.match(onChoice, /if \(parsed\.ok\) \{[\s\S]*overrides[\s\S]*void saveReveal\(/)
   const apply = fn('applyReveal')
   assert.match(apply, /const parsed = revealFromDraft\('mix', revealMixDraft\.value\)/)
   assert.match(apply, /void saveReveal\(/)
@@ -249,8 +242,8 @@ test('the reveal style control edits THIS episode, offers the channel default, a
   assert.match(source, /Clips made before this setting keep their reveal until you re-generate them\./)
   // Each scene row shows the style it will draw with, and offers a pin of its own.
   assert.match(source, /<span>Reveal for this scene<\/span>/)
-  assert.match(source, /:aria-label="`Reveal style for scene \$\{scene\.scene_index\}`"/)
-  assert.match(source, /@change="setScenePin\(scene, \(\$event\.target as HTMLSelectElement\)\.value\)"/)
+  assert.match(source, /:label="`Reveal style for scene \$\{scene\.scene_index\}`"/)
+  assert.match(source, /@pick="setScenePin\(scene, \$event\)"/)
 })
 
 test('the reveal look travels in the preset and the per-scene pins never do', () => {
