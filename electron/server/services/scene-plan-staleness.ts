@@ -37,6 +37,13 @@
 import type { ScenePlan, ScenePlanEntry } from '../models/types.js'
 
 /**
+ * The prompts that describe a scene's own narration. Carried forward when the
+ * narration is unchanged, so a harmless re-plan neither rewrites the prompts
+ * nor redraws the pictures.
+ */
+export const SCENE_PROMPT_FIELDS = ['visual_prompt', 'motion_prompt', 'video_prompt'] as const
+
+/**
  * Exactly the fields a scene's picture and clip are made of. One list, so the
  * re-plan carries the same set the rest of the app already knows.
  */
@@ -103,6 +110,11 @@ export function sceneImageStaleReason(scene: ScenePlanEntry): string | null {
  * scene the new plan drops keeps its files on disk, exactly as any other
  * dropped scene does.
  *
+ * A scene whose NARRATION is unchanged also keeps its prompts, so a re-plan
+ * that only re-chunked the timeline rewrites nothing and redraws nothing. A
+ * scene whose narration moved gets fresh prompts, and its old picture is then
+ * stale by the prompt comparison — which is the EP0006 case.
+ *
  * The picture's own record and the plan's prompt are carried separately,
  * because they can differ: a picture drawn from an older wording of a prompt
  * the owner later edited is stale TODAY, and a re-plan must not heal it.
@@ -121,6 +133,22 @@ export function carrySceneMediaForward(incoming: ScenePlan, onDisk: ScenePlan | 
       const value = (before as unknown as Record<string, unknown>)[field]
       if (value === undefined) delete target[field]
       else target[field] = value
+    }
+    // The narration this scene covers is the fact its prompts were written from.
+    // Unchanged narration → the prompts still say the right thing, so they are
+    // carried and the planner rewrites nothing. Changed narration → the prompts
+    // are regenerated for what the scene now covers, which is what makes the
+    // picture stale below. Style lives in the render-time Style Bible, so a
+    // carried prompt never carries a look.
+    const sameNarration = typeof before.transcript_segment === 'string'
+      && before.transcript_segment.trim().length > 0
+      && before.transcript_segment === scene.transcript_segment
+    if (sameNarration) {
+      for (const field of SCENE_PROMPT_FIELDS) {
+        const value = (before as unknown as Record<string, unknown>)[field]
+        if (value === undefined) delete target[field]
+        else target[field] = value
+      }
     }
     // The picture's own record, so the existing staleness rule can judge it. A
     // picture rendered before `rendered_prompt` existed gets the prompt of the

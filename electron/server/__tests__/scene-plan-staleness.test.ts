@@ -169,6 +169,49 @@ test('a clip whose picture went stale is stale too, and a T2V clip is not', asyn
   assert.equal(await sceneClipStaleReason(t2v), null)
 })
 
+test('a re-plan that keeps a scene\'s narration carries its prompts, so nothing is rewritten or redrawn', () => {
+  const onDisk = plan([{
+    ...picture('ep-scene-0001', 'a fox in a snowy wood'),
+    transcript_segment: 'The fox crossed the wood at dusk.',
+    motion_prompt: 'slow drift over the fox',
+  }])
+  const incoming = plan([{
+    ...replacement('ep-scene-0001', ''),
+    visual_prompt: undefined,
+    transcript_segment: 'The fox crossed the wood at dusk.',
+  }])
+
+  carrySceneMediaForward(incoming, onDisk)
+  const scene = incoming.scenes[0]!
+
+  // The prompt the scene was rendered from survives, so the visual stage has
+  // nothing pending and the picture still matches.
+  assert.equal(scene.visual_prompt, 'a fox in a snowy wood')
+  assert.equal(scene.motion_prompt, 'slow drift over the fox')
+  assert.equal(sceneImageStaleReason(scene), null)
+  assert.deepEqual(countReplanPictures(incoming), { kept: 1, redraw: 0 })
+})
+
+test('a re-plan that moves the narration does not carry the old prompts', () => {
+  const onDisk = plan([{
+    ...picture('ep-scene-0001', 'a fox in a snowy wood'),
+    transcript_segment: 'The fox crossed the wood at dusk.',
+  }])
+  const incoming = plan([{
+    ...replacement('ep-scene-0001', ''),
+    visual_prompt: undefined,
+    transcript_segment: 'A storm broke over the harbour.',
+  }])
+
+  carrySceneMediaForward(incoming, onDisk)
+  const scene = incoming.scenes[0]!
+
+  // No prompt is carried, so the planner writes one for the new narration…
+  assert.equal(scene.visual_prompt, undefined)
+  // …and until it lands the old picture is still the record of a different one.
+  assert.equal(scene.rendered_prompt, 'a fox in a snowy wood')
+})
+
 test('a forced redraw still takes every scene, stale or not', () => {
   const scenes = [picture('ep-scene-0001', 'a fox'), picture('ep-scene-0002', 'a wolf')]
   const batch = selectSceneImageBatch(scenes, { force: true, hasRenderedImage: () => true })
