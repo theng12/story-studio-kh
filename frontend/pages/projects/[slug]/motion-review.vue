@@ -115,6 +115,7 @@
         <div class="motion-tool-heading">
           <strong>Motion controls</strong>
           <span>Choose how clips are made, then review each scoped scene.</span>
+          <span v-if="isSketchDraw">A channel default (pen, hold, reveal, line weight) applies to new episodes and episodes with no clips yet.</span>
         </div>
         <div class="motion-renderer-row">
           <label class="model-field renderer-field">

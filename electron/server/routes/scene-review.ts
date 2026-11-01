@@ -61,7 +61,7 @@ import { writeEpisodeSketchLineWeight } from '../services/episode-sketch-line-we
 import { parseSketchHold, sketchHoldSelection } from '../lib/sketch-hold.js'
 import { parseSketchLineWeight, sketchLineWeightSelection, type SketchLineWeight } from '../lib/sketch-line-weight.js'
 import { DEFAULT_SKETCH_REVEAL, parseSketchReveal, sketchRevealChoice, type SketchRevealType } from '../lib/sketch-reveal.js'
-import { checkpointSceneClip, invalidateEpisodesFollowingChannelSketch, motionPresentationSelection, resolveEpisodeHold, resolveEpisodeLineWeight, resolveEpisodePen, resolveEpisodeReveal, resolveSketchDrawSettings, revealTypeFor, sceneClipStaleReason, sceneWindowSeconds, isSceneClipFresh } from '../services/scene-media-checkpoint.js'
+import { channelSketchDefaults, checkpointSceneClip, invalidateEpisodesFollowingChannelSketch, movedChannelSketchSettings, motionPresentationSelection, pinEpisodesFollowingChannelSketch, resolveEpisodeHold, resolveEpisodeLineWeight, resolveEpisodePen, resolveEpisodeReveal, resolveSketchDrawSettings, revealTypeFor, sceneClipStaleReason, sceneWindowSeconds, isSceneClipFresh } from '../services/scene-media-checkpoint.js'
 import { readChannelProfileAsset } from '../services/channel-profile.js'
 import { resolveEpisodeMotionSceneIds } from '../services/episode-motion-scope.js'
 import { readVideoVisualSource } from '../services/video-visual-source.js'
@@ -440,18 +440,24 @@ router.put('/projects/:slug/motion-presentation', async (req, res) => {
       if (!parsed.ok) return res.status(400).json({ detail: parsed.error })
       lineWeight = parsed.weight
     }
+    // What each setting resolves to BEFORE the save. Compared as resolved values — an absent hold
+    // and AUTO are the same hold, so re-saving one moves nothing — the way the line weight already
+    // did. An invalid saved channel value throws here, before anything is written.
+    const before = channelSketchDefaults(config)
+    const after = { pen, hold: sketchHoldSelection(hold), reveal: sketchRevealChoice(reveal), line_weight: sketchLineWeightSelection(lineWeight) }
+    const changed = movedChannelSketchSettings(before, after)
+    // BEFORE the save: an episode with no choice of its own FOLLOWS this default, so the new value
+    // alone would re-render every Sketch Draw clip it already has. Pin the old effective value into
+    // each following episode that has clips, so the new default reaches new and clip-less episodes
+    // while existing clips keep the look they were drawn with. An unreadable plan or setting file
+    // refuses the save, naming the episode; an episode's own choice is never overwritten.
+    await pinEpisodesFollowingChannelSketch(req.params.slug, before, changed)
     if (!await pm.updateConfig(req.params.slug, { motion_presentation: { renderer, pen, ...(hold ? { hold } : {}), ...(reveal ? { reveal } : {}), ...(lineWeight ? { line_weight: lineWeight } : {}) } } as any)) {
       return res.status(404).json({ detail: 'Channel not found' })
     }
     // Episodes without their own pen, hold or reveal follow these defaults, and their cached status
     // does not see config.json move. Each one touches only the episodes that follow it.
-    await invalidateEpisodesFollowingChannelSketch(req.params.slug, {
-      pen: pen !== motionPresentationSelection(config.motion_presentation).pen,
-      hold: JSON.stringify(hold ?? null) !== JSON.stringify(config.motion_presentation?.hold ?? null),
-      reveal: JSON.stringify(reveal ?? null) !== JSON.stringify(config.motion_presentation?.reveal ?? null),
-      // An ABSENT weight and NORMAL are the same weight, so only a real move invalidates.
-      line_weight: sketchLineWeightSelection(lineWeight) !== sketchLineWeightSelection(config.motion_presentation?.line_weight),
-    })
+    await invalidateEpisodesFollowingChannelSketch(req.params.slug, changed)
     res.json({ renderer, pen, hold: sketchHoldSelection(hold), reveal: sketchRevealChoice(reveal), line_weight: sketchLineWeightSelection(lineWeight) })
   } catch (error: any) { res.status(409).json({ detail: error.message }) }
 })

@@ -18,12 +18,13 @@ import {
 } from '../lib/sketch-line-weight.js'
 import { resolveRenderCanvas } from '../lib/render-canvas.js'
 import { readChannelProfileAsset } from './channel-profile.js'
+import { resolveScenePlanPath } from './utils.js'
 import type { MotionPresentationSettings, ProjectConfig, ScenePlan, ScenePlanEntry, SketchDrawPenMode } from '../models/types.js'
-import { EpisodeSettingFileUnreadable, readEpisodeSketchPen } from './episode-sketch-pen.js'
-import { readEpisodeSketchHold } from './episode-sketch-hold.js'
+import { EpisodeSettingFileUnreadable, episodeDir, isEpisodeCode, readEpisodeSketchPen, writeEpisodeSketchPen } from './episode-sketch-pen.js'
+import { readEpisodeSketchHold, writeEpisodeSketchHold } from './episode-sketch-hold.js'
 import { sceneImageStaleReason } from './scene-plan-staleness.js'
-import { readEpisodeSketchReveal } from './episode-sketch-reveal.js'
-import { readEpisodeSketchLineWeight } from './episode-sketch-line-weight.js'
+import { readEpisodeSketchReveal, writeEpisodeSketchReveal } from './episode-sketch-reveal.js'
+import { readEpisodeSketchLineWeight, writeEpisodeSketchLineWeight } from './episode-sketch-line-weight.js'
 import { sceneReviewAutoApproveOn } from './preset-authority.js'
 import * as pm from './project-manager.js'
 
@@ -170,6 +171,138 @@ export async function invalidateEpisodesFollowingChannelSketch(slug: string, cha
     || (changed.hold && await readEpisodeSketchHold(slug, code) === null)
     || (changed.reveal === true && await readEpisodeSketchReveal(slug, code) === null)
     || (changed.line_weight === true && await readEpisodeSketchLineWeight(slug, code) === null))
+}
+
+/** What the channel's four Sketch Draw settings resolve to right now: the values a save compares against. */
+export interface ChannelSketchDefaults {
+  pen: SketchDrawPenMode
+  hold: SketchHoldSetting
+  reveal: SketchRevealSetting | null
+  line_weight: SketchLineWeight
+}
+
+/**
+ * The channel's effective pen, hold, reveal and ink weight. An invalid saved value throws — it is
+ * surfaced, never guessed (§6), because a save that cannot say what those clips were drawn with
+ * cannot pin them to it.
+ */
+export function channelSketchDefaults(config: ProjectConfig): ChannelSketchDefaults {
+  return {
+    pen: motionPresentationSelection(config.motion_presentation).pen,
+    hold: sketchHoldSelection(config.motion_presentation?.hold),
+    reveal: sketchRevealChoice(config.motion_presentation?.reveal),
+    line_weight: sketchLineWeightSelection(config.motion_presentation?.line_weight),
+  }
+}
+
+/**
+ * Which of the four actually MOVE between two settings objects. Compared as resolved values, the
+ * way the line weight already did: an absent hold and AUTO are the same hold, so re-saving it
+ * moves nothing — no episode is pinned and no cached status is dropped.
+ */
+export function movedChannelSketchSettings(before: ChannelSketchDefaults, after: ChannelSketchDefaults): { pen: boolean; hold: boolean; reveal: boolean; line_weight: boolean } {
+  return {
+    pen: after.pen !== before.pen,
+    hold: JSON.stringify(after.hold) !== JSON.stringify(before.hold),
+    reveal: JSON.stringify(after.reveal ?? null) !== JSON.stringify(before.reveal ?? null),
+    line_weight: after.line_weight !== before.line_weight,
+  }
+}
+
+/** Every episode folder this channel has on disk, by code: an episode folder's name carries its code at the front. */
+async function sketchEpisodeCodesOnDisk(slug: string): Promise<string[]> {
+  const projectDir = pm.getProjectDir(slug)
+  if (!projectDir) return []
+  const { path: episodesRoot } = pm.resolveOutputRoot(projectDir)
+  const codes = new Set<string>()
+  // Episode folders sit directly under `episodes/`, or one season folder below it — never deeper.
+  const scan = async (dir: string, depth: number): Promise<void> => {
+    const entries = await fs.readdir(dir, { withFileTypes: true }).catch(() => [])
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue
+      // The "✅ " done-marker prefix is stripped the same way the folder resolver strips it.
+      const match = /^([A-Za-z]{1,12}\d{1,8})\b/.exec(entry.name.replace(/^✅\s*/, ''))
+      if (match && isEpisodeCode(match[1])) { codes.add(match[1]!.toUpperCase()); continue }
+      if (depth > 0) await scan(path.join(dir, entry.name), depth - 1)
+    }
+  }
+  await scan(episodesRoot, 1)
+  return [...codes].sort()
+}
+
+/**
+ * Whether this episode's Scene Plan records at least one Sketch Draw clip receipt — the evidence
+ * that it has clips a channel-default move would re-render. A plan that exists but cannot be read
+ * throws, naming the episode: unreadable is never read as "no clips" (§6).
+ */
+async function episodeHasSketchClipReceipt(slug: string, code: string): Promise<boolean> {
+  const dir = await episodeDir(slug, code)
+  const planPath = await resolveScenePlanPath(slug, code, dir)
+  if (!existsSync(planPath)) return false
+  let plan: ScenePlan
+  try { plan = JSON.parse(await fs.readFile(planPath, 'utf8')) as ScenePlan }
+  catch {
+    throw new EpisodeSettingFileUnreadable(
+      `This episode's scene plan (${path.basename(planPath)} for ${code}) cannot be read, so its Sketch Draw clips cannot be pinned to the channel's current default. Repair or regenerate ${code}'s Scene Plan, then save the channel setting again.`,
+    )
+  }
+  const scenes = (plan as { scenes?: unknown } | null)?.scenes
+  if (!Array.isArray(scenes)) {
+    throw new EpisodeSettingFileUnreadable(
+      `This episode's scene plan (${path.basename(planPath)} for ${code}) holds no scene list, so its Sketch Draw clips cannot be pinned to the channel's current default. Repair or regenerate ${code}'s Scene Plan, then save the channel setting again.`,
+    )
+  }
+  return scenes.some(scene => (scene as ScenePlanEntry | null)?.clip_renderer === 'sketch_draw'
+    && (scene as ScenePlanEntry | null)?.clip_sketch)
+}
+
+/**
+ * A channel default for the pen, hold, reveal or ink weight is about to MOVE. An episode with no
+ * choice of its own FOLLOWS that default, so the new value alone would re-render every Sketch Draw
+ * clip it already has — the 2026-11-02 line-weight incident. Before the save, each following episode
+ * that has at least one Sketch Draw clip receipt in its scene plan is pinned to the OLD effective
+ * value in its own setting file: those clips keep the look they were drawn with, and a re-render of
+ * them uses exactly that look. An episode with no clips keeps following the channel and simply gets
+ * the new default, as does a new episode.
+ *
+ * An episode's own choice is never overwritten. A scene plan or setting file that cannot be read
+ * refuses the save, naming the episode, and nothing further is written — every episode is read
+ * before any pin lands. Nothing here renders anything.
+ */
+export async function pinEpisodesFollowingChannelSketch(
+  slug: string,
+  previous: ChannelSketchDefaults,
+  changed: { pen: boolean; hold: boolean; reveal: boolean; line_weight: boolean },
+): Promise<void> {
+  if (!changed.pen && !changed.hold && !changed.reveal && !changed.line_weight) return
+  const writes: Array<() => Promise<unknown>> = []
+  for (const code of await sketchEpisodeCodesOnDisk(slug)) {
+    // Read every own choice first: a malformed setting file throws here and names the episode,
+    // and no pin has been written yet.
+    const own = {
+      pen: changed.pen ? await readEpisodeSketchPen(slug, code) : undefined,
+      hold: changed.hold ? await readEpisodeSketchHold(slug, code) : undefined,
+      reveal: changed.reveal ? await readEpisodeSketchReveal(slug, code) : undefined,
+      line_weight: changed.line_weight ? await readEpisodeSketchLineWeight(slug, code) : undefined,
+    }
+    const follows = {
+      pen: changed.pen && own.pen === null,
+      hold: changed.hold && own.hold === null,
+      reveal: changed.reveal && own.reveal === null,
+      line_weight: changed.line_weight && own.line_weight === null,
+    }
+    if (!follows.pen && !follows.hold && !follows.reveal && !follows.line_weight) continue
+    if (!await episodeHasSketchClipReceipt(slug, code)) continue
+    if (follows.pen) writes.push(() => writeEpisodeSketchPen(slug, code, previous.pen))
+    if (follows.hold) writes.push(() => writeEpisodeSketchHold(slug, code, previous.hold))
+    // A channel that never chose a reveal drew its clips with the line reveal (the generator draws
+    // DEFAULT_SKETCH_REVEAL when none is chosen, and a clip with no recorded type IS a line
+    // reveal), so the pin is Line — never `null`, which would mean "follow the channel" again.
+    if (follows.reveal) writes.push(() => writeEpisodeSketchReveal(slug, code, previous.reveal ?? DEFAULT_SKETCH_REVEAL))
+    if (follows.line_weight) writes.push(() => writeEpisodeSketchLineWeight(slug, code, previous.line_weight))
+  }
+  // Phase two, after every episode has been read successfully: the pins themselves.
+  for (const write of writes) await write()
 }
 
 /** Frames of closing hold for one scene of an episode under these settings; the freshness rule and the generator share it. */

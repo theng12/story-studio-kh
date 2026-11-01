@@ -192,7 +192,7 @@ describe('the mark is tied to one exact final', () => {
 })
 
 describe('review is off unless a channel turns it on', () => {
-  test('an absent switch means off and the listing does not walk the channel', async () => {
+  test('an absent switch means off but the listing still shows the final with review_enabled false', async () => {
     const channel = await makeChannel('Off Channel')
     const config = await pm.getConfig(channel.slug)
     assert.equal(finalReviewEnabled(config), false)
@@ -200,8 +200,12 @@ describe('review is off unless a channel turns it on', () => {
     const listed = await listFinalReviews({ slug: channel.slug })
     assert.equal(listed.channels.length, 1)
     assert.equal(listed.channels[0].review_enabled, false)
-    assert.equal(listed.channels[0].final_count, 0)
-    assert.deepEqual(listed.finals, [])
+    // Finals are listed even when review is off (owner, 2026-11-01: the page
+    // shows finals for all channels so an empty page is not a dead end).
+    assert.equal(listed.channels[0].final_count, 1)
+    assert.equal(listed.finals.length, 1)
+    assert.equal(listed.finals[0].review_enabled, false)
+    assert.equal(listed.finals[0].review.state, 'not_reviewed')
 
     // Nothing was written beside the final by a read.
     await assert.rejects(() => fs.access(finalReviewSidecarPath(channel.finalPath)))
@@ -217,10 +221,13 @@ describe('review is off unless a channel turns it on', () => {
     assert.equal(listed.channels.length, 1)
     assert.equal(listed.channels[0].review_enabled, false)
     assert.match(String(listed.channels[0].error || ''), /could not read this channel's review setting/i)
-    assert.deepEqual(listed.finals, [])
+    // Finals are still listed (owner, 2026-11-01) — the corrupt config means
+    // review_enabled reads as false, and every channel is walked now.
+    assert.equal(listed.finals.length, 1)
+    assert.equal(listed.finals[0].review_enabled, false)
   })
 
-  test('turning it on lists the final; turning it off hides it and keeps the mark', async () => {
+  test('turning it on lists the final; turning it off still lists it but marks the channel off', async () => {
     const channel = await makeChannel('Switch Channel')
     await pm.updateConfig(channel.slug, { final_review: { enabled: true } })
     await writeFinalReview(channel.finalPath, 'approved')
@@ -229,12 +236,16 @@ describe('review is off unless a channel turns it on', () => {
     assert.equal(on.channels[0].review_enabled, true)
     assert.equal(on.finals.length, 1)
     assert.equal(on.finals[0].episode_code, channel.code)
+    assert.equal(on.finals[0].review_enabled, true)
     assert.equal(on.finals[0].review.state, 'current')
 
     await pm.updateConfig(channel.slug, { final_review: { enabled: false } })
     const off = await listFinalReviews({ slug: channel.slug })
     assert.equal(off.channels[0].review_enabled, false)
-    assert.deepEqual(off.finals, [])
+    // Finals are listed even when review is off (owner, 2026-11-01: empty page
+    // is a dead end when finals exist). The item carries review_enabled: false.
+    assert.equal(off.finals.length, 1)
+    assert.equal(off.finals[0].review_enabled, false)
     // Turning the switch off is not a deletion — the mark is still on disk.
     assert.equal((await readFinalReview(channel.finalPath)).state, 'current')
   })

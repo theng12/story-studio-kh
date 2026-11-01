@@ -59,21 +59,39 @@ import { remoteVideoFor } from './youtube-remote-video.js'
 import { uploadInFlight, latestEpisodeUploadJob, localUploadProjection } from './youtube-local-upload.js'
 import { readYouTubeConnectionRegistry, getProjectYouTubeAssignment } from './youtube-connection-store.js'
 import { resolveYouTubeCredential } from './youtube-credential.js'
-import { createProjectFactsCache, projectDirFor, resolveEpisodePaths, EPISODE_PROBE_BATCH, type ProjectFactsCache } from './utils.js'
+import { createProjectFactsCache, projectDirFor, projectMetaOnce, resolveEpisodePaths, EPISODE_PROBE_BATCH, type ProjectFactsCache } from './utils.js'
 import { findYouTubeSourceVideoPath } from './youtube-source-video.js'
 import { episodeStepJobStates, STEP_JOB_TYPES } from '../contracts/episode-step-jobs.js'
-import type {
-  PublishingFreshness,
-  PublishingOverviewAssignment,
-  PublishingOverviewCalendarEntry,
-  PublishingOverviewChannel,
-  PublishingOverviewConfirmedSchedule,
-  PublishingOverviewPlannedSlot,
-  PublishingOverviewResponse,
+import {
+  isChannelStatus,
+  type ChannelStatus,
+  type PublishingFreshness,
+  type PublishingOverviewAssignment,
+  type PublishingOverviewCalendarEntry,
+  type PublishingOverviewChannel,
+  type PublishingOverviewConfirmedSchedule,
+  type PublishingOverviewPlannedSlot,
+  type PublishingOverviewResponse,
 } from '../contracts/publishing-overview.js'
 
 /** How many expected slots ahead a channel's cadence is walked. */
 export const PLANNED_SLOT_HORIZON = 12
+
+/**
+ * The window "missing slots in the next 4 weeks" is counted over: 28 days from
+ * `now`, in the channel's own timezone via the same day keys the rest of this
+ * file uses.
+ */
+export const FOUR_WEEK_WINDOW_MS = 28 * 24 * 60 * 60 * 1000
+
+/**
+ * How far the cadence is walked to fill that window.
+ *
+ * 64 is not a rhythm and never reaches the screen: it is only "enough slots to
+ * cover 28 days on the densest cadence the plan can express" (a daily one needs
+ * 28). The count that matters is how many of those fall inside the window.
+ */
+const FOUR_WEEK_WALK = 64
 
 /**
  * How long a built overview is reused before it is computed again.
@@ -524,6 +542,15 @@ export async function buildChannelOverview(
   // idea store, the publishing state and the operation index are each read once
   // and shared by every reader below.
   const facts = createProjectFactsCache(slug)
+
+  // The owner-set status label. Absent means Unclassified and is never
+  // inferred from anything computed below — a channel nobody has labelled is
+  // unlabelled, whatever its schedule, readiness or freshness says. A stored
+  // value outside the vocabulary is not one of our labels either, so it reads
+  // as unlabelled rather than becoming a chip the page cannot name.
+  const meta = await projectMetaOnce(slug, facts).catch(() => null) as { channel_status?: unknown } | null
+  const storedStatus = meta?.channel_status
+  const channelStatus: ChannelStatus | null = isChannelStatus(storedStatus) ? storedStatus : null
   // The assignment is read separately from the credential so "no channel
   // assigned" and "assigned but not connected" stay distinguishable — they need
   // different next actions, and `resolveYouTubeCredential` answers null for both.
@@ -653,6 +680,39 @@ export async function buildChannelOverview(
   const { readiness, readyToPublish, readyCodes, pendingCodes } = await readReadiness(slug, ideas, ideasUnreadable, channelId, facts)
   const recommendations = buildRecommendations(slug, readyCodes, pendingCodes)
 
+  // Missing slots in the next four weeks, at THIS channel's own cadence.
+  //
+  // Only a usable plan can answer it (there is no rhythm of ours to fall back
+  // on), and only against confirmed coverage that is fresh: a count built from
+  // a stale or never-made observation would read as a confident number it is
+  // not, so it is null instead — unknown, never 0 (AGENTS §6). A real 0 below
+  // means every slot in the window is confirmed.
+  let missingSlots4w: number | null = null
+  if (usable && confirmed.freshness === 'fresh') {
+    const windowEnd = now + FOUR_WEEK_WINDOW_MS
+    // Its own multiset: the horizon walk above consumes slots one-per-slot and
+    // this must not borrow from it.
+    const coverageByDay = countByDay(confirmed.schedules.map(entry => entry.scheduled_for), tz)
+    const windowSlots = computeSlots(usable, FOUR_WEEK_WALK, { notBefore: new Date(now) })
+      .filter(at => Date.parse(at) < windowEnd)
+    let missing = 0
+    for (const at of windowSlots) {
+      const day = localDayKeyInTz(new Date(at), tz)
+      const here = coverageByDay.get(day) ?? 0
+      if (here > 0) coverageByDay.set(day, here - 1)
+      else missing++
+    }
+    missingSlots4w = missing
+  }
+
+  // The OLDEST observation behind the confirmed schedules — not the newest,
+  // which is the one that hides how long the answer has been sitting there.
+  // No schedule carrying a check time means unknown, never "checked never".
+  const observed = confirmed.schedules
+    .filter(entry => !!entry.checked_at)
+    .sort((a, b) => (a.checked_at! < b.checked_at! ? -1 : a.checked_at! > b.checked_at! ? 1 : 0))
+  const oldestObserved = observed[0]
+
   const lastConfirmedDate = confirmed.schedules
     .map(entry => localDayKeyInTz(new Date(entry.scheduled_for), tz))
     .sort().at(-1) ?? null
@@ -721,6 +781,7 @@ export async function buildChannelOverview(
       slug,
       name,
       channel,
+      channel_status: channelStatus,
       plan_set: planSet,
       ...(planSet === null ? { plan_error: planError || 'the publishing plan could not be read' } : {}),
       plan_name: plan?.name ?? null,
@@ -747,6 +808,9 @@ export async function buildChannelOverview(
         scheduled_video_count: confirmed.count,
         planned_date_count: localPlanned.length,
         ready_video_count: readyToPublish,
+        missing_slots_4w: missingSlots4w,
+        oldest_checked_at: oldestObserved?.checked_at ?? null,
+        oldest_checked_stale: oldestObserved?.stale ?? false,
         at_risk: atRisk,
       },
       readiness,
