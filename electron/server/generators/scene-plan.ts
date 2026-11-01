@@ -15,6 +15,7 @@ import { planScenes, planScenesTwoPass, generateVisualPromptOnly, generatePrompt
 import { getAudioDuration } from '../lib/ffmpeg-utils.js'
 import { compareMergedAudio, comparePlanStamp, planNarrationShortfallSec, readNarrationRecord, stampFromCues } from '../lib/scene-plan-timeline.js'
 import { checkpointJobState, hasUnsettledProviderEvidence, isCancelled, throwIfPauseRequested } from '../services/job-queue.js'
+import { carrySceneMediaForward } from '../services/scene-plan-staleness.js'
 import { nonRetryable } from '../services/job-retry-policy.js'
 import { subtitleChapterLabel } from '../contracts/subtitle-gaps.js'
 import { getApiKey } from '../services/app-secrets-store.js'
@@ -1411,7 +1412,22 @@ export async function runScenePlanJob(job: Job): Promise<void> {
             throw scenePlanContinuationError(error)
           }
         }
+        // v1.4.374 — this REPLACES the plan, and the new timeline restarts the
+        // scene ids, so an id says nothing across two plans. Carry each scene's
+        // picture and clip facts forward by id and let the PROMPTS decide: a
+        // scene whose prompt the re-plan kept keeps its picture; one whose
+        // prompt changed is stale and is redrawn. Without this, the pictures of
+        // the old plan were silently kept as the new plan's own (EP0006).
+        const previousPlan = await fs.readFile(outPath, 'utf-8')
+          .then(text => JSON.parse(text) as ScenePlan)
+          .catch(() => null)
+        const carriedPictures = carrySceneMediaForward(plan, previousPlan)
         await writeJsonAtomic(outPath, plan, { compact: true })
+        if (carriedPictures) {
+          job.output_lines.push(
+            `Re-plan: carried ${carriedPictures} existing picture(s) forward; any scene whose prompt changed will be redrawn.`,
+          )
+        }
       })
       job.output_dir = paths.episode_dir
       job.output_lines.push(

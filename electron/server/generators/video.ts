@@ -15,6 +15,7 @@ import os from 'os'
 import path from 'path'
 import { spawn } from 'child_process'
 import * as pm from '../services/project-manager.js'
+import { sceneImageStaleReason } from '../services/scene-plan-staleness.js'
 import { checkpointJobProgress, checkpointJobState, isCancelled, trackChild } from '../services/job-queue.js'
 import { withFinalVideoPathLock } from '../services/final-video-lock.js'
 import { publishOverPreviousFinal } from '../services/final-video-retention.js'
@@ -1516,8 +1517,7 @@ export async function scanEpisodeAssets(
           missingPlannedScenes.push({ id: scene.id, scene_index: scene.scene_index })
           continue
         }
-        const stale = typeof scene.rendered_prompt === 'string'
-          && scene.rendered_prompt !== scene.visual_prompt
+        const stale = sceneImageStaleReason(scene) !== null
         if (stale) stalePlannedScenes.push({ id: scene.id, scene_index: scene.scene_index })
         // A T2V scene's approval is its OWN Motion Review decision (owner, 2026-10-26). An
         // unapproved T2V clip falls back to its backup still and says why — the same shape as a
@@ -1859,7 +1859,7 @@ export async function scanEpisodeAssets(
         && integrity.complete,
       scenes: scannedPlan.scenes.map(scene => {
         const scanned = byId.get(scene.id)
-        const stale = typeof scene.rendered_prompt === 'string' && scene.rendered_prompt !== scene.visual_prompt
+        const stale = sceneImageStaleReason(scene) !== null
         return {
           id: scene.id,
           scene_index: scene.scene_index,

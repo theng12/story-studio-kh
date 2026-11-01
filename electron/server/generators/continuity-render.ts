@@ -19,6 +19,7 @@ import {
 import { registry } from '../providers/registry.js'
 import { stageGenStudioImage } from '../lib/genstudio-artifacts.js'
 import { resolveOutputFormat } from '../services/generation-compression.js'
+import { sceneImageStaleReason } from '../services/scene-plan-staleness.js'
 import { isDecodableImage } from '../lib/image-validation.js'
 import { resolveEpisodePathsByCode, resolveScenePlanPath } from '../services/utils.js'
 import * as pm from '../services/project-manager.js'
@@ -564,7 +565,16 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
   // skipping the same corrupt asset and Video Assembly fails later.
   const usableRenderedIds = new Set<string>()
   const preservedCommittedArtifactIds = new Set<string>()
+  // v1.4.374 — a picture drawn for a prompt its scene no longer carries shows
+  // different narration. A re-plan restarts scene ids, so the FILE under an id
+  // says nothing; the scene's own prompt record does. Those scenes are not
+  // usable and re-enter the batch to be redrawn.
+  const stalePictureIds: string[] = []
   for (const scene of scenes) {
+    if (sceneImageStaleReason(scene)) {
+      stalePictureIds.push(scene.id)
+      continue
+    }
     const candidates = [
       path.join(outDir, `${scene.id}.png`),
       path.join(legacyImageDir, `${scene.id}.png`),
@@ -594,6 +604,12 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
     }
   }
   const hasRenderedImage = (id: string): boolean => usableRenderedIds.has(id)
+  if (stalePictureIds.length) {
+    job.output_lines.push(
+      `Re-plan: ${stalePictureIds.length} picture(s) were drawn for a prompt the plan no longer carries and will be redrawn; ` +
+      `${usableRenderedIds.size} rendered scene(s) still match and are kept.`,
+    )
+  }
 
   const aspectRatio = resolveConfiguredAspectRatio(modelConfig, params.aspect_ratio)
   // Validated once for the whole render, before the first charged submit.

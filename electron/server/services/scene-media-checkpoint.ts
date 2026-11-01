@@ -18,6 +18,7 @@ import { readChannelProfileAsset } from './channel-profile.js'
 import type { MotionPresentationSettings, ProjectConfig, ScenePlan, ScenePlanEntry, SketchDrawPenMode } from '../models/types.js'
 import { EpisodeSettingFileUnreadable, readEpisodeSketchPen } from './episode-sketch-pen.js'
 import { readEpisodeSketchHold } from './episode-sketch-hold.js'
+import { sceneImageStaleReason } from './scene-plan-staleness.js'
 import { readEpisodeSketchReveal } from './episode-sketch-reveal.js'
 import { sceneReviewAutoApproveOn } from './preset-authority.js'
 import * as pm from './project-manager.js'
@@ -300,6 +301,11 @@ export async function sceneClipStaleReason(scene: ScenePlanEntry, context?: Scen
       && scene.rendered_video_prompt !== (scene.video_prompt || '')) return 'stale video prompt'
     return null
   }
+  // v1.4.374 — every other lane animates the scene's own picture. When a re-plan
+  // changed the scene's prompt, that picture shows different narration, so the
+  // clip made from it is stale too, whatever its own stamps say. A T2V clip is
+  // judged by its video prompt instead, above.
+  if (sceneImageStaleReason(scene)) return 'stale source image'
   const sketch = scene.clip_renderer === 'sketch_draw'
   if (!sketch) {
     // Provider clips are trimmed/held by Assembly; a plan-timing nudge must never turn an
@@ -466,8 +472,7 @@ export async function auditSceneImageCompletion(
       }
       foundEmpty = true
     }
-    if (foundUsable && typeof scene.rendered_prompt === 'string' && scene.rendered_prompt !== scene.visual_prompt
-      && scene.stand_in_for_prompt !== scene.visual_prompt) {
+    if (foundUsable && sceneImageStaleReason(scene)) {
       invalid.push(`${sceneId} (image was rendered from an outdated prompt)`)
       issues.push({ item_id: sceneId, state: 'invalid', reason: 'image was rendered from an outdated prompt' })
     } else if (!foundUsable) {
