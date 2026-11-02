@@ -1,6 +1,6 @@
 import { describe, test, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
-import { nextTick } from 'vue'
+import { nextTick, watch } from 'vue'
 
 // Mock $fetch before importing composables
 let fetchCalls: Array<{ url: string; options: any }> = []
@@ -30,6 +30,7 @@ describe('SWR cache', () => {
 
  test('returns cached value instantly on second read, refreshes in background', async () => {
  const { useApi } = await import('../composables/useApi')
+ const { swrSubscribe } = await import('../utils/swrCache')
  fetchResponses.set('/api/test/data', { version: 1 })
  fetchDelay = 50
 
@@ -45,6 +46,16 @@ describe('SWR cache', () => {
  // Update the response for the background refresh
  fetchResponses.set('/api/test/data', { version: 2 })
 
+ // Subscribe to wait for background refresh to land fresh value
+ const refreshDone = new Promise<void>(resolve => {
+  const unsub = swrSubscribe('GET:/test/data', entry => {
+   if (!entry.refreshing && entry.value?.version === 2) {
+    unsub()
+    resolve()
+   }
+  })
+ })
+
  // Second read: should return cached value instantly
  const start2 = Date.now()
  const result2 = await get('/test/data')
@@ -53,7 +64,7 @@ describe('SWR cache', () => {
  assert.ok(elapsed2 < 20, 'Second read should be instant (< 20ms)')
 
  // Wait for background refresh to complete
- await new Promise(resolve => setTimeout(resolve, 100))
+ await refreshDone
 
  // Third read should now have the fresh value
  const result3 = await get('/test/data')
@@ -124,7 +135,7 @@ describe('SWR cache', () => {
 
  test('failed refresh keeps old data and marks error via reactive refs', async () => {
  const { useApi } = await import('../composables/useApi')
- const { _swrPeekForTests } = await import('../utils/swrCache')
+ const { _swrPeekForTests, swrSubscribe } = await import('../utils/swrCache')
 
  fetchResponses.set('/api/test/flaky', { value: 'original' })
  fetchDelay = 30
@@ -138,12 +149,22 @@ describe('SWR cache', () => {
  // Make the next fetch fail
  fetchResponses.set('/api/test/flaky', new Error('Network error'))
 
+ // Subscribe to wait for background refresh to fail
+ const refreshFailed = new Promise<void>(resolve => {
+  const unsub = swrSubscribe('GET:/test/flaky', entry => {
+   if (!entry.refreshing && entry.error) {
+    unsub()
+    resolve()
+   }
+  })
+ })
+
  // Trigger a background refresh (returns stale, refreshes in bg)
  const result2 = await get('/test/flaky')
  assert.equal(result2.value, 'original', 'Should return stale value')
 
  // Wait for the background refresh to fail
- await new Promise(resolve => setTimeout(resolve, 100))
+ await refreshFailed
 
  // Check the cache entry — should have old value and error marked
  const entry = _swrPeekForTests('GET:/test/flaky')
@@ -209,13 +230,22 @@ describe('SWR cache', () => {
 
  test('clearAllCaches removes everything — next read fetches fresh', async () => {
  const { useApi, clearAllCaches } = await import('../composables/useApi')
+ const { _swrPeekForTests, swrSubscribe } = await import('../utils/swrCache')
  fetchResponses.set('/api/test/clear', { data: 'test' })
 
  const { get } = useApi()
  await get('/test/clear')
 
  // Wait for any background refresh to settle
- await new Promise(resolve => setTimeout(resolve, 50))
+ const entry = _swrPeekForTests('GET:/test/clear')
+ if (entry?.refreshing) {
+  await new Promise<void>(resolve => {
+   const unsub = swrSubscribe('GET:/test/clear', e => {
+    if (!e.refreshing) { unsub(); resolve() }
+   })
+  })
+ }
+ await nextTick()
  const callsAfterFirst = fetchCalls.filter(c => c.url.endsWith('/test/clear')).length
 
  // Clear all caches
@@ -275,7 +305,15 @@ describe('useApiData composable', () => {
  assert.equal(refreshing.value, true)
 
  // Wait for fetch
- await new Promise(resolve => setTimeout(resolve, 100))
+ await new Promise<void>(resolve => {
+  if (!refreshing.value && data.value !== null) { resolve(); return }
+  const stop = watch([refreshing, data], () => {
+   if (!refreshing.value && data.value !== null) {
+    stop()
+    resolve()
+   }
+  })
+ })
  await nextTick()
 
  assert.deepEqual(data.value, { value: 'initial' })
@@ -297,13 +335,29 @@ describe('useApiData composable', () => {
  const { data } = useApiData(() => currentPath.value)
 
  // Wait for first fetch
- await new Promise(resolve => setTimeout(resolve, 80))
+ await new Promise<void>(resolve => {
+  if (data.value?.id === 1) { resolve(); return }
+  const stop = watch(data, val => {
+   if (val?.id === 1) {
+    stop()
+    resolve()
+   }
+  })
+ })
  await nextTick()
  assert.equal(data.value?.id, 1)
 
  // Change the ref — the watcher fires and re-fetches the new path.
  currentPath.value = '/test/path2'
- await new Promise(resolve => setTimeout(resolve, 80))
+ await new Promise<void>(resolve => {
+  if (data.value?.id === 2) { resolve(); return }
+  const stop = watch(data, val => {
+   if (val?.id === 2) {
+    stop()
+    resolve()
+   }
+  })
+ })
  await nextTick()
  assert.equal(data.value?.id, 2, 'Should fetch new path data')
  })
@@ -313,7 +367,6 @@ describe('useApiData composable', () => {
 
  const { data, refreshing, error } = useApiData(() => null)
 
- await new Promise(resolve => setTimeout(resolve, 50))
  await nextTick()
 
  assert.equal(data.value, null)
