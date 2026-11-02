@@ -302,7 +302,7 @@ async function refreshFull(slug: string) {
   const revision = stateRevision
   const { get } = useApi()
   try {
-    const data = await get<JobListResponse>(`/projects/${slug}/jobs?view=stream`)
+    const data = await get<JobListResponse>(`/projects/${slug}/jobs?view=stream`, { cache: 'no-store' })
     // Before the first snapshot, concurrent confirmed changes are recorded
     // for reconciliation. They must not make the only authoritative fallback
     // snapshot look stale.
