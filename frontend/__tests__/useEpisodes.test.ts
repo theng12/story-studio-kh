@@ -54,6 +54,7 @@ class FakeEventSource {
 // to provide an SSE-driven jobs source — auto-invalidation just disables.
 const { useEpisodes, invalidateEpisodes, _forgetEpisodeJobRefreshesForTests } = await import('../composables/useEpisodes.js')
 const { useJobs } = await import('../composables/useJobs.js')
+const { _clearApiGetCacheForTests } = await import('../composables/useApi.js')
 
 function fakeRow(code: string, scriptDone = true) {
   return {
@@ -143,6 +144,7 @@ describe('useEpisodes', () => {
     invalidateEpisodes('alpha')
     invalidateEpisodes('beta')
     _forgetEpisodeJobRefreshesForTests()
+    _clearApiGetCacheForTests()
   })
 
   test('first mount fetches and populates episodes', async () => {

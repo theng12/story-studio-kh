@@ -44,6 +44,7 @@ import { ref, computed, watch, type Ref } from 'vue'
 import { useApi } from './useApi.js'
 import { useJobs } from './useJobs.js'
 import { useToast } from './useToast.js'
+import { swrInvalidate } from '../utils/swrCache.js'
 
 interface UseEpisodeStatusOptions {
   /**
@@ -124,6 +125,12 @@ export function useEpisodeStatus(
       statusKnown.value = false
     }
 
+    if (projectSlug && code) {
+      const pEscaped = projectSlug.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      const cEscaped = encodeURIComponent(code).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      swrInvalidate(new RegExp(`^GET:/projects/${pEscaped}/episodes/${cEscaped}/status`))
+    }
+
     // Bounded retry: an occasional blip (filesystem stat churn, a busy event loop)
     // shouldn't strand the gate in a state the user reads as "no script". Two
     // quick retries with backoff, then give up and surface the error
@@ -139,6 +146,7 @@ export function useEpisodeStatus(
       try {
         const data = await get<any>(
           `/projects/${projectSlug}/episodes/${encodeURIComponent(code)}/status?invalidate=1`,
+          { cache: 'no-store' },
         )
         // Race guard: if the user switched episodes while this request was in
         // flight, discard the stale result — applying it would show episode
