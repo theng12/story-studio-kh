@@ -117,7 +117,7 @@ function retryNow(): void {
   gap: 6px;
   max-width: 100%;
   border-radius: 999px;
-  font-size: 11.5px;
+  font-size: var(--font-xs);
   line-height: 1.3;
   white-space: nowrap;
 }

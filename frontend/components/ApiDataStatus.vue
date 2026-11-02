@@ -181,7 +181,7 @@ async function onRetry(): Promise<void> {
   align-items: center;
   gap: 6px;
   margin-top: 6px;
-  font-size: 11.5px;
+  font-size: var(--font-xs);
   line-height: 1.3;
   color: var(--text-muted, rgba(255, 255, 255, 0.55));
 }
@@ -218,7 +218,7 @@ async function onRetry(): Promise<void> {
   border: 1px solid rgba(255, 255, 255, 0.22);
   border-radius: 4px;
   padding: 1px 8px;
-  font-size: 11px;
+  font-size: var(--font-xs);
   cursor: pointer;
 }
 

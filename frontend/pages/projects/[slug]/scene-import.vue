@@ -499,7 +499,7 @@ onMounted(async () => {
  align-items: center;
  justify-content: center;
  font-weight: 700;
- font-size: 11px;
+ font-size: var(--font-xs);
 }
 
 .import-hero-route span.is-complete {
