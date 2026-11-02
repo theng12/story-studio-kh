@@ -1520,7 +1520,10 @@ export async function scanEpisodeAssets(
         // A T2V scene's approval is its OWN Motion Review decision (owner, 2026-10-26). An
         // unapproved T2V clip falls back to its backup still and says why — the same shape as a
         // stale clip, so the operator sees the one decision still owed.
+        // v1.4.375 — a chosen clip whose file is gone (deleted, moved, import never landed) also
+        // falls back, and says so: a selection the operator made must never be dropped silently.
         const fallbackReason = clipFreshReason
+          || (scene.motion_choice === 'clip' && !clipPath ? 'no clip file on disk' : null)
           || (isT2VScene && !useMotion && scene.motion_choice !== 'still'
             ? (clipPath ? 'clip not approved in Motion Review' : 'no clip yet')
             : null)

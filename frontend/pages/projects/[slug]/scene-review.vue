@@ -34,6 +34,10 @@
           <span>3</span>
           <b>Motion</b>
         </div>
+        <NuxtLink
+          :to="`/projects/${slug}/scene-import?episode_id=${encodeURIComponent(episodeId)}`"
+          class="inline-link review-import-link"
+        >Import images made outside the app</NuxtLink>
       </template>
     </WorkspaceHero>
 

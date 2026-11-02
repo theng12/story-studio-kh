@@ -32,6 +32,7 @@ import { resolveEpisodeMergedAudioChoice } from '../lib/merged-audio-selection.j
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 import { parseHttpByteRange } from '../lib/http-byte-range.js'
 import { decodableImageSignature, isDecodableImage, peekDecodableImageSignature } from '../lib/image-validation.js'
+import { imageMediaTypeForBytes } from '../lib/image-media-type.js'
 import { assertPlayableSceneClip, normaliseImportedSceneClip, SceneClipImportRefused } from '../lib/scene-clip-media.js'
 import { SCENE_PLAN_FILENAME } from '../generators/scene-plan.js'
 import { SCENE_IMAGES_SUBFOLDER, resolveSceneImagesDir, resolveSceneImageReadPath } from '../generators/scene-image.js'
@@ -43,6 +44,7 @@ import {
 } from '../generators/scene-clip.js'
 import { publishedVideoControls, STORY_STUDIO_VIDEO_MODE, type GenStudioVideoControl } from '../lib/genstudio-client.js'
 import { decodeUploadBuffer } from './image-references.js'
+import { copyToTrashSync, trashRootFor } from '../lib/trash-move.js'
 import {
   assertScenePromptsRenderable,
   clearLegacyPlannerFallbackReasons,
@@ -1756,11 +1758,26 @@ router.post('/projects/:slug/scene-review/:episodeId/continuity-render', async (
   res.status(201).json(job)
 })
 
+/** The upload's own name, for a plain refusal message. Never used as a path. */
+function uploadFileName(header: string | undefined): string | undefined {
+  if (!header) return undefined
+  let decoded = header
+  try { decoded = decodeURIComponent(header) } catch { /* keep it as sent */ }
+  const name = path.basename(decoded).replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 120)
+  return name || undefined
+}
+
+// Raw binary body (Content-Type: image/* or application/octet-stream) with route-level limit
+// matching clipUpload's style. Images over 10 MB upload without being blocked by the 10 MB app-wide JSON cap.
+const imageUpload = express.raw({ type: ['image/*', 'application/octet-stream'], limit: '64mb' })
+
 // ── POST /scene-review/:ep/upload-image/:sceneId ──────────────────────
 // v1.0.232 — set a scene's image DIRECTLY from an uploaded file (e.g. a
 // free image grabbed from the web), instead of generating it. Saved as the
 // scene's render in scene_images/{id}.png and recorded in scene_plan.json.
-router.post('/projects/:slug/scene-review/:episodeId/upload-image/:sceneId', async (req, res) => {
+// v1.4.375 — accepts raw image bytes directly (matching upload-clip) as well
+// as legacy JSON { data_base64 } payloads for compatibility.
+router.post('/projects/:slug/scene-review/:episodeId/upload-image/:sceneId', imageUpload, async (req, res) => {
   const { slug, episodeId, sceneId } = req.params
   // Strict id (matches the planner's freshId scheme) — prevents path traversal.
   if (!/^[A-Za-z0-9_-]+$/.test(sceneId)) return res.status(400).json({ detail: 'invalid scene id' })
@@ -1768,8 +1785,26 @@ router.post('/projects/:slug/scene-review/:episodeId/upload-image/:sceneId', asy
     if ((await readVideoVisualSource(slug, episodeId)).source !== 'scene_plan') {
       return res.status(409).json({ detail: 'Scene image replacement is not used for Image Pool episodes.' })
     }
-    const buf = decodeUploadBuffer(req.body)
-    if (!buf.ok) return res.status(buf.status).json({ detail: buf.detail })
+
+    const incomingName = uploadFileName(req.get('x-file-name')) || (typeof req.body?.filename === 'string' ? req.body.filename : undefined)
+    let imageBytes: Buffer
+    if (Buffer.isBuffer(req.body)) {
+      if (req.body.length === 0) {
+        return res.status(400).json({ detail: 'Empty body — POST the image as raw bytes with Content-Type: image/* or application/octet-stream.' })
+      }
+      const mediaType = imageMediaTypeForBytes(req.body, incomingName || '')
+      if (!mediaType || !mediaType.startsWith('image/')) {
+        return res.status(400).json({ detail: `File is not a supported image: ${incomingName || 'unrecognized image format'}` })
+      }
+      imageBytes = req.body
+    } else if (req.body && typeof req.body === 'object') {
+      const buf = decodeUploadBuffer(req.body)
+      if (!buf.ok) return res.status(buf.status).json({ detail: buf.detail })
+      imageBytes = buf.data
+    } else {
+      return res.status(400).json({ detail: 'Empty body — POST the image as raw bytes or JSON with data_base64.' })
+    }
+
     const paths = await resolveEpisodePathsByCodeWithSidecar(slug, episodeId, SCENE_PLAN_FILENAME)
     const planPath = await resolveScenePlanPath(slug, episodeId, paths.episode_dir)
     if (!existsSync(planPath)) return res.status(400).json({ detail: 'No scene_plan.json yet' })
@@ -1781,7 +1816,12 @@ router.post('/projects/:slug/scene-review/:episodeId/upload-image/:sceneId', asy
     const outDir = await resolveSceneImagesDir(slug, episodeId.toUpperCase(), paths.episode_dir)
     await fs.mkdir(outDir, { recursive: true })
     const outPath = path.join(outDir, `${sceneId}.png`)
-    await fs.writeFile(outPath, buf.data)
+    // v1.4.375 — a replaced image goes to Story Trash, never silently overwritten.
+    const prevImage = await fs.stat(outPath).catch(() => null)
+    if (prevImage?.isFile() && prevImage.size > 0) {
+      copyToTrashSync(outPath, path.join(trashRootFor(outDir, pm.getProjectDir(slug) ?? outDir, slug), 'scene-images', path.basename(outPath)), 'scene-images')
+    }
+    await fs.writeFile(outPath, imageBytes)
 
     // The image file is on disk; stamping the plan is a read-modify-write and
     // takes the same lock every other writer of this file takes.
@@ -1794,7 +1834,7 @@ router.post('/projects/:slug/scene-review/:episodeId/upload-image/:sceneId', asy
       // image (made FROM this prompt) isn't mis-flagged stale in Scene Review.
       target.rendered_prompt = target.visual_prompt
       target.image_version = new Date().toISOString()
-      target.image_sha256 = createHash('sha256').update(buf.data).digest('hex')
+      target.image_sha256 = createHash('sha256').update(imageBytes).digest('hex')
       target.motion_choice = 'pending'
       target.approved = false   // user re-approves after a manual swap
       await writeJsonAtomic(planPath, fresh, { compact: true })
@@ -1828,15 +1868,6 @@ router.post('/projects/:slug/scene-review/:episodeId/upload-image/:sceneId', asy
 // plan. The optional `X-File-Name` header is used only to name the format in a
 // refusal (and to hint the demuxer); nothing is stored from it.
 const clipUpload = express.raw({ type: ['video/*', 'application/octet-stream'], limit: '256mb' })
-
-/** The upload's own name, for a plain refusal message. Never used as a path. */
-function uploadFileName(header: string | undefined): string | undefined {
-  if (!header) return undefined
-  let decoded = header
-  try { decoded = decodeURIComponent(header) } catch { /* keep it as sent */ }
-  const name = path.basename(decoded).replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 120)
-  return name || undefined
-}
 
 router.post('/projects/:slug/scene-review/:episodeId/upload-clip/:sceneId', clipUpload, async (req, res) => {
   const { slug, episodeId, sceneId } = req.params
@@ -1884,6 +1915,11 @@ router.post('/projects/:slug/scene-review/:episodeId/upload-clip/:sceneId', clip
     // The converted clip is decoded end to end before it may replace anything, and the
     // duration recorded on the plan is the one measured from THAT file — not from the upload.
     const measuredDurationSeconds = await assertPlayableSceneClip(tmp)
+    // v1.4.375 — a replaced clip goes to Story Trash, never silently overwritten.
+    const prevClip = await fs.stat(outPath).catch(() => null)
+    if (prevClip?.isFile() && prevClip.size > 0) {
+      copyToTrashSync(outPath, path.join(trashRootFor(outDir, pm.getProjectDir(slug) ?? outDir, slug), 'scene-clips', path.basename(outPath)), 'scene-clips')
+    }
     await fs.rename(tmp, outPath)
 
     // The checkpoint decodes the uploaded video before exposing it to Scene
@@ -2156,5 +2192,65 @@ router.get('/projects/:slug/scene-review/:episodeId/audio', async (req, res) => 
     streamLocalMedia(req, res, audioPath, mime, bestSize)
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Failed to serve merged audio'))
+  }
+})
+
+// ── GET /scene-review/:ep/import-handoff ──────────────────────────────
+// v1.4.375 — hand-off data for external clip/image import from any outside tool
+// (owner 2026-11-02: "scene import is for ANY outside video or image tool").
+// Returns which scenes need clips or images, with each scene's prompt and length
+// ready to copy, and the file name to save it as. Preset-owned clip lengths or custom.
+router.get('/projects/:slug/scene-review/:episodeId/import-handoff', async (req, res) => {
+  const { slug, episodeId } = req.params
+  try {
+    const paths = await resolveEpisodePathsByCodeWithSidecar(slug, episodeId, SCENE_PLAN_FILENAME)
+    const planPath = await resolveScenePlanPath(slug, episodeId, paths.episode_dir)
+    if (!existsSync(planPath)) return res.status(400).json({ detail: 'No scene_plan.json yet' })
+    const plan = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
+
+    const config = await pm.getConfig(slug).catch(() => null)
+    const savedImport = (config as any)?.scene_import
+    const preset = (req.query.preset as string) || savedImport?.preset || 'flow'
+
+    let customLengths: number[] | undefined
+    if (req.query.custom_lengths) {
+      const { parseCustomClipLengths } = await import('../lib/scene-import.js')
+      const parsed = parseCustomClipLengths(req.query.custom_lengths)
+      if (!parsed.ok) return res.status(400).json({ detail: parsed.error })
+      customLengths = parsed.lengths
+    } else if (Array.isArray(savedImport?.custom_lengths) && savedImport.custom_lengths.length > 0) {
+      customLengths = savedImport.custom_lengths
+    }
+
+    const { generateHandoffData } = await import('../lib/scene-import.js')
+    const handoff = generateHandoffData(plan.scenes, preset as any, customLengths)
+    res.json(handoff)
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Failed to generate import hand-off'))
+  }
+})
+
+// ── POST /scene-review/:ep/match-import-files ─────────────────────────
+// v1.4.375 — match uploaded file names to scenes before import. Returns
+// matched, unmatched, and ambiguous files so the user can confirm the mapping.
+router.post('/projects/:slug/scene-review/:episodeId/match-import-files', async (req, res) => {
+  const { slug, episodeId } = req.params
+  const body = req.body || {}
+  const files = body.files
+  if (!Array.isArray(files)) return res.status(400).json({ detail: 'files must be an array' })
+  try {
+    const paths = await resolveEpisodePathsByCodeWithSidecar(slug, episodeId, SCENE_PLAN_FILENAME)
+    const planPath = await resolveScenePlanPath(slug, episodeId, paths.episode_dir)
+    if (!existsSync(planPath)) return res.status(400).json({ detail: 'No scene_plan.json yet' })
+    const plan = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
+    const { matchFilesToScenes } = await import('../lib/scene-import.js')
+    const result = matchFilesToScenes(files, plan.scenes)
+    res.json({
+      matched: result.matched.map(m => ({ file: m.file, scene_id: m.scene.id, scene_index: m.scene.scene_index })),
+      unmatched: result.unmatched,
+      ambiguous: result.ambiguous.map(a => ({ file: a.file, candidates: a.candidates.map(c => ({ id: c.id, scene_index: c.scene_index })) })),
+    })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Failed to match import files'))
   }
 })
