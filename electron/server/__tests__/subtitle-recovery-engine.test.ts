@@ -890,59 +890,99 @@ test('expiry after a confirm was attempted reconciles its key before retiring an
   assert.equal(f.confirmations.length, 1, 'the key lookup must discover the already-created task')
 })
 
-// 1.4.279 — KH Boundless EP0100 (Whisper turbo on the free fleet): every section stopped on
-// "No fresh replacement was authorized". Free fleet work never goes through the paid rules.
+// All subtitle requests follow retry_failed_requests_subtitle uniformly regardless of model name.
 const fleetModel = 'studio-hub::mlx-community/whisper-large-v3-turbo'
 const fleetRun = (f: Awaited<ReturnType<typeof fixture>>, section = 'Chapter_01') => f.run(section, {
   request: { audioPath: f.audioPath, modelId: fleetModel, requestIdentity: `episode:${section}`, wordTimestamps: true },
 })
 
-test('free fleet: a dead saved task gets a fresh free request', async t => {
-  const f = await fixture(t)  // the saved task failed with credits settled: paid work blocks here ("Off")
-  assert.equal((await fleetRun(f)).srt, srt)
-  assert.equal(f.confirmations.length, 1)
-  assert.notEqual(f.confirmations[0], 'original-Chapter_01-confirm')
-  const ledger = JSON.parse(await fs.readFile(path.join(f.outDir, '.subtitle-recovery.json'), 'utf8'))
-  assert.equal(Object.values(ledger.plans).flatMap((p: any) => p.attempts).length, 0, 'free fleet never commits retry attempts')
-  assert.match(f.job.output_lines.join('\n'), /asking again, free on your own Macs/)
+test('free-named model: dead saved task with retry Off makes zero extra requests and blocks', async t => {
+  const f = await fixture(t)
+  await assert.rejects(fleetRun(f), /automatic subtitle retry is Off/)
+  assert.equal(f.confirmations.length, 0, 'Off means zero extra requests')
+  assert.equal((f.job.params.subtitle_recovery as any).sections.Chapter_01.manual_action, 'rerun_subtitle_section')
 })
 
-test('free fleet: a saved task the Gateway no longer has, or whose artifact expired, is asked for afresh', async t => {
+test('free-named model: with retry On and maxRetries=2 makes exactly two extra attempts before exhausting', async t => {
+  const f = await fixture(t)
+  await setRetryFailedRequestsSetting('subtitle', { enabled: true, retries: 2 })
+  f.replacement(id => failed(id))
+  await assert.rejects(fleetRun(f), /Automatic subtitle retries exhausted \(2 of 2\)/)
+  assert.equal(f.confirmations.length, 2, 'On 2 means exactly two extra requests')
+  const ledger = JSON.parse(await fs.readFile(path.join(f.outDir, '.subtitle-recovery.json'), 'utf8'))
+  const attempts = Object.values(ledger.plans).flatMap((p: any) => p.attempts)
+  assert.equal(attempts.length, 2, 'two replacement attempts recorded in ledger')
+})
+
+test('free-named model: with retry On succeeds on additional attempt within budget', async t => {
+  const f = await fixture(t)
+  await setRetryFailedRequestsSetting('subtitle', { enabled: true, retries: 2 })
+  let tries = 0
+  f.replacement(id => {
+    tries++
+    if (tries < 2) return failed(id)
+    return { id, state: 'succeeded', model_id: fleetModel, srt_url: `/v1/transcriptions/${id}/srt` } as any
+  })
+  assert.equal((await fleetRun(f)).srt, srt)
+  assert.equal(f.confirmations.length, 2, 'succeeded on second retry attempt')
+})
+
+test('free-named model: unknown outcome makes no fresh request and reconnects by same key', async t => {
+  const timeout = () => { throw new DOMException('The operation was aborted due to timeout', 'TimeoutError') }
+  const f = await fixture(t)
+  await f.clearOriginal()
+  let attempts = 0
+  f.confirm(async () => {
+    attempts++
+    if (attempts === 1) timeout()
+  })
+  await assert.rejects(fleetRun(f), /did not answer within the request time limit/)
+  assert.equal(f.confirmations.length, 1, 'only one key submitted; no extra key minted on unknown outcome')
+  const message = (f.job.params.subtitle_recovery as any).sections.Chapter_01.message
+  assert.match(message, /Subtitle request interrupted \(The Gateway did not answer/)
+
+  // Re-running reconnects under the exact same key without minting a fresh request
+  assert.equal((await fleetRun(f)).srt, srt)
+  assert.equal(f.confirmations.length, 1, 'reconnected using existing key with zero additional requests')
+})
+
+test('free-named model: restart preserves retry budget across separate runs', async t => {
+  const f = await fixture(t)
+  await setRetryFailedRequestsSetting('subtitle', { enabled: true, retries: 2 })
+  let attemptCount = 0
+  f.confirm(async () => {
+    attemptCount++
+    if (attemptCount === 1) return Response.json(failed('new-att-1'), { status: 202 })
+    throw new Error('simulated process interruption')
+  })
+  await assert.rejects(fleetRun(f), /simulated process interruption/)
+  assert.equal(f.confirmations.length, 2)
+
+  f.confirm(async () => Response.json(failed('new-att-2'), { status: 202 }))
+  await assert.rejects(fleetRun(f), /Automatic subtitle retries exhausted \(2 of 2\)/)
+  assert.equal(f.confirmations.length, 2, 'retry budget of 2 was strictly preserved across restart')
+})
+
+test('free-named model: a saved task missing from the Gateway blocks with rerun offer', async t => {
   const missing = await fixture(t)
   missing.originalMissing()
-  assert.equal((await fleetRun(missing)).srt, srt)
-  assert.equal(missing.confirmations.length, 1)
+  await assert.rejects(fleetRun(missing), /not found with the current Gateway connection\/account/i)
+  assert.equal(missing.confirmations.length, 0)
+  assert.equal((missing.job.params.subtitle_recovery as any).sections.Chapter_01.manual_action, 'rerun_subtitle_section')
+})
+
+test('free-named model: an expired artifact after success never authorizes automatic requests', async t => {
   const expired = await fixture(t)
   expired.original(id => ({ ...failed(id), state: 'succeeded' }))
-  assert.equal((await fleetRun(expired)).srt, srt)
-  assert.equal(expired.confirmations.length, 1)
+  await assert.rejects(fleetRun(expired), /artifact expired/i)
+  assert.equal(expired.confirmations.length, 0)
 })
 
-test('free fleet: a cancelled task is still the owner\'s stop, not a fresh request', async t => {
+test('free-named model: a cancelled task is still the owner stop, not a fresh request', async t => {
   const f = await fixture(t)
   f.original(id => failed(id, { cancelled: true }))
-  await assert.rejects(fleetRun(f))
+  await assert.rejects(fleetRun(f), /cancelled/)
   assert.equal(f.confirmations.length, 0)
-})
-
-test('an unanswered submit: free fleet reconnects under the same key; paid work stops with its reason', async t => {
-  const timeout = () => { throw new DOMException('The operation was aborted due to timeout', 'TimeoutError') }
-  const free = await fixture(t)
-  await free.clearOriginal()
-  let freeTries = 0
-  free.confirm(async () => { if (freeTries++ < 4) timeout() })
-  assert.equal((await fleetRun(free)).srt, srt)
-  assert.equal(free.confirmations.length, 1, 'one key: the lost answer is reclaimed, not duplicated')
-  assert.match(free.job.output_lines.join('\n'), /did not answer in time; asking again, free/)
-
-  const paid = await fixture(t)
-  await paid.clearOriginal()
-  await setRetryFailedRequestsSetting('subtitle', { enabled: false })
-  paid.confirm(async () => timeout())
-  await assert.rejects(paid.run(), /did not answer within the request time limit/)
-  const message = (paid.job.params.subtitle_recovery as any).sections.Chapter_01.message
-  assert.match(message, /interrupted \(The Gateway did not answer/)
-  assert.doesNotMatch(message, /No fresh replacement was authorized/)
 })
 
 test('episode recovery names each distinct section message once', async () => {

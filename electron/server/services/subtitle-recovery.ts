@@ -11,9 +11,7 @@ import {
   recoverTranscriptionWithGenStudio, transcribeWithGenStudio,
   type GenStudioTranscriptionRequest, type GenStudioTranscriptionQuote,
 } from '../lib/genstudio-client.js'
-import { isFleetBusyFailure, FLEET_BUSY_FAILURE_CODES, FLEET_BUSY_RETRY_DELAYS_MS, FREE_MAC_WAIT_MAX_RETRIES, waitUnlessStopped } from '../lib/genstudio-fleet-busy.js'
-import { isTransportFailure } from '../lib/http-retry.js'
-import { isFreeFleetModelId } from '../contracts/provider-task-state.js'
+import { isFleetBusyFailure } from '../lib/genstudio-fleet-busy.js'
 import { getGenStudioUrl, getRetryFailedRequestsSetting } from './app-settings.js'
 import { readManifestStrict, recordTaskStrict } from './task-manifest.js'
 import { checkpointGenStudioAsset, type GenStudioRecoveryState } from './genstudio-recovery.js'
@@ -454,17 +452,14 @@ export async function runSubtitleTranscription(input: SubtitleRecoveryInput): Pr
           const sectionAttempts = attempts.filter(a => a.section === section)
           const existing = attempts.find(a => a.section === section
             && a.replacementOrdinal === current!.replacement!.replacementOrdinal)
-          const freeRenewal = !!existing && !!current!.freeRetryFromKey
-            && [current!.freeRetryFromKey, current!.idempotencyKey].includes(existing.idempotencyKey)
-          const effectiveAuthority = freeRenewal ? { enabled: true, maxRetries: authority.maxRetries } : authority
           const decision = decideSubtitleReplacement({
-            ...effectiveAuthority, attempts: sectionAttempts.filter(a => a !== existing), section,
+            ...authority, attempts: sectionAttempts.filter(a => a !== existing), section,
             ...current!.replacement!, inputHash: input.inputHash, outputPath: current!.outputPath,
             livePrice: typeof quote.quoted_credit_cost === 'number' && typeof quote.price_version === 'string'
               ? { credits: quote.quoted_credit_cost, priceVersion: quote.price_version } : null,
           })
           if (decision.action !== 'commit') return decision.reason
-          if (existing && !freeRenewal && (existing.idempotencyKey !== current!.idempotencyKey)) {
+          if (existing && existing.idempotencyKey !== current!.idempotencyKey) {
             return 'the committed transcription identity changed; reconcile before retrying again'
           }
           const committed: Commitment = {
@@ -478,15 +473,13 @@ export async function runSubtitleTranscription(input: SubtitleRecoveryInput): Pr
           return null
         })
         if (reason) return block(reason, 'rerun_subtitle_section')
-        await state(current!.freeRetryFromKey ? 'free_retry' : 'retry_pending', current!.freeRetryFromKey
-          ? 'Reusing the retry identity that was not charged; no new request is created.'
-          : `Preparing retry ${current!.replacement.replacementOrdinal} of ${authority.maxRetries} for ${section}.`)
+        await state('retry_pending', `Preparing retry ${current!.replacement.replacementOrdinal} of ${authority.maxRetries} for ${section}.`)
       }
       // This write precedes EVERY physical confirm POST, including transport retries.
       current!.confirmStarted = true
       await persist()
       if (stopped()) throw new Error('Subtitle submission stopped by owner')
-      if (current!.replacement && !current!.freeRetryFromKey && !(await policy()).enabled) {
+      if (current!.replacement && !(await policy()).enabled) {
         return block('automatic subtitle retry is Off', 'rerun_subtitle_section')
       }
     }
@@ -505,12 +498,7 @@ export async function runSubtitleTranscription(input: SubtitleRecoveryInput): Pr
       }
     }
     await persist()
-    let freeRetriesThisRun = 0
-    // 1.4.279 (KH Boundless EP0100): free fleet work is never paid-replaced. A saved fleet task that is
-    // dead gets a fresh free request, and an unanswered submit is asked again under its own key; paid
-    // work keeps the cautious rules below (images got the same rule in 1.4.278, voices in 1.4.265).
-    const freeFleet = isFreeFleetModelId(input.request.modelId)
-    const maxFreeRetries = freeFleet ? FREE_MAC_WAIT_MAX_RETRIES : FLEET_BUSY_RETRY_DELAYS_MS.length
+    let quoteExpiriesThisRun = 0
     for (;;) {
       if (stopped()) throw new Error('Subtitle recovery stopped by owner')
       const request: GenStudioTranscriptionRequest = {
@@ -543,7 +531,6 @@ export async function runSubtitleTranscription(input: SubtitleRecoveryInput): Pr
         await state('artifact_recovered', 'Subtitle task recovered; verifying its artifact and stitch next.')
         return result
       } catch (error) {
-        let sameKey = false
         if (error instanceof GenStudioTranscriptionQuoteExpiredError) {
           // A confirm response can be lost behind an expiry/conflict. Never
           // retire its commitment until a read-only lookup proves no job exists.
@@ -553,6 +540,15 @@ export async function runSubtitleTranscription(input: SubtitleRecoveryInput): Pr
             const plan = ledger.plans[current!.planId]!
             plan.attempts = plan.attempts.filter(a => a.idempotencyKey !== current!.idempotencyKey)
           })
+          if (quoteExpiriesThisRun >= 3) {
+            return block('Quote expired; retry recovery later.', false, 'needs_attention')
+          }
+          quoteExpiriesThisRun++
+          current.freeRetries++
+          current.idempotencyKey = `story-stt-${createHash('sha256').update(`${current.idempotencyKey}:free-retry`).digest('hex')}`
+          current.taskId = ''; current.confirmStarted = false; current.submittedAt = new Date().toISOString()
+          await persist('prepared')
+          continue
         } else if (error instanceof GenStudioTerminalFailureError && error.modality === 'transcription') {
           current.taskId = error.jobId
           await persist('failed')
@@ -563,10 +559,7 @@ export async function runSubtitleTranscription(input: SubtitleRecoveryInput): Pr
             }
           }
           const failure = subtitleFailure(error)
-          // A cancel is the owner's instruction, free or not. A free-fleet model never costs
-          // anything, so it re-runs; every other transient failure follows the configured
-          // retry limit.
-          const classification = freeFleet && !failure.cancelled ? 'free-retry' : classifySubtitleFailure(failure)
+          const classification = classifySubtitleFailure(failure)
           if (classification === 'blocked') {
             return block(failure.cancelled
               ? 'The owner cancelled the transcription; no automatic subtitle retry is performed.'
@@ -599,11 +592,9 @@ export async function runSubtitleTranscription(input: SubtitleRecoveryInput): Pr
             await state('retry_pending', `Preparing retry ${nextOrdinal} of ${authority.maxRetries} for ${section}.`)
             continue
           }
-          // A free-fleet retry after a configured retry keeps its identity; nothing more is created.
-          if (current.replacement) current.freeRetryFromKey = current.idempotencyKey
         } else if (error instanceof GenStudioTranscriptionTaskUnavailableError) {
-          if (!freeFleet) return block(
-            'The saved subtitle task was not found with the current Gateway connection/account, so it cannot be retrieved here. Its task/key evidence is retained. Explicitly generate this section to create a fresh request at the current quote; the new request may be charged.',
+          return block(
+            'The saved subtitle task was not found with the current Gateway connection/account, so it cannot be retrieved here. Its task/key evidence is retained. Explicitly generate this section to create a fresh request.',
             'rerun_subtitle_section',
             'needs_attention',
           )
@@ -614,37 +605,16 @@ export async function runSubtitleTranscription(input: SubtitleRecoveryInput): Pr
               return block('The one fresh pipeline repair artifact is unavailable. Review this section before another re-transcription.', false, 'needs_attention')
             }
           }
-          if (!freeFleet) return block('The successful subtitle artifact expired; it may already have been charged. Review it before explicitly re-running this section.', 'rerun_subtitle_section', 'needs_attention')
-        } else if (freeFleet && !stopped() && !(error instanceof Error && error.message.startsWith(`${section}:`))
-          && (isTransportFailure(error) || isFleetBusyFailure(error))) {
-          // The request may already be running: ask again under the SAME key, which reconnects to it.
-          // ponytail: no extra wait; the client already retried this request with backoff.
-          sameKey = true
+          return block('The successful subtitle artifact expired. Review this section before explicitly re-running it.', 'rerun_subtitle_section', 'needs_attention')
         } else {
           if (!(error instanceof Error && error.message.startsWith(`${section}:`))) {
             const why = error instanceof Error ? error.message : String(error)
             await state('needs_attention', pipelineActionId
               ? 'Pipeline subtitle repair was interrupted; its saved scoped request identity is retained and will reconnect on retry.'
-              : freeFleet
-                ? `Subtitle request interrupted (${why}); its saved task/key is kept and the next retry reconnects to it.`
-                : `Subtitle request interrupted (${why}); its saved task/key is kept and the next retry reconnects to it. `
-                  + 'A paid transcription is never sent again by itself, so it cannot be charged twice.')
+              : `Subtitle request interrupted (${why}); its saved task/key is kept and the next retry reconnects to it.`)
           }
           throw error
         }
-        if (freeRetriesThisRun >= maxFreeRetries) return block('Free subtitle retries exhausted; retry recovery later.', false, 'needs_attention')
-        const delay = FLEET_BUSY_RETRY_DELAYS_MS[Math.min(freeRetriesThisRun++, FLEET_BUSY_RETRY_DELAYS_MS.length - 1)]!
-        current.freeRetries++
-        await state('free_retry', freeFleet
-          ? `${sameKey ? 'The Gateway did not answer in time' : 'The earlier request cannot be used'}; asking again, free on your own Macs (attempt ${freeRetriesThisRun} of ${maxFreeRetries}).`
-          : `No machine could take the request; asking again with a fresh one (attempt ${freeRetriesThisRun} of ${maxFreeRetries}).`)
-        if (isFleetBusyFailure(error) || (error instanceof GenStudioTerminalFailureError && FLEET_BUSY_FAILURE_CODES.has(error.failureCode || ''))) {
-          await waitUnlessStopped(delay, () => !!stopped())
-        }
-        if (sameKey) continue
-        current.idempotencyKey = `story-stt-${createHash('sha256').update(`${current.idempotencyKey}:free-retry`).digest('hex')}`
-        current.taskId = ''; current.confirmStarted = false; current.submittedAt = new Date().toISOString()
-        await persist('prepared')
       }
     }
   })
