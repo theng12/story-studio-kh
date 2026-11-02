@@ -204,8 +204,7 @@ test('a scene whose clip file is missing falls back to its approved still', asyn
   assert.equal(b.media_type, 'still')
   // The dropped selection is named, not silent (AGENTS §4).
   const fallback = assets.scene_plan_coverage?.motion_fallback ?? []
-  assert.ok(
-    fallback.some(row => row.id === 'scene-a'),
-    `scene-a's missing clip is announced: ${JSON.stringify(fallback)}`,
-  )
+  assert.deepEqual(fallback, [
+    { id: 'scene-a', scene_index: 1, reason: 'no clip file on disk' },
+  ])
 })
