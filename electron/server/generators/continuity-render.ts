@@ -1237,7 +1237,7 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
                   jq.recordPaidImageReplacementPublicReason(job, decision.public_reason)
                   throw new Error(jq.PAID_IMAGE_REPLACEMENT_PUBLIC_MESSAGE)
                 }
-                if (decision.action === 'safe-zero-settlement-retry') zeroSettlementRetryPending = true
+                if (decision.action === 'safe-zero-settlement-retry' || (decision as any).action === 'retry') zeroSettlementRetryPending = true
                 if (decision.action === 'commit') replacementScope = decision.scope
               }
               // A terminal saved job promotes the scope to a NEW retry identity,
@@ -1408,7 +1408,7 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
                     jq.recordPaidImageReplacementPublicReason(job, decision.public_reason)
                     throw new Error(jq.PAID_IMAGE_REPLACEMENT_PUBLIC_MESSAGE)
                   }
-                  if (decision.action === 'safe-zero-settlement-retry') zeroSettlementRetryPending = true
+                  if (decision.action === 'safe-zero-settlement-retry' || (decision as any).action === 'retry') zeroSettlementRetryPending = true
                 }
                 const carriedRetry = carried.request_scope?.includes(':selector:')
                   ? { ...carried, request_scope: logicalPaidScope(carried, baseScope) }

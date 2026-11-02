@@ -114,6 +114,22 @@ function cloneSettingValue<T>(value: T): T {
   return value && typeof value === 'object' ? structuredClone(value) : value
 }
 
+export const RETRY_ATTEMPTS_MIN = 1
+export const RETRY_ATTEMPTS_MAX = 10
+export const RETRY_ATTEMPTS_DEFAULT = 3
+
+export interface RetryFailedRequestsSetting {
+  /** The switch to enable retry for failed requests of this kind. */
+  enabled: boolean
+  /** Number of retry attempts (1-10). Defaults to 3. */
+  retries: number
+}
+
+export const RETRY_FAILED_REQUESTS_IMAGE_KEY = 'retry_failed_requests_image'
+export const RETRY_FAILED_REQUESTS_SUBTITLE_KEY = 'retry_failed_requests_subtitle'
+export const RETRY_FAILED_REQUESTS_AUDIO_KEY = 'retry_failed_requests_audio'
+export const RETRY_FAILED_REQUESTS_WRITING_KEY = 'retry_failed_requests_writing'
+
 export interface PaidImageReplacementSetting {
   /** The whole switch. Gateway owns the charge, so there is no budget beside it. */
   enabled: boolean
@@ -201,6 +217,47 @@ function parsePaidReplacementSetting(
     return { ...PAID_REPLACEMENT_DEFAULT }
   }
   return { enabled: record.enabled }
+}
+
+export function parseRetryFailedRequestsSetting(
+  value: unknown,
+  invalid: 'default' | 'throw',
+  kind: 'image' | 'subtitle' | 'audio' | 'writing',
+): RetryFailedRequestsSetting {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    if (invalid === 'throw') {
+      throw Object.assign(
+        new Error(`Retry failed requests for ${kind} requires enabled as a boolean.`),
+        { statusCode: 400, expose: true },
+      )
+    }
+    return { enabled: false, retries: RETRY_ATTEMPTS_DEFAULT }
+  }
+  const record = value as Record<string, unknown>
+  if (typeof record.enabled !== 'boolean') {
+    if (invalid === 'throw') {
+      throw Object.assign(
+        new Error(`Retry failed requests for ${kind} requires enabled as a boolean.`),
+        { statusCode: 400, expose: true },
+      )
+    }
+    return { enabled: false, retries: RETRY_ATTEMPTS_DEFAULT }
+  }
+  let retries = RETRY_ATTEMPTS_DEFAULT
+  if ('retries' in record && record.retries !== undefined) {
+    if (typeof record.retries !== 'number' || !Number.isInteger(record.retries) || record.retries < RETRY_ATTEMPTS_MIN || record.retries > RETRY_ATTEMPTS_MAX) {
+      if (invalid === 'throw') {
+        throw Object.assign(
+          new Error(`Retries for ${kind} must be an integer between ${RETRY_ATTEMPTS_MIN} and ${RETRY_ATTEMPTS_MAX}.`),
+          { statusCode: 400, expose: true },
+        )
+      }
+      retries = RETRY_ATTEMPTS_DEFAULT
+    } else {
+      retries = record.retries
+    }
+  }
+  return { enabled: record.enabled, retries }
 }
 
 // Legacy installs wrote this file with default 0644. On the first read after
@@ -330,6 +387,53 @@ export async function getPrivateFinalRenderSetting(): Promise<PrivateFinalRender
 export async function setPrivateFinalRenderSetting(value: unknown): Promise<PrivateFinalRenderSetting> {
   const setting = parsePrivateFinalRenderSetting(value, 'throw')
   await setAppSetting(PRIVATE_FINAL_RENDER_KEY, setting)
+  return setting
+}
+
+/**
+ * Retry failed requests setting for images.
+ * Defaults to enabled: false, retries: 3.
+ */
+export async function getImageRetrySetting(): Promise<RetryFailedRequestsSetting> {
+  const settings = await readSettings()
+  return parseRetryFailedRequestsSetting(
+    settings && typeof settings === 'object' && !Array.isArray(settings)
+      ? settings[RETRY_FAILED_REQUESTS_IMAGE_KEY]
+      : undefined,
+    'default', 'image',
+  )
+}
+
+export async function setImageRetrySetting(value: unknown): Promise<RetryFailedRequestsSetting> {
+  const setting = parseRetryFailedRequestsSetting(value, 'throw', 'image')
+  await setAppSetting(RETRY_FAILED_REQUESTS_IMAGE_KEY, setting)
+  return setting
+}
+
+export async function getRetryFailedRequestsSetting(
+  kind: 'image' | 'subtitle' | 'audio' | 'writing',
+): Promise<RetryFailedRequestsSetting> {
+  const key = kind === 'image' ? RETRY_FAILED_REQUESTS_IMAGE_KEY
+    : kind === 'subtitle' ? RETRY_FAILED_REQUESTS_SUBTITLE_KEY
+    : kind === 'audio' ? RETRY_FAILED_REQUESTS_AUDIO_KEY
+    : RETRY_FAILED_REQUESTS_WRITING_KEY
+  const settings = await readSettings()
+  return parseRetryFailedRequestsSetting(
+    settings && typeof settings === 'object' && !Array.isArray(settings) ? settings[key] : undefined,
+    'default', kind,
+  )
+}
+
+export async function setRetryFailedRequestsSetting(
+  kind: 'image' | 'subtitle' | 'audio' | 'writing',
+  value: unknown,
+): Promise<RetryFailedRequestsSetting> {
+  const setting = parseRetryFailedRequestsSetting(value, 'throw', kind)
+  const key = kind === 'image' ? RETRY_FAILED_REQUESTS_IMAGE_KEY
+    : kind === 'subtitle' ? RETRY_FAILED_REQUESTS_SUBTITLE_KEY
+    : kind === 'audio' ? RETRY_FAILED_REQUESTS_AUDIO_KEY
+    : RETRY_FAILED_REQUESTS_WRITING_KEY
+  await setAppSetting(key, setting)
   return setting
 }
 

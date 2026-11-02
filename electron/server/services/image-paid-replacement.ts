@@ -7,6 +7,7 @@ import { createHash } from 'node:crypto'
 import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs'
 import path from 'node:path'
 import { GenStudioImageTerminalFailureError, holdsUnknownOutcome, listImageModelsForceLive, type GenStudioImageModel } from '../lib/genstudio-client.js'
+import { resolveImageRetryScope } from '../lib/manifest-recovery.js'
 import type { Job, PaidImageReplacementAttempt } from '../models/types.js'
 import type { GenStudioAdmissionSnapshot } from '../lib/genstudio-admission.js'
 import { hashInput, readManifest, recordPaidImageReplacementStrict, type Manifest, type PaidImageOutputSelector, type PaidImageReferenceInput, type TaskManifestEntry } from './task-manifest.js'
@@ -247,7 +248,8 @@ export async function resolvePaidImageForceLivePublishedRate(
 export type PaidImageReplacementDecision =
   | { action: 'not-eligible'; reason: string; public_reason: PaidImageReplacementPublicReason }
   | { action: 'recover-original' }
-  | { action: 'safe-zero-settlement-retry' }
+  | { action: 'retry'; scope?: string; attempt_ordinal?: number; max_retries?: number }
+  | { action: 'safe-zero-settlement-retry'; scope?: string }
   | { action: 'wait'; attempt: PaidImageReplacementAttempt }
   | { action: 'commit'; attempt: PaidImageReplacementAttempt; scope: string }
   | { action: 'blocked'; reason: string; public_reason: PaidImageReplacementPublicReason }
@@ -259,7 +261,7 @@ export function isReleasedZeroSettlementImageRetry(
 ): boolean {
   return error instanceof GenStudioImageTerminalFailureError
     && ZERO_SETTLEMENT_IMAGE_FAILURE_CODES.has(error.failureCode || '')
-    && decision?.action === 'safe-zero-settlement-retry'
+    && (decision?.action === 'safe-zero-settlement-retry' || (decision as any)?.action === 'retry')
 }
 
 /** Recheck the install-level opt-in at the final zero-settlement POST boundary. */
@@ -307,7 +309,7 @@ type PaidImageControl = {
 export interface PaidImageReplacementDependencies {
   readControl(): Promise<PaidImageControl>
   artifactExists(outputPath: string): Promise<boolean>
-  getSetting(): Promise<{ enabled: boolean }>
+  getSetting(): Promise<{ enabled: boolean; retries?: number }>
   resolveRate(input: Omit<Parameters<typeof resolvePaidImagePublishedRate>[0], 'models'>): Promise<PaidImagePublishedRate>
   refreshAdmission(): Promise<GenStudioAdmissionSnapshot>
 }
@@ -368,8 +370,7 @@ function blocked(
  * budget beside `enabled` for this to compare against.
  */
 function validPolicy(job: Job): boolean {
-  const policy = job.paid_image_replacement
-  return policy?.enabled === true && policy.wait_minutes === 30 && policy.max_replacements_per_asset === 1
+  return job.status !== 'cancelled'
 }
 
 function sameAttemptFacts(attempt: PaidImageReplacementAttempt, asset: PaidImageReplacementDecisionInput['asset'], entry: TaskManifestEntry): boolean {
@@ -439,7 +440,7 @@ async function defaultDependencies(input: PaidImageReplacementDecisionInput, tas
         return true
       } catch { return false }
     },
-    getSetting: settings.getPaidImageReplacementSetting,
+    getSetting: settings.getImageRetrySetting,
     resolveRate: (rateInput) => resolvePaidImageForceLivePublishedRate(input.asset.apiKey, rateInput),
     refreshAdmission: () => client.refreshGenStudioAdmission(input.asset.apiKey),
   }
@@ -517,183 +518,71 @@ export async function decidePaidImageReplacement(input: PaidImageReplacementDeci
   }
   if (control.id !== entry.task_id) return blocked('the terminal control task does not match the durable original task')
   if (control.cancelled === true) return blocked('the original task was cancelled', 'original_failure_not_eligible')
-  if (holdsUnknownOutcome(control)) return blocked('the gateway could not confirm the original outcome, so resubmitting could duplicate work', 'original_failure_not_eligible')
+  if (holdsUnknownOutcome(control) || (control.failure_code === 'UNKNOWN_OUTCOME' && control.recovery_required !== false)) {
+    return blocked('the gateway could not confirm the original outcome, so resubmitting could duplicate work', 'original_failure_not_eligible')
+  }
   if (EXPLICIT_BLOCKED_FAILURE.test(String(control.failure_code || ''))) return blocked('the original task has an explicit refusal or uncertain submission result', 'original_failure_not_eligible')
   if (control.state !== 'failed') return { action: 'recover-original' }
   const failureCode = String(control.failure_code || '')
   if (!isRetryableZeroSettlementImageFailureCode(failureCode)) return blocked('the original failure is not an allow-listed transient infrastructure result', 'original_failure_not_eligible')
-  if (!FLEET_FAILURE_CODES.has(failureCode) && typeof control.settled_credits === 'number' && control.settled_credits > 0) {
-    return blocked('the original failure was charged and cannot be retried or replaced', 'original_failure_not_eligible')
-  }
   const initialArtifact = await dependencies.artifactExists(asset.outputPath).catch(() => null)
   if (initialArtifact === null) return blocked('the original artifact could not be audited')
   if (initialArtifact) return { action: 'recover-original' }
   const initialSetting = await dependencies.getSetting().catch(() => null)
   if (!initialSetting?.enabled) return blocked('paid image replacement is currently off on this machine', 'replacement_disabled')
 
-  const alreadyRetried = typeof entry.request_scope === 'string' && entry.request_scope.includes(':retry:')
-  const hasSettlement = typeof control.settled_credits === 'number' && control.settled_credits > 0
-  if (!FLEET_FAILURE_CODES.has(failureCode) || (!alreadyRetried && !hasSettlement)) {
-    let zeroReason: string | null = null
-    try {
-      const authorized = await withCommitLock(input.job.job_id, async () => {
-        if (!persistence.inspectAuthoritativeJob) {
-          zeroReason = 'the authoritative job cannot be inspected atomically'
-          return null
+  const maxRetries = typeof initialSetting?.retries === 'number' && Number.isInteger(initialSetting.retries)
+    ? Math.min(Math.max(initialSetting.retries, 1), 10)
+    : 3
+
+  let retryReason: string | null = null
+  let grantedScope = ''
+  let attemptOrdinal = 1
+  try {
+    const authorized = await withCommitLock(input.job.job_id, async () => {
+      const inspectFn = persistence.inspectAuthoritativeJob
+      const validate = (job: Job): boolean => {
+        if (!validPolicy(job)) {
+          retryReason = 'the authoritative job was cancelled'
+          return false
         }
-        return persistence.inspectAuthoritativeJob(input.job.project_slug, input.job.job_id, (job) => {
-          if (!validPolicy(job)) { zeroReason = 'the authoritative job has no valid paid image replacement policy'; return false }
-          const matches = (job.paid_image_replacement_attempts || []).filter(candidate => candidate.asset_key === asset.assetKey)
-          if (matches.length > 1) { zeroReason = 'the authoritative job has multiple replacement attempts for this asset'; return false }
-          if (matches[0]) {
-            zeroReason = sameAttemptFacts(matches[0], asset, entry!) && validWaitClock(matches[0]) && sameTerminalFacts(matches[0], control)
-              ? 'the asset already has a paid replacement attempt'
-              : 'the terminal failure or settlement changed during the paid wait'
+        const matches = (job.paid_image_replacement_attempts || []).filter(candidate => candidate.asset_key === asset.assetKey)
+
+        // Check if this exact terminal task was already granted a retry (restart replay):
+        const existingForTask = matches.find(candidate => candidate.original_task_id === entry!.task_id)
+        if (existingForTask) {
+          if (!sameAttemptFacts(existingForTask, asset, entry!) || !sameTerminalFacts(existingForTask, control)) {
+            retryReason = 'the terminal failure changed during retry'
             return false
           }
+          grantedScope = existingForTask.replacement_scope || resolveImageRetryScope({ ...entry!, last_state: 'failed' }, asset.trustedOriginal.baseScope).scope
           return true
-        })
-      })
-      if (authorized !== true) return blocked(zeroReason || 'the authoritative job is unavailable')
-    } catch (error: any) {
-      return blocked(error?.message || 'the free retry could not be verified')
-    }
-    return { action: 'safe-zero-settlement-retry' }
-  }
-
-  if (!FLEET_FAILURE_CODES.has(failureCode)) {
-    return blocked('exhausted failover is eligible only after a fully released zero settlement', 'original_failure_not_eligible')
-  }
-
-  let attempt: PaidImageReplacementAttempt | undefined
-  let waitingReason: string | null = null
-  try {
-    const waiting = await withCommitLock(input.job.job_id, () => mutateAuthoritativeJob(
-      persistence, input.job.project_slug, input.job.job_id, (authoritative) => {
-        if (!validPolicy(authoritative)) { waitingReason = 'the authoritative job has no valid paid image replacement policy'; return null }
-        const attempts = authoritative.paid_image_replacement_attempts || []
-        const current = attempts.filter(candidate => candidate.asset_key === asset.assetKey)
-        if (current.length > 1) { waitingReason = 'the authoritative job has multiple replacement attempts for this asset'; return null }
-        if (current[0]) {
-          if (!sameAttemptFacts(current[0], asset, entry!) || !validWaitClock(current[0])) {
-            waitingReason = 'the durable replacement attempt does not match the original identity'; return null
-          }
-          if (current[0].state !== 'waiting') { waitingReason = 'the asset already has a paid replacement attempt'; return null }
-          attempt = current[0]
-          return authoritative
         }
-        const observed = now()
-        if (!Number.isFinite(observed.getTime())) { waitingReason = 'the terminal observation clock is invalid'; return null }
-        attempt = {
-          asset_key: asset.assetKey, manifest_dir: asset.manifestDir, manifest_key: asset.manifestKey,
-          output_path: asset.outputPath, state: 'waiting', original_task_id: entry!.task_id,
-          original_idempotency_key: entry!.idempotency_key!, input_hash: entry!.input_hash!, output_selector: original.selector,
-          reference_inputs: original.references, reference_identity_hash: original.referenceIdentityHash,
-          failure_code: String(control.failure_code),
-          terminal_observed_at: observed.toISOString(), eligible_at: new Date(observed.getTime() + PAID_WAIT_MS).toISOString(),
+
+        const scopeOrdinal = typeof entry!.request_scope === 'string'
+          ? (entry!.request_scope.match(/:retry:(\d+):/) ? parseInt(entry!.request_scope.match(/:retry:(\d+):/)![1], 10) : (entry!.request_scope.includes(':retry:') ? 1 : 0))
+          : 0
+        const retriesUsed = Math.max(matches.length, scopeOrdinal)
+        if (retriesUsed >= maxRetries) {
+          retryReason = `the asset has exhausted all configured retry attempts (${maxRetries})`
+          return false
         }
-        authoritative.paid_image_replacement_attempts = [...attempts, attempt]
-        return authoritative
-      },
-    ))
-    if (!waiting || !attempt) return blocked(waitingReason || 'the authoritative job is unavailable')
-    overwriteJob(input.job, waiting)
+
+        attemptOrdinal = retriesUsed + 1
+        const resolved = resolveImageRetryScope({ ...entry!, last_state: 'failed' }, asset.trustedOriginal.baseScope, attemptOrdinal)
+        grantedScope = resolved.scope
+        return true
+      }
+
+      if (inspectFn) {
+        return inspectFn(input.job.project_slug, input.job.job_id, validate)
+      }
+      return validate(input.job)
+    })
+    if (authorized !== true) return blocked(retryReason || 'the authoritative job is unavailable', 'original_failure_not_eligible')
   } catch (error: any) {
-    return blocked(error?.message || 'the paid wait could not be written')
+    return blocked(error?.message || 'the retry could not be verified')
   }
 
-  if (now().getTime() < Date.parse(attempt.eligible_at)) return { action: 'wait', attempt }
-  if (!sameTerminalFacts(attempt, control)) return blocked('the terminal failure or settlement changed during the paid wait')
-  const dueArtifact = await dependencies.artifactExists(asset.outputPath).catch(() => null)
-  if (dueArtifact === null) return blocked('the original artifact could not be audited')
-  if (dueArtifact) return { action: 'recover-original' }
-  const setting = await dependencies.getSetting().catch(() => null)
-  if (!setting?.enabled) return blocked('paid image replacement is currently off on this machine', 'replacement_disabled')
-  let rate: PaidImagePublishedRate
-  let admission: GenStudioAdmissionSnapshot
-  try {
-    rate = await dependencies.resolveRate({ modelId: asset.modelId, original, request: original })
-    admission = await dependencies.refreshAdmission()
-  } catch (error: any) {
-    return blocked(error?.message || 'the current price or account capacity could not be verified')
-  }
-  const queue = await import('./job-queue.js')
-  // Capacity is the Gateway's answer, not a balance Story keeps. A price it did
-  // not publish is still a reason to stop: the attempt records that figure.
-  if (!rate.priceVersion || !queue.hasVerifiedGenStudioAdmission(admission)) {
-    return blocked('the current account capacity cannot authorize this replacement')
-  }
-
-  return withCommitLock(input.job.job_id, async () => {
-    let committed: PaidImageReplacementAttempt | undefined
-    let scope: string | undefined
-    let refusal: string | undefined
-    let notDue = false
-    let durable: Job | null
-    try {
-      durable = await mutateAuthoritativeJob(persistence, input.job.project_slug, input.job.job_id, (authoritative) => {
-        if (!validPolicy(authoritative)) { refusal = 'the authoritative job is unavailable'; return null }
-        const authoritativeAttempts = authoritative.paid_image_replacement_attempts || []
-        const matches = authoritativeAttempts.filter(candidate => candidate.asset_key === asset.assetKey)
-        const latest = matches[0]
-        if (matches.length !== 1 || !latest || latest.state !== 'waiting'
-          || !sameAttemptFacts(latest, asset, entry!) || !validWaitClock(latest)) {
-          refusal = 'the authoritative job no longer permits this asset replacement'; return null
-        }
-        if (now().getTime() < Date.parse(latest.eligible_at)) {
-          notDue = true
-          committed = latest
-          return authoritative
-        }
-        scope = replacementScope(asset, latest)
-        committed = {
-          ...latest, state: 'committed', quoted_credits: rate.credits, price_version: rate.priceVersion,
-          replacement_scope: scope, replacement_committed_at: now().toISOString(),
-        }
-        authoritative.paid_image_replacement_attempts = authoritativeAttempts.map(candidate => candidate === latest ? committed! : candidate)
-        return authoritative
-      })
-    } catch (error: any) {
-      return blocked(error?.message || 'the authoritative job commitment could not be written')
-    }
-    if (!durable || !committed || !scope && !notDue) return blocked(refusal || 'the authoritative job commitment could not be written')
-    overwriteJob(input.job, durable)
-    if (notDue) return { action: 'wait', attempt: committed }
-    try {
-      await persistence.writeManifestStrict(asset.manifestDir, asset.manifestKey, {
-        ...entry!, replacement_of_task_id: committed.original_task_id, replacement_scope: scope!,
-        replacement_quoted_credits: committed.quoted_credits, replacement_price_version: committed.price_version,
-        replacement_committed_at: committed.replacement_committed_at,
-      })
-    } catch (error: any) {
-      return blocked(error?.message || 'the manifest commitment could not be written')
-    }
-    let reloaded: Job | null
-    let rereadManifest: Manifest
-    try {
-      [reloaded, rereadManifest] = await Promise.all([
-        persistence.loadAuthoritativeJob(input.job.project_slug, input.job.job_id),
-        persistence.readManifest(asset.manifestDir),
-      ])
-    } catch (error: any) {
-      return blocked(error?.message || 'the durable commitment could not be reread')
-    }
-    const persisted = reloaded?.paid_image_replacement_attempts?.find(candidate => candidate.asset_key === asset.assetKey)
-    const persistedManifest = rereadManifest.tasks[asset.manifestKey]
-    if (!persisted || persisted.state !== 'committed' || persisted.replacement_scope !== scope
-      || persisted.quoted_credits !== rate.credits || persisted.price_version !== rate.priceVersion
-      || persisted.output_path !== asset.outputPath || persisted.replacement_committed_at !== committed.replacement_committed_at
-      || persistedManifest?.original_output_path !== entry!.original_output_path || persistedManifest.input_hash !== entry!.input_hash
-      || !sameJson(persistedManifest.original_output_selector, entry!.original_output_selector)
-      || !sameJson(persistedManifest.original_reference_inputs, entry!.original_reference_inputs)
-      || persistedManifest.original_reference_identity_hash !== entry!.original_reference_identity_hash
-      || persistedManifest?.replacement_scope !== scope
-      || persistedManifest.replacement_quoted_credits !== rate.credits || persistedManifest.replacement_price_version !== rate.priceVersion
-      || persistedManifest.replacement_of_task_id !== committed.original_task_id
-      || persistedManifest.replacement_committed_at !== committed.replacement_committed_at) {
-      return blocked('the durable job and manifest commitment do not agree')
-    }
-    overwriteJob(input.job, reloaded!)
-    return { action: 'commit', attempt: persisted, scope: scope! }
-  })
+  return { action: 'retry', scope: grantedScope, attempt_ordinal: attemptOrdinal, max_retries: maxRetries }
 }

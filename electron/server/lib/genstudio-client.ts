@@ -381,10 +381,6 @@ function parseGenStudioCancellationResponse(value: unknown): GenStudioJob & GenS
   const optionalText = (name: string): string | null | undefined => (
     typeof body[name] === 'string' || body[name] === null ? body[name] as string | null : undefined
   )
-  const optionalSettlement = (name: string): number | undefined => {
-    const field = body[name]
-    return isValidSettlement(field) ? field : undefined
-  }
   const optionalNumberOrNull = (name: string): number | null | undefined => {
     const field = body[name]
     return field === null || isValidSettlement(field) ? field as number | null : undefined
@@ -413,7 +409,6 @@ function parseGenStudioCancellationResponse(value: unknown): GenStudioJob & GenS
     ...(body.waiting !== undefined ? { waiting: normalizeGenStudioWaiting(body.waiting) } : {}),
     ...(optionalText('failure_code') !== undefined ? { failure_code: optionalText('failure_code') } : {}),
     ...(optionalText('failure_class') !== undefined ? { failure_class: optionalText('failure_class') } : {}),
-    ...(optionalSettlement('settled_credits') !== undefined ? { settled_credits: optionalSettlement('settled_credits') } : {}),
     ...(optionalNumberOrNull('retry_after_seconds') !== undefined ? { retry_after_seconds: optionalNumberOrNull('retry_after_seconds') } : {}),
     ...(optionalNonEmptyTextOrNull('retry_at') !== undefined ? { retry_at: optionalNonEmptyTextOrNull('retry_at') } : {}),
     ...(optionalNonEmptyTextOrNull('last_provider_progress_at') !== undefined ? { last_provider_progress_at: optionalNonEmptyTextOrNull('last_provider_progress_at') } : {}),

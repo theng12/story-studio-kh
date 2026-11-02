@@ -279,6 +279,13 @@ export interface ImageRetryScope {
   previousTaskId?: string
 }
 
+export function extractImageRetryOrdinal(scope: string | undefined): number {
+  if (!scope || typeof scope !== 'string') return 0
+  const match = scope.match(/:retry:(\d+):/)
+  if (match) return parseInt(match[1], 10)
+  return scope.includes(':retry:') ? 1 : 0
+}
+
 /**
  * Resolve the request scope for one image asset.
  *
@@ -299,6 +306,7 @@ export interface ImageRetryScope {
 export function resolveImageRetryScope(
   entry: TaskManifestEntry | null | undefined,
   baseScope: string,
+  ordinal?: number,
 ): ImageRetryScope {
   const saved = typeof entry?.request_scope === 'string' ? entry.request_scope.trim() : ''
   // Only adopt (and only promote) a saved scope that belongs to this base
@@ -312,7 +320,13 @@ export function resolveImageRetryScope(
     return { scope: current, isRetry: current !== baseScope }
   }
   const token = hashInput(`${current}\n${entry!.task_id}`).slice(-12)
-  return { scope: `${baseScope}:retry:${token}`, isRetry: true, previousTaskId: entry!.task_id }
+  const match = current.match(/:retry:(\d+):/)
+  const currentOrdinal = match ? parseInt(match[1], 10) : (current.includes(':retry:') ? 1 : 0)
+  const nextOrdinal = ordinal ?? (currentOrdinal > 0 ? currentOrdinal + 1 : undefined)
+  const scope = nextOrdinal !== undefined
+    ? `${baseScope}:retry:${nextOrdinal}:${token}`
+    : `${baseScope}:retry:${token}`
+  return { scope, isRetry: true, previousTaskId: entry!.task_id }
 }
 
 /**

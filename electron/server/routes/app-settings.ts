@@ -24,6 +24,8 @@ import {
   getLastSeenVersion, setLastSeenVersion,
   getGenStudioUrl, setGenStudioUrl, DEFAULT_GENSTUDIO_URL,
   getPaidImageReplacementSetting, setPaidImageReplacementSetting,
+  getImageRetrySetting, setImageRetrySetting,
+  getRetryFailedRequestsSetting, setRetryFailedRequestsSetting,
   getPaidSubtitleReplacementSetting, setPaidSubtitleReplacementSetting,
   getPaidAudioReplacementSetting, setPaidAudioReplacementSetting,
   getPaidWritingReplacementSetting, setPaidWritingReplacementSetting,
@@ -166,6 +168,48 @@ router.put('/app-settings/paid-image-replacement', async (req, res) => {
     res.json(await setPaidImageReplacementSetting(req.body))
   } catch (e: any) {
     res.status(e?.statusCode || 500).json(humanizeBackendError(e, 'Failed to save paid image replacement setting'))
+  }
+})
+
+router.get('/app-settings/retry-failed-requests/image', async (_req, res) => {
+  try {
+    res.json(await getImageRetrySetting())
+  } catch (e: any) {
+    res.status(e?.statusCode || 500).json(humanizeBackendError(e, 'Failed to load image retry setting'))
+  }
+})
+
+router.put('/app-settings/retry-failed-requests/image', async (req, res) => {
+  try {
+    res.json(await setImageRetrySetting(req.body))
+  } catch (e: any) {
+    res.status(e?.statusCode || 400).json(humanizeBackendError(e, 'Failed to save image retry setting'))
+  }
+})
+
+router.get('/app-settings/retry-failed-requests/:kind', async (req, res) => {
+  const kind = req.params.kind as any
+  if (kind !== 'image' && kind !== 'subtitle' && kind !== 'audio' && kind !== 'writing') {
+    res.status(404).json({ error: 'Unknown retry kind' })
+    return
+  }
+  try {
+    res.json(await getRetryFailedRequestsSetting(kind))
+  } catch (e: any) {
+    res.status(e?.statusCode || 500).json(humanizeBackendError(e, `Failed to load ${kind} retry setting`))
+  }
+})
+
+router.put('/app-settings/retry-failed-requests/:kind', async (req, res) => {
+  const kind = req.params.kind as any
+  if (kind !== 'image' && kind !== 'subtitle' && kind !== 'audio' && kind !== 'writing') {
+    res.status(404).json({ error: 'Unknown retry kind' })
+    return
+  }
+  try {
+    res.json(await setRetryFailedRequestsSetting(kind, req.body))
+  } catch (e: any) {
+    res.status(e?.statusCode || 400).json(humanizeBackendError(e, `Failed to save ${kind} retry setting`))
   }
 })
 

@@ -454,7 +454,7 @@ export async function generateImagePoolImages(job: Job): Promise<jq.JobExecutorR
             jq.recordPaidImageReplacementPublicReason(job, decision.public_reason)
             throw new Error(jq.PAID_IMAGE_REPLACEMENT_PUBLIC_MESSAGE)
           }
-          if (decision.action === 'safe-zero-settlement-retry') zeroSettlementRetryPending = true
+          if (decision.action === 'safe-zero-settlement-retry' || (decision as any).action === 'retry') zeroSettlementRetryPending = true
           if (decision.action === 'commit') replacementScope = decision.scope
         }
         const retryEntry = entry?.request_scope?.includes(':selector:')
@@ -521,7 +521,7 @@ export async function generateImagePoolImages(job: Job): Promise<jq.JobExecutorR
               jq.recordPaidImageReplacementPublicReason(job, decision.public_reason)
               throw new Error(jq.PAID_IMAGE_REPLACEMENT_PUBLIC_MESSAGE)
             }
-            if (decision.action === 'safe-zero-settlement-retry') zeroSettlementRetryPending = true
+            if (decision.action === 'safe-zero-settlement-retry' || (decision as any).action === 'retry') zeroSettlementRetryPending = true
           }
           const carriedRetry = carried.request_scope?.includes(':selector:')
             ? { ...carried, request_scope: logicalPaidScope(carried, baseScope) }

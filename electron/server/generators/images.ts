@@ -1549,7 +1549,7 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
                 jq.recordPaidImageReplacementPublicReason(job, decision.public_reason)
                 throw new Error(jq.paidImageReplacementBlockedMessage(decision.public_reason))
               }
-              if (decision.action === 'safe-zero-settlement-retry') zeroSettlementRetryPending = true
+              if (decision.action === 'safe-zero-settlement-retry' || (decision as any).action === 'retry') zeroSettlementRetryPending = true
               if (decision.action === 'commit') committedScope = decision.scope
             }
             attempt = submittedRecoveryEntry ? {
@@ -1618,7 +1618,7 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
               jq.recordPaidImageReplacementPublicReason(job, decision.public_reason)
               throw new Error(jq.paidImageReplacementBlockedMessage(decision.public_reason))
             }
-            if (decision.action === 'safe-zero-settlement-retry') zeroSettlementRetryPending = true
+            if (decision.action === 'safe-zero-settlement-retry' || (decision as any).action === 'retry') zeroSettlementRetryPending = true
           }
           if (current.recovery.kind === 'uncertain') {
             if (current.paidRecovery) throw new Error(jq.PAID_IMAGE_REPLACEMENT_PUBLIC_MESSAGE)
