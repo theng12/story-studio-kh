@@ -4,6 +4,16 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.375 — 2026-11-02
+
+- Pages show their last loaded data immediately while checking for updates. The header says when data is refreshing or could not be refreshed, and changes you save update the shared page data.
+- Scene Import works with images and clips from any outside tool. Copy a scene prompt with its clip length, match files by scene name, and save custom allowed clip lengths for each channel. Watermarked clips are accepted.
+- Browser uploads send the image or clip itself to the Story server. Large images no longer hit the smaller JSON upload limit. Imported clips stay current, and a selected clip missing from disk falls back to its still image with the reason shown.
+- Publishing has owner-set channel labels and coverage filters, including Live, Preparing, Testing, Paused and Retired. Labels do not change uploading or publishing dates.
+- The main pages share one width and header. Review finals has clearer channel filters, compact rows and a direct link to the episode.
+- Studio Library shows a style pack's three preview pictures, opens them in a viewer, and keeps the detail page usable when a preview cannot load.
+- Sketch Draw offers six more reveal styles with samples. Moving a channel's default keeps following episodes consistent with that choice.
+
 ## v1.4.374 — 2026-11-01
 
 - Every Sketch Draw reveal now ends on the actual scene image. Clips you already made stay as they are and do not redraw.
