@@ -12,6 +12,7 @@ export function mergeGenerationReplacementAttempts(previous: GenerationReplaceme
   return [...merged.values()]
 }
 
-export function generationReplacementKey(kind: ReplacementKind, originalKey: string): string {
-  return `story-${kind}-replacement-${createHash('sha256').update(originalKey).digest('hex')}`
+export function generationReplacementKey(kind: ReplacementKind, originalKey: string, ordinal = 1): string {
+  const seed = ordinal > 1 ? `${originalKey}:retry:${ordinal}` : originalKey
+  return `story-${kind}-replacement-${createHash('sha256').update(seed).digest('hex')}`
 }

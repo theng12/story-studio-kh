@@ -14,7 +14,7 @@ import os from 'os'
 import path from 'path'
 import { createHash, randomUUID } from 'crypto'
 import { carriesCapacityFacts, humanGatewayText } from './gateway-failure-text.js'
-import { getAppSetting, getGenStudioUrl, getLanguageTimeoutMs, setAppSetting, getPaidAudioReplacementSetting, getPaidWritingReplacementSetting, withPaidAudioConfirmation, withPaidWritingConfirmation } from '../services/app-settings.js'
+import { getAppSetting, getGenStudioUrl, getLanguageTimeoutMs, setAppSetting, getRetryFailedRequestsSetting, RETRY_ATTEMPTS_MIN, RETRY_ATTEMPTS_MAX, RETRY_ATTEMPTS_DEFAULT } from '../services/app-settings.js'
 import { generationReplacementKey, type ReplacementKind } from '../services/generation-paid-replacement.js'
 import type { GenerationReplacementAttempt, Job } from '../models/types.js'
 import { runFfmpeg } from './ffmpeg-utils.js'
@@ -8160,18 +8160,16 @@ async function restoreReplacementRequest<R extends GenStudioOperationContext>(
   } catch (error) {
     if (!(error instanceof GenStudioApiError) || error.status !== 404 || attempt.state !== 'committed') throw error
   }
-  const setting = kind === 'audio' ? getPaidAudioReplacementSetting : getPaidWritingReplacementSetting
-  const gate = kind === 'audio' ? withPaidAudioConfirmation : withPaidWritingConfirmation
   return { key, request: { ...request, replacementChargeLimit: attempt.max_credits,
-    withPost: post => gate(async () => {
-      const policy = await setting()
+    withPost: post => (async () => {
+      const policy = await getRetryFailedRequestsSetting(kind)
       const live = await queue.loadAuthoritativeJob(job.project_slug, job.job_id)
       if (!policy.enabled || !live || live.status !== 'running' || live.pause_requested
         || request.isCancelled?.() || request.signal?.aborted || await getGenStudioUrl() !== baseUrl) {
-        throw new Error('Automatic replacement stopped before submission: disabled, paused or cancelled.')
+        throw new Error('Automatic retry stopped before submission: disabled, paused or cancelled.')
       }
       return post()
-    }),
+    })(),
   } }
 }
 
@@ -8183,7 +8181,6 @@ async function replaceConfirmedGeneration<T>(
   error: unknown,
   request: GenStudioOperationContext,
   submit: (key: string, cap: number, hooks: GenStudioOperationContext) => Promise<T>,
-  quoteMaximum?: () => Promise<number | null>,
 ): Promise<T> {
   if (!(error instanceof GenStudioTerminalFailureError)
     || error.failureClass !== 'provider_transient' || error.cancelled
@@ -8199,9 +8196,9 @@ async function replaceConfirmedGeneration<T>(
   // The Jobs action already consumed this exact failed item's one deliberate
   // replacement. It must never start a second automatic replacement chain.
   if (!storyJob || storyJob.params?.jobs_replace_failed_items) throw error
-  const setting = kind === 'audio' ? getPaidAudioReplacementSetting : getPaidWritingReplacementSetting
-  const gate = kind === 'audio' ? withPaidAudioConfirmation : withPaidWritingConfirmation
-  if (!(await setting()).enabled) throw error
+  const setting = await getRetryFailedRequestsSetting(kind)
+  if (!setting.enabled) throw error
+  const maxRetries = Math.max(RETRY_ATTEMPTS_MIN, Math.min(RETRY_ATTEMPTS_MAX, setting.retries ?? RETRY_ATTEMPTS_DEFAULT))
   const operation = kind === 'audio' ? 'voice.tts' : 'chat.response'
   const baseUrl = await getGenStudioUrl()
   const deadline = Date.now() + GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS
@@ -8211,11 +8208,11 @@ async function replaceConfirmedGeneration<T>(
       return job
     })
   }
-  const refuse = async (reason: string): Promise<never> => {
+  const refuse = async (reason: string, cause?: unknown): Promise<never> => {
     await notice('blocked', reason)
-    throw new Error(`${error.message} Automatic ${kind} replacement: ${reason}`, { cause: error })
+    throw new Error(`${error.message} Automatic ${kind} retry: ${reason}`, { cause: cause ?? error })
   }
-  await notice('checking', 'Checking the previous request before replacement.')
+  await notice('checking', 'Checking the previous request before retry.')
   let original: GenStudioJob
   try {
     original = await getGenStudioJobByIdempotencyKey(operation, baseUrl, apiKey, originalKey, request, deadline)
@@ -8230,88 +8227,127 @@ async function replaceConfirmedGeneration<T>(
     || holdsUnknownOutcome(original)) {
     return refuse('The previous request is not a confirmed eligible failure.')
   }
-  let quotedMaximum: number | null = null
-  if (quoteMaximum) {
-    try { quotedMaximum = await quoteMaximum() } catch { return refuse('The current audio price could not be verified.') }
-    if (quotedMaximum !== null && (!Number.isSafeInteger(quotedMaximum) || quotedMaximum < 0)) {
-      quotedMaximum = null
-    }
+
+  const existingAttempts = (storyJob.generation_replacement_attempts || []).filter(item => item.kind === kind && (
+    item.item_key === itemKey || item.original_idempotency_key === originalKey || item.task_id === original.id
+  ))
+  const activeExisting = existingAttempts.find(item => item.state === 'committed' || item.state === 'submitted')
+  const completedCount = existingAttempts.filter(item => item.state === 'failed').length
+  const startOrdinal = activeExisting?.ordinal ?? (completedCount + 1)
+  if (startOrdinal > maxRetries) {
+    return refuse(`Retry limit (${maxRetries}) reached for this item.`)
   }
-  let attempt: GenerationReplacementAttempt | undefined
-  let blocked = 'This item already used its one replacement.'
-  await gate(async () => {
-    const policy = await setting()
-    if (!policy.enabled || request.isCancelled?.() || request.signal?.aborted || await getGenStudioUrl() !== baseUrl) {
-      blocked = 'Replacement was disabled, cancelled, or the Gateway connection changed.'
-      return
+
+  let lastError: unknown = error
+  for (let ordinal = startOrdinal; ordinal <= maxRetries; ordinal++) {
+    const policy = await getRetryFailedRequestsSetting(kind)
+    if (!policy.enabled) {
+      await notice('blocked', 'Automatic retry disabled.')
+      throw lastError
     }
+    const retryKey = generationReplacementKey(kind, originalKey, ordinal)
+    let attempt: GenerationReplacementAttempt | undefined
+    let blockedReason = ''
+
+    if (request.isCancelled?.() || request.signal?.aborted || await getGenStudioUrl() !== baseUrl) {
+      return refuse('Retry was cancelled or the Gateway connection changed.')
+    }
+
     await queue.mutateAuthoritativeJob(storyJob.project_slug, storyJob.job_id, job => {
-      if (job.status !== 'running' || job.pause_requested) return null
-      const attempts = job.generation_replacement_attempts || []
-      const existing = attempts.find(item => item.kind === kind && (item.item_key === itemKey
-        || item.idempotency_key === originalKey || item.task_id === original.id))
-      if (existing) {
-        if (existing.original_idempotency_key === originalKey && existing.state !== 'failed') attempt = existing
+      if (job.status !== 'running' || job.pause_requested) {
+        blockedReason = 'Job is no longer running or paused.'
         return null
       }
-      // The Gateway owns the charge. Story records the price it was quoted, when
-      // there was one, and never compares it to a budget of its own.
-      const cap = quotedMaximum ?? 0
+      const attempts = job.generation_replacement_attempts || []
+      const existing = attempts.find(item => item.idempotency_key === retryKey)
+      if (existing) {
+        attempt = existing
+        return null
+      }
       attempt = {
         kind, item_key: itemKey, connection_fingerprint: replacementConnectionFingerprint(baseUrl, apiKey),
         original_task_id: original.id, original_idempotency_key: originalKey,
-        idempotency_key: generationReplacementKey(kind, originalKey), max_credits: cap, state: 'committed', revision: 1,
+        idempotency_key: retryKey, max_credits: 0, state: 'committed', revision: 1, ordinal,
       }
       job.generation_replacement_attempts = [...attempts, attempt]
       return job
     })
-  })
-  if (!attempt) return refuse(blocked)
-  const committed = attempt
-  const checkpoint = async (update: Partial<GenerationReplacementAttempt>) => {
-    await queue.mutateAuthoritativeJob(storyJob.project_slug, storyJob.job_id, job => {
-      job.generation_replacement_attempts = (job.generation_replacement_attempts || []).map(item =>
-        item.idempotency_key === committed.idempotency_key ? { ...item, ...update, revision: item.revision + 1 } : item)
-      return job
-    })
-  }
-  const hooks: GenStudioOperationContext = {
-    replacementChargeLimit: committed.max_credits,
-    withPost: post => gate(async () => {
-      const policy = await setting()
-      const live = await queue.loadAuthoritativeJob(storyJob.project_slug, storyJob.job_id)
-      if (!policy.enabled || !live || live.status !== 'running' || live.pause_requested
-        || request.isCancelled?.() || request.signal?.aborted || await getGenStudioUrl() !== baseUrl) {
-        throw new Error('Automatic replacement stopped before submission: disabled, paused or cancelled.')
-      }
-      return request.withPost ? request.withPost(post) : post()
-    }),
-  }
-  await notice('queued', 'One failed item is being replaced automatically.')
-  try {
-    const result = await submit(committed.idempotency_key, committed.max_credits, hooks)
-    await checkpoint({ state: 'succeeded' })
-    await notice('complete', 'Replacement finished; saved results are being verified.')
-    return result
-  } catch (replacementError) {
-    await notice('blocked', 'Replacement did not complete. Its saved request will be recovered before any further work.')
-    // Do not let a caller's narrower free-capacity retry start another chain
-    // after this item's explicitly bounded paid replacement already ran.
-    throw new Error(`Automatic ${kind} replacement did not complete: ${replacementError instanceof Error ? replacementError.message : String(replacementError)}`, { cause: replacementError })
-  } finally {
-    // A lost response keeps the entire cap held. Only the authoritative ledger
-    // releases unused allowance, including input, output/reasoning and search.
+
+    if (!attempt) {
+      const liveAttempts = (queue.getJob(storyJob.job_id)?.generation_replacement_attempts || [])
+      attempt = liveAttempts.find(item => item.idempotency_key === retryKey)
+      if (!attempt) return refuse(blockedReason || 'Could not record retry attempt.')
+    }
+    const committed = attempt
+    const checkpoint = async (update: Partial<GenerationReplacementAttempt>) => {
+      await queue.mutateAuthoritativeJob(storyJob.project_slug, storyJob.job_id, job => {
+        job.generation_replacement_attempts = (job.generation_replacement_attempts || []).map(item =>
+          item.idempotency_key === committed.idempotency_key ? { ...item, ...update, revision: item.revision + 1 } : item)
+        return job
+      })
+    }
+
+    const hooks: GenStudioOperationContext = {
+      replacementChargeLimit: 0,
+      withPost: async post => {
+        const livePolicy = await getRetryFailedRequestsSetting(kind)
+        const live = await queue.loadAuthoritativeJob(storyJob.project_slug, storyJob.job_id)
+        if (!livePolicy.enabled || !live || live.status !== 'running' || live.pause_requested
+          || request.isCancelled?.() || request.signal?.aborted || await getGenStudioUrl() !== baseUrl) {
+          throw new Error('Automatic retry stopped before submission: disabled, paused or cancelled.')
+        }
+        return request.withPost ? request.withPost(post) : post()
+      },
+    }
+
+    queue.noteCurrentJob(`↻ Retrying failed ${kind} request (retry ${ordinal} of ${maxRetries})...`)
+    await notice('queued', `Retrying failed ${kind} request (retry ${ordinal} of ${maxRetries}).`)
+
     try {
-      const current = await getGenStudioJobByIdempotencyKey(operation, baseUrl, apiKey, committed.idempotency_key, {}, Date.now() + GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS)
-      await checkpoint({ task_id: current.id, state: current.state === 'succeeded' ? 'succeeded' : current.state === 'failed' ? 'failed' : 'submitted' })
-    } catch { /* Unknown outcome retains its durable cap and identity. */ }
+      const result = await submit(committed.idempotency_key, 0, hooks)
+      await checkpoint({ state: 'succeeded' })
+      await notice('complete', `Retry ${ordinal} of ${maxRetries} finished; saved results are being verified.`)
+      return result
+    } catch (attemptError) {
+      lastError = attemptError
+      if (request.isCancelled?.() || request.signal?.aborted || (attemptError instanceof GenStudioTerminalFailureError && attemptError.cancelled)) {
+        await notice('blocked', `Retry ${ordinal} of ${maxRetries} was cancelled.`)
+        throw attemptError
+      }
+      if (isGenStudioSubmissionUncertain(attemptError)) {
+        await notice('blocked', `Retry ${ordinal} of ${maxRetries} has uncertain submission state.`)
+        throw attemptError
+      }
+      if (!(attemptError instanceof GenStudioTerminalFailureError) || attemptError.failureClass !== 'provider_transient') {
+        await notice('blocked', `Retry ${ordinal} of ${maxRetries} encountered non-transient failure: ${attemptError instanceof Error ? attemptError.message : String(attemptError)}`)
+        throw attemptError
+      }
+      if (ordinal >= maxRetries) {
+        await notice('blocked', `Retries exhausted (${maxRetries} of ${maxRetries}).`)
+        throw new Error(`Automatic ${kind} retry did not complete after ${maxRetries} attempts: ${attemptError instanceof Error ? attemptError.message : String(attemptError)}`, { cause: attemptError })
+      }
+    } finally {
+      try {
+        const current = await getGenStudioJobByIdempotencyKey(operation, baseUrl, apiKey, committed.idempotency_key, {}, Date.now() + GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS)
+        await checkpoint({ task_id: current.id, state: current.state === 'succeeded' ? 'succeeded' : current.state === 'failed' ? 'failed' : 'submitted' })
+        if (holdsUnknownOutcome(current)) {
+          await notice('blocked', `Retry ${ordinal} of ${maxRetries} holds unknown outcome.`)
+          throw new Error(`Automatic ${kind} retry held with unknown outcome: ${committed.idempotency_key}`)
+        }
+      } catch (checkErr) {
+        if (checkErr instanceof Error && checkErr.message.includes('holds unknown outcome')) {
+          throw checkErr
+        }
+      }
+    }
   }
+  throw lastError
 }
 
-function replaceFailedChat(apiKey: string, request: GenStudioChatRequest, prepared: PreparedChatSubmission, error: unknown): Promise<GenStudioChatResult> {
+function replaceFailedChat(apiKey: string, request: GenStudioChatRequest, prepared: PreparedChatSubmission, error: unknown, baseUrlOverride?: string): Promise<GenStudioChatResult> {
   return replaceConfirmedGeneration('writing', apiKey, prepared.idempotencyKey, chatReplacementItemKey(prepared, request), error, request,
     async (key, _cap, hooks) => {
-      return callChatViaResponses(apiKey, { ...request, ...hooks, recoverByIdempotencyKey: false }, { ...prepared, idempotencyKey: key })
+      return callChatViaResponsesOnce(apiKey, { ...request, ...hooks, recoverByIdempotencyKey: false }, { ...prepared, idempotencyKey: key }, baseUrlOverride)
     })
 }
 
@@ -8381,7 +8417,7 @@ async function callChatViaResponses(
     return await callChatViaResponsesOnce(apiKey, request, prepared, baseUrlOverride)
   } catch (error) {
     const lost = lostChatRequest(error, request, prepared.idempotencyKey)
-    return lost ? resendLostChat(apiKey, request, prepared, lost, baseUrlOverride) : replaceFailedChat(apiKey, request, prepared, error)
+    return lost ? resendLostChat(apiKey, request, prepared, lost, baseUrlOverride) : replaceFailedChat(apiKey, request, prepared, error, baseUrlOverride)
   }
 }
 
@@ -8424,7 +8460,7 @@ async function resendLostChat(
   try {
     return await callChatViaResponsesOnce(apiKey, resend, resent, baseUrlOverride)
   } catch (error) {
-    return replaceFailedChat(apiKey, resend, resent, error)
+    return replaceFailedChat(apiKey, resend, resent, error, baseUrlOverride)
   }
 }
 
@@ -10388,17 +10424,7 @@ function replaceFailedTts(apiKey: string, outPath: string, request: GenStudioTts
   const originalKey = request.idempotencyKey?.trim() || buildGenStudioSubmission(submitRequest).idempotencyKey
   const itemKey = createHash('sha256').update(outPath + JSON.stringify(buildGenStudioSubmission(submitRequest).body)).digest('hex')
   return replaceConfirmedGeneration('audio', apiKey, originalKey, itemKey, error, request,
-    (key, _cap, hooks) => generateTtsToFileAdmitted(apiKey, outPath, { ...submitRequest, ...hooks, idempotencyKey: key }),
-    async () => {
-      const quote = await requestGenStudioTtsQuote(apiKey, {
-        modelId: request.modelId!, voiceId: request.voiceId!, text: request.text, speed: request.speed,
-        supportsSpeed: request.supportsSpeed,
-        minimumSpeed: request.minimumSpeed,
-        maximumSpeed: request.maximumSpeed,
-        controls: request.controls,
-      })
-      return quote.maximum_credits ?? null
-    })
+    (key, _cap, hooks) => generateTtsToFileAdmitted(apiKey, outPath, { ...submitRequest, ...hooks, idempotencyKey: key }))
 }
 
 /** Generate a GenStudio API TTS job, then convert its private WAV response to Story's MP3 contract. */

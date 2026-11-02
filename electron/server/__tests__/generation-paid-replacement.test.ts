@@ -82,14 +82,14 @@ test('writing replacement enforces opt-in, fresh server support, durable budget,
         scenario = name
         posts.length = 0
         byKey.clear()
-        await settings.setPaidWritingReplacementSetting({ enabled: name !== 'off' })
+        await settings.setWritingRetrySetting({ enabled: name !== 'off', retries: 1 })
         queue.registerExecutor('metadata', async job => {
           liveJobId = job.job_id
           await callChatWithGenStudio(`test-key-${name}`, {
             modelId: 'writer-test', system: '', userMessage: name, outputContract: { mode: 'json_object' },
             beforePost: async () => {
               if (name === 'disable-before-post' && posts.length === 1) {
-                await settings.setPaidWritingReplacementSetting({ enabled: false })
+                await settings.setWritingRetrySetting({ enabled: false })
               }
             },
           })
@@ -162,7 +162,7 @@ test('audio replacement: a failed request gets exactly one replacement and a sec
 
   try {
     await settings.setGenStudioUrl('http://127.0.0.1:19978')
-    await settings.setPaidAudioReplacementSetting({ enabled: true })
+    await settings.setAudioRetrySetting({ enabled: true, retries: 1 })
     queue.registerExecutor('metadata', async () => {
       await client.generateTtsToFile('test-audio-key', outPath, {
         text: 'Audio test script', voiceId: 'voice-1', modelId: 'voice-test',

@@ -437,6 +437,22 @@ export async function setRetryFailedRequestsSetting(
   return setting
 }
 
+export async function getWritingRetrySetting(): Promise<RetryFailedRequestsSetting> {
+  return getRetryFailedRequestsSetting('writing')
+}
+
+export async function setWritingRetrySetting(value: unknown): Promise<RetryFailedRequestsSetting> {
+  return setRetryFailedRequestsSetting('writing', value)
+}
+
+export async function getAudioRetrySetting(): Promise<RetryFailedRequestsSetting> {
+  return getRetryFailedRequestsSetting('audio')
+}
+
+export async function setAudioRetrySetting(value: unknown): Promise<RetryFailedRequestsSetting> {
+  return setRetryFailedRequestsSetting('audio', value)
+}
+
 /**
  * The optional paid image recovery authorisation belongs to this install, not
  * to a channel or preset. Corrupt hand-edited storage fails closed.

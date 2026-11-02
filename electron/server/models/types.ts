@@ -2960,6 +2960,7 @@ export interface GenerationReplacementAttempt {
   task_id?: string
   settled_credits?: number
   revision: number
+  ordinal?: number
 }
 
 export interface FinalRenderRemoteWaitReceiptV1 {

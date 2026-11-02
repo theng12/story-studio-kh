@@ -62,6 +62,8 @@ async function setupThumbnailProject(dir: string, serviceUrl: string) {
     return job
   }
 
+  const restoreScoring = queue._setExecutorForTesting('thumbnail_score', async () => {})
+
   return {
     settings,
     pm,
@@ -74,14 +76,19 @@ async function setupThumbnailProject(dir: string, serviceUrl: string) {
     readManifest,
     recordTaskStrict,
     makeJob,
+    cleanup: async () => {
+      restoreScoring()
+      await queue.drainJobPersistenceForShutdown(2_000)
+    },
   }
 }
 
 test('generator image retry: disabled setting results in 0 extra physical requests', async () => {
   const temp = await useTempDataDir()
   const service = await startMockGenStudioService()
+  let ctx: Awaited<ReturnType<typeof setupThumbnailProject>> | undefined
   try {
-    const ctx = await setupThumbnailProject(temp.dir, service.baseUrl)
+    ctx = await setupThumbnailProject(temp.dir, service.baseUrl)
     await ctx.settings.setImageRetrySetting({ enabled: false, retries: 3 })
 
     // Initial request fails with a terminal error
@@ -89,7 +96,7 @@ test('generator image retry: disabled setting results in 0 extra physical reques
 
     const job = ctx.makeJob('job-retry-disabled')
     await assert.rejects(
-      async () => ctx.generateImages(job),
+      async () => ctx!.generateImages(job),
       /Thumbnail generation incomplete/,
     )
 
@@ -101,6 +108,7 @@ test('generator image retry: disabled setting results in 0 extra physical reques
     assert.equal(task.last_state, 'failed')
     assert.doesNotMatch(task.request_scope || '', /:retry:/)
   } finally {
+    if (ctx) await ctx.cleanup()
     await service.close()
     await temp.cleanup()
   }
@@ -109,8 +117,9 @@ test('generator image retry: disabled setting results in 0 extra physical reques
 test('generator image retry: retries: 2 produces exactly 2 extra physical POSTs, same model and payload, then terminal failure', async () => {
   const temp = await useTempDataDir()
   const service = await startMockGenStudioService()
+  let ctx: Awaited<ReturnType<typeof setupThumbnailProject>> | undefined
   try {
-    const ctx = await setupThumbnailProject(temp.dir, service.baseUrl)
+    ctx = await setupThumbnailProject(temp.dir, service.baseUrl)
     await ctx.settings.setImageRetrySetting({ enabled: true, retries: 2 })
 
     // Queue 3 failures: initial + retry 1 + retry 2
@@ -120,7 +129,7 @@ test('generator image retry: retries: 2 produces exactly 2 extra physical POSTs,
 
     const job = ctx.makeJob('job-retry-count-2')
     await assert.rejects(
-      async () => ctx.generateImages(job),
+      async () => ctx!.generateImages(job),
       /Thumbnail generation incomplete/,
     )
 
@@ -155,11 +164,12 @@ test('generator image retry: retries: 2 produces exactly 2 extra physical POSTs,
     // A subsequent run does NOT make a 4th physical POST because the 2-retry budget is exhausted
     const followUpJob = ctx.makeJob('job-retry-count-2-followup')
     await assert.rejects(
-      async () => ctx.generateImages(followUpJob),
+      async () => ctx!.generateImages(followUpJob),
       /Thumbnail generation incomplete/,
     )
     assert.equal(service.submissions.length, 3, 'No additional POST made after retry budget exhausted')
   } finally {
+    if (ctx) await ctx.cleanup()
     await service.close()
     await temp.cleanup()
   }
@@ -168,8 +178,9 @@ test('generator image retry: retries: 2 produces exactly 2 extra physical POSTs,
 test('generator image retry: restart reuses durable retry key and does not reset attempt budget', async () => {
   const temp = await useTempDataDir()
   const service = await startMockGenStudioService()
+  let ctx: Awaited<ReturnType<typeof setupThumbnailProject>> | undefined
   try {
-    const ctx = await setupThumbnailProject(temp.dir, service.baseUrl)
+    ctx = await setupThumbnailProject(temp.dir, service.baseUrl)
     await ctx.settings.setImageRetrySetting({ enabled: true, retries: 2 })
 
     // Scenario 1 fails, scenario 2 (retry 1) succeeds
@@ -191,6 +202,7 @@ test('generator image retry: restart reuses durable retry key and does not reset
     assert.equal(service.submissions.length, 2)
     assert.match(restartJob.output_lines.join('\n'), /Skipping EP0001_Thumb01 \(exists\)/)
   } finally {
+    if (ctx) await ctx.cleanup()
     await service.close()
     await temp.cleanup()
   }
@@ -199,8 +211,9 @@ test('generator image retry: restart reuses durable retry key and does not reset
 test('generator image retry: :selector: suffix is stripped cleanly before retry scope calculation', async () => {
   const temp = await useTempDataDir()
   const service = await startMockGenStudioService()
+  let ctx: Awaited<ReturnType<typeof setupThumbnailProject>> | undefined
   try {
-    const ctx = await setupThumbnailProject(temp.dir, service.baseUrl)
+    ctx = await setupThumbnailProject(temp.dir, service.baseUrl)
     await ctx.settings.setImageRetrySetting({ enabled: true, retries: 2 })
 
     // In images.ts, initial thumbnail submission always attaches :selector: to the scope.
@@ -225,6 +238,7 @@ test('generator image retry: :selector: suffix is stripped cleanly before retry 
     assert.match(task.request_scope || '', /:retry:1:/)
     assert.match(task.request_scope || '', /:selector:/)
   } finally {
+    if (ctx) await ctx.cleanup()
     await service.close()
     await temp.cleanup()
   }
