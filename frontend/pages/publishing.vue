@@ -13,6 +13,7 @@
         </button>
       </template>
     </PageTitle>
+    <ApiDataStatus path="/publishing/overview" @retry="load" />
 
     <p v-if="loading && !overview" class="empty" role="status">Loading the publishing overview…</p>
 
