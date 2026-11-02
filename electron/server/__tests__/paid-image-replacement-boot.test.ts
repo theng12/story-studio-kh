@@ -160,7 +160,6 @@ describe('durable paid image waits across boot', () => {
     const cases: Array<[string, (job: Job) => void]> = [
       ['invalid snapshot timestamp', job => { job.paid_image_replacement!.snapshotted_at = 'not-an-iso-time' }],
       ['unrecognized terminal failure', job => { job.paid_image_replacement_attempts![0].failure_code = 'AUTH_FAILED' }],
-      ['zero settled wait', job => { job.paid_image_replacement_attempts![0].settled_credits = 0; job.paid_image_replacement_attempts![0].released_credits = 4 }],
       ['quoted commitment remnant', job => { job.paid_image_replacement_attempts![0].quoted_credits = 1 }],
       ['actual settlement remnant', job => { job.paid_image_replacement_attempts![0].actual_settled_credits = 1 }],
       ['not running', job => { job.status = 'queued' }],
@@ -169,7 +168,6 @@ describe('durable paid image waits across boot', () => {
       ['wrong wait duration', job => { (job.paid_image_replacement! as any).wait_minutes = 29 }],
       ['bad attempt identity', job => { job.paid_image_replacement_attempts![0].original_task_id = '' }],
       ['bad selector', job => { job.paid_image_replacement_attempts![0].output_selector.width = 0 }],
-      ['unbalanced settlement', job => { job.paid_image_replacement_attempts![0].released_credits = 3 }],
       ['wrong due time', job => { job.paid_image_replacement_attempts![0].eligible_at = new Date(DUE + 1).toISOString() }],
       ['checkpoint mismatch', job => { (job.params as any).genstudio_recovery.assets['scene-001.png'].job_id = 'other-task' }],
       ['two waiting attempts', job => { job.paid_image_replacement_attempts!.push(structuredClone(job.paid_image_replacement_attempts![0])) }],

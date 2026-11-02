@@ -301,6 +301,7 @@ type PaidImageControl = {
   cancelled?: boolean | null
   recovery_required?: boolean | null
   recovery_state?: string | null
+  settled_credits?: number | null
 }
 
 export interface PaidImageReplacementDependencies {
@@ -521,6 +522,9 @@ export async function decidePaidImageReplacement(input: PaidImageReplacementDeci
   if (control.state !== 'failed') return { action: 'recover-original' }
   const failureCode = String(control.failure_code || '')
   if (!isRetryableZeroSettlementImageFailureCode(failureCode)) return blocked('the original failure is not an allow-listed transient infrastructure result', 'original_failure_not_eligible')
+  if (!FLEET_FAILURE_CODES.has(failureCode) && typeof control.settled_credits === 'number' && control.settled_credits > 0) {
+    return blocked('the original failure was charged and cannot be retried or replaced', 'original_failure_not_eligible')
+  }
   const initialArtifact = await dependencies.artifactExists(asset.outputPath).catch(() => null)
   if (initialArtifact === null) return blocked('the original artifact could not be audited')
   if (initialArtifact) return { action: 'recover-original' }
@@ -528,7 +532,8 @@ export async function decidePaidImageReplacement(input: PaidImageReplacementDeci
   if (!initialSetting?.enabled) return blocked('paid image replacement is currently off on this machine', 'replacement_disabled')
 
   const alreadyRetried = typeof entry.request_scope === 'string' && entry.request_scope.includes(':retry:')
-  if (!alreadyRetried) {
+  const hasSettlement = typeof control.settled_credits === 'number' && control.settled_credits > 0
+  if (!FLEET_FAILURE_CODES.has(failureCode) || (!alreadyRetried && !hasSettlement)) {
     let zeroReason: string | null = null
     try {
       const authorized = await withCommitLock(input.job.job_id, async () => {

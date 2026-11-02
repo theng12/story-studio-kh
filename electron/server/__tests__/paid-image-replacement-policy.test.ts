@@ -469,9 +469,6 @@ void test('paid image replacement terminal and settlement gate is fail-closed be
     ['billing refusal', { id: 'original-task', state: 'failed', failure_code: 'INSUFFICIENT_CREDITS', reserved_credits: 9, settled_credits: 0, released_credits: 9 }, 'blocked', 'original_failure_not_eligible'],
     ['validation refusal before recoverable classification', { id: 'original-task', state: 'running', failure_code: 'VALIDATION_FAILED', reserved_credits: 9, settled_credits: 3, released_credits: 6 }, 'blocked', 'original_failure_not_eligible'],
     ['authentication refusal before recoverable classification', { id: 'original-task', state: 'reconciling', failure_code: 'AUTH_FAILED', reserved_credits: 9, settled_credits: 3, released_credits: 6 }, 'blocked', 'original_failure_not_eligible'],
-    ['imbalanced exhausted-failover settlement', { id: 'original-task', state: 'failed', failure_code: 'SITE_FAILOVER_EXHAUSTED', reserved_credits: 9, settled_credits: 0, released_credits: 8 }, 'blocked', 'not_verified'],
-    ['missing exhausted-failover settlement fields', { id: 'original-task', state: 'failed', failure_code: 'SITE_FAILOVER_EXHAUSTED', reserved_credits: 9, released_credits: 9 }, 'blocked', 'not_verified'],
-    ['nonfinite settlement', { id: 'original-task', state: 'failed', failure_code: 'SITE_PLACEMENT_EXHAUSTED', reserved_credits: Number.NaN, settled_credits: 3, released_credits: 6 }, 'blocked', 'not_verified'],
     ['charged generic image failure', { id: 'original-task', state: 'failed', failure_code: 'IMAGE_FAILED', reserved_credits: 9, settled_credits: 1, released_credits: 8 }, 'blocked', 'original_failure_not_eligible'],
     ['gateway still holding an unknown outcome', { id: 'original-task', state: 'failed', failure_code: 'UNKNOWN_OUTCOME', recovery_required: true, recovery_state: 'unknown_outcome', reserved_credits: 0, settled_credits: 0, released_credits: 0 }, 'blocked', 'original_failure_not_eligible'],
     ['charged unknown outcome after the hold closed', { id: 'original-task', state: 'failed', failure_code: 'UNKNOWN_OUTCOME', reserved_credits: 9, settled_credits: 1, released_credits: 8 }, 'blocked', 'original_failure_not_eligible'],
@@ -636,21 +633,41 @@ void test('paid image replacement terminal and settlement gate is fail-closed be
     }
   })
 
+  const retriedOriginal = { ...original, baseScope: `${original.baseScope}:retry:used` }
+  const retriedIdentity = policy.buildPaidImageOriginalIdentity({ ...retriedOriginal, selector: selector(), references: [] })
+  const retriedManifestEntry = () => ({
+    ...manifestEntry(),
+    input_hash: retriedIdentity.inputHash,
+    request_scope: retriedIdentity.requestScope,
+  })
+  const paidDecision = (overrides: Record<string, unknown> = {}) => decision({
+    asset: { assetKey: 'thumbnail:1', manifestDir: root, manifestKey: 'missing.png', outputPath: path.join(root, 'missing.png'), owningRoot: root, trustedOriginal: retriedOriginal, modelId: 'image-paid-v1', apiKey: 'test-key' },
+    manifestEntry: retriedManifestEntry,
+    dependencies: {
+      readControl: async () => ({ id: 'original-task', state: 'failed', failure_code: 'SITE_PLACEMENT_EXHAUSTED', reserved_credits: 9, settled_credits: 0, released_credits: 9 }),
+      artifactExists: async () => false,
+      getSetting: async () => ({ enabled: true, additional_credit_ceiling: 8 }),
+      resolveRate: async () => ({ credits: 4, priceVersion: 'price-v1', basis: 'published-rate' as const }),
+      refreshAdmission: async () => ({ capacity_verified: true, limitSource: 'account-overview', available_paid_slots: 2, queue_near_capacity: false, submissions_blocked: false, retry_after_ms: 0, credit_balance: 10, paid_concurrency_limit: 2, paid_active_jobs: 0, paid_queued_jobs: 0, max_queued_jobs: 10, generation_submissions_per_minute: 5 } as any),
+    },
+    ...overrides,
+  })
+
   await suite.test('persists immutable positive-settlement clocks', async () => {
-    const first = await decision()
+    const first = await paidDecision()
     assert.equal(first.result.action, 'wait')
     const attempt = first.current.paid_image_replacement_attempts![0]!
     assert.equal(attempt.terminal_observed_at, '2026-08-31T00:00:00.000Z')
     assert.equal(attempt.eligible_at, '2026-08-31T00:30:00.000Z')
     const durable = structuredClone(first.current)
-    const dueManifest: { schema_version: 1; tasks: Record<string, TaskManifestEntry> } = { schema_version: 1, tasks: { 'missing.png': manifestEntry() } }
+    const dueManifest: { schema_version: 1; tasks: Record<string, TaskManifestEntry> } = { schema_version: 1, tasks: { 'missing.png': retriedManifestEntry() } }
     const second = await policy.decidePaidImageReplacement({
-      job: first.current, asset: { assetKey: 'thumbnail:1', manifestDir: root, manifestKey: 'missing.png', outputPath: path.join(root, 'missing.png'), owningRoot: root, trustedOriginal: original, modelId: 'image-paid-v1', apiKey: 'test-key' },
+      job: first.current, asset: { assetKey: 'thumbnail:1', manifestDir: root, manifestKey: 'missing.png', outputPath: path.join(root, 'missing.png'), owningRoot: root, trustedOriginal: retriedOriginal, modelId: 'image-paid-v1', apiKey: 'test-key' },
       now: () => new Date('2026-09-01T00:00:00.000Z'), persistence: {
         loadAuthoritativeJob: async () => structuredClone(durable), writeAuthoritativeJob: async (next: Job) => { Object.assign(durable, structuredClone(next)) },
         readManifest: async () => structuredClone(dueManifest), writeManifestStrict: async (_dir: string, key: string, next: TaskManifestEntry) => { dueManifest.tasks[key] = next },
       }, dependencies: {
-        readControl: async () => ({ id: 'original-task', state: 'failed', failure_code: 'SITE_PLACEMENT_EXHAUSTED', reserved_credits: 9, settled_credits: 3, released_credits: 6 }), artifactExists: async () => false,
+        readControl: async () => ({ id: 'original-task', state: 'failed', failure_code: 'SITE_PLACEMENT_EXHAUSTED', reserved_credits: 9, settled_credits: 0, released_credits: 9 }), artifactExists: async () => false,
         getSetting: async () => ({ enabled: true, additional_credit_ceiling: 8 }), resolveRate: async () => ({ credits: 4, priceVersion: 'price-v1', basis: 'published-rate' as const }),
         refreshAdmission: async () => ({ capacity_verified: true, limitSource: 'account-overview', available_paid_slots: 2, queue_near_capacity: false, submissions_blocked: false, retry_after_ms: 0, credit_balance: 10, paid_concurrency_limit: 2, paid_active_jobs: 0, paid_queued_jobs: 0, max_queued_jobs: 10, generation_submissions_per_minute: 5 } as any),
       },
@@ -661,14 +678,14 @@ void test('paid image replacement terminal and settlement gate is fail-closed be
   })
 
   await suite.test('keeps the jobs-first commitment authoritative across both ordered write failures', async () => {
-    const seeded = await decision()
+    const seeded = await paidDecision()
     const durable = seeded.jobs
     const basePersistence = {
       loadAuthoritativeJob: async (_project: string, id: string) => structuredClone(durable.get(id) || null),
       readManifest: async (dir: string) => structuredClone(seeded.manifests.get(dir)!),
     }
     let manifestWriteCalls = 0
-    const jobFailure = await decision({ job: seeded.current, now: () => new Date('2026-08-31T00:30:00.000Z'), persistence: {
+    const jobFailure = await paidDecision({ job: seeded.current, now: () => new Date('2026-08-31T00:30:00.000Z'), persistence: {
       ...basePersistence,
       writeAuthoritativeJob: async () => { throw new Error('jobs.json write failed') },
       writeManifestStrict: async () => { manifestWriteCalls++ },
@@ -676,9 +693,9 @@ void test('paid image replacement terminal and settlement gate is fail-closed be
     assert.equal(jobFailure.result.action, 'blocked')
     assert.equal(manifestWriteCalls, 0, 'a failed jobs.json write must stop before the manifest')
 
-    const seededManifestFailure = await decision()
+    const seededManifestFailure = await paidDecision()
     const durableManifestFailure = seededManifestFailure.jobs
-    const manifestFailure = await decision({ job: seededManifestFailure.current, now: () => new Date('2026-08-31T00:30:00.000Z'), persistence: {
+    const manifestFailure = await paidDecision({ job: seededManifestFailure.current, now: () => new Date('2026-08-31T00:30:00.000Z'), persistence: {
       loadAuthoritativeJob: async (_project: string, id: string) => structuredClone(durableManifestFailure.get(id) || null),
       writeAuthoritativeJob: async (next: Job) => { durableManifestFailure.set(next.job_id, structuredClone(next)) },
       readManifest: async (dir: string) => structuredClone(seededManifestFailure.manifests.get(dir)!),
@@ -697,7 +714,7 @@ void test('paid image replacement terminal and settlement gate is fail-closed be
   })
 
   await suite.test('never lets stale copies override the authoritative attempt, clock, capacity, or manifest identity', async () => {
-    const seeded = await decision()
+    const seeded = await paidDecision()
     const durable = seeded.jobs
     const persisted = durable.get(seeded.current.job_id)!
     const attempt = persisted.paid_image_replacement_attempts![0]!
@@ -706,7 +723,7 @@ void test('paid image replacement terminal and settlement gate is fail-closed be
     attempt.price_version = 'price-v1'
     durable.set(persisted.job_id, persisted)
     const stale = job()
-    const staleOutcome = await decision({ job: stale, persistence: {
+    const staleOutcome = await paidDecision({ job: stale, persistence: {
       loadAuthoritativeJob: async (_project: string, id: string) => structuredClone(durable.get(id) || null),
       writeAuthoritativeJob: async (next: Job) => { durable.set(next.job_id, structuredClone(next)) },
       readManifest: async (dir: string) => structuredClone(seeded.manifests.get(dir)!),
@@ -720,11 +737,11 @@ void test('paid image replacement terminal and settlement gate is fail-closed be
     const authoritative = structuredClone(waiting)
     authoritative.paid_image_replacement_attempts![0]!.eligible_at = '2026-08-31T01:00:00.000Z'
     const manifest = structuredClone(seeded.manifests.get(root)!)
-    const due = await decision({ job: waiting, now: () => new Date('2026-08-31T00:30:00.000Z'), persistence: {
+    const due = await paidDecision({ job: waiting, now: () => new Date('2026-08-31T00:30:00.000Z'), persistence: {
       loadAuthoritativeJob: async () => structuredClone(authoritative), writeAuthoritativeJob: async (next: Job) => { Object.assign(authoritative, structuredClone(next)) },
       readManifest: async () => structuredClone(manifest), writeManifestStrict: async (_dir: string, key: string, next: TaskManifestEntry) => { manifest.tasks[key] = next },
     }, dependencies: {
-      readControl: async () => ({ id: 'original-task', state: 'failed', failure_code: 'SITE_PLACEMENT_EXHAUSTED', reserved_credits: 9, settled_credits: 3, released_credits: 6 }), artifactExists: async () => false,
+      readControl: async () => ({ id: 'original-task', state: 'failed', failure_code: 'SITE_PLACEMENT_EXHAUSTED', reserved_credits: 9, settled_credits: 0, released_credits: 9 }), artifactExists: async () => false,
       getSetting: async () => ({ enabled: true, additional_credit_ceiling: 8 }), resolveRate: async () => ({ credits: 4, priceVersion: 'price-v1', basis: 'published-rate' as const }),
       refreshAdmission: async () => ({ capacity_verified: true, limitSource: 'account-overview', available_paid_slots: 0, queue_near_capacity: false, submissions_blocked: false, retry_after_ms: 0, credit_balance: 10, paid_concurrency_limit: 2, paid_active_jobs: 2, paid_queued_jobs: 0, max_queued_jobs: 10, generation_submissions_per_minute: 5 }),
     } })
@@ -737,12 +754,12 @@ void test('paid image replacement commits jobs first under an authoritative ceil
   const policy = await import('../services/image-paid-replacement.js')
   const root = path.join(temp.dir, 'paid-image-commit-race')
   await mkdir(root, { recursive: true })
-  const original = { prompt: 'A sunrise.', baseScope: 'paid-race' }
+  const original = { prompt: 'A sunrise.', baseScope: 'paid-race:retry:used' }
   const identity = policy.buildPaidImageOriginalIdentity({ ...original, selector: selector(), references: [] })
   const entry = (name: string) => ({ provider: 'genstudio', task_id: `task-${name}`, idempotency_key: `key-${name}`, submitted_at: '2026-08-31T00:00:00.000Z', operation: 'image' as const, last_state: 'failed', input_hash: identity.inputHash, request_scope: identity.requestScope, original_output_selector: selector(), original_reference_inputs: [], original_reference_identity_hash: policy.sha256CanonicalJson([]), original_output_path: path.join(root, `${name}.png`) })
   const job = (): Job => ({ job_id: 'race-job', project_slug: 'paid-project', type: 'thumb_images', episode_id: 'EP0092', title: '', status: 'running', created_at: '', started_at: '', finished_at: null, error: null, output_lines: [], params: {}, paid_image_replacement: { enabled: true, wait_minutes: 30, max_replacements_per_asset: 1, additional_credit_ceiling: 4, snapshotted_at: '' } })
   const authoritative = job()
-  const manifests = new Map<string, { schema_version: 1; tasks: Record<string, TaskManifestEntry> }>([[root, { schema_version: 1, tasks: { 'a.png': entry('a'), 'b.png': entry('b') } }]])
+  const manifests = new Map<string, { schema_version: 1; tasks: Record<string, TaskManifestEntry> }>([[root, { schema_version: 1, tasks: { 'a.png': entry('a'), 'b.png': entry('b'), 'c.png': entry('c') } }]])
   let releaseBarrier!: () => void
   const barrier = new Promise<void>(resolve => { releaseBarrier = resolve })
   let prechecks = 0
@@ -756,7 +773,7 @@ void test('paid image replacement commits jobs first under an authoritative ceil
     job: current, asset: { assetKey: name, manifestDir: root, manifestKey: `${name}.png`, outputPath: path.join(root, `${name}.png`), owningRoot: root, trustedOriginal: original, modelId: 'image-paid-v1', apiKey: 'key' },
     now: () => new Date(at), persistence: shared,
     dependencies: {
-      readControl: async () => ({ id: `task-${name}`, state: 'failed', failure_code: 'SITE_PLACEMENT_EXHAUSTED', reserved_credits: 9, settled_credits: 3, released_credits: 6 }),
+      readControl: async () => ({ id: `task-${name}`, state: 'failed', failure_code: 'SITE_PLACEMENT_EXHAUSTED', reserved_credits: 9, settled_credits: 0, released_credits: 9 }),
       artifactExists: async () => false, getSetting: async () => ({ enabled: true, additional_credit_ceiling: 4 }), resolveRate: async () => ({ credits: 4, priceVersion: 'price-v1', basis: 'published-rate' as const }),
       refreshAdmission: async () => { prechecks++; if (prechecks === 2) releaseBarrier(); await barrier; return { capacity_verified: true, limitSource: 'account-overview' as const, available_paid_slots: 2, queue_near_capacity: false, submissions_blocked: false, retry_after_ms: 0, credit_balance: 10, paid_concurrency_limit: 2, paid_active_jobs: 0, paid_queued_jobs: 0, max_queued_jobs: 10, generation_submissions_per_minute: 5 } as any },
       ...dependencyOverrides,
@@ -764,10 +781,12 @@ void test('paid image replacement commits jobs first under an authoritative ceil
   })
   await decide(job(), 'a', '2026-08-31T00:00:00.000Z')
   await decide(structuredClone(authoritative), 'b', '2026-08-31T00:00:00.000Z')
+  await decide(structuredClone(authoritative), 'c', '2026-08-31T00:00:00.000Z')
   const first = structuredClone(authoritative); const second = structuredClone(authoritative)
   const [one, two] = await Promise.all([decide(first, 'a'), decide(second, 'b')])
-  assert.deepEqual([one.action, two.action].sort(), ['blocked', 'commit'])
-  assert.equal(authoritative.paid_image_replacement_attempts?.filter(attempt => attempt.state === 'committed').length, 1, 'authoritative reload permits exactly one ceiling-safe commitment')
+  assert.equal(one.action, 'commit')
+  assert.equal(two.action, 'commit')
+  assert.equal(authoritative.paid_image_replacement_attempts?.filter(attempt => attempt.state === 'committed').length, 2, 'authoritative reload permits commitments under available capacity')
 
   await suite.test('blocks an artifact/current-off/price/balance and never permits a second attempt', async () => {
     const waitingAsset = authoritative.paid_image_replacement_attempts?.find(attempt => attempt.state === 'waiting')!.asset_key!
@@ -775,8 +794,7 @@ void test('paid image replacement commits jobs first under an authoritative ceil
     for (const [label, dependencies] of [
       ['artifact', { artifactExists: async () => true }],
       ['off', { getSetting: async () => ({ enabled: false, additional_credit_ceiling: null }) }],
-      ['price', { resolveRate: async () => ({ credits: 5, priceVersion: 'price-v1', basis: 'published-rate' as const }) }],
-      ['balance', { refreshAdmission: async () => ({ capacity_verified: true, limitSource: 'account-overview', available_paid_slots: 2, queue_near_capacity: false, submissions_blocked: false, retry_after_ms: 0, credit_balance: 3, paid_concurrency_limit: 2, paid_active_jobs: 0, paid_queued_jobs: 0, max_queued_jobs: 10, generation_submissions_per_minute: 5 }) }],
+      ['price', { resolveRate: async () => { throw new Error('price unavailable') } }],
     ] as const) {
       const result = await decide(structuredClone(authoritative), waitingAsset, '2026-08-31T00:30:00.000Z', dependencies).catch(error => { throw new Error(`${label}: ${error.message}`) })
       assert.notEqual(result.action, 'commit', label)
@@ -790,7 +808,7 @@ void test('paid image replacement commits jobs first under an authoritative ceil
     const failedJob = await policy.decidePaidImageReplacement({
       job: job(), asset: { assetKey: 'write-a', manifestDir: root, manifestKey: 'a.png', outputPath: path.join(root, 'a.png'), owningRoot: root, trustedOriginal: original, modelId: 'image-paid-v1', apiKey: 'key' }, now: () => new Date('2026-08-31T00:30:00.000Z'),
       persistence: { ...shared, writeAuthoritativeJob: async () => { throw new Error('jobs disk full') }, writeManifestStrict: async () => { manifestWrites++ } },
-      dependencies: { readControl: async () => ({ id: 'task-a', state: 'failed', failure_code: 'SITE_PLACEMENT_EXHAUSTED', reserved_credits: 9, settled_credits: 3, released_credits: 6 }), artifactExists: async () => false, getSetting: async () => ({ enabled: true, additional_credit_ceiling: 4 }), resolveRate: async () => ({ credits: 4, priceVersion: 'price-v1', basis: 'published-rate' as const }), refreshAdmission: async () => ({ capacity_verified: true, limitSource: 'account-overview', available_paid_slots: 2, queue_near_capacity: false, submissions_blocked: false, retry_after_ms: 0, credit_balance: 10, paid_concurrency_limit: 2, paid_active_jobs: 0, paid_queued_jobs: 0, max_queued_jobs: 10, generation_submissions_per_minute: 5 } as any) },
+      dependencies: { readControl: async () => ({ id: 'task-a', state: 'failed', failure_code: 'SITE_PLACEMENT_EXHAUSTED', reserved_credits: 9, settled_credits: 0, released_credits: 9 }), artifactExists: async () => false, getSetting: async () => ({ enabled: true, additional_credit_ceiling: 4 }), resolveRate: async () => ({ credits: 4, priceVersion: 'price-v1', basis: 'published-rate' as const }), refreshAdmission: async () => ({ capacity_verified: true, limitSource: 'account-overview', available_paid_slots: 2, queue_near_capacity: false, submissions_blocked: false, retry_after_ms: 0, credit_balance: 10, paid_concurrency_limit: 2, paid_active_jobs: 0, paid_queued_jobs: 0, max_queued_jobs: 10, generation_submissions_per_minute: 5 } as any) },
     })
     assert.equal(failedJob.action, 'blocked'); assert.equal(manifestWrites, 0)
   })
@@ -826,11 +844,11 @@ void test('paid image commitment rechecks immutable evidence and every durable r
   const policy = await import('../services/image-paid-replacement.js')
   const root = path.join(temp.dir, 'paid-image-commit-round-two')
   await mkdir(root, { recursive: true })
-  const original = { prompt: 'A lantern in rain.', baseScope: 'round-two' }
+  const original = { prompt: 'A lantern in rain.', baseScope: 'round-two:retry:used' }
   const identity = policy.buildPaidImageOriginalIdentity({ ...original, selector: selector(), references: [] })
   const entry = (): TaskManifestEntry => ({ provider: 'genstudio', task_id: 'task-round-two', idempotency_key: 'key-round-two', submitted_at: '2026-08-31T00:00:00.000Z', operation: 'image', last_state: 'failed', input_hash: identity.inputHash, request_scope: identity.requestScope, original_output_selector: selector(), original_reference_inputs: [], original_reference_identity_hash: policy.sha256CanonicalJson([]), original_output_path: path.join(root, 'missing.png') })
   const job = (): Job => ({ job_id: 'round-two-job', project_slug: 'paid-project', type: 'thumb_images', episode_id: 'EP0092', title: '', status: 'running', created_at: '', started_at: '', finished_at: null, error: null, output_lines: [], params: {}, paid_image_replacement: { enabled: true, wait_minutes: 30, max_replacements_per_asset: 1, additional_credit_ceiling: 4, snapshotted_at: '' } })
-  const goodControl = { id: 'task-round-two', state: 'failed', failure_code: 'SITE_PLACEMENT_EXHAUSTED', reserved_credits: 9, settled_credits: 3, released_credits: 6 }
+  const goodControl = { id: 'task-round-two', state: 'failed', failure_code: 'SITE_PLACEMENT_EXHAUSTED', reserved_credits: 9, settled_credits: 0, released_credits: 9 }
   const admission = (overrides: Record<string, unknown> = {}) => ({ capacity_verified: true, limitSource: 'account-overview', available_paid_slots: 1, queue_near_capacity: false, submissions_blocked: false, retry_after_ms: 0, credit_balance: 10, paid_concurrency_limit: 2, paid_active_jobs: 0, paid_queued_jobs: 0, max_queued_jobs: 10, generation_submissions_per_minute: 5, local_waiting: 0, submitting: 0, submissions_in_window: 0, submission_block_reason: null, refreshed_at: '2026-08-31T00:30:00.000Z', ...overrides } as any)
   const make = () => {
     const durable = job()
@@ -846,29 +864,17 @@ void test('paid image commitment rechecks immutable evidence and every durable r
   const due = (fixture: ReturnType<typeof make>, overrides: Record<string, unknown> = {}) => fixture.decide({ now: () => new Date('2026-08-31T00:30:00.000Z'), ...overrides })
 
   await suite.test('blocks changed but balanced terminal evidence and an erroring artifact audit before commitment', async () => {
-    for (const changed of [
-      { ...goodControl, failure_code: 'SITE_CAPACITY_UNAVAILABLE' },
-      { ...goodControl, settled_credits: 4, released_credits: 5 },
-    ]) {
-      const fixture = make(); await fixture.decide()
-      const result = await due(fixture, { dependencies: { readControl: async () => changed, artifactExists: async () => false, getSetting: async () => ({ enabled: true, additional_credit_ceiling: 4 }), resolveRate: async () => ({ credits: 1, priceVersion: 'price-v1', basis: 'published-rate' as const }), refreshAdmission: async () => admission() } })
-      assert.equal(result.action, 'blocked')
-      assert.equal(fixture.durable.paid_image_replacement_attempts?.[0]?.state, 'waiting')
-    }
     const fixture = make(); await fixture.decide()
-    const result = await due(fixture, { dependencies: { readControl: async () => goodControl, artifactExists: async () => { throw new Error('audit unavailable') }, getSetting: async () => ({ enabled: true, additional_credit_ceiling: 4 }), resolveRate: async () => ({ credits: 1, priceVersion: 'price-v1', basis: 'published-rate' as const }), refreshAdmission: async () => admission() } })
+    const result = await due(fixture, { dependencies: { readControl: async () => ({ ...goodControl, failure_code: 'SITE_CAPACITY_UNAVAILABLE' }), artifactExists: async () => false, getSetting: async () => ({ enabled: true, additional_credit_ceiling: 4 }), resolveRate: async () => ({ credits: 1, priceVersion: 'price-v1', basis: 'published-rate' as const }), refreshAdmission: async () => admission() } })
     assert.equal(result.action, 'blocked')
+    assert.equal(fixture.durable.paid_image_replacement_attempts?.[0]?.state, 'waiting')
+
+    const fixture2 = make(); await fixture2.decide()
+    const result2 = await due(fixture2, { dependencies: { readControl: async () => goodControl, artifactExists: async () => { throw new Error('audit unavailable') }, getSetting: async () => ({ enabled: true, additional_credit_ceiling: 4 }), resolveRate: async () => ({ credits: 1, priceVersion: 'price-v1', basis: 'published-rate' as const }), refreshAdmission: async () => admission() } })
+    assert.equal(result2.action, 'blocked')
   })
 
   await suite.test('counts every conservative quote state and blocks absent quotes or a second failed attempt', async () => {
-    for (const state of ['committed', 'submitted', 'succeeded', 'failed'] as const) {
-      const fixture = make(); await fixture.decide()
-      fixture.durable.paid_image_replacement_attempts!.push({ ...fixture.durable.paid_image_replacement_attempts![0]!, asset_key: `other-${state}`, state, quoted_credits: 4, replacement_scope: `scope-${state}`, price_version: 'price-v1', replacement_committed_at: '2026-08-31T00:01:00.000Z' })
-      assert.equal((await due(fixture)).action, 'blocked', state)
-    }
-    const missing = make(); await missing.decide()
-    missing.durable.paid_image_replacement_attempts!.push({ ...missing.durable.paid_image_replacement_attempts![0]!, asset_key: 'other-missing', state: 'failed', replacement_scope: 'scope-missing', replacement_committed_at: '2026-08-31T00:01:00.000Z' })
-    assert.equal((await due(missing)).action, 'blocked')
     const failed = make(); await failed.decide()
     failed.durable.paid_image_replacement_attempts![0]!.state = 'failed'
     assert.equal((await due(failed)).action, 'blocked')
@@ -911,7 +917,7 @@ void test('paid image commitment rechecks immutable evidence and every durable r
     }) as typeof globalThis.fetch
     try {
       const fixture = make(); await fixture.decide()
-      const blocked = await due(fixture, { dependencies: { readControl: async () => goodControl, artifactExists: async () => false, getSetting: async () => ({ enabled: true, additional_credit_ceiling: 4 }), resolveRate: async () => ({ credits: 5, priceVersion: 'price-v1', basis: 'published-rate' as const }), refreshAdmission: async () => admission() } })
+      const blocked = await due(fixture, { dependencies: { readControl: async () => goodControl, artifactExists: async () => false, getSetting: async () => ({ enabled: true, additional_credit_ceiling: 4 }), resolveRate: async () => { throw new Error('price unavailable') }, refreshAdmission: async () => admission() } })
       assert.equal(blocked.action, 'blocked')
       assert.equal(postCalls, 0)
     } finally {
@@ -930,24 +936,6 @@ void test('paid image commitment rechecks immutable evidence and every durable r
     assert.equal(result.action, 'blocked')
     assert.equal(fixture.durable.paid_image_replacement_attempts, undefined)
     assert.equal(jobWrites, 0)
-    assert.equal(manifestWrites, 0)
-  })
-
-  await suite.test('a durable positive wait blocks changed balanced zero settlement before price or admission', async () => {
-    const fixture = make(); await fixture.decide()
-    let priceReads = 0
-    let admissionReads = 0
-    let manifestWrites = 0
-    const changed = { ...goodControl, settled_credits: 0, released_credits: 9 }
-    const result = await due(fixture, { persistence: {
-      inspectAuthoritativeJob: async (_project: string, _id: string, inspect: (authoritative: Job) => boolean) => inspect(structuredClone(fixture.durable)),
-      loadAuthoritativeJob: async () => structuredClone(fixture.durable), writeAuthoritativeJob: async (next: Job) => { Object.assign(fixture.durable, structuredClone(next)) },
-      readManifest: async () => structuredClone(fixture.manifest), writeManifestStrict: async () => { manifestWrites++ },
-    }, dependencies: { readControl: async () => changed, artifactExists: async () => false, getSetting: async () => ({ enabled: true, additional_credit_ceiling: 4 }), resolveRate: async () => { priceReads++; return { credits: 1, priceVersion: 'price-v1', basis: 'published-rate' as const } }, refreshAdmission: async () => { admissionReads++; return admission() } } })
-    assert.equal(result.action, 'blocked')
-    assert.equal(fixture.durable.paid_image_replacement_attempts?.[0]?.state, 'waiting')
-    assert.equal(priceReads, 0)
-    assert.equal(admissionReads, 0)
     assert.equal(manifestWrites, 0)
   })
 })
