@@ -730,7 +730,7 @@ test('only the settings write path and the overview read channel_status — no u
     'electron/server/services/publishing-overview.ts',
     'frontend/pages/publishing.vue',
   ])
-  const skip = new Set(['node_modules', '__tests__', '.nuxt', 'dist', '_trash', '.git'])
+  const skip = new Set(['node_modules', '__tests__', '.nuxt', '.output', 'dist', '_trash', '.git'])
   const found = new Set<string>()
 
   for (const tree of ['electron/server', 'frontend']) {
