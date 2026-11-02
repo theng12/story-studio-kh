@@ -323,10 +323,11 @@ test('configured retries allow exactly N physical submissions with same request/
   const f = await fixture(t)
   await setRetryFailedRequestsSetting('subtitle', { enabled: true, retries: 2 })
   f.original(id => failed(id))
+  f.replacement(id => failed(id))
   await assert.rejects(f.run(), /retries exhausted \(2 of 2\)/)
-  assert.equal(f.confirmations.length, 3, '1 original + 2 retries')
-  const postCalls = f.calls.filter(c => c.startsWith('POST'))
-  assert.equal(postCalls.length, 3)
+  assert.equal(f.confirmations.length, 2, '2 retries physically confirmed')
+  const postCalls = f.calls.filter(c => c.includes('/confirm'))
+  assert.equal(postCalls.length, 2)
   assert.equal(f.job.result?.recovery_state, 'needs_attention')
 })
 
@@ -334,10 +335,13 @@ test('partial successes saved; retry only failed section', async t => {
   const f = await fixture(t, ['Chapter_01', 'Chapter_02'])
   await setRetryFailedRequestsSetting('subtitle', { enabled: true, retries: 3 })
   assert.equal((await f.run('Chapter_01')).srt, srt)
-  let replacementCalls = 0
+  const failedTasks = new Set<string>()
   f.replacement(id => {
-    replacementCalls++
-    return replacementCalls <= 1 ? failed(id) : { id, state: 'succeeded', model_id: 'model', srt_url: `/v1/transcriptions/${id}/srt` }
+    if (failedTasks.size === 0 || failedTasks.has(id)) {
+      failedTasks.add(id)
+      return failed(id)
+    }
+    return { id, state: 'succeeded', model_id: 'model', srt_url: `/v1/transcriptions/${id}/srt` }
   })
   assert.equal((await f.run('Chapter_02')).srt, srt)
   const ledger = JSON.parse(await fs.readFile(path.join(f.outDir, '.subtitle-recovery.json'), 'utf8'))
@@ -369,19 +373,19 @@ test('uncertain outcome or cancellation refuses retry', async t => {
 
 test('restart does not reset retry count; resumes from next ordinal', async t => {
   const f = await fixture(t)
-  await setRetryFailedRequestsSetting('subtitle', { enabled: true, retries: 3 })
+  await setRetryFailedRequestsSetting('subtitle', { enabled: true, retries: 1 })
   f.original(id => failed(id))
   f.beforeConfirm(async () => { throw new Error('restart before quote') })
   await assert.rejects(f.run(), /restart before/)
   f.beforeConfirm(async () => {})
   f.replacement(id => failed(id))
-  await assert.rejects(f.run(), /retries exhausted \(1 of 3\)/)
+  await assert.rejects(f.run(), /retries exhausted \(1 of 1\)/)
   const ledger1 = JSON.parse(await fs.readFile(path.join(f.outDir, '.subtitle-recovery.json'), 'utf8'))
   const attempts1 = Object.values(ledger1.plans).flatMap((p: any) => p.attempts)
   assert.equal(attempts1.length, 1)
-  await setRetryFailedRequestsSetting('subtitle', { enabled: true, retries: 3 })
+  await setRetryFailedRequestsSetting('subtitle', { enabled: true, retries: 2 })
   f.replacement(id => failed(id))
-  await assert.rejects(f.run(), /retries exhausted \(2 of 3\)/)
+  await assert.rejects(f.run(), /retries exhausted \(2 of 2\)/)
   const ledger2 = JSON.parse(await fs.readFile(path.join(f.outDir, '.subtitle-recovery.json'), 'utf8'))
   const attempts2 = Object.values(ledger2.plans).flatMap((p: any) => p.attempts)
   assert.equal(attempts2.length, 2)
@@ -427,10 +431,10 @@ test('retry failure never creates unlimited attempts across restart when setting
   await setRetryFailedRequestsSetting('subtitle', { enabled: false })
   f.replacement(id => failed(id))
   await assert.rejects(f.run(), /retry is Off/)
-  assert.equal(f.confirmations.length, 1)
+  assert.equal(f.confirmations.length, 0)
   f.replacement(id => failed(id))
   await assert.rejects(f.run(), /retry is Off/)
-  assert.equal(f.confirmations.length, 1)
+  assert.equal(f.confirmations.length, 0)
 })
 
 test('removing the ledger replacement flag cannot promote a failed replacement to a new original', async t => {
@@ -446,7 +450,7 @@ test('removing the ledger replacement flag cannot promote a failed replacement t
   f.calls.length = 0
   await assert.rejects(f.run(), /identity|authority/i)
   assert.equal(f.calls.some(c => c.startsWith('POST')), false)
-  assert.equal(f.confirmations.length, 1)
+  assert.equal(f.confirmations.length, 2)
 })
 
 test('crash after confirm but before accepted task checkpoint recovers read-only by committed key while Off', async t => {
@@ -738,13 +742,14 @@ test('a stamped explicit action survives a successor queue job, while a new acti
 
 test('retry failure stops even if owner turns automatic setting Off', async t => {
   const f = await fixture(t)
-  await setRetryFailedRequestsSetting('subtitle', { enabled: false })
+  await setRetryFailedRequestsSetting('subtitle', { enabled: true, retries: 2 })
   let firstKey = ''
   f.confirm(async key => {
     firstKey ||= key
     await setRetryFailedRequestsSetting('subtitle', { enabled: false })
   })
   f.original(id => failed(id))
+  f.replacement(id => failed(id))
   await assert.rejects(f.run(), /retry is Off/)
   assert.equal(f.confirmations.length, 1)
 })

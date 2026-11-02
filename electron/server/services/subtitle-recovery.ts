@@ -262,12 +262,10 @@ export async function runSubtitleTranscription(input: SubtitleRecoveryInput): Pr
       await writeJsonAtomic(file, ledger)
       return result
     })
-    let prior: Section | undefined
     const pipelineActionId = input.pipelineRepair?.actionId.trim() || ''
     const generationActionId = input.generationActionId?.trim() || ''
     let current = await change(ledger => {
       const saved = ledger.sections[manifestKey]
-      prior = saved
       ledger.activePlanId ||= String(job.params.subtitle_recovery_plan_id || job.job_id)
       const sameExplicitAction = !!generationActionId && saved?.generationActionId === generationActionId
       if (input.force && saved && !sameExplicitAction && saved.ownerJobId !== job.job_id) ledger.activePlanId = job.job_id
@@ -438,7 +436,10 @@ export async function runSubtitleTranscription(input: SubtitleRecoveryInput): Pr
         } else current!.replacement!.failure = failure
         mayWriteManifest = true
         originalAuthorityVerified = true
-      } catch {
+      } catch (error) {
+        if (error instanceof Error && error.message.includes('not eligible')) {
+          return block(error.message, 'rerun_subtitle_section')
+        }
         return block('The original transcription identity and authority could not be verified; no replacement was bought. Recover the original task or explicitly re-run this section.',
           'rerun_subtitle_section')
       }
@@ -457,7 +458,7 @@ export async function runSubtitleTranscription(input: SubtitleRecoveryInput): Pr
             && [current!.freeRetryFromKey, current!.idempotencyKey].includes(existing.idempotencyKey)
           const effectiveAuthority = freeRenewal ? { enabled: true, maxRetries: authority.maxRetries } : authority
           const decision = decideSubtitleReplacement({
-            ...effectiveAuthority, attempts: sectionAttempts, section,
+            ...effectiveAuthority, attempts: sectionAttempts.filter(a => a !== existing), section,
             ...current!.replacement!, inputHash: input.inputHash, outputPath: current!.outputPath,
             livePrice: typeof quote.quoted_credit_cost === 'number' && typeof quote.price_version === 'string'
               ? { credits: quote.quoted_credit_cost, priceVersion: quote.price_version } : null,
@@ -473,7 +474,7 @@ export async function runSubtitleTranscription(input: SubtitleRecoveryInput): Pr
             authorization: input.manualPurchase === true ? 'manual' : 'automatic',
           }
           if (!existing) attempts.push(committed)
-          else if (freeRenewal) Object.assign(existing, committed)
+          else Object.assign(existing, committed)
           return null
         })
         if (reason) return block(reason, 'rerun_subtitle_section')
@@ -580,12 +581,19 @@ export async function runSubtitleTranscription(input: SubtitleRecoveryInput): Pr
             if (nextOrdinal > authority.maxRetries) {
               return block(`Automatic subtitle retries exhausted (${attempts} of ${authority.maxRetries}). Review this section before explicitly re-running it.`, 'rerun_subtitle_section', 'needs_attention')
             }
-            if (!current.replacement) await rebindOriginalAuthority(true)
-            current.replacement = {
-              originalTaskId: error.jobId, originalIdempotencyKey: current.idempotencyKey, failure,
-              replacementOrdinal: nextOrdinal,
+            if (!current.replacement) {
+              await rebindOriginalAuthority(true)
+              current.replacement = {
+                originalTaskId: error.jobId,
+                originalIdempotencyKey: current.idempotencyKey,
+                failure,
+                replacementOrdinal: nextOrdinal,
+              }
+            } else {
+              current.replacement.failure = failure
+              current.replacement.replacementOrdinal = nextOrdinal
             }
-            current.idempotencyKey = `story-stt-${createHash('sha256').update(`${current.idempotencyKey}:subtitle-replacement:${nextOrdinal}`).digest('hex')}`
+            current.idempotencyKey = `story-stt-${createHash('sha256').update(`${current.replacement.originalIdempotencyKey}:subtitle-replacement:${nextOrdinal}`).digest('hex')}`
             current.taskId = ''; current.confirmStarted = false; current.submittedAt = new Date().toISOString()
             await persist('prepared')
             await state('retry_pending', `Preparing retry ${nextOrdinal} of ${authority.maxRetries} for ${section}.`)
