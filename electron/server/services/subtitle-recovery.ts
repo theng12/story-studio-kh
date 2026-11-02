@@ -14,7 +14,7 @@ import {
 import { isFleetBusyFailure, FLEET_BUSY_FAILURE_CODES, FLEET_BUSY_RETRY_DELAYS_MS, FREE_MAC_WAIT_MAX_RETRIES, waitUnlessStopped } from '../lib/genstudio-fleet-busy.js'
 import { isTransportFailure } from '../lib/http-retry.js'
 import { isFreeFleetModelId } from '../contracts/provider-task-state.js'
-import { getAppSetting, getGenStudioUrl, PAID_SUBTITLE_REPLACEMENT_KEY, withPaidSubtitleConfirmation } from './app-settings.js'
+import { getGenStudioUrl, getRetryFailedRequestsSetting } from './app-settings.js'
 import { readManifestStrict, recordTaskStrict } from './task-manifest.js'
 import { checkpointGenStudioAsset, type GenStudioRecoveryState } from './genstudio-recovery.js'
 import * as jq from './job-queue.js'
@@ -23,7 +23,7 @@ import type { Job } from '../models/types.js'
 
 interface Commitment extends SubtitleReplacementAttempt {
   taskId?: string
-  quoteId: string
+  quoteId?: string
   committedAt: string
   authorization: 'automatic' | 'manual'
 }
@@ -54,6 +54,7 @@ interface Section {
   replacement?: {
     originalTaskId: string
     originalIdempotencyKey: string
+    replacementOrdinal?: number
     failure: SubtitleReplacementInput['failure']
   }
 }
@@ -92,8 +93,12 @@ async function readLedger(file: string): Promise<Ledger> {
     if (parsed.version !== 1 || !parsed.sections || !parsed.plans || Array.isArray(parsed.sections) || Array.isArray(parsed.plans)
       || Object.values(parsed.plans).some(plan => !Array.isArray(plan.attempts) || plan.attempts.some(a =>
         !a || ![a.section, a.originalTaskId, a.originalIdempotencyKey, a.inputHash, a.outputPath,
-          a.idempotencyKey, a.priceVersion, a.quoteId, a.committedAt].every(text)
-        || a.replacementOrdinal !== 1 || !credits(a.quotedCredits)))
+          a.idempotencyKey].every(text)
+        || typeof a.replacementOrdinal !== 'number' || a.replacementOrdinal < 1 || a.replacementOrdinal > 10
+        || (a.quotedCredits !== undefined && !credits(a.quotedCredits))
+        || (a.priceVersion !== undefined && !text(a.priceVersion))
+        || (a.quoteId !== undefined && !text(a.quoteId))
+        || (a.committedAt !== undefined && !text(a.committedAt))))
       || Object.values(parsed.sections).some(s => !s || ![s.section, s.planId, s.ownerJobId, s.inputHash,
         s.outputPath, s.idempotencyKey, s.submittedAt, s.state].every(text)
         || !parsed.plans[s.planId] || typeof s.taskId !== 'string' || typeof s.identityVerified !== 'boolean'
@@ -110,7 +115,7 @@ async function readLedger(file: string): Promise<Ledger> {
           || ![s.replacement.originalTaskId, s.replacement.originalIdempotencyKey].every(text)
           || !s.replacement.failure || typeof s.replacement.failure.transient !== 'boolean'
           || typeof s.replacement.failure.cancelled !== 'boolean'
-          || classifySubtitleFailure(s.replacement.failure) !== 'paid'
+          || classifySubtitleFailure(s.replacement.failure) === 'blocked'
           || !validReplacementKey(s)
           || parsed.plans[s.planId]!.attempts.some(a => a.section === s.section
             && (a.originalTaskId !== s.replacement!.originalTaskId
@@ -127,11 +132,13 @@ async function readLedger(file: string): Promise<Ledger> {
 
 /** A saved replacement key must descend from its original, not arbitrary authority. */
 function validReplacementKey(section: Section): boolean {
-  let key = `story-stt-${createHash('sha256').update(`${section.replacement!.originalIdempotencyKey}:subtitle-replacement:1`).digest('hex')}`
-  // freeRetries includes retries before replacement; it is an upper bound here.
-  for (let retry = 0; retry <= section.freeRetries; retry++) {
-    if (key === section.idempotencyKey) return true
-    key = `story-stt-${createHash('sha256').update(`${key}:free-retry`).digest('hex')}`
+  for (let ordinal = 1; ordinal <= 10; ordinal++) {
+    let key = `story-stt-${createHash('sha256').update(`${section.replacement!.originalIdempotencyKey}:subtitle-replacement:${ordinal}`).digest('hex')}`
+    // freeRetries includes retries before replacement; it is an upper bound here.
+    for (let retry = 0; retry <= section.freeRetries; retry++) {
+      if (key === section.idempotencyKey) return true
+      key = `story-stt-${createHash('sha256').update(`${key}:free-retry`).digest('hex')}`
+    }
   }
   return false
 }
@@ -346,8 +353,13 @@ export async function runSubtitleTranscription(input: SubtitleRecoveryInput): Pr
       })
     }
     const policy = async () => {
-      const setting = await getAppSetting(PAID_SUBTITLE_REPLACEMENT_KEY)
-      return { enabled: input.manualPurchase === true || setting.enabled === true }
+      const setting = await getRetryFailedRequestsSetting('subtitle')
+      const maxRetries = Math.max(1, Math.min(10, setting.retries))
+      return {
+        enabled: input.manualPurchase === true || (setting.enabled === true && maxRetries >= 1),
+        // An explicit manual retry always permits at least one additional attempt.
+        maxRetries: input.manualPurchase === true ? Math.max(1, maxRetries) : maxRetries,
+      }
     }
     const beginPipelineRepair = async (): Promise<boolean> => {
       if (!pipelineActionId || current!.pipelineRepairActionId === pipelineActionId) return false
@@ -414,7 +426,7 @@ export async function runSubtitleTranscription(input: SubtitleRecoveryInput): Pr
           `${provenance.originalIdempotencyKey}-confirm`, input.request, Date.now() + 30_000)
         if (original.id !== provenance.originalTaskId || original.state !== 'failed') throw new Error('Original task mismatch')
         const failure = subtitleFailure(new GenStudioTerminalFailureError('transcription', original, 'Original transcription failed'))
-        if (classifySubtitleFailure(failure) !== 'paid') throw new Error('Original failure is not eligible')
+        if (classifySubtitleFailure(failure) === 'blocked') throw new Error('Original failure is not eligible for automatic subtitle retry')
         if (initial) {
           // Strict writer appends only while the independently read current binding
           // still matches; later task/current-key writes preserve this original.
@@ -438,20 +450,22 @@ export async function runSubtitleTranscription(input: SubtitleRecoveryInput): Pr
         const authority = await policy()
         const reason = await change(ledger => {
           const attempts = ledger.plans[current!.planId]!.attempts
-          const existing = attempts.find(a => a.section === section)
+          const sectionAttempts = attempts.filter(a => a.section === section)
+          const existing = attempts.find(a => a.section === section
+            && a.replacementOrdinal === current!.replacement!.replacementOrdinal)
           const freeRenewal = !!existing && !!current!.freeRetryFromKey
             && [current!.freeRetryFromKey, current!.idempotencyKey].includes(existing.idempotencyKey)
-          const effectiveAuthority = freeRenewal ? { enabled: true } : authority
+          const effectiveAuthority = freeRenewal ? { enabled: true, maxRetries: authority.maxRetries } : authority
           const decision = decideSubtitleReplacement({
-            ...effectiveAuthority, attempts: attempts.filter(a => a !== existing), section,
+            ...effectiveAuthority, attempts: sectionAttempts, section,
             ...current!.replacement!, inputHash: input.inputHash, outputPath: current!.outputPath,
             livePrice: typeof quote.quoted_credit_cost === 'number' && typeof quote.price_version === 'string'
               ? { credits: quote.quoted_credit_cost, priceVersion: quote.price_version } : null,
           })
           if (decision.action !== 'commit') return decision.reason
-          if (existing && !freeRenewal && (existing.idempotencyKey !== current!.idempotencyKey
-            || existing.quoteId !== quote.id || existing.quotedCredits !== quote.quoted_credit_cost
-            || existing.priceVersion !== quote.price_version)) return 'the committed transcription quote changed; reconcile before buying again'
+          if (existing && !freeRenewal && (existing.idempotencyKey !== current!.idempotencyKey)) {
+            return 'the committed transcription identity changed; reconcile before retrying again'
+          }
           const committed: Commitment = {
             ...decision.attempt, idempotencyKey: current!.idempotencyKey, quoteId: quote.id,
             taskId: undefined,
@@ -462,16 +476,18 @@ export async function runSubtitleTranscription(input: SubtitleRecoveryInput): Pr
           else if (freeRenewal) Object.assign(existing, committed)
           return null
         })
-        if (reason) return block(reason, 'buy_missing_subtitles')
-        await state(current!.freeRetryFromKey ? 'free_retry' : 'paid_commitment', current!.freeRetryFromKey
-          ? 'Reusing the replacement authorization that was not charged; nothing more is bought.'
-          : `Buying replacement for ${section} at the Gateway's current quote.`)
+        if (reason) return block(reason, 'rerun_subtitle_section')
+        await state(current!.freeRetryFromKey ? 'free_retry' : 'retry_pending', current!.freeRetryFromKey
+          ? 'Reusing the retry identity that was not charged; no new request is created.'
+          : `Preparing retry ${current!.replacement.replacementOrdinal} of ${authority.maxRetries} for ${section}.`)
       }
       // This write precedes EVERY physical confirm POST, including transport retries.
       current!.confirmStarted = true
       await persist()
       if (stopped()) throw new Error('Subtitle submission stopped by owner')
-      if (current!.replacement && !current!.freeRetryFromKey && !(await policy()).enabled) return block('automatic paid subtitle replacement is Off', 'buy_missing_subtitles')
+      if (current!.replacement && !current!.freeRetryFromKey && !(await policy()).enabled) {
+        return block('automatic subtitle retry is Off', 'rerun_subtitle_section')
+      }
     }
     const reclaimKey = async (request: GenStudioTranscriptionRequest): Promise<boolean> => {
       await state('free_recovery', 'Recovering existing subtitle task (free) by its saved idempotency key.')
@@ -498,7 +514,6 @@ export async function runSubtitleTranscription(input: SubtitleRecoveryInput): Pr
       if (stopped()) throw new Error('Subtitle recovery stopped by owner')
       const request: GenStudioTranscriptionRequest = {
         ...input.request, idempotencyKey: current.idempotencyKey, beforeConfirm,
-        withConfirm: confirm => current!.replacement ? withPaidSubtitleConfirmation(confirm) : confirm(),
         beforePost: async () => { if (stopped()) throw new Error('Subtitle submission stopped by owner') },
         onJobAccepted: async id => { current!.taskId = id; await persist('accepted') },
         onState: async (value, id) => { current!.taskId = id; await persist(value) },
@@ -548,25 +563,35 @@ export async function runSubtitleTranscription(input: SubtitleRecoveryInput): Pr
           }
           const failure = subtitleFailure(error)
           // A cancel is the owner's instruction, free or not. A free-fleet model never costs
-          // anything, so it re-runs; every other transient failure is the paid lane, and that
-          // lane is decided by its switch alone.
+          // anything, so it re-runs; every other transient failure follows the configured
+          // retry limit.
           const classification = freeFleet && !failure.cancelled ? 'free-retry' : classifySubtitleFailure(failure)
           if (classification === 'blocked') {
-            return block('This provider failure is not eligible for automatic subtitle replacement.',
+            return block(failure.cancelled
+              ? 'The owner cancelled the transcription; no automatic subtitle retry is performed.'
+              : 'This provider failure is not eligible for automatic subtitle retry.',
               !failure.cancelled ? 'rerun_subtitle_section' : false, 'needs_attention')
           }
-          if (classification === 'paid') {
-            if (current.replacement) return block('The one paid replacement failed; needs attention. Review the failure before explicitly re-running this section.', 'rerun_subtitle_section', 'needs_attention')
-            if (!(await policy()).enabled) return block('automatic paid subtitle replacement is Off', 'buy_missing_subtitles')
-            await rebindOriginalAuthority(true)
-            current.replacement = { originalTaskId: error.jobId, originalIdempotencyKey: current.idempotencyKey, failure }
-            current.idempotencyKey = `story-stt-${createHash('sha256').update(`${current.idempotencyKey}:subtitle-replacement:1`).digest('hex')}`
+          if (classification === 'retry') {
+            const authority = await policy()
+            if (!authority.enabled) return block('automatic subtitle retry is Off', 'rerun_subtitle_section')
+            const attempts = await change(ledger => ledger.plans[current!.planId]?.attempts.filter(a => a.section === section).length || 0)
+            const nextOrdinal = attempts + 1
+            if (nextOrdinal > authority.maxRetries) {
+              return block(`Automatic subtitle retries exhausted (${attempts} of ${authority.maxRetries}). Review this section before explicitly re-running it.`, 'rerun_subtitle_section', 'needs_attention')
+            }
+            if (!current.replacement) await rebindOriginalAuthority(true)
+            current.replacement = {
+              originalTaskId: error.jobId, originalIdempotencyKey: current.idempotencyKey, failure,
+              replacementOrdinal: nextOrdinal,
+            }
+            current.idempotencyKey = `story-stt-${createHash('sha256').update(`${current.idempotencyKey}:subtitle-replacement:${nextOrdinal}`).digest('hex')}`
             current.taskId = ''; current.confirmStarted = false; current.submittedAt = new Date().toISOString()
             await persist('prepared')
-            await state('paid_wait', `Preparing one replacement quote for ${section}.`)
+            await state('retry_pending', `Preparing retry ${nextOrdinal} of ${authority.maxRetries} for ${section}.`)
             continue
           }
-          // A free-fleet retry after a paid quote keeps its authorization; nothing more is bought.
+          // A free-fleet retry after a configured retry keeps its identity; nothing more is created.
           if (current.replacement) current.freeRetryFromKey = current.idempotencyKey
         } else if (error instanceof GenStudioTranscriptionTaskUnavailableError) {
           if (!freeFleet) return block(
