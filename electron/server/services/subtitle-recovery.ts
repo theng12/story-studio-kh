@@ -498,7 +498,6 @@ export async function runSubtitleTranscription(input: SubtitleRecoveryInput): Pr
       }
     }
     await persist()
-    let quoteExpiriesThisRun = 0
     for (;;) {
       if (stopped()) throw new Error('Subtitle recovery stopped by owner')
       const request: GenStudioTranscriptionRequest = {
@@ -540,15 +539,10 @@ export async function runSubtitleTranscription(input: SubtitleRecoveryInput): Pr
             const plan = ledger.plans[current!.planId]!
             plan.attempts = plan.attempts.filter(a => a.idempotencyKey !== current!.idempotencyKey)
           })
-          if (quoteExpiriesThisRun >= 3) {
-            return block('Quote expired; retry recovery later.', false, 'needs_attention')
-          }
-          quoteExpiriesThisRun++
-          current.freeRetries++
-          current.idempotencyKey = `story-stt-${createHash('sha256').update(`${current.idempotencyKey}:free-retry`).digest('hex')}`
-          current.taskId = ''; current.confirmStarted = false; current.submittedAt = new Date().toISOString()
-          await persist('prepared')
-          continue
+          // Authoritative absence: the quote expired with no provider task. The saved
+          // identity is kept and no automatic request is created — an explicit re-run
+          // renews it. Automatic retry Off must stay zero automatic requests.
+          return block('The transcription quote expired before any provider task was created; no automatic retry was sent. Review this section before explicitly re-running it.', 'rerun_subtitle_section', 'needs_attention')
         } else if (error instanceof GenStudioTerminalFailureError && error.modality === 'transcription') {
           current.taskId = error.jobId
           await persist('failed')

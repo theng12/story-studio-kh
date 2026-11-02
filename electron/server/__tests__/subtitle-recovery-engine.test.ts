@@ -643,31 +643,28 @@ test('manual purchase derives only exact missing sections from the failed job', 
   assert.throws(() => subtitlePurchaseParams({ ...job, status: 'running' }), /failed/)
 })
 
-test('quote expiry HTTP 410 retries for free while Off, with a persisted renewed key', async t => {
+test('quote expiry HTTP 410 with no provider task stops needs_attention without minting a fresh key', async t => {
   const f = await fixture(t)
   await fs.unlink(path.join(f.outDir, '.task-manifest.json'))
   f.expireQuote()
-  assert.equal((await f.run()).srt, srt)
+  await assert.rejects(f.run(), /quote expired before any provider task was created/)
+  assert.equal(f.confirmations.length, 0)
+  assert.equal(f.calls.filter(call => call.endsWith('/quotes')).length, 1, 'no automatic renewal quote is created')
   const state = JSON.parse(await fs.readFile(path.join(f.outDir, '.subtitle-recovery.json'), 'utf8'))
-  assert.equal(state.sections['Chapter_01.srt'].freeRetries, 1)
+  assert.equal(state.sections['Chapter_01.srt'].freeRetries, 0, 'no fresh key is minted while Off')
   assert.equal(Object.values(state.plans).flatMap((p: any) => p.attempts).length, 0)
+  assert.equal((f.job.params.subtitle_recovery as any).sections.Chapter_01.manual_action, 'rerun_subtitle_section')
 })
 
-test('the exact Gateway HTTP 422 confirm expiry renews only the uncreated request', async t => {
+test('the exact Gateway HTTP 422 confirm expiry with no created task stops without a renewed request', async t => {
   const f = await fixture(t)
   await fs.unlink(path.join(f.outDir, '.task-manifest.json'))
-  let expired = false
-  f.confirm(async () => {
-    if (!expired) {
-      expired = true
-      return Response.json({ detail: 'transcription quote has expired' }, { status: 422 })
-    }
-  })
-  assert.equal((await f.run()).srt, srt)
-  assert.equal(f.confirmations.length, 2, 'one expired confirm and one renewed-key confirm')
-  assert.equal(f.calls.filter(call => call.endsWith('/quotes')).length, 2, 'only one fresh quote is created')
+  f.confirm(async () => Response.json({ detail: 'transcription quote has expired' }, { status: 422 }))
+  await assert.rejects(f.run(), /quote expired before any provider task was created/)
+  assert.equal(f.confirmations.length, 1, 'the expired confirm is not replayed under a fresh key')
+  assert.equal(f.calls.filter(call => call.endsWith('/quotes')).length, 1, 'no renewed quote is created')
   const state = JSON.parse(await fs.readFile(path.join(f.outDir, '.subtitle-recovery.json'), 'utf8'))
-  assert.equal(state.sections['Chapter_01.srt'].freeRetries, 1)
+  assert.equal(state.sections['Chapter_01.srt'].freeRetries, 0, 'no fresh key is minted while Off')
 })
 
 test('the same HTTP 422 expiry detail at quote creation stays fail-closed', async t => {
