@@ -17,6 +17,7 @@ import {
   pickClipLength,
   matchFilesToScenes,
   generateHandoffData,
+  parseCustomClipLengths,
 } from '../lib/scene-import.js'
 import type { ScenePlanEntry } from '../models/types.js'
 import { getFFmpegPath } from '../services/ffmpeg-manager.js'
@@ -95,6 +96,45 @@ test('pickClipLength with extended preset picks shortest covering', () => {
   assert.deepEqual(pickClipLength(30, 'flow_extended'), { clip_seconds: 24, exceeds_max: true })
 })
 
+test('pickClipLength with custom allowed lengths picks shortest covering length', () => {
+  const custom = [5, 10]
+  // 3s scene → 5s
+  assert.deepEqual(pickClipLength(3, custom), { clip_seconds: 5, exceeds_max: false })
+  // 5s scene → 5s
+  assert.deepEqual(pickClipLength(5, custom), { clip_seconds: 5, exceeds_max: false })
+  // 7s scene → 10s
+  assert.deepEqual(pickClipLength(7, custom), { clip_seconds: 10, exceeds_max: false })
+  // 15s scene → exceeds max (10s)
+  assert.deepEqual(pickClipLength(15, custom), { clip_seconds: 10, exceeds_max: true })
+  // Works when passed as 'custom' preset with customLengths argument
+  assert.deepEqual(pickClipLength(7, 'custom', custom), { clip_seconds: 10, exceeds_max: false })
+  // Fallback to flow default when custom lengths is empty
+  assert.deepEqual(pickClipLength(7, 'custom', []), { clip_seconds: 8, exceeds_max: false })
+})
+
+test('parseCustomClipLengths parses valid inputs and sorts uniquely', () => {
+  assert.deepEqual(parseCustomClipLengths('5, 10'), { ok: true, lengths: [5, 10] })
+  assert.deepEqual(parseCustomClipLengths('5, 10s'), { ok: true, lengths: [5, 10] })
+  assert.deepEqual(parseCustomClipLengths('5s, 10sec'), { ok: true, lengths: [5, 10] })
+  assert.deepEqual(parseCustomClipLengths('10 5 10'), { ok: true, lengths: [5, 10] })
+  assert.deepEqual(parseCustomClipLengths([10, 5, 20]), { ok: true, lengths: [5, 10, 20] })
+  assert.deepEqual(parseCustomClipLengths(8), { ok: true, lengths: [8] })
+})
+
+test('parseCustomClipLengths refuses invalid inputs', () => {
+  assert.equal(parseCustomClipLengths('').ok, false)
+  assert.equal(parseCustomClipLengths('   ').ok, false)
+  assert.equal(parseCustomClipLengths([]).ok, false)
+  assert.equal(parseCustomClipLengths(null).ok, false)
+  assert.equal(parseCustomClipLengths(undefined).ok, false)
+  assert.equal(parseCustomClipLengths('0').ok, false)
+  assert.equal(parseCustomClipLengths('-5').ok, false)
+  assert.equal(parseCustomClipLengths('5.5').ok, false)
+  assert.equal(parseCustomClipLengths('abc').ok, false)
+  assert.equal(parseCustomClipLengths([0, 5]).ok, false)
+  assert.equal(parseCustomClipLengths([-2, 10]).ok, false)
+})
+
 test('matchFilesToScenes matches by exact scene ID', () => {
   const scenes = [
     makeScene({ id: 'scene-a', scene_index: 1, start_sec: 0, end_sec: 8 }),
@@ -138,6 +178,31 @@ test('matchFilesToScenes handles unmatched and odd-named files', () => {
   assert.equal(result.matched.length, 1)
   assert.equal(result.unmatched.length, 1)
   assert.equal(result.unmatched[0]!.name, 'random-video.mp4')
+})
+
+test('matchFilesToScenes matches common outside-tool name shapes and handles random names', () => {
+  const scenes = [
+    makeScene({ id: 'scene-a', scene_index: 1, start_sec: 0, end_sec: 5 }),
+    makeScene({ id: 'scene-b', scene_index: 2, start_sec: 5, end_sec: 15 }),
+    makeScene({ id: 'scene-c', scene_index: 3, start_sec: 15, end_sec: 25 }),
+  ]
+  const files = [
+    { name: 'my-clip (1).mp4' },            // outside tool with index in parentheses
+    { name: 'Untitled_scene-b_v2.mp4' },     // outside tool export containing scene ID
+    { name: 'scene-c_watermark.mp4' },       // outside tool clip with watermark in filename
+    { name: 'f47ac10b-58cc-4372-a567-0e02b2c3d479.mp4' }, // long random hash name
+  ]
+  const result = matchFilesToScenes(files, scenes)
+  // my-clip (1) → scene-a (index 1)
+  // Untitled_scene-b_v2 → scene-b (ID match)
+  // scene-c_watermark → scene-c (ID match)
+  assert.equal(result.matched.length, 3)
+  assert.equal(result.matched[0]!.scene.id, 'scene-a')
+  assert.equal(result.matched[1]!.scene.id, 'scene-b')
+  assert.equal(result.matched[2]!.scene.id, 'scene-c')
+  // Long random name cannot match any scene
+  assert.equal(result.unmatched.length, 1)
+  assert.equal(result.unmatched[0]!.name, 'f47ac10b-58cc-4372-a567-0e02b2c3d479.mp4')
 })
 
 test('matchFilesToScenes matches all files dropped under suggested names (clips and images)', () => {
@@ -247,6 +312,70 @@ test('GET hand-off endpoint returns scene import data', async () => {
   assert.equal(response.body.scenes_needing_clips[0].scene_id, 'scene-a')
   assert.equal(response.body.scenes_needing_clips[0].clip_seconds, 8)
   assert.ok(Array.isArray(response.body.scenes_needing_images))
+
+  // Custom preset with custom_lengths in query
+  const customQueryResponse = await request(app)
+    .get(`/api/projects/${project.slug}/scene-review/${accepted.episode_code}/import-handoff`)
+    .query({ preset: 'custom', custom_lengths: '5, 10' })
+  assert.equal(customQueryResponse.status, 200)
+  // Scene duration is 8s; with custom [5, 10], shortest covering is 10s
+  assert.equal(customQueryResponse.body.scenes_needing_clips[0].clip_seconds, 10)
+
+  // Refuses bad custom_lengths in query with 400
+  const badQueryResponse = await request(app)
+    .get(`/api/projects/${project.slug}/scene-review/${accepted.episode_code}/import-handoff`)
+    .query({ preset: 'custom', custom_lengths: 'invalid' })
+  assert.equal(badQueryResponse.status, 400)
+})
+
+test('channel scene_import settings save per channel, persist custom lengths, and read back', async () => {
+  const pm = await import('../services/project-manager.js')
+  const ideas = await import('../services/idea-manager.js')
+  const { resolveEpisodePathsByCode } = await import('../services/utils.js')
+  const project = await pm.createProject({ name: 'Channel Settings Import', episode_prefix: 'EP', episode_digits: 3 })
+  const [idea] = await ideas.addIdeas(project.slug, [{
+    title: 'Custom channel fixture', logline: 'Fixture.', themes: [],
+    suggested_chapters: 1, suggested_length: 'short', mood: 'neutral',
+  }], 'mock-chat-v1')
+  assert.ok(idea)
+  const accepted = await ideas.acceptIdea(project.slug, idea.id, false)
+  const paths = await resolveEpisodePathsByCode(project.slug, accepted.episode_code)
+  await fs.mkdir(paths.scene_prompts_dir, { recursive: true })
+  await fs.writeFile(path.join(paths.scene_prompts_dir, 'scene_plan.json'), JSON.stringify({
+    scenes: [
+      { id: 'scene-a', scene_index: 1, start_sec: 0, end_sec: 4, approved: true, visual_prompt: 'A.', motion_prompt: 'Drift.' },
+    ],
+  }))
+
+  // 1. Save custom preset and custom_lengths via PUT /projects/:slug/settings/config
+  const saveRes = await request(app)
+    .put(`/api/projects/${project.slug}/settings/config`)
+    .send({ scene_import: { preset: 'custom', custom_lengths: [5, 10] } })
+  assert.equal(saveRes.status, 200, JSON.stringify(saveRes.body))
+
+  // 2. Read back config via GET /projects/:slug/settings/config
+  const readRes = await request(app)
+    .get(`/api/projects/${project.slug}/settings/config`)
+  assert.equal(readRes.status, 200)
+  assert.deepEqual(readRes.body.scene_import, { preset: 'custom', custom_lengths: [5, 10] })
+
+  // 3. GET /import-handoff without query params picks up saved channel preset & custom lengths
+  const handoffRes = await request(app)
+    .get(`/api/projects/${project.slug}/scene-review/${accepted.episode_code}/import-handoff`)
+  assert.equal(handoffRes.status, 200)
+  // Scene duration is 4s; saved lengths are [5, 10] → shortest covering is 5s
+  assert.equal(handoffRes.body.scenes_needing_clips[0].clip_seconds, 5)
+
+  // 4. Invalid custom lengths refused by PUT /settings/config
+  const badRes1 = await request(app)
+    .put(`/api/projects/${project.slug}/settings/config`)
+    .send({ scene_import: { preset: 'custom', custom_lengths: [0] } })
+  assert.equal(badRes1.status, 400)
+
+  const badRes2 = await request(app)
+    .put(`/api/projects/${project.slug}/settings/config`)
+    .send({ scene_import: { preset: 'custom', custom_lengths: [] } })
+  assert.equal(badRes2.status, 400)
 })
 
 test('GET match-files endpoint returns matching results', async () => {

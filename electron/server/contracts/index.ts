@@ -559,6 +559,14 @@ export const UpdateConfigSchema = z.object({
     enabled: z.boolean().optional(),
     model: z.string().trim().max(240).optional(),
   }).optional(),
+  /**
+   * 1.4.375 — scene import clip preset and allowed lengths for outside video/image tools
+   * (owner, 2026-11-02: "scene import is for ANY outside video or image tool").
+   */
+  scene_import: z.object({
+    preset: z.string().trim().max(80).optional(),
+    custom_lengths: z.array(z.number().int().positive()).min(1).optional(),
+  }).optional(),
 }).passthrough().transform((value) => {
   // Legacy Story Studio releases persisted a project-owned TTS catalog. Keep
   // accepting those payloads so old clients can save unrelated settings, but

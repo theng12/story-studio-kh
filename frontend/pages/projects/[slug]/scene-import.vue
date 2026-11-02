@@ -3,7 +3,7 @@
  <WorkspaceHero
  eyebrow="External import"
  title="Scene Import"
- description="Import clips and images generated outside Story Studio (Google Flow, Veo, etc.). Match files to scenes, convert once, keep originals."
+ description="Import clips and images generated outside Story Studio with any outside tool (Google Flow, Veo, etc.). Match files to scenes, convert once, keep originals."
  >
  <template #aside>
  <div class="import-hero-route" aria-label="Import workflow">
@@ -31,17 +31,43 @@
  v-if="handoff"
  eyebrow="Scenes needing assets"
  title="Import checklist"
- description="Copy each prompt into your external tool, save with the suggested filename, then drop the files here."
+ description="Copy each prompt into your outside tool, save with the suggested filename, then drop the files here."
  class="import-checklist"
  >
  <div class="import-preset-selector">
+ <div class="preset-controls">
  <label>Clip preset:
- <select v-model="selectedPreset" class="select" @change="loadHandoff">
+ <select v-model="selectedPreset" class="select" @change="onPresetChange">
  <option value="flow">Google Flow (8s)</option>
  <option value="flow_extended">Google Flow Extended (8/16/24s)</option>
  <option value="veo">Veo (8s)</option>
+ <option value="custom">Custom</option>
  </select>
  </label>
+ <div v-if="selectedPreset === 'custom'" class="custom-lengths-control">
+ <label>Allowed lengths (seconds):
+ <input
+ v-model="customLengthsInput"
+ type="text"
+ class="input-custom-lengths"
+ placeholder="e.g. 5, 10"
+ @change="saveCustomLengths"
+ @keydown.enter="saveCustomLengths"
+ />
+ </label>
+ <button
+ type="button"
+ class="btn btn-sm btn-secondary"
+ :disabled="savingConfig"
+ @click="saveCustomLengths"
+ >
+ {{ savingConfig ? 'Saving...' : 'Save' }}
+ </button>
+ </div>
+ </div>
+ <p v-if="customLengthsError" class="custom-lengths-error text-danger">
+ {{ customLengthsError }}
+ </p>
  </div>
 
  <div v-if="handoff.scenes_needing_clips.length" class="import-clips-section">
@@ -203,6 +229,10 @@ const loading = ref(false)
 const loadStatus = ref('')
 const handoff = ref<any>(null)
 const selectedPreset = ref('flow')
+const customLengths = ref<number[]>([5, 10])
+const customLengthsInput = ref('5, 10')
+const customLengthsError = ref('')
+const savingConfig = ref(false)
 const dragOver = ref(false)
 const selectedFiles = ref<File[]>([])
 const matchResult = ref<any>(null)
@@ -212,12 +242,105 @@ const fileInput = ref<HTMLInputElement | null>(null)
 
 const canLoad = computed(() => !!episodeId.value)
 
+async function loadChannelConfig() {
+ if (!slug.value) return
+ try {
+ const res = await fetch(`/api/projects/${slug.value}/settings/config`)
+ if (res.ok) {
+ const cfg = await res.json()
+ if (cfg.scene_import?.preset) {
+ selectedPreset.value = cfg.scene_import.preset
+ }
+ if (Array.isArray(cfg.scene_import?.custom_lengths) && cfg.scene_import.custom_lengths.length > 0) {
+ customLengths.value = cfg.scene_import.custom_lengths
+ customLengthsInput.value = cfg.scene_import.custom_lengths.join(', ')
+ }
+ }
+ } catch {
+ // Retain default preset on network error
+ }
+}
+
+async function persistChannelConfig(preset: string, lengths?: number[]) {
+ if (!slug.value) return
+ savingConfig.value = true
+ try {
+ const payload: { preset: string; custom_lengths?: number[] } = { preset }
+ const lens = lengths && lengths.length > 0 ? lengths : customLengths.value
+ if (lens.length > 0) {
+ payload.custom_lengths = lens
+ }
+ const res = await fetch(`/api/projects/${slug.value}/settings/config`, {
+ method: 'PUT',
+ headers: { 'Content-Type': 'application/json' },
+ body: JSON.stringify({ scene_import: payload }),
+ })
+ if (!res.ok) {
+ const detail = await res.json().catch(() => ({}))
+ throw new Error(detail.detail || 'Failed to save channel scene import settings')
+ }
+ } catch (error: any) {
+ showError(error.message || 'Could not save channel preset')
+ } finally {
+ savingConfig.value = false
+ }
+}
+
+function parseClientLengths(input: string): { ok: true; lengths: number[] } | { ok: false; error: string } {
+ const trimmed = input.trim()
+ if (!trimmed) return { ok: false, error: 'At least one clip length is required.' }
+ const rawItems = trimmed.split(/[,\s]+/).map(s => s.replace(/(?:seconds?|secs?|s)$/i, '').trim()).filter(Boolean)
+ if (!rawItems.length) return { ok: false, error: 'At least one clip length is required.' }
+ const numbers: number[] = []
+ for (const item of rawItems) {
+ const n = Number(item)
+ if (!Number.isFinite(n) || !Number.isInteger(n) || n <= 0) {
+ return { ok: false, error: 'Clip lengths must be positive whole seconds (e.g. 5, 10).' }
+ }
+ numbers.push(n)
+ }
+ const unique = Array.from(new Set(numbers)).sort((a, b) => a - b)
+ if (!unique.length) return { ok: false, error: 'At least one clip length is required.' }
+ return { ok: true, lengths: unique }
+}
+
+async function saveCustomLengths() {
+ const parsed = parseClientLengths(customLengthsInput.value)
+ if (!parsed.ok) {
+ customLengthsError.value = 'error' in parsed ? parsed.error : 'Invalid clip lengths'
+ return
+ }
+ customLengthsError.value = ''
+ customLengths.value = parsed.lengths
+ customLengthsInput.value = parsed.lengths.join(', ')
+ await persistChannelConfig('custom', parsed.lengths)
+ showSuccess('Saved custom clip lengths')
+ await loadHandoff()
+}
+
+async function onPresetChange() {
+ if (selectedPreset.value === 'custom') {
+ if (!customLengths.value.length) {
+ customLengths.value = [5, 10]
+ customLengthsInput.value = '5, 10'
+ }
+ await persistChannelConfig('custom', customLengths.value)
+ } else {
+ await persistChannelConfig(selectedPreset.value)
+ }
+ await loadHandoff()
+}
+
 async function loadHandoff() {
  if (!episodeId.value) return
  loading.value = true
  loadStatus.value = 'Loading...'
  try {
- const response = await fetch(`/api/projects/${slug.value}/scene-review/${episodeId.value}/import-handoff?preset=${selectedPreset.value}`)
+ let url = `/api/projects/${slug.value}/scene-review/${episodeId.value}/import-handoff?preset=${selectedPreset.value}`
+ if (selectedPreset.value === 'custom' && customLengths.value.length) {
+ url += `&custom_lengths=${encodeURIComponent(customLengths.value.join(','))}`
+ }
+ const response = await fetch(url)
  if (!response.ok) {
  const detail = await response.json().catch(() => ({}))
  throw new Error(detail.detail || `Failed to load hand-off data (${response.status})`)
@@ -340,9 +463,12 @@ async function confirmImport() {
 
 
 
-onMounted(() => {
+onMounted(async () => {
+ if (slug.value) {
+ await loadChannelConfig()
+ }
  if (episodeId.value) {
- loadHandoff()
+ await loadHandoff()
  }
 })
 </script>
@@ -404,12 +530,42 @@ onMounted(() => {
  margin-bottom: 1.5rem;
 }
 
-.import-preset-selector label {
+.preset-controls {
+ display: flex;
+ align-items: center;
+ flex-wrap: wrap;
+ gap: 1rem;
+}
+
+.preset-controls label {
  display: flex;
  align-items: center;
  gap: 0.5rem;
  font-weight: 600;
  color: var(--text-primary);
+}
+
+.custom-lengths-control {
+ display: flex;
+ align-items: center;
+ gap: 0.5rem;
+ flex-wrap: wrap;
+}
+
+.input-custom-lengths {
+ width: 140px;
+ padding: 0.4rem 0.6rem;
+ border: 1px solid var(--border);
+ border-radius: var(--radius-md, 6px);
+ background: var(--bg-secondary);
+ color: var(--text-primary);
+ font-size: 0.875rem;
+}
+
+.custom-lengths-error {
+ margin-top: 0.5rem;
+ font-size: 0.8125rem;
+ color: var(--danger, #e5484d);
 }
 
 .import-asset-list {

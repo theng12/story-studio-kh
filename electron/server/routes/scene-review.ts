@@ -2165,20 +2165,34 @@ router.get('/projects/:slug/scene-review/:episodeId/audio', async (req, res) => 
 })
 
 // ── GET /scene-review/:ep/import-handoff ──────────────────────────────
-// v1.4.375 — hand-off data for external clip/image import (owner 2026-11-02:
-// "I use Google Flow to generate the scene and import"). Returns which scenes
-// need clips or images, with each scene's prompt and length ready to copy,
-// and the file name to save it as. Preset-owned clip lengths (Flow=8s).
+// v1.4.375 — hand-off data for external clip/image import from any outside tool
+// (owner 2026-11-02: "scene import is for ANY outside video or image tool").
+// Returns which scenes need clips or images, with each scene's prompt and length
+// ready to copy, and the file name to save it as. Preset-owned clip lengths or custom.
 router.get('/projects/:slug/scene-review/:episodeId/import-handoff', async (req, res) => {
   const { slug, episodeId } = req.params
-  const preset = (req.query.preset as string) || 'flow'
   try {
     const paths = await resolveEpisodePathsByCodeWithSidecar(slug, episodeId, SCENE_PLAN_FILENAME)
     const planPath = await resolveScenePlanPath(slug, episodeId, paths.episode_dir)
     if (!existsSync(planPath)) return res.status(400).json({ detail: 'No scene_plan.json yet' })
     const plan = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
+
+    const config = await pm.getConfig(slug).catch(() => null)
+    const savedImport = (config as any)?.scene_import
+    const preset = (req.query.preset as string) || savedImport?.preset || 'flow'
+
+    let customLengths: number[] | undefined
+    if (req.query.custom_lengths) {
+      const { parseCustomClipLengths } = await import('../lib/scene-import.js')
+      const parsed = parseCustomClipLengths(req.query.custom_lengths)
+      if (!parsed.ok) return res.status(400).json({ detail: parsed.error })
+      customLengths = parsed.lengths
+    } else if (Array.isArray(savedImport?.custom_lengths) && savedImport.custom_lengths.length > 0) {
+      customLengths = savedImport.custom_lengths
+    }
+
     const { generateHandoffData } = await import('../lib/scene-import.js')
-    const handoff = generateHandoffData(plan.scenes, preset as any)
+    const handoff = generateHandoffData(plan.scenes, preset as any, customLengths)
     res.json(handoff)
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Failed to generate import hand-off'))

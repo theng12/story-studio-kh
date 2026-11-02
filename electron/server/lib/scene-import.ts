@@ -1,44 +1,124 @@
 /**
- * Scene import utilities for external clips and images (Google Flow workflow).
+ * Scene import utilities for external clips and images from any outside tool.
  *
  * Owner (2026-11-02): "let me refer back to my import flow of clips and images
  * instead. I use Google Flow to generate the scene and import. that's better
  * and doesn't cost me anything. a watermark is expected."
  *
+ * Owner (2026-11-02): scene import is for ANY outside video or image tool,
+ * not just Google Flow: "I just copy the prompt and then generate and import back".
+ *
  * This module provides:
- * - Preset-owned allowed clip lengths (Flow=8s, extended=longer)
- * - Matching imported files to scenes by name or order
+ * - Preset-owned allowed clip lengths (Flow=8s, extended=longer, or Custom)
+ * - Matching imported files to scenes by name, scene ID, scene number, or order
  * - Hand-off data showing which scenes need clips/images with prompts
  *
  * The actual import (conversion, trash, checkpoint) reuses the existing
- * single-file upload endpoints in scene-review.ts.
+ * single-file upload endpoints in scene-review.ts. Watermarks from any outside
+ * tool are accepted without rejection or flagging.
  */
 
 import path from 'path'
 import type { ScenePlanEntry } from '../models/types.js'
 
 /**
- * Preset-owned allowed clip lengths for external video tools.
- * Flow makes 8s clips by default; extended clips are longer.
+ * Preset-owned allowed clip lengths for outside video tools.
+ * Flow makes 8s clips by default; extended clips are longer; Custom allows owner-defined lengths.
  */
 export const EXTERNAL_CLIP_PRESETS = {
   flow: { label: 'Google Flow', allowed_lengths: [8], default: 8 },
   flow_extended: { label: 'Google Flow Extended', allowed_lengths: [8, 16, 24], default: 8 },
   veo: { label: 'Veo', allowed_lengths: [8], default: 8 },
+  custom: { label: 'Custom', allowed_lengths: [], default: 8 },
 } as const
 
 export type ClipPresetKey = keyof typeof EXTERNAL_CLIP_PRESETS
 
 /**
+ * Validate and parse custom clip lengths entered by the owner.
+ * Allowed input: positive whole seconds (integers > 0), at least one length.
+ * Accepts strings like "5, 10", "5, 10s", or number arrays [5, 10].
+ * Returns sorted unique lengths, or an error description.
+ */
+export function parseCustomClipLengths(
+  input: unknown,
+): { ok: true; lengths: number[] } | { ok: false; error: string } {
+  if (input === null || input === undefined) {
+    return { ok: false, error: 'At least one clip length is required.' }
+  }
+  let rawItems: unknown[]
+  if (Array.isArray(input)) {
+    rawItems = input
+  } else if (typeof input === 'string') {
+    const trimmed = input.trim()
+    if (!trimmed) {
+      return { ok: false, error: 'At least one clip length is required.' }
+    }
+    rawItems = trimmed
+      .split(/[,\s]+/)
+      .map(s => s.replace(/(?:seconds?|secs?|s)$/i, '').trim())
+      .filter(Boolean)
+  } else if (typeof input === 'number') {
+    rawItems = [input]
+  } else {
+    return { ok: false, error: 'Clip lengths must be positive whole seconds.' }
+  }
+
+  if (rawItems.length === 0) {
+    return { ok: false, error: 'At least one clip length is required.' }
+  }
+
+  const numbers: number[] = []
+  for (const item of rawItems) {
+    const num = typeof item === 'number' ? item : Number(String(item).trim())
+    if (!Number.isFinite(num) || !Number.isInteger(num) || num <= 0) {
+      return { ok: false, error: 'Clip lengths must be positive whole seconds (e.g. 5, 10).' }
+    }
+    numbers.push(num)
+  }
+
+  const unique = Array.from(new Set(numbers)).sort((a, b) => a - b)
+  if (unique.length === 0) {
+    return { ok: false, error: 'At least one clip length is required.' }
+  }
+
+  return { ok: true, lengths: unique }
+}
+
+/**
  * Pick the shortest allowed clip length that covers the scene duration.
+ * Can take a preset key ('flow', 'veo', 'custom'), an array of allowed lengths directly,
+ * or both a preset key and custom lengths.
  * Returns the length and whether the scene exceeds the longest allowed clip.
  */
 export function pickClipLength(
   sceneDurationSeconds: number,
-  presetKey: ClipPresetKey = 'flow',
+  presetOrLengths: ClipPresetKey | string | readonly number[] | number[] = 'flow',
+  customLengths?: readonly number[] | number[],
 ): { clip_seconds: number; exceeds_max: boolean } {
-  const preset = EXTERNAL_CLIP_PRESETS[presetKey] || EXTERNAL_CLIP_PRESETS.flow
-  const sorted = [...preset.allowed_lengths].sort((a, b) => a - b)
+  let lengths: readonly number[] = []
+
+  if (Array.isArray(presetOrLengths)) {
+    lengths = presetOrLengths
+  } else if (presetOrLengths === 'custom') {
+    lengths = customLengths && customLengths.length > 0 ? customLengths : [8]
+  } else if (typeof presetOrLengths === 'string' && presetOrLengths in EXTERNAL_CLIP_PRESETS) {
+    lengths = EXTERNAL_CLIP_PRESETS[presetOrLengths as ClipPresetKey].allowed_lengths
+  }
+
+  // Fallback to flow default if no valid lengths provided
+  if (!lengths || lengths.length === 0) {
+    lengths = EXTERNAL_CLIP_PRESETS.flow.allowed_lengths
+  }
+
+  const sorted = [...lengths]
+    .filter(n => typeof n === 'number' && Number.isFinite(n) && n > 0)
+    .sort((a, b) => a - b)
+
+  if (sorted.length === 0) {
+    sorted.push(EXTERNAL_CLIP_PRESETS.flow.default)
+  }
+
   const max = sorted[sorted.length - 1]!
 
   // Find the shortest length that covers the scene
@@ -76,9 +156,11 @@ export function clipPrompt(
  * Match imported files to scenes by filename or order.
  *
  * Matching priority:
- * 1. Exact scene ID match (e.g., "scene-a.mp4" → scene with id "scene-a")
- * 2. Scene index match (e.g., "01.mp4" or "scene_01.mov" → scene_index 1)
- * 3. Unmatched (order-based matching requires explicit confirmation from UI)
+ * 1. Explicit scene ID from file metadata
+ * 2. Exact scene ID match (e.g. "scene-a.mp4" → scene with id "scene-a")
+ * 3. Embedded scene ID token (e.g. "Untitled_scene-b_v2.mp4" → scene with id "scene-b")
+ * 4. Scene index patterns (e.g. "01.mp4", "scene_01.mov", "my-clip (1).mp4" → scene_index 1)
+ * 5. Unmatched (order-based matching requires explicit confirmation from UI)
  */
 export function matchFilesToScenes(
   files: Array<{ name: string; scene_id?: string }>,
@@ -120,9 +202,32 @@ export function matchFilesToScenes(
       continue
     }
 
-    // Priority 2: Scene index patterns: "01", "scene_01", "Scene01", "scene-01", "clip_02"
+    // Priority 1b: Embedded scene ID in outside-tool filenames (e.g. "Untitled_scene-b_v2.mp4", "Flow_scene-a.mp4")
+    const idCandidates: ScenePlanEntry[] = []
+    for (const [id, scene] of scenesById.entries()) {
+      if (usedScenes.has(id)) continue
+      const escaped = id.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&')
+      const idPattern = new RegExp(`(^|[_\\s.()\\[\\]-])${escaped}(?:$|[_\\s.()\\[\\]-])`, 'i')
+      if (idPattern.test(basename)) {
+        idCandidates.push(scene)
+      }
+    }
+    if (idCandidates.length === 1) {
+      const scene = idCandidates[0]!
+      matched.push({ file, scene })
+      usedScenes.add(scene.id)
+      continue
+    } else if (idCandidates.length > 1) {
+      ambiguous.push({ file, candidates: idCandidates })
+      continue
+    }
+
+    // Priority 2: Scene index patterns: "01", "scene_01", "Scene01", "scene-01", "clip_02", "my-clip (1)", "clip (1)"
     const candidates: ScenePlanEntry[] = []
-    const indexMatch = basename.match(/^(?:(?:scene|clip)[_-]?)?(\d+)$/i) || basename.match(/(?:scene[_-]?)(\d+)/i)
+    const indexMatch =
+      basename.match(/^(?:(?:scene|clip)[_\s-]*)?\(?(\d+)\)?$/i) ||
+      basename.match(/(?:scene|clip)[_\s-]*\(?(\d+)\)?/i) ||
+      basename.match(/\((\d+)\)$/)
     if (indexMatch) {
       const index = parseInt(indexMatch[1]!, 10)
       const scene = scenesByIndex.get(index)
@@ -153,7 +258,8 @@ export function matchFilesToScenes(
  */
 export function generateHandoffData(
   scenes: ScenePlanEntry[],
-  presetKey: ClipPresetKey = 'flow',
+  presetOrLengths: ClipPresetKey | string | readonly number[] | number[] = 'flow',
+  customLengths?: readonly number[] | number[],
 ): {
   scenes_needing_clips: Array<{
     scene_id: string
@@ -192,7 +298,7 @@ export function generateHandoffData(
     // Scenes needing clips: have motion_prompt but no clip_path or motion_choice !== 'clip'
     if (scene.motion_prompt && (!scene.clip_path || scene.motion_choice !== 'clip')) {
       const duration = scene.end_sec - scene.start_sec
-      const { clip_seconds, exceeds_max } = pickClipLength(duration, presetKey)
+      const { clip_seconds, exceeds_max } = pickClipLength(duration, presetOrLengths, customLengths)
       scenes_needing_clips.push({
         scene_id: scene.id,
         scene_index: scene.scene_index,
