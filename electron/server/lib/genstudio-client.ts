@@ -8134,8 +8134,10 @@ async function restoreReplacementRequest<R extends GenStudioOperationContext>(
   const queue = await import('../services/job-queue.js')
   const job = queue.getJob(queue.currentJobId() || '')
   const isManualReplacementKey = job?.manual_failed_item_replacement?.requests.some(item => item.replacement_idempotency_key === key)
-  const attempt = job?.generation_replacement_attempts?.find(item => item.kind === kind
-    && (item.idempotency_key === key || (!isManualReplacementKey && item.item_key === itemKey && item.state !== 'failed')))
+  const matchingAttempts = (job?.generation_replacement_attempts || []).filter(item => item.kind === kind
+    && (item.idempotency_key === key || (!isManualReplacementKey && item.item_key === itemKey)))
+  const attempt = matchingAttempts.find(item => item.idempotency_key === key)
+    || matchingAttempts.filter(item => item.state !== 'failed').sort((a, b) => (b.ordinal ?? 1) - (a.ordinal ?? 1))[0]
   if (!job || !attempt) return { request, key }
   key = attempt.idempotency_key
   const baseUrl = await getGenStudioUrl()
@@ -8161,15 +8163,15 @@ async function restoreReplacementRequest<R extends GenStudioOperationContext>(
     if (!(error instanceof GenStudioApiError) || error.status !== 404 || attempt.state !== 'committed') throw error
   }
   return { key, request: { ...request, replacementChargeLimit: attempt.max_credits,
-    withPost: post => (async () => {
+    withPost: async post => {
       const policy = await getRetryFailedRequestsSetting(kind)
       const live = await queue.loadAuthoritativeJob(job.project_slug, job.job_id)
       if (!policy.enabled || !live || live.status !== 'running' || live.pause_requested
         || request.isCancelled?.() || request.signal?.aborted || await getGenStudioUrl() !== baseUrl) {
         throw new Error('Automatic retry stopped before submission: disabled, paused or cancelled.')
       }
-      return post()
-    })(),
+      return request.withPost ? request.withPost(post) : post()
+    },
   } }
 }
 
@@ -8192,7 +8194,9 @@ async function replaceConfirmedGeneration<T>(
     || isGenStudioSubmissionUncertain(error)
     || !originalKey || request.replacementChargeLimit !== undefined) throw error
   const queue = await import('../services/job-queue.js')
-  const storyJob = queue.getJob(queue.currentJobId() || '')
+  const current = queue.getJob(queue.currentJobId() || '')
+  if (!current || current.params?.jobs_replace_failed_items) throw error
+  const storyJob = (await queue.loadAuthoritativeJob(current.project_slug, current.job_id)) || current
   // The Jobs action already consumed this exact failed item's one deliberate
   // replacement. It must never start a second automatic replacement chain.
   if (!storyJob || storyJob.params?.jobs_replace_failed_items) throw error
@@ -8224,7 +8228,8 @@ async function replaceConfirmedGeneration<T>(
     // may still be adopted. `settledFailure` (services/failed-item-replacement.ts) and
     // `replayedSettledChatFailure` already read the hold; this guard read the code alone,
     // so a hold taken between the failure and this read bought a replacement anyway.
-    || holdsUnknownOutcome(original)) {
+    || holdsUnknownOutcome(original)
+    || (original.failure_code === 'UNKNOWN_OUTCOME' && original.recovery_required !== false)) {
     return refuse('The previous request is not a confirmed eligible failure.')
   }
 
@@ -8232,8 +8237,8 @@ async function replaceConfirmedGeneration<T>(
     item.item_key === itemKey || item.original_idempotency_key === originalKey || item.task_id === original.id
   ))
   const activeExisting = existingAttempts.find(item => item.state === 'committed' || item.state === 'submitted')
-  const completedCount = existingAttempts.filter(item => item.state === 'failed').length
-  const startOrdinal = activeExisting?.ordinal ?? (completedCount + 1)
+  const maxCompletedOrdinal = existingAttempts.reduce((max, item) => item.state === 'failed' ? Math.max(max, item.ordinal ?? 1) : max, 0)
+  const startOrdinal = activeExisting?.ordinal ?? (maxCompletedOrdinal + 1)
   if (startOrdinal > maxRetries) {
     return refuse(`Retry limit (${maxRetries}) reached for this item.`)
   }
@@ -8307,9 +8312,34 @@ async function replaceConfirmedGeneration<T>(
       const result = await submit(committed.idempotency_key, 0, hooks)
       await checkpoint({ state: 'succeeded' })
       await notice('complete', `Retry ${ordinal} of ${maxRetries} finished; saved results are being verified.`)
+      try {
+        const current = await getGenStudioJobByIdempotencyKey(operation, baseUrl, apiKey, committed.idempotency_key, {}, Date.now() + GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS)
+        await checkpoint({ task_id: current.id, state: current.state === 'succeeded' ? 'succeeded' : current.state === 'failed' ? 'failed' : 'submitted' })
+      } catch { /* control lookup fallback */ }
       return result
     } catch (attemptError) {
       lastError = attemptError
+      try {
+        const current = await getGenStudioJobByIdempotencyKey(operation, baseUrl, apiKey, committed.idempotency_key, {}, Date.now() + GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS)
+        await checkpoint({ task_id: current.id, state: current.state === 'succeeded' ? 'succeeded' : current.state === 'failed' ? 'failed' : 'submitted' })
+        if (current.cancelled === true) {
+          await notice('blocked', `Retry ${ordinal} of ${maxRetries} was cancelled.`)
+          throw new Error(`Automatic ${kind} retry was cancelled: ${committed.idempotency_key}`, { cause: attemptError })
+        }
+        if (holdsUnknownOutcome(current) || isUncertainGenerationCode(current.failure_code) || (current.failure_code === 'UNKNOWN_OUTCOME' && current.recovery_required !== false)) {
+          await notice('blocked', `Retry ${ordinal} of ${maxRetries} holds unknown outcome.`)
+          throw new Error(`Automatic ${kind} retry held with unknown outcome: ${committed.idempotency_key}`, { cause: attemptError })
+        }
+        if (current.state === 'failed' && current.failure_class !== 'provider_transient') {
+          await notice('blocked', `Retry ${ordinal} of ${maxRetries} encountered non-transient failure: ${current.failure_code || 'non-transient'}`)
+          throw new Error(`Automatic ${kind} retry encountered non-transient failure: ${committed.idempotency_key}`, { cause: attemptError })
+        }
+      } catch (checkErr) {
+        if (checkErr instanceof Error && (checkErr.message.includes('holds unknown outcome') || checkErr.message.includes('was cancelled') || checkErr.message.includes('encountered non-transient failure'))) {
+          throw checkErr
+        }
+      }
+
       if (request.isCancelled?.() || request.signal?.aborted || (attemptError instanceof GenStudioTerminalFailureError && attemptError.cancelled)) {
         await notice('blocked', `Retry ${ordinal} of ${maxRetries} was cancelled.`)
         throw attemptError
@@ -8325,19 +8355,6 @@ async function replaceConfirmedGeneration<T>(
       if (ordinal >= maxRetries) {
         await notice('blocked', `Retries exhausted (${maxRetries} of ${maxRetries}).`)
         throw new Error(`Automatic ${kind} retry did not complete after ${maxRetries} attempts: ${attemptError instanceof Error ? attemptError.message : String(attemptError)}`, { cause: attemptError })
-      }
-    } finally {
-      try {
-        const current = await getGenStudioJobByIdempotencyKey(operation, baseUrl, apiKey, committed.idempotency_key, {}, Date.now() + GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS)
-        await checkpoint({ task_id: current.id, state: current.state === 'succeeded' ? 'succeeded' : current.state === 'failed' ? 'failed' : 'submitted' })
-        if (holdsUnknownOutcome(current)) {
-          await notice('blocked', `Retry ${ordinal} of ${maxRetries} holds unknown outcome.`)
-          throw new Error(`Automatic ${kind} retry held with unknown outcome: ${committed.idempotency_key}`)
-        }
-      } catch (checkErr) {
-        if (checkErr instanceof Error && checkErr.message.includes('holds unknown outcome')) {
-          throw checkErr
-        }
       }
     }
   }

@@ -169,7 +169,7 @@ test('generation replacement recovery reuses receipts, stays off-safe, and keeps
         maxInputCharacters: 5_000,
         speed: 1,
       }
-      await settings.setPaidAudioReplacementSetting({ enabled: true, additional_credit_ceiling: 10 })
+      await settings.setAudioRetrySetting({ enabled: true, retries: 1 })
       queue.registerExecutor('metadata', async job => {
         await client.generateTtsToFile('test-key', outPath, { ...request, idempotencyKey: originalAudioKey })
         await queue.mutateAuthoritativeJob(project.slug, job.job_id, current => {
@@ -182,7 +182,7 @@ test('generation replacement recovery reuses receipts, stays off-safe, and keeps
         // acceptance: the receipt survived, while the local artifact did not
         // and the caller rebuilt a fresh/manual key from its stale checkpoint.
         await fs.rm(outPath, { force: true })
-        await settings.setPaidAudioReplacementSetting({ enabled: false, additional_credit_ceiling: null })
+        await settings.setAudioRetrySetting({ enabled: false })
         await client.generateTtsToFile('test-key', outPath, { ...request, idempotencyKey: manualAudioKey })
       })
       const job = queue.enqueuePreparedForTest({ project_slug: project.slug, type: 'metadata', episode_id: 'audio-recovery', title: 'audio recovery', params: {} })
@@ -198,7 +198,7 @@ test('generation replacement recovery reuses receipts, stays off-safe, and keeps
 
     await t.test('an uncertain audio submission never creates an automatic replacement POST', async () => {
       const before = posts.filter(entry => entry.operation === 'audio').length
-      await settings.setPaidAudioReplacementSetting({ enabled: true, additional_credit_ceiling: 10 })
+      await settings.setAudioRetrySetting({ enabled: true, retries: 1 })
       let caught: unknown
       queue.registerExecutor('metadata', async () => {
         caught = await client.generateTtsToFile('test-key', path.join(temp.dir, 'uncertain.mp3'), {
@@ -222,7 +222,7 @@ test('generation replacement recovery reuses receipts, stays off-safe, and keeps
         maxInputCharacters: 5_000, speed: 1, idempotencyKey: connectionAudioKey,
       }
       const errors: unknown[] = []
-      await settings.setPaidAudioReplacementSetting({ enabled: true, additional_credit_ceiling: 10 })
+      await settings.setAudioRetrySetting({ enabled: true, retries: 1 })
       queue.registerExecutor('metadata', async job => {
         await client.generateTtsToFile('test-key', outPath, request)
         await queue.mutateAuthoritativeJob(project.slug, job.job_id, current => {
@@ -256,7 +256,7 @@ test('generation replacement recovery reuses receipts, stays off-safe, and keeps
 
     await t.test('an explicit manual key wins over an automatic receipt for the same chat body', async () => {
       const before = posts.filter(entry => entry.operation === 'chat').length
-      await settings.setPaidWritingReplacementSetting({ enabled: true, additional_credit_ceiling: 10 })
+      await settings.setWritingRetrySetting({ enabled: true, retries: 1 })
       queue.registerExecutor('metadata', async job => {
         const request = {
           modelId: 'writer-model', system: 'Return JSON.', userMessage: 'Write one collision-test item.',
@@ -293,7 +293,7 @@ test('generation replacement recovery reuses receipts, stays off-safe, and keeps
 
     await t.test('web search is part of a writing item identity', async () => {
       const before = posts.filter(entry => entry.operation === 'chat').length
-      await settings.setPaidWritingReplacementSetting({ enabled: true, additional_credit_ceiling: 10 })
+      await settings.setWritingRetrySetting({ enabled: true, retries: 1 })
       queue.registerExecutor('metadata', async () => {
         const common = {
           modelId: 'writer-model', system: 'Return JSON.', userMessage: 'Write the same bounded item.',
