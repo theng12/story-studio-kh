@@ -5,7 +5,8 @@
 - Candidate only, not installed. Integrated `feat/scene-import-375` through `c8dbaf2a` and `feat/instant-data-375` through `a67bf5dd` into `release/1.4.375`, keeping the 1.4.376 retry work separate.
 - Package and lock versions are 1.4.375; the matching plain-language CHANGELOG entry feeds the existing in-app What's New.
 - Includes external scene/image uploads, per-channel clip lengths, exact missing-clip fallback reason, shared page cache and refresh status, Publishing channel labels, Review finals layout, Library preview viewer, and Sketch Draw reveals already integrated on this release branch.
-- Prebuild, full ten-step detached gate and current-version in-app proof are required before acceptance. Gate evidence is recorded outside this tracked file so the tested source stays unchanged.
+- In-app proof verified the visible 1.4.375 badge and matching What's New entry in an isolated app. Shared page caching must not replace authoritative permission, transport, history, episode-status or account-health reads; those refreshes must retain their error and scope guards.
+- Prebuild and the full ten-step detached gate are required before acceptance. The first complete frontend preflight exposed cache-integration failures; a fresh full frontend lane must pass after their correction. Gate evidence is recorded outside this tracked file so the tested source stays unchanged.
 - Developer gives the separate go for a mini install at a quiet point. No install or Production action is authorized by this candidate.
 - 1.4.376 subtitle and writing/audio retry corrections stay on `feat/no-credits-376`; they must not hold up this release. Their runtime suites stay paused while this gate runs.
 
