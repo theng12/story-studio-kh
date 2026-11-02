@@ -140,6 +140,35 @@ test('matchFilesToScenes handles unmatched and odd-named files', () => {
   assert.equal(result.unmatched[0]!.name, 'random-video.mp4')
 })
 
+test('matchFilesToScenes matches all files dropped under suggested names (clips and images)', () => {
+  const scenes = [
+    makeScene({ id: 'scene-a', scene_index: 1, start_sec: 0, end_sec: 5, motion_prompt: 'drift', visual_prompt: 'shelves' }),
+    makeScene({ id: 'scene-b', scene_index: 2, start_sec: 5, end_sec: 15, motion_prompt: 'walk', image_path: '/img/b.png' }),
+    makeScene({ id: 'scene-c', scene_index: 3, start_sec: 15, end_sec: 25, motion_prompt: 'pan', image_path: '/img/c.png' }),
+    makeScene({ id: 'scene-d', scene_index: 4, start_sec: 25, end_sec: 30, visual_prompt: 'lamp', clip_path: '/clip/d.mp4', motion_choice: 'clip' }),
+  ]
+  const handoff = generateHandoffData(scenes, 'flow')
+  const files = [
+    ...handoff.scenes_needing_clips.map(c => ({ name: c.suggested_filename })),
+    ...handoff.scenes_needing_images.map(i => ({ name: i.suggested_filename })),
+  ]
+  assert.equal(files.length, 5) // scene-a.mp4, scene-b.mp4, scene-c.mp4, scene-a.png, scene-d.png
+  const result = matchFilesToScenes(files, scenes)
+  assert.equal(result.matched.length, 5)
+  assert.equal(result.unmatched.length, 0)
+  assert.equal(result.ambiguous.length, 0)
+  assert.deepEqual(
+    result.matched.map(m => `${m.file.name} -> ${m.scene.id}`),
+    [
+      'scene-a.mp4 -> scene-a',
+      'scene-b.mp4 -> scene-b',
+      'scene-c.mp4 -> scene-c',
+      'scene-a.png -> scene-a',
+      'scene-d.png -> scene-d',
+    ],
+  )
+})
+
 test('generateHandoffData lists scenes needing clips with prompts and filenames', () => {
   const scenes = [
     makeScene({

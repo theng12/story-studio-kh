@@ -60,6 +60,23 @@ test('a scene longer than the longest allowed clip says so in the prompt', () =>
   assert.match(prompt, /Slow movement\.$/)
 })
 
+test('every clip length is at most the preset max with warning whenever scene runs longer (10s scene with Flow 8s max)', () => {
+  const scenes = [
+    makeScene({ id: 'scene-c', scene_index: 3, start_sec: 0, end_sec: 10, motion_prompt: 'A pan across the reading room.' }),
+  ]
+  const { clip_seconds, exceeds_max } = pickClipLength(10, 'flow')
+  assert.equal(clip_seconds, 8)
+  assert.equal(exceeds_max, true)
+  const handoff = generateHandoffData(scenes, 'flow')
+  const row = handoff.scenes_needing_clips[0]!
+  assert.equal(row.clip_seconds, 8)
+  assert.equal(row.exceeds_max, true)
+  assert.equal(
+    row.motion_prompt,
+    '8s clip (scene runs 10s — longer than any allowed clip; trim or hold to fit): A pan across the reading room.',
+  )
+})
+
 test('clipPrompt is pure text assembly — no scene data leaks in', () => {
   assert.equal(clipPrompt(false, 16, 12, 'Pan right.'), '16s clip: Pan right.')
   assert.equal(

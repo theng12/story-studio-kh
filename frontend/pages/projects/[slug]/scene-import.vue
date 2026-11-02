@@ -64,15 +64,15 @@
  :value="clip.motion_prompt"
  readonly
  class="import-prompt-text"
- rows="2"
+ :rows="promptRows(clip.motion_prompt)"
  @click="selectOnFocus"
  ></textarea>
- <button class="btn btn-sm btn-ghost" @click="copyToClipboard(clip.motion_prompt)">Copy</button>
+ <button class="btn btn-sm btn-secondary" @click="copyToClipboard(clip.motion_prompt)">Copy</button>
  </div>
  <div class="import-asset-filename">
  <label>Save as:</label>
  <code class="import-filename">{{ clip.suggested_filename }}</code>
- <button class="btn btn-sm btn-ghost" @click="copyToClipboard(clip.suggested_filename)">Copy</button>
+ <button class="btn btn-sm btn-secondary" @click="copyToClipboard(clip.suggested_filename)">Copy</button>
  </div>
  </div>
  </div>
@@ -95,15 +95,15 @@
  :value="img.visual_prompt"
  readonly
  class="import-prompt-text"
- rows="2"
+ :rows="promptRows(img.visual_prompt)"
  @click="selectOnFocus"
  ></textarea>
- <button class="btn btn-sm btn-ghost" @click="copyToClipboard(img.visual_prompt)">Copy</button>
+ <button class="btn btn-sm btn-secondary" @click="copyToClipboard(img.visual_prompt)">Copy</button>
  </div>
  <div class="import-asset-filename">
  <label>Save as:</label>
  <code class="import-filename">{{ img.suggested_filename }}</code>
- <button class="btn btn-sm btn-ghost" @click="copyToClipboard(img.suggested_filename)">Copy</button>
+ <button class="btn btn-sm btn-secondary" @click="copyToClipboard(img.suggested_filename)">Copy</button>
  </div>
  </div>
  </div>
@@ -232,6 +232,11 @@ async function loadHandoff() {
  }
 }
 
+function promptRows(text?: string): number {
+ if (!text) return 2
+ return Math.min(10, Math.max(2, Math.ceil(text.length / 32)))
+}
+
 /** Select the whole prompt on click so one Copy gets all of it. */
 function selectOnFocus(event: MouseEvent) {
  const target = event.currentTarget as HTMLTextAreaElement | null
@@ -346,45 +351,53 @@ onMounted(() => {
 .scene-import {
  max-width: 1200px;
  margin: 0 auto;
- padding: 2rem;
+ padding: clamp(12px, 2.2vw, 32px);
 }
 
 .import-hero-route {
  display: flex;
  align-items: center;
- gap: 0.5rem;
- font-size: 0.875rem;
+ gap: 6px;
+ font-size: var(--font-xs, 12px);
+ flex-wrap: nowrap;
 }
 
 .import-hero-route span {
- width: 24px;
- height: 24px;
+ width: 22px;
+ height: 22px;
  border-radius: 50%;
- background: var(--color-surface-alt);
- display: flex;
+ background: var(--bg-tertiary);
+ border: 1px solid var(--border);
+ color: var(--text-muted);
+ display: inline-flex;
  align-items: center;
  justify-content: center;
- font-weight: 600;
+ font-weight: 700;
+ font-size: 11px;
 }
 
 .import-hero-route span.is-complete {
- background: var(--color-success);
- color: white;
+ border-color: #53c786;
+ background: #53c786;
+ color: #101710;
 }
 
 .import-hero-route span.is-current {
- background: var(--color-primary);
- color: white;
+ border-color: var(--accent);
+ background: var(--accent);
+ color: var(--accent-on);
 }
 
 .import-hero-route b {
  font-weight: 600;
+ color: var(--text-primary);
+ font-size: 13px;
 }
 
 .import-hero-route i {
- width: 24px;
+ width: 14px;
  height: 1px;
- background: var(--color-border);
+ background: var(--border);
 }
 
 .import-preset-selector {
@@ -396,6 +409,7 @@ onMounted(() => {
  align-items: center;
  gap: 0.5rem;
  font-weight: 600;
+ color: var(--text-primary);
 }
 
 .import-asset-list {
@@ -406,14 +420,14 @@ onMounted(() => {
 
 .import-asset-row {
  padding: 1rem;
- border: 1px solid var(--color-border);
- border-radius: 8px;
- background: var(--color-surface);
+ border: 1px solid var(--border);
+ border-radius: var(--radius-lg, 8px);
+ background: var(--bg-secondary);
 }
 
 .import-asset-row.import-warning {
- border-color: var(--color-warning);
- background: var(--color-warning-bg, rgba(255, 165, 0, 0.05));
+ border-color: var(--warning);
+ background: color-mix(in srgb, var(--warning) 6%, var(--bg-secondary));
 }
 
 .import-asset-meta {
@@ -424,15 +438,15 @@ onMounted(() => {
 }
 
 .import-scene-index {
- color: var(--color-primary);
+ color: var(--accent);
 }
 
 .import-duration {
- color: var(--color-text-secondary);
+ color: var(--text-secondary);
 }
 
 .import-warn {
- color: var(--color-warning);
+ color: var(--warning);
  font-weight: 700;
 }
 
@@ -447,34 +461,41 @@ onMounted(() => {
  font-size: 0.875rem;
  font-weight: 600;
  margin-bottom: 0.25rem;
- color: var(--color-text-secondary);
+ color: var(--text-secondary);
 }
 
 .import-prompt-text {
  width: 100%;
  font-family: monospace;
  font-size: 0.875rem;
+ line-height: 1.45;
  padding: 0.5rem;
- border: 1px solid var(--color-border);
- border-radius: 4px;
- background: var(--color-surface-alt);
+ border: 1px solid var(--border);
+ border-radius: var(--radius-sm, 4px);
+ background: var(--bg-tertiary);
+ color: var(--text-primary);
  resize: vertical;
  margin-bottom: 0.5rem;
+ field-sizing: content;
+ min-height: 52px;
+ box-sizing: border-box;
 }
 
 .import-filename {
  display: inline-block;
  padding: 0.25rem 0.5rem;
- background: var(--color-surface-alt);
- border-radius: 4px;
+ background: var(--bg-tertiary);
+ color: var(--text-primary);
+ border: 1px solid var(--border);
+ border-radius: var(--radius-sm, 4px);
  font-family: monospace;
  font-size: 0.875rem;
  margin-right: 0.5rem;
 }
 
 .drop-zone-area {
- border: 2px dashed var(--color-border);
- border-radius: 8px;
+ border: 2px dashed var(--border);
+ border-radius: var(--radius-lg, 8px);
  padding: 3rem;
  text-align: center;
  cursor: pointer;
@@ -483,13 +504,13 @@ onMounted(() => {
 
 .drop-zone-area:hover,
 .drop-zone-area.drop-zone-active {
- border-color: var(--color-primary);
- background: var(--color-primary-bg, rgba(0, 123, 255, 0.05));
+ border-color: var(--accent);
+ background: var(--accent-dim);
 }
 
 .drop-zone-area p {
  margin: 0;
- color: var(--color-text-secondary);
+ color: var(--text-secondary);
 }
 
 .sr-only {
@@ -510,19 +531,22 @@ onMounted(() => {
 
 .match-results h4 {
  margin-bottom: 1rem;
+ color: var(--text-primary);
 }
 
 .match-section {
  margin-bottom: 1rem;
  padding: 1rem;
- border-radius: 8px;
- background: var(--color-surface);
+ border-radius: var(--radius-lg, 8px);
+ background: var(--bg-secondary);
+ border: 1px solid var(--border);
 }
 
 .match-section h5 {
  margin-bottom: 0.5rem;
  font-size: 0.875rem;
  font-weight: 700;
+ color: var(--text-primary);
 }
 
 .match-section ul {
@@ -533,74 +557,29 @@ onMounted(() => {
 .match-section li {
  margin-bottom: 0.25rem;
  font-size: 0.875rem;
+ color: var(--text-secondary);
 }
 
 .match-warning {
- border-left: 3px solid var(--color-warning);
+ border-left: 3px solid var(--warning);
 }
 
 .candidate {
  display: inline-block;
  margin-right: 0.5rem;
  padding: 0.125rem 0.5rem;
- background: var(--color-surface-alt);
- border-radius: 4px;
+ background: var(--bg-tertiary);
+ border-radius: var(--radius-sm, 4px);
  font-size: 0.75rem;
-}
-
-.btn {
- padding: 0.5rem 1rem;
- border-radius: 6px;
- font-weight: 600;
- cursor: pointer;
- border: none;
- transition: all 0.2s;
-}
-
-.btn-sm {
- padding: 0.25rem 0.75rem;
- font-size: 0.875rem;
-}
-
-.btn-primary {
- background: var(--color-primary);
- color: white;
-}
-
-.btn-primary:hover:not(:disabled) {
- background: var(--color-primary-dark);
-}
-
-.btn-primary:disabled {
- opacity: 0.5;
- cursor: not-allowed;
-}
-
-.btn-secondary {
- background: var(--color-surface-alt);
- color: var(--color-text);
- border: 1px solid var(--color-border);
-}
-
-.btn-secondary:hover {
- background: var(--color-border);
-}
-
-.btn-ghost {
- background: transparent;
- color: var(--color-text-secondary);
-}
-
-.btn-ghost:hover {
- background: var(--color-surface-alt);
- color: var(--color-text);
+ color: var(--text-primary);
 }
 
 .select {
  padding: 0.5rem;
- border: 1px solid var(--color-border);
- border-radius: 6px;
- background: var(--color-surface);
+ border: 1px solid var(--border);
+ border-radius: var(--radius-md, 6px);
+ background: var(--bg-secondary);
+ color: var(--text-primary);
  font-size: 0.875rem;
 }
 </style>

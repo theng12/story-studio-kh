@@ -37,7 +37,7 @@ export function pickClipLength(
   sceneDurationSeconds: number,
   presetKey: ClipPresetKey = 'flow',
 ): { clip_seconds: number; exceeds_max: boolean } {
-  const preset = EXTERNAL_CLIP_PRESETS[presetKey]
+  const preset = EXTERNAL_CLIP_PRESETS[presetKey] || EXTERNAL_CLIP_PRESETS.flow
   const sorted = [...preset.allowed_lengths].sort((a, b) => a - b)
   const max = sorted[sorted.length - 1]!
 
@@ -64,8 +64,9 @@ export function clipPrompt(
   scene_seconds: number,
   prompt: string,
 ): string {
+  const isOver = exceeds_max || (scene_seconds > clip_seconds && clip_seconds > 0)
   const length = `${clip_seconds}s clip`
-  const over = exceeds_max
+  const over = isOver
     ? ` (scene runs ${scene_seconds}s — longer than any allowed clip; trim or hold to fit)`
     : ''
   return `${length}${over}: ${prompt}`
@@ -93,9 +94,13 @@ export function matchFilesToScenes(
 
   const scenesById = new Map(scenes.map(s => [s.id, s]))
   const scenesByIndex = new Map(scenes.map(s => [s.scene_index, s]))
-  const usedScenes = new Set<string>()
+  const usedVideos = new Set<string>()
+  const usedImages = new Set<string>()
 
   for (const file of files) {
+    const isVideo = /\.(mp4|mov|webm|mkv|avi)$/i.test(file.name)
+    const usedScenes = isVideo ? usedVideos : usedImages
+
     // Explicit scene_id from file metadata
     if (file.scene_id && scenesById.has(file.scene_id) && !usedScenes.has(file.scene_id)) {
       const scene = scenesById.get(file.scene_id)!
@@ -106,15 +111,18 @@ export function matchFilesToScenes(
 
     // Match by filename patterns
     const basename = path.basename(file.name, path.extname(file.name))
-    const candidates: ScenePlanEntry[] = []
 
-    // Try exact ID match
+    // Priority 1: Exact ID match (e.g. suggested filenames like "scene-a.mp4" / "scene-d.png")
     if (scenesById.has(basename) && !usedScenes.has(basename)) {
-      candidates.push(scenesById.get(basename)!)
+      const scene = scenesById.get(basename)!
+      matched.push({ file, scene })
+      usedScenes.add(scene.id)
+      continue
     }
 
-    // Try scene_index patterns: "01", "scene_01", "Scene01", "scene-01"
-    const indexMatch = basename.match(/(?:scene[_-]?)?(\d+)/i)
+    // Priority 2: Scene index patterns: "01", "scene_01", "Scene01", "scene-01", "clip_02"
+    const candidates: ScenePlanEntry[] = []
+    const indexMatch = basename.match(/^(?:(?:scene|clip)[_-]?)?(\d+)$/i) || basename.match(/(?:scene[_-]?)(\d+)/i)
     if (indexMatch) {
       const index = parseInt(indexMatch[1]!, 10)
       const scene = scenesByIndex.get(index)
