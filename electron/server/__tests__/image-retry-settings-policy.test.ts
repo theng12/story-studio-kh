@@ -86,7 +86,7 @@ void test('image retry scope derivation and ordinal extraction', () => {
 })
 
 void test('image retry decision policy: off means zero retries, exact count enforcement, restart replay, hold & cancel refusal', async () => {
-  const temp = await useTempDataDir('image-retry-policy-test')
+  const temp = await useTempDataDir()
   const root = path.join(temp.dir, 'test-assets')
   await mkdir(root, { recursive: true })
 
@@ -240,6 +240,8 @@ void test('image retry decision policy: off means zero retries, exact count enfo
     reference_identity_hash: sha256CanonicalJson([]),
     failure_code: 'IMAGE_FAILED',
     replacement_scope: (retry1 as any).scope,
+    terminal_observed_at: '2026-11-02T00:00:00.000Z',
+    eligible_at: '2026-11-02T00:30:00.000Z',
   }]
   const replayResult = await decidePaidImageReplacement({
     job: jobWithAttempt1,
@@ -254,7 +256,7 @@ void test('image retry decision policy: off means zero retries, exact count enfo
       apiKey: 'test-key',
     },
     persistence: {
-      readManifest: async () => ({ schema_version: 1, tasks: { 'missing.png': manifestEntry('scene-001', 'task-orig') } }),
+      readManifest: async () => ({ schema_version: 1, tasks: { 'missing.png': manifestEntry(identity.requestScope, 'task-orig') } }),
       inspectAuthoritativeJob: async (_slug, _id, inspect) => inspect(jobWithAttempt1),
       loadAuthoritativeJob: async () => jobWithAttempt1,
       writeAuthoritativeJob: async () => {},

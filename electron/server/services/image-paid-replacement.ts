@@ -7,7 +7,7 @@ import { createHash } from 'node:crypto'
 import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs'
 import path from 'node:path'
 import { GenStudioImageTerminalFailureError, holdsUnknownOutcome, listImageModelsForceLive, type GenStudioImageModel } from '../lib/genstudio-client.js'
-import { resolveImageRetryScope } from '../lib/manifest-recovery.js'
+import { extractImageRetryOrdinal, resolveImageRetryScope, stripSelectorScope } from '../lib/manifest-recovery.js'
 import type { Job, PaidImageReplacementAttempt } from '../models/types.js'
 import type { GenStudioAdmissionSnapshot } from '../lib/genstudio-admission.js'
 import { hashInput, readManifest, recordPaidImageReplacementStrict, type Manifest, type PaidImageOutputSelector, type PaidImageReferenceInput, type TaskManifestEntry } from './task-manifest.js'
@@ -261,17 +261,14 @@ export function isReleasedZeroSettlementImageRetry(
 ): boolean {
   return error instanceof GenStudioImageTerminalFailureError
     && ZERO_SETTLEMENT_IMAGE_FAILURE_CODES.has(error.failureCode || '')
-    && (decision?.action === 'safe-zero-settlement-retry' || (decision as any)?.action === 'retry')
+    && (decision?.action === 'safe-zero-settlement-retry' || decision?.action === 'retry')
 }
 
 /** Recheck the install-level opt-in at the final zero-settlement POST boundary. */
 export async function assertReleasedZeroSettlementImageRetrySubmit(): Promise<void> {
-  const queue = await import('./job-queue.js')
-  await queue.withPaidImageWaitSettingMutation(async () => {
-    const settings = await import('./app-settings.js')
-    const setting = await settings.getPaidImageReplacementSetting().catch(() => null)
-    if (!setting?.enabled) fail('paid image replacement is currently off on this machine')
-  })
+  const settings = await import('./app-settings.js')
+  const retrySetting = await settings.getImageRetrySetting().catch(() => null)
+  if (!retrySetting?.enabled) fail('image retry is currently off on this machine')
 }
 
 export type PaidImageReplacementPublicReason =
@@ -377,7 +374,7 @@ function sameAttemptFacts(attempt: PaidImageReplacementAttempt, asset: PaidImage
   return attempt.asset_key === asset.assetKey
     && attempt.manifest_dir === asset.manifestDir
     && attempt.manifest_key === asset.manifestKey
-    && attempt.output_path === asset.outputPath
+    && (attempt.output_path === asset.outputPath || attempt.output_path === entry.original_output_path)
     && attempt.original_task_id === entry.task_id
     && attempt.original_idempotency_key === entry.idempotency_key
     && attempt.input_hash === entry.input_hash
@@ -486,7 +483,7 @@ function overwriteJob(target: Job, source: Job): void {
  */
 export async function decidePaidImageReplacement(input: PaidImageReplacementDecisionInput): Promise<PaidImageReplacementDecision> {
   if (!validPolicy(input.job)) return {
-    action: 'not-eligible', reason: 'the job has no valid paid image replacement policy', public_reason: 'replacement_disabled',
+    action: 'not-eligible', reason: 'the job has no valid retry policy', public_reason: 'replacement_disabled',
   }
   const persistence = input.persistence || await defaultPersistence()
   const now = input.now || (() => new Date())
@@ -529,7 +526,7 @@ export async function decidePaidImageReplacement(input: PaidImageReplacementDeci
   if (initialArtifact === null) return blocked('the original artifact could not be audited')
   if (initialArtifact) return { action: 'recover-original' }
   const initialSetting = await dependencies.getSetting().catch(() => null)
-  if (!initialSetting?.enabled) return blocked('paid image replacement is currently off on this machine', 'replacement_disabled')
+  if (!initialSetting?.enabled) return blocked('image retry is currently off on this machine', 'replacement_disabled')
 
   const maxRetries = typeof initialSetting?.retries === 'number' && Number.isInteger(initialSetting.retries)
     ? Math.min(Math.max(initialSetting.retries, 1), 10)
@@ -546,6 +543,7 @@ export async function decidePaidImageReplacement(input: PaidImageReplacementDeci
           retryReason = 'the authoritative job was cancelled'
           return false
         }
+        const cleanScope = stripSelectorScope(entry!.request_scope)
         const matches = (job.paid_image_replacement_attempts || []).filter(candidate => candidate.asset_key === asset.assetKey)
 
         // Check if this exact terminal task was already granted a retry (restart replay):
@@ -555,13 +553,13 @@ export async function decidePaidImageReplacement(input: PaidImageReplacementDeci
             retryReason = 'the terminal failure changed during retry'
             return false
           }
-          grantedScope = existingForTask.replacement_scope || resolveImageRetryScope({ ...entry!, last_state: 'failed' }, asset.trustedOriginal.baseScope).scope
+          const retryEntry = { ...entry!, request_scope: cleanScope, last_state: 'failed' as const }
+          grantedScope = existingForTask.replacement_scope || resolveImageRetryScope(retryEntry, asset.trustedOriginal.baseScope).scope
+          attemptOrdinal = extractImageRetryOrdinal(grantedScope) || 1
           return true
         }
 
-        const scopeOrdinal = typeof entry!.request_scope === 'string'
-          ? (entry!.request_scope.match(/:retry:(\d+):/) ? parseInt(entry!.request_scope.match(/:retry:(\d+):/)![1], 10) : (entry!.request_scope.includes(':retry:') ? 1 : 0))
-          : 0
+        const scopeOrdinal = extractImageRetryOrdinal(cleanScope)
         const retriesUsed = Math.max(matches.length, scopeOrdinal)
         if (retriesUsed >= maxRetries) {
           retryReason = `the asset has exhausted all configured retry attempts (${maxRetries})`
@@ -569,7 +567,8 @@ export async function decidePaidImageReplacement(input: PaidImageReplacementDeci
         }
 
         attemptOrdinal = retriesUsed + 1
-        const resolved = resolveImageRetryScope({ ...entry!, last_state: 'failed' }, asset.trustedOriginal.baseScope, attemptOrdinal)
+        const retryEntry = { ...entry!, request_scope: cleanScope, last_state: 'failed' as const }
+        const resolved = resolveImageRetryScope(retryEntry, asset.trustedOriginal.baseScope, attemptOrdinal)
         grantedScope = resolved.scope
         return true
       }
@@ -577,7 +576,16 @@ export async function decidePaidImageReplacement(input: PaidImageReplacementDeci
       if (inspectFn) {
         return inspectFn(input.job.project_slug, input.job.job_id, validate)
       }
-      return validate(input.job)
+      if (persistence.loadAuthoritativeJob) {
+        const authJob = await persistence.loadAuthoritativeJob(input.job.project_slug, input.job.job_id)
+        if (!authJob) {
+          retryReason = 'the authoritative job is unavailable'
+          return false
+        }
+        return validate(authJob)
+      }
+      retryReason = 'authoritative job inspector is unavailable'
+      return false
     })
     if (authorized !== true) return blocked(retryReason || 'the authoritative job is unavailable', 'original_failure_not_eligible')
   } catch (error: any) {

@@ -279,11 +279,18 @@ export interface ImageRetryScope {
   previousTaskId?: string
 }
 
+export function stripSelectorScope(scope: string | undefined | null, fallback = ''): string {
+  const saved = typeof scope === 'string' ? scope.trim() : ''
+  const marker = saved.indexOf(':selector:')
+  return marker > 0 ? saved.slice(0, marker) : (saved || fallback)
+}
+
 export function extractImageRetryOrdinal(scope: string | undefined): number {
   if (!scope || typeof scope !== 'string') return 0
-  const match = scope.match(/:retry:(\d+):/)
+  const clean = stripSelectorScope(scope)
+  const match = clean.match(/:retry:(\d+):/)
   if (match) return parseInt(match[1], 10)
-  return scope.includes(':retry:') ? 1 : 0
+  return clean.includes(':retry:') ? 1 : 0
 }
 
 /**
@@ -308,24 +315,26 @@ export function resolveImageRetryScope(
   baseScope: string,
   ordinal?: number,
 ): ImageRetryScope {
-  const saved = typeof entry?.request_scope === 'string' ? entry.request_scope.trim() : ''
+  const rootBase = baseScope.includes(':retry:') ? baseScope.slice(0, baseScope.indexOf(':retry:')) : baseScope
+  const rawSaved = typeof entry?.request_scope === 'string' ? entry.request_scope.trim() : ''
+  const saved = stripSelectorScope(rawSaved)
   // Only adopt (and only promote) a saved scope that belongs to this base
   // attempt. A pre-scope manifest entry counts as belonging — it was submitted
   // under the bare base. A new deliberate force-render carries its own base,
   // which is already a fresh identity, so it never inherits an older retry
   // chain and never needs promoting.
-  const inChain = !saved || saved === baseScope || saved.startsWith(`${baseScope}:retry:`)
-  const current = inChain && saved ? saved : baseScope
+  const inChain = !saved || saved === baseScope || saved === rootBase || saved.startsWith(`${rootBase}:retry:`)
+  const current = inChain && saved ? saved : rootBase
   if (!inChain || !isTerminalGenStudioImageTaskFailure(entry)) {
-    return { scope: current, isRetry: current !== baseScope }
+    return { scope: current, isRetry: current !== rootBase }
   }
   const token = hashInput(`${current}\n${entry!.task_id}`).slice(-12)
   const match = current.match(/:retry:(\d+):/)
   const currentOrdinal = match ? parseInt(match[1], 10) : (current.includes(':retry:') ? 1 : 0)
   const nextOrdinal = ordinal ?? (currentOrdinal > 0 ? currentOrdinal + 1 : undefined)
   const scope = nextOrdinal !== undefined
-    ? `${baseScope}:retry:${nextOrdinal}:${token}`
-    : `${baseScope}:retry:${token}`
+    ? `${rootBase}:retry:${nextOrdinal}:${token}`
+    : `${rootBase}:retry:${token}`
   return { scope, isRetry: true, previousTaskId: entry!.task_id }
 }
 
