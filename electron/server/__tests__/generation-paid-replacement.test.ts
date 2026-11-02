@@ -77,28 +77,6 @@ test('generation replacement: configurable retries with count 2, payload stabili
     const method = (init?.method || 'GET').toUpperCase()
     const pathname = url.pathname
 
-    const notedByJob = new Map<string, string[]>()
-    const origNote = queue.noteCurrentJob
-    queue.noteCurrentJob = (line: string) => {
-      origNote(line)
-      const id = queue.currentJobId()
-      if (id) {
-        const list = notedByJob.get(id) || []
-        list.push(line)
-        notedByJob.set(id, list)
-      }
-    }
-    const origGetJob = queue.getJob
-    queue.getJob = (id: string) => {
-      const job = origGetJob(id)
-      if (!job) return null
-      const noted = notedByJob.get(id)
-      if (noted?.length) {
-        return { ...job, output_lines: [...new Set([...job.output_lines, ...noted])] }
-      }
-      return job
-    }
-
     if (method === 'GET') {
       if (pathname.endsWith('/chat/models')) return Response.json([{
         id: 'writer-test', display_name: 'Writer test', available: true, qualification_only: false, context_window_tokens: 65536,
@@ -154,6 +132,8 @@ test('generation replacement: configurable retries with count 2, payload stabili
       if (scenario === 'count2-success') {
         // Original (postCount 1) fails, Retry 1 (postCount 2) fails, Retry 2 (postCount 3) succeeds
         succeeded = postCount >= 3
+      } else if (scenario === 'held-during-retry') {
+        held = isRetry
       } else if (scenario === 'cancelled-during-retry') {
         cancelled = isRetry
       } else if (scenario === 'success') {
@@ -254,8 +234,7 @@ test('generation replacement: configurable retries with count 2, payload stabili
         postCount = 0
         byKey.clear()
         await settings.setWritingRetrySetting({ enabled: true, retries: 2 })
-        queue.registerExecutor('metadata', async job => {
-          console.log('EXECUTOR CALLED, currentJobId =', queue.currentJobId(), 'job.job_id =', job.job_id)
+        queue.registerExecutor('metadata', async () => {
           await callChatWithGenStudio('test-api-key', {
             idempotencyKey: 'test-key-count2',
             modelId: 'writer-test', system: '', userMessage: 'count2 payload', outputContract: { mode: 'prose' },
@@ -289,10 +268,8 @@ test('generation replacement: configurable retries with count 2, payload stabili
         assert.equal(persisted?.generation_replacement_attempts?.[1]?.ordinal, 2)
         assert.equal(persisted?.generation_replacement_attempts?.[1]?.state, 'succeeded')
 
-        console.log('DEBUG WRITING OUTPUT_LINES:', queue.getJob(job.job_id)?.output_lines)
-        console.log('DEBUG PERSISTED OUTPUT_LINES:', persisted?.output_lines)
-        // Plain job note format checked on in-memory live job
-        assert.ok(queue.getJob(job.job_id)?.output_lines.some(line => line.includes('retry 1 of 2') || line.includes('retry 2 of 2')))
+        // Plain job note format checked
+        assert.ok(persisted?.output_lines.some(line => line.includes('retry 1 of 2') || line.includes('retry 2 of 2')))
       })
 
       await t.test('stop after configured bound: count 2 exhausts and stops', async () => {
