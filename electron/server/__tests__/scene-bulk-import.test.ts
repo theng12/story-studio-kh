@@ -187,22 +187,26 @@ test('matchFilesToScenes matches common outside-tool name shapes and handles ran
     makeScene({ id: 'scene-c', scene_index: 3, start_sec: 15, end_sec: 25 }),
   ]
   const files = [
-    { name: 'my-clip (1).mp4' },            // outside tool with index in parentheses
+    { name: 'clip_01.mp4' },                 // outside tool with scene index 1
+    { name: 'my-clip (1).mp4' },             // browser/Finder duplicate download suffix must NOT match scene 1
+    { name: 'video (1).mp4' },               // bare trailing (1) must stay unmatched
     { name: 'Untitled_scene-b_v2.mp4' },     // outside tool export containing scene ID
     { name: 'scene-c_watermark.mp4' },       // outside tool clip with watermark in filename
     { name: 'f47ac10b-58cc-4372-a567-0e02b2c3d479.mp4' }, // long random hash name
   ]
   const result = matchFilesToScenes(files, scenes)
-  // my-clip (1) → scene-a (index 1)
+  // clip_01 → scene-a (index 1)
   // Untitled_scene-b_v2 → scene-b (ID match)
   // scene-c_watermark → scene-c (ID match)
   assert.equal(result.matched.length, 3)
   assert.equal(result.matched[0]!.scene.id, 'scene-a')
   assert.equal(result.matched[1]!.scene.id, 'scene-b')
   assert.equal(result.matched[2]!.scene.id, 'scene-c')
-  // Long random name cannot match any scene
-  assert.equal(result.unmatched.length, 1)
-  assert.equal(result.unmatched[0]!.name, 'f47ac10b-58cc-4372-a567-0e02b2c3d479.mp4')
+  // Duplicate download suffixes and long random name stay unmatched
+  assert.equal(result.unmatched.length, 3)
+  assert.equal(result.unmatched[0]!.name, 'my-clip (1).mp4')
+  assert.equal(result.unmatched[1]!.name, 'video (1).mp4')
+  assert.equal(result.unmatched[2]!.name, 'f47ac10b-58cc-4372-a567-0e02b2c3d479.mp4')
 })
 
 test('matchFilesToScenes matches all files dropped under suggested names (clips and images)', () => {

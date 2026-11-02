@@ -222,12 +222,13 @@ export function matchFilesToScenes(
       continue
     }
 
-    // Priority 2: Scene index patterns: "01", "scene_01", "Scene01", "scene-01", "clip_02", "my-clip (1)", "clip (1)"
+    // Priority 2: Scene index patterns: "01", "scene_01", "Scene01", "scene-01", "clip_02"
+    // Does NOT match bare trailing " (N)" like "video (1)" or "my-clip (1)" which browsers/Finder add for duplicates.
     const candidates: ScenePlanEntry[] = []
     const indexMatch =
-      basename.match(/^(?:(?:scene|clip)[_\s-]*)?\(?(\d+)\)?$/i) ||
-      basename.match(/(?:scene|clip)[_\s-]*\(?(\d+)\)?/i) ||
-      basename.match(/\((\d+)\)$/)
+      basename.match(/^(?:scene|clip)[_\s-]*(\d+)$/i) ||
+      basename.match(/^(?:scene|clip)[_\s-]*(\d+)[_\s-]/i) ||
+      basename.match(/^(\d+)$/)
     if (indexMatch) {
       const index = parseInt(indexMatch[1]!, 10)
       const scene = scenesByIndex.get(index)
