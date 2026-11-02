@@ -8206,8 +8206,18 @@ async function replaceConfirmedGeneration<T>(
   const operation = kind === 'audio' ? 'voice.tts' : 'chat.response'
   const baseUrl = await getGenStudioUrl()
   const deadline = Date.now() + GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS
-  const notice = async (state: string, reason: string) => {
+  const preserveOutputLines = (job: Job, extraLine?: string) => {
+    const live = queue.getJob(storyJob.job_id)
+    const existing = new Set(job.output_lines || [])
+    if (live?.output_lines?.length) {
+      for (const line of live.output_lines) existing.add(line)
+    }
+    if (extraLine) existing.add(extraLine)
+    job.output_lines = [...existing]
+  }
+  const notice = async (state: string, reason: string, extraNote?: string) => {
     await queue.mutateAuthoritativeJob(storyJob.project_slug, storyJob.job_id, job => {
+      preserveOutputLines(job, extraNote)
       job.result = { ...job.result, automatic_replacement: { kind, state, reason } }
       return job
     })
@@ -8259,6 +8269,7 @@ async function replaceConfirmedGeneration<T>(
     }
 
     await queue.mutateAuthoritativeJob(storyJob.project_slug, storyJob.job_id, job => {
+      preserveOutputLines(job)
       if (job.status !== 'running' || job.pause_requested) {
         blockedReason = 'Job is no longer running or paused.'
         return null
@@ -8286,6 +8297,7 @@ async function replaceConfirmedGeneration<T>(
     const committed = attempt
     const checkpoint = async (update: Partial<GenerationReplacementAttempt>) => {
       await queue.mutateAuthoritativeJob(storyJob.project_slug, storyJob.job_id, job => {
+        preserveOutputLines(job)
         job.generation_replacement_attempts = (job.generation_replacement_attempts || []).map(item =>
           item.idempotency_key === committed.idempotency_key ? { ...item, ...update, revision: item.revision + 1 } : item)
         return job
@@ -8305,8 +8317,9 @@ async function replaceConfirmedGeneration<T>(
       },
     }
 
-    queue.noteCurrentJob(`↻ Retrying failed ${kind} request (retry ${ordinal} of ${maxRetries})...`)
-    await notice('queued', `Retrying failed ${kind} request (retry ${ordinal} of ${maxRetries}).`)
+    const noteLine = `↻ Retrying failed ${kind} request (retry ${ordinal} of ${maxRetries})...`
+    queue.noteCurrentJob(noteLine)
+    await notice('queued', `Retrying failed ${kind} request (retry ${ordinal} of ${maxRetries}).`, noteLine)
 
     try {
       const result = await submit(committed.idempotency_key, 0, hooks)

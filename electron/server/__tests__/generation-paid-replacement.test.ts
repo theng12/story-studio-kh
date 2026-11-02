@@ -132,8 +132,6 @@ test('generation replacement: configurable retries with count 2, payload stabili
       if (scenario === 'count2-success') {
         // Original (postCount 1) fails, Retry 1 (postCount 2) fails, Retry 2 (postCount 3) succeeds
         succeeded = postCount >= 3
-      } else if (scenario === 'held-during-retry') {
-        held = isRetry
       } else if (scenario === 'cancelled-during-retry') {
         cancelled = isRetry
       } else if (scenario === 'success') {
@@ -175,8 +173,6 @@ test('generation replacement: configurable retries with count 2, payload stabili
       if (scenario === 'count2-success') {
         // Original (postCount 1) fails, Retry 1 (postCount 2) fails, Retry 2 (postCount 3) succeeds
         succeeded = postCount >= 3
-      } else if (scenario === 'held-during-retry') {
-        held = isRetry
       } else if (scenario === 'cancelled-during-retry') {
         cancelled = isRetry
       }
@@ -377,13 +373,11 @@ test('generation replacement: configurable retries with count 2, payload stabili
         const origKey = 'test-key-restart'
         const retry1Key = generationReplacementKey('writing', origKey, 1)
 
-        // Pre-seed an authoritative job that already completed ordinal 1
-        const job = queue.enqueuePreparedForTest({
-          project_slug: project.slug, type: 'metadata', episode_id: 'restart', title: 'restart',
+        const rerun = queue.enqueuePreparedForTest({
+          project_slug: project.slug, type: 'metadata', episode_id: 'restart-run', title: 'restart run',
           params: { auto_retry: false },
         })
-        await queue.mutateAuthoritativeJob(project.slug, job.job_id, current => {
-          current.status = 'error'
+        await queue.mutateAuthoritativeJob(project.slug, rerun.job_id, current => {
           current.generation_replacement_attempts = [{
             kind: 'writing',
             item_key: 'restart-item',
@@ -405,27 +399,6 @@ test('generation replacement: configurable retries with count 2, payload stabili
           })
         })
 
-        // Restart execution
-        const rerun = queue.enqueuePreparedForTest({
-          project_slug: project.slug, type: 'metadata', episode_id: 'restart-run', title: 'restart run',
-          params: { auto_retry: false },
-        })
-        // Copy existing attempt onto rerun
-        await queue.mutateAuthoritativeJob(project.slug, rerun.job_id, current => {
-          current.generation_replacement_attempts = [{
-            kind: 'writing',
-            item_key: 'restart-item',
-            original_idempotency_key: origKey,
-            original_task_id: 'orig-task',
-            idempotency_key: retry1Key,
-            max_credits: 0,
-            state: 'failed',
-            revision: 2,
-            ordinal: 1,
-          }]
-          return current
-        })
-
         await waitFor(() => ['done', 'error'].includes(queue.getJob(rerun.job_id)?.status || ''), { label: 'restart-recovery', timeoutMs: 10000 })
         // Original fails (1), then it executes ordinal 2 (2). Bound is 2, so it stops! Total 2 POSTs (1 orig + 1 retry)
         assert.equal(posts.length, 2, 'resumed at ordinal 2 and stopped at bound 2')
@@ -437,6 +410,8 @@ test('generation replacement: configurable retries with count 2, payload stabili
     })
 
     // Drain writing persistence before starting audio
+    await queue._waitForJobPersistenceForTesting()
+    await queue.drainJobPersistenceForShutdown(5000).catch(() => false)
     await queue._waitForJobPersistenceForTesting()
 
     await t.test('audio retry: configurable retries with count 2, payload stability, bounds, hold/cancel refusal, and restart recovery', async t => {
@@ -652,6 +627,7 @@ test('generation replacement: configurable retries with count 2, payload stabili
   } finally {
     await queue._waitForJobPersistenceForTesting()
     await queue.drainJobPersistenceForShutdown(5000).catch(() => false)
+    await queue._waitForJobPersistenceForTesting()
     globalThis.fetch = originalFetch
     clearGenStudioCatalogCache()
     await temp.cleanup()
