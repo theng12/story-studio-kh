@@ -4,7 +4,6 @@ import { effectScope, nextTick, ref } from 'vue'
 
 import { useEpisodeStatus } from '../composables/useEpisodeStatus.js'
 import { useJobs } from '../composables/useJobs.js'
-import { _clearApiGetCacheForTests } from '../composables/useApi.js'
 
 type Deferred<T> = {
   promise: Promise<T>
@@ -57,7 +56,6 @@ function mountStatus(
 afterEach(() => {
   fetchCalls = []
   fetchImpl = async () => episode('EP_A')
-  _clearApiGetCacheForTests()
 })
 
 describe('useEpisodeStatus', () => {

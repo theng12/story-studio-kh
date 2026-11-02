@@ -36,7 +36,6 @@ import { ref, computed, onMounted, watch, type Ref } from 'vue'
 import { useApi } from './useApi.js'
 import { useJobs } from './useJobs.js'
 import { readLastKnownList, writeLastKnownList } from '../utils/last-known-list.js'
-import { swrInvalidate } from '../utils/swrCache.js'
 import type { YouTubeEpisodeUploadStatus } from '@shared/contracts'
 
 export interface LocalMediaCleanupStatus {
@@ -210,10 +209,6 @@ export function _forgetEpisodeJobRefreshesForTests(): void {
 
 /** Drop the cached entry for a slug. Next mount refetches from scratch. */
 export function invalidateEpisodes(slug: string): void {
-  if (slug) {
-    const escaped = slug.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-    swrInvalidate(new RegExp(`^GET:/projects/${escaped}/episodes`))
-  }
   const slot = slots.get(slug)
   if (!slot) return
   slot.fetchedAt.value = 0
@@ -334,10 +329,6 @@ export function useEpisodes(slug: string | Ref<string>, opts: UseEpisodesOptions
   async function refresh() {
     const slot = currentSlot()
     slot.isRevalidating.value = true
-    if (slugRef.value) {
-      const escaped = slugRef.value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-      swrInvalidate(new RegExp(`^GET:/projects/${escaped}/episodes`))
-    }
     try { await fetchOnce(true) } catch { /* error stored */ }
   }
 
@@ -368,10 +359,6 @@ export function useEpisodes(slug: string | Ref<string>, opts: UseEpisodesOptions
   async function revalidateAfterMutation(episodeCode?: string): Promise<EpisodeRow[]> {
     const slot = currentSlot()
     slot.isRevalidating.value = true
-    if (slugRef.value) {
-      const escaped = slugRef.value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-      swrInvalidate(new RegExp(`^GET:/projects/${escaped}/episodes`))
-    }
     return await fetchOnce(episodeCode ? { invalidate: episodeCode } : true)
   }
 
@@ -399,10 +386,6 @@ export function useEpisodes(slug: string | Ref<string>, opts: UseEpisodesOptions
   async function rescan() {
     const slot = currentSlot()
     slot.isRevalidating.value = true
-    if (slugRef.value) {
-      const escaped = slugRef.value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-      swrInvalidate(new RegExp(`^GET:/projects/${escaped}/episodes`))
-    }
     try { await fetchOnce('rescan') } catch { /* error stored */ }
   }
 

@@ -44,7 +44,6 @@ import { ref, computed, watch, type Ref } from 'vue'
 import { useApi } from './useApi.js'
 import { useJobs } from './useJobs.js'
 import { useToast } from './useToast.js'
-import { swrInvalidate } from '../utils/swrCache.js'
 
 interface UseEpisodeStatusOptions {
   /**
@@ -123,12 +122,6 @@ export function useEpisodeStatus(
         || selectedEpisode.value?.episode_code !== code) {
       selectedEpisode.value = null
       statusKnown.value = false
-    }
-
-    if (projectSlug && code) {
-      const pEscaped = projectSlug.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-      const cEscaped = encodeURIComponent(code).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-      swrInvalidate(new RegExp(`^GET:/projects/${pEscaped}/episodes/${cEscaped}/status`))
     }
 
     // Bounded retry: an occasional blip (filesystem stat churn, a busy event loop)
