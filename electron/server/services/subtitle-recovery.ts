@@ -151,7 +151,6 @@ export interface SubtitleRecoveryInput {
   pipelineRepair?: { actionId: string; isResultUsable: (srt: string) => boolean }
   /** Only the explicit manual purchase route turns this on; pipeline defaults never do. */
   manualPurchase?: boolean
-  manualCreditCeiling?: number
   request: GenStudioTranscriptionRequest
 }
 
@@ -348,7 +347,7 @@ export async function runSubtitleTranscription(input: SubtitleRecoveryInput): Pr
     }
     const policy = async () => {
       const setting = await getAppSetting(PAID_SUBTITLE_REPLACEMENT_KEY)
-      return { enabled: input.manualPurchase === true || input.manualCreditCeiling !== undefined || setting.enabled === true }
+      return { enabled: input.manualPurchase === true || setting.enabled === true }
     }
     const beginPipelineRepair = async (): Promise<boolean> => {
       if (!pipelineActionId || current!.pipelineRepairActionId === pipelineActionId) return false
@@ -415,7 +414,7 @@ export async function runSubtitleTranscription(input: SubtitleRecoveryInput): Pr
           `${provenance.originalIdempotencyKey}-confirm`, input.request, Date.now() + 30_000)
         if (original.id !== provenance.originalTaskId || original.state !== 'failed') throw new Error('Original task mismatch')
         const failure = subtitleFailure(new GenStudioTerminalFailureError('transcription', original, 'Original transcription failed'))
-        if (classifySubtitleFailure(failure, { freeRetriesExhausted: true }) !== 'paid') throw new Error('Original failure is not eligible')
+        if (classifySubtitleFailure(failure) !== 'paid') throw new Error('Original failure is not eligible')
         if (initial) {
           // Strict writer appends only while the independently read current binding
           // still matches; later task/current-key writes preserve this original.
@@ -548,17 +547,16 @@ export async function runSubtitleTranscription(input: SubtitleRecoveryInput): Pr
             }
           }
           const failure = subtitleFailure(error)
-          if (!failure.transient || failure.cancelled) {
+          // A cancel is the owner's instruction, free or not. A free-fleet model never costs
+          // anything, so it re-runs; every other transient failure is the paid lane, and that
+          // lane is decided by its switch alone.
+          const classification = freeFleet && !failure.cancelled ? 'free-retry' : classifySubtitleFailure(failure)
+          if (classification === 'blocked') {
             return block('This provider failure is not eligible for automatic subtitle replacement.',
               !failure.cancelled ? 'rerun_subtitle_section' : false, 'needs_attention')
           }
-          if (current.replacement) {
-            if (!current.freeRetryFromKey) {
-              current.freeRetryFromKey = current.idempotencyKey
-            } else {
-              return block('The one paid replacement failed; needs attention. Review the failure before explicitly re-running this section.', 'rerun_subtitle_section', 'needs_attention')
-            }
-          } else if (!freeFleet && freeRetriesThisRun >= maxFreeRetries) {
+          if (classification === 'paid') {
+            if (current.replacement) return block('The one paid replacement failed; needs attention. Review the failure before explicitly re-running this section.', 'rerun_subtitle_section', 'needs_attention')
             if (!(await policy()).enabled) return block('automatic paid subtitle replacement is Off', 'buy_missing_subtitles')
             await rebindOriginalAuthority(true)
             current.replacement = { originalTaskId: error.jobId, originalIdempotencyKey: current.idempotencyKey, failure }
@@ -568,6 +566,8 @@ export async function runSubtitleTranscription(input: SubtitleRecoveryInput): Pr
             await state('paid_wait', `Preparing one replacement quote for ${section}.`)
             continue
           }
+          // A free-fleet retry after a paid quote keeps its authorization; nothing more is bought.
+          if (current.replacement) current.freeRetryFromKey = current.idempotencyKey
         } else if (error instanceof GenStudioTranscriptionTaskUnavailableError) {
           if (!freeFleet) return block(
             'The saved subtitle task was not found with the current Gateway connection/account, so it cannot be retrieved here. Its task/key evidence is retained. Explicitly generate this section to create a fresh request at the current quote; the new request may be charged.',

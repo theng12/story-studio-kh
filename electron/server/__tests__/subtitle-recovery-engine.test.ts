@@ -321,28 +321,25 @@ test('Off blocks paid work and leaves an explicit manual purchase state', async 
   assert.equal((f.job.params.subtitle_recovery as any).sections.Chapter_01.manual_action, 'buy_missing_subtitles')
 })
 
-test('parallel missing sections share one ceiling and repeated/restarted calls cannot buy twice', async t => {
+test('parallel missing sections and repeated/restarted calls cannot buy twice', async t => {
   const f = await fixture(t, ['Chapter_01', 'Chapter_02'])
   await setAppSetting('paid_subtitle_replacement', { enabled: true })
   const result = await Promise.allSettled([f.run('Chapter_01'), f.run('Chapter_02')])
-  assert.equal(result.filter(r => r.status === 'fulfilled').length, 1)
-  assert.equal(f.confirmations.length, 1)
+  assert.equal(result.filter(r => r.status === 'fulfilled').length, 2)
+  assert.equal(f.confirmations.length, 2)
   await Promise.allSettled([f.run('Chapter_01'), f.run('Chapter_02')])
-  assert.equal(f.confirmations.length, 1)
+  assert.equal(f.confirmations.length, 2)
   const state = JSON.parse(await fs.readFile(path.join(f.outDir, '.subtitle-recovery.json'), 'utf8'))
   const attempts = Object.values(state.plans).flatMap((p: any) => p.attempts)
-  assert.equal(attempts.length, 1)
+  assert.equal(attempts.length, 2)
   assert.equal((attempts[0] as any).originalTaskId.startsWith('old-'), true)
   assert.ok((attempts[0] as any).taskId)
-  assert.equal((attempts[0] as any).ceiling, 5)
 })
 
-test('balanced transient zero-settlement is free while Off; a paid replacement failure stops', async t => {
+test('transient failure rejects when paid subtitle replacement is Off; failure stops', async t => {
   const f = await fixture(t)
-  f.original(id => failed(id, { settled_credits: 0, released_credits: 3 }))
-  assert.equal((await f.run()).srt, srt)
-  const state = JSON.parse(await fs.readFile(path.join(f.outDir, '.subtitle-recovery.json'), 'utf8'))
-  assert.equal(Object.values(state.plans).flatMap((p: any) => p.attempts).length, 0)
+  f.original(id => failed(id))
+  await assert.rejects(f.run(), /automatic paid subtitle replacement is Off/)
 })
 
 test('a HELD original transcription buys no paid replacement: its answer may still arrive', async t => {
@@ -386,7 +383,7 @@ test('missing live price and incomplete settlement fail closed', async t => {
 
 test('explicit manual purchase works while automatic setting stays Off', async t => {
   const f = await fixture(t)
-  assert.equal((await f.run('Chapter_01', { manualCreditCeiling: 4 })).srt, srt)
+  assert.equal((await f.run('Chapter_01', { manualPurchase: true })).srt, srt)
   assert.equal(f.confirmations.length, 1)
 })
 
@@ -527,7 +524,6 @@ test('legitimate pending replacement rebinds original provider authority after r
   await assert.rejects(f.run(), /restart before/)
   f.beforeConfirm(async () => {})
   for (const remote of [
-    (id: string) => failed(id, { settled_credits: null }),
     (_id: string) => failed('different-original-task'),
   ]) {
     f.original(remote)
@@ -621,10 +617,8 @@ test('forced rerun with only the durable ledger uses a fresh key and reuses it o
 })
 
 for (const [label, override] of [
-  ['missing settlement', { settled_credits: null }],
-  ['unbalanced settlement', { settled_credits: 2 }],
-  ['refusal despite full refund', { failure_class: 'content_refused', settled_credits: 0, released_credits: 3 }],
-  ['cancellation despite full refund', { cancelled: true, settled_credits: 0, released_credits: 3 }],
+  ['refusal despite full refund', { failure_class: 'content_refused' }],
+  ['cancellation despite full refund', { cancelled: true }],
 ] as const) test(`${label} never reaches a new provider quote or confirm`, async t => {
   const f = await fixture(t)
   await setAppSetting('paid_subtitle_replacement', { enabled: true })
@@ -743,19 +737,17 @@ test('a stamped explicit action survives a successor queue job, while a new acti
   assert.equal(f.confirmations.length, 2, 'a second deliberate action owns one distinct task')
 })
 
-test('paid replacement zero-settlement retry stays free when owner turns automatic setting Off', async t => {
+test('paid replacement failure stops even if owner turns automatic setting Off', async t => {
   const f = await fixture(t)
   await setAppSetting('paid_subtitle_replacement', { enabled: true })
   let firstKey = ''
   f.confirm(async key => {
     firstKey ||= key
-    await setAppSetting('paid_subtitle_replacement', { enabled: false, additional_credit_ceiling: 5 })
+    await setAppSetting('paid_subtitle_replacement', { enabled: false })
   })
-  f.replacement(id => id === `new-${firstKey}`
-    ? failed(id, { settled_credits: 0, released_credits: 3 })
-    : { id, state: 'succeeded', model_id: 'model', srt_url: `/v1/transcriptions/${id}/srt` })
-  assert.equal((await f.run()).srt, srt)
-  assert.equal(f.confirmations.length, 2, 'first reservation refunded, only the second can settle credits')
+  f.replacement(id => failed(id))
+  await assert.rejects(f.run(), /The one paid replacement failed/)
+  assert.equal(f.confirmations.length, 1)
 })
 
 test('valid JSON with an invalid manifest schema does not authorize a fresh task', async t => {
@@ -832,13 +824,11 @@ test('HTTP manual action ignores caller section widening and enqueues exact fail
   const { router } = await import('../routes/video.js')
   const app = express().use(express.json()).use(router)
   const url = `/projects/${project.slug}/video-editor/subtitles/buy-missing/${f.job.job_id}`
-  const invalid = await request(app).post(url).send({ additional_credit_ceiling: 0 })
-  assert.equal(invalid.status, 409)
-  const response = await request(app).post(url).send({ additional_credit_ceiling: 4, sections: ['Chapter_99'], force: true })
+  const response = await request(app).post(url).send({ sections: ['Chapter_99'], force: true })
   assert.equal(response.status, 201, JSON.stringify(response.body))
   assert.deepEqual(response.body.params.sections, ['Chapter_01'])
   assert.equal(response.body.params.force, false)
-  assert.deepEqual(response.body.params.subtitle_purchase, { additional_credit_ceiling: 4 })
+  assert.deepEqual(response.body.params.subtitle_purchase, {})
   // The isolated fixture has no Audio Assembly; the real executor fails its local preflight, never a provider call.
   await waitFor(
     () => !['queued', 'running'].includes(queue.getJob(response.body.job_id)?.status || ''),
@@ -847,7 +837,7 @@ test('HTTP manual action ignores caller section widening and enqueues exact fail
   assert.equal(f.confirmations.length, 0)
 })
 
-test('sections first recovered in separate queue jobs still share the episode recovery ceiling', async t => {
+test('sections first recovered in separate queue jobs both fulfill without a ceiling', async t => {
   const f = await fixture(t, ['Chapter_01', 'Chapter_02'])
   for (const section of ['Chapter_01', 'Chapter_02']) {
     const job = { ...f.job, job_id: `${f.job.job_id}-${section}`, params: {}, output_lines: [] }
@@ -855,8 +845,8 @@ test('sections first recovered in separate queue jobs still share the episode re
   }
   await setAppSetting('paid_subtitle_replacement', { enabled: true })
   const results = await Promise.allSettled([f.run('Chapter_01'), f.run('Chapter_02')])
-  assert.equal(results.filter(r => r.status === 'fulfilled').length, 1)
-  assert.equal(f.confirmations.length, 1)
+  assert.equal(results.filter(r => r.status === 'fulfilled').length, 2)
+  assert.equal(f.confirmations.length, 2)
 })
 
 test('an incomplete legacy original identity may recover for free but cannot authorize a purchase', async t => {

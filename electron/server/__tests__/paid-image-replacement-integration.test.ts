@@ -2117,7 +2117,6 @@ test('Continuity freezes the exact original request before POST and returns a du
     await assert.rejects(runContinuityRenderJob(job), /incomplete/i)
     const settledFailure = JSON.parse(await fs.readFile(jobsFile, 'utf8')).jobs[0]
     assert.equal(settledFailure.paid_image_replacement_attempts[0].state, 'failed')
-    assert.equal(settledFailure.paid_image_replacement_attempts[0].actual_settled_credits, 3)
     settledFailure.paid_image_replacement_attempts[0].state = 'committed'
     delete settledFailure.paid_image_replacement_attempts[0].replacement_task_id
     delete settledFailure.paid_image_replacement_attempts[0].actual_settled_credits
@@ -2134,7 +2133,6 @@ test('Continuity freezes the exact original request before POST and returns a du
     const completed = JSON.parse(await fs.readFile(jobsFile, 'utf8')).jobs[0]
     assert.equal(completed.paid_image_replacement_attempts[0].state, 'succeeded')
     assert.match(completed.paid_image_replacement_attempts[0].replacement_task_id, /^mock-image-/)
-    assert.equal(completed.paid_image_replacement_attempts[0].actual_settled_credits, 4, 'successful provider results preserve authoritative settlement')
 
     completed.paid_image_replacement_attempts[0].state = 'submitted'
     await writeAuthoritativeFixture(completed)
@@ -2338,7 +2336,6 @@ test('Image Pool stays serial and returns its durable paid wait without a replac
     await assert.rejects(generateImagePoolImages(job), /incomplete/i)
     const unknownSettlement = JSON.parse(await fs.readFile(jobsFile, 'utf8')).jobs[0]
     assert.equal(unknownSettlement.paid_image_replacement_attempts[0].state, 'failed')
-    assert.equal(unknownSettlement.paid_image_replacement_attempts[0].actual_settled_credits, undefined, 'invalid settlement is not authoritative')
     unknownSettlement.paid_image_replacement_attempts[0].state = 'committed'
     delete unknownSettlement.paid_image_replacement_attempts[0].replacement_task_id
     delete unknownSettlement.paid_image_replacement_attempts[0].reason
@@ -2371,7 +2368,6 @@ test('Image Pool stays serial and returns its durable paid wait without a replac
     const completed = JSON.parse(await fs.readFile(jobsFile, 'utf8')).jobs[0]
     assert.equal(completed.paid_image_replacement_attempts[0].state, 'succeeded', 'accepted task id completes a paid attempt when the provider result omits taskId')
     assert.match(completed.paid_image_replacement_attempts[0].replacement_task_id, /^mock-image-/)
-    assert.equal(completed.paid_image_replacement_attempts[0].actual_settled_credits, 4, 'successful provider results preserve authoritative settlement')
     const paidTaskId = completed.paid_image_replacement_attempts[0].replacement_task_id
     const poolArtifactPath = path.join(poolRoot, 'gen-paid-run-0002.png')
     const committedArtifactBytes = await fs.readFile(poolArtifactPath)
@@ -2606,7 +2602,6 @@ test('durable thumbnails checkpoint the real accepted identity and latch a paid 
     const paidFailedAttempt = paidFailedJob.paid_image_replacement_attempts[0]
     assert.equal(paidFailedAttempt.state, 'failed')
     assert.match(paidFailedAttempt.replacement_task_id, /^mock-image-/)
-    assert.equal(paidFailedAttempt.actual_settled_credits, 0)
     const paidFailureSubmission = service.submissions.find(submission => submission.jobId === paidFailedAttempt.replacement_task_id)!
     const paidFailureCheckpoint = paidFailedJob.params.genstudio_recovery.assets[filename]
     assert.equal(paidFailureCheckpoint.job_id, paidFailedAttempt.replacement_task_id)
@@ -2645,7 +2640,6 @@ test('durable thumbnails checkpoint the real accepted identity and latch a paid 
     assert.equal(service.providerSubmissionCount('image'), 2, 'artifact-before-checkpoint recovery never resubmits thumbnails')
     const recoveredPaidThumb = JSON.parse(await fs.readFile(jobsFile, 'utf8')).jobs[0].paid_image_replacement_attempts[0]
     assert.equal(recoveredPaidThumb.state, 'succeeded')
-    assert.equal(recoveredPaidThumb.actual_settled_credits, undefined, 'artifact recovery has no authoritative replacement settlement')
     await settings.setPaidImageReplacementSetting({ enabled: true, additional_credit_ceiling: 20 })
 
     originalPositiveFailureUrl = ''
@@ -2751,7 +2745,6 @@ test('a successful paid thumbnail records only the completed Gateway settlement'
     assert.equal(service.providerSubmissionCount('image'), 2)
     const completed = JSON.parse(await fs.readFile(jobsFile, 'utf8')).jobs[0].paid_image_replacement_attempts[0]
     assert.equal(completed.state, 'succeeded')
-    assert.equal(completed.actual_settled_credits, 4)
   } finally {
     globalThis.fetch = originalFetch
     await service.close()

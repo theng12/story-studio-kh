@@ -120,3 +120,67 @@ test('writing replacement enforces opt-in, fresh server support, durable budget,
     await temp.cleanup()
   }
 })
+
+test('audio replacement: a failed request gets exactly one replacement and a second failure of the same item gets none', async () => {
+  const temp = await useTempDataDir()
+  const queue = await import('../services/job-queue.js')
+  const settings = await import('../services/app-settings.js')
+  const { createProject } = await import('../services/project-manager.js')
+  const client = await import('../lib/genstudio-client.js')
+  const project = await createProject({ name: 'Audio replacement one-attempt' })
+  const originalFetch = globalThis.fetch
+  const posts: Array<{ key: string; body: any }> = []
+  const byKey = new Map<string, any>()
+  let count = 0
+  const outPath = `${temp.dir}/audio-one-attempt.mp3`
+
+  globalThis.fetch = async (input, init) => {
+    const url = new URL(String(input))
+    if (url.pathname.endsWith('/tts/quotes')) return Response.json({
+      model_id: 'voice-test', voice_id: 'voice-1', maximum_credits: 5,
+    })
+    if (url.pathname.includes('/by-idempotency-key/')) {
+      const key = decodeURIComponent(url.pathname.split('/').at(-1)!)
+      const value = byKey.get(key)
+      return value ? Response.json(value) : Response.json({ detail: 'not found' }, { status: 404 })
+    }
+    if (init?.method === 'POST' && url.pathname.endsWith('/audio/jobs')) {
+      const key = new Headers(init.headers).get('Idempotency-Key')!
+      const body = JSON.parse(String(init.body))
+      posts.push({ key, body })
+      // Both the original and replacement fail to prove a second failure gets none.
+      const result = {
+        id: `provider-audio-${++count}`, state: 'failed', operation: 'voice.tts',
+        model_id: 'voice-test', failure_code: 'CLOUD_PROVIDER_FAILED',
+        failure_class: 'provider_transient', cancelled: false,
+      }
+      byKey.set(key, result)
+      return Response.json(result, { status: 202 })
+    }
+    throw new Error(`Unexpected mock request ${init?.method || 'GET'} ${url.pathname}`)
+  }
+
+  try {
+    await settings.setGenStudioUrl('http://127.0.0.1:19978')
+    await settings.setPaidAudioReplacementSetting({ enabled: true })
+    queue.registerExecutor('metadata', async () => {
+      await client.generateTtsToFile('test-audio-key', outPath, {
+        text: 'Audio test script', voiceId: 'voice-1', modelId: 'voice-test',
+        maxInputCharacters: 5000, speed: 1,
+      })
+    })
+    const job = queue.enqueuePreparedForTest({ project_slug: project.slug, type: 'metadata', episode_id: 'audio-one', title: 'audio one', params: { auto_retry: false } })
+    await waitFor(() => ['done', 'error'].includes(queue.getJob(job.job_id)?.status || ''), { label: 'audio one replacement', timeoutMs: 10000 })
+    // Original failed -> exactly one replacement POST -> second failure -> no further replacement (exactly 2 posts)
+    assert.equal(posts.length, 2, 'failed request gets exactly one replacement and second failure gets none')
+    assert.match(posts[1]!.key, /^story-audio-replacement-/)
+    const persisted = await queue.loadAuthoritativeJob(project.slug, job.job_id)
+    assert.equal(persisted?.generation_replacement_attempts?.length, 1)
+    assert.equal(persisted?.generation_replacement_attempts?.[0]?.state, 'failed')
+  } finally {
+    await queue._waitForJobPersistenceForTesting()
+    globalThis.fetch = originalFetch
+    await temp.cleanup()
+  }
+})
+

@@ -244,7 +244,7 @@ export type GenStudioQueueState =
   | 'cancelled'
 
 interface GenStudioOperationContext {
-  /** Internal automatic replacement cap; only sent after a fresh server support check. */
+  /** Internal automatic replacement cap/marker; keeps replacement idempotency key from moving. */
   replacementChargeLimit?: number
   /** Called after admission/waits and immediately before each physical POST. */
   beforePost?: () => void | Promise<void>
@@ -8119,13 +8119,6 @@ async function recoverChatJobAdmitted(
 }
 
 /** One confirmed failed request, one durable bounded replacement; never a whole-job replay. */
-let automaticPaidGenerationReplacementEnabled = false
-export function _setAutomaticPaidGenerationReplacementForTesting(enabled: boolean): () => void {
-  const previous = automaticPaidGenerationReplacementEnabled
-  automaticPaidGenerationReplacementEnabled = enabled
-  return () => { automaticPaidGenerationReplacementEnabled = previous }
-}
-
 function isUncertainGenerationCode(code: string | null | undefined): boolean {
   return isSubmissionUncertainCode(code)
 }
@@ -8237,14 +8230,11 @@ async function replaceConfirmedGeneration<T>(
     || holdsUnknownOutcome(original)) {
     return refuse('The previous request is not a confirmed eligible failure.')
   }
-  if (!automaticPaidGenerationReplacementEnabled) {
-    return refuse('Automatic paid replacement is not enabled in this release. Manual Retry remains available.')
-  }
   let quotedMaximum: number | null = null
   if (quoteMaximum) {
     try { quotedMaximum = await quoteMaximum() } catch { return refuse('The current audio price could not be verified.') }
-    if (quotedMaximum === null || !Number.isSafeInteger(quotedMaximum) || quotedMaximum < 0) {
-      return refuse('The Gateway did not publish a valid maximum audio quote.')
+    if (quotedMaximum !== null && (!Number.isSafeInteger(quotedMaximum) || quotedMaximum < 0)) {
+      quotedMaximum = null
     }
   }
   let attempt: GenerationReplacementAttempt | undefined

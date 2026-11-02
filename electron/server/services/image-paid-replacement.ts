@@ -524,8 +524,8 @@ export async function decidePaidImageReplacement(input: PaidImageReplacementDeci
   const initialArtifact = await dependencies.artifactExists(asset.outputPath).catch(() => null)
   if (initialArtifact === null) return blocked('the original artifact could not be audited')
   if (initialArtifact) return { action: 'recover-original' }
-  const setting = await dependencies.getSetting().catch(() => null)
-  if (!setting?.enabled) return blocked('paid image replacement is currently off on this machine', 'replacement_disabled')
+  const initialSetting = await dependencies.getSetting().catch(() => null)
+  if (!initialSetting?.enabled) return blocked('paid image replacement is currently off on this machine', 'replacement_disabled')
 
   const alreadyRetried = typeof entry.request_scope === 'string' && entry.request_scope.includes(':retry:')
   if (!alreadyRetried) {

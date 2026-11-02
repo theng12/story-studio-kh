@@ -23,7 +23,6 @@ export interface SubtitleReplacementAttempt {
 }
 
 export type SubtitleReplacementDecision =
-  | { action: 'free-retry'; reason: string }
   | { action: 'blocked'; reason: string }
   | { action: 'commit'; attempt: SubtitleReplacementAttempt }
 
@@ -43,21 +42,16 @@ export interface SubtitleReplacementInput {
 }
 
 /**
- * Both must go back to free first: a free/fleet or transient failure retries free exactly as before;
- * the paid lane is only the next step when the free retry is exhausted or the failure isn't free-retryable,
- * and only when its switch is on.
+ * The job's own state answers "may this section be bought again": a transient
+ * failure the owner did not cancel. Whether anything was charged belongs to the
+ * Gateway; Story keeps no settlement to compare it against.
  */
-export function classifySubtitleFailure(
-  failure: SubtitleReplacementInput['failure'],
-  state?: { freeRetriesExhausted?: boolean },
-): 'blocked' | 'free-retry' | 'paid' {
-  if (!failure.transient || failure.cancelled) return 'blocked'
-  if (state?.freeRetriesExhausted) return 'paid'
-  return 'free-retry'
+export function classifySubtitleFailure(failure: SubtitleReplacementInput['failure']): 'blocked' | 'paid' {
+  return !failure.transient || failure.cancelled ? 'blocked' : 'paid'
 }
 
 export function decideSubtitleReplacement(input: SubtitleReplacementInput): SubtitleReplacementDecision {
-  if (!input.failure.transient || input.failure.cancelled) {
+  if (classifySubtitleFailure(input.failure) === 'blocked') {
     return { action: 'blocked', reason: 'the transcription failure is not an eligible transient failure' }
   }
   if (!input.enabled) return { action: 'blocked', reason: 'automatic paid subtitle replacement is Off' }
