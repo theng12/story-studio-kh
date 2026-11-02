@@ -928,12 +928,12 @@ test('free-named model: unknown outcome makes no fresh request and reconnects by
   const timeout = () => { throw new DOMException('The operation was aborted due to timeout', 'TimeoutError') }
   const f = await fixture(t)
   await f.clearOriginal()
-  let attempts = 0
+  let timedOut = false
   f.confirm(async () => {
-    attempts++
-    if (attempts === 1) timeout()
+    if (!timedOut) timeout()
   })
   await assert.rejects(fleetRun(f), /did not answer within the request time limit/)
+  timedOut = true
   assert.equal(f.confirmations.length, 1, 'only one key submitted; no extra key minted on unknown outcome')
   const message = (f.job.params.subtitle_recovery as any).sections.Chapter_01.message
   assert.match(message, /Subtitle request interrupted \(The Gateway did not answer/)
@@ -946,6 +946,7 @@ test('free-named model: unknown outcome makes no fresh request and reconnects by
 test('free-named model: restart preserves retry budget across separate runs', async t => {
   const f = await fixture(t)
   await setRetryFailedRequestsSetting('subtitle', { enabled: true, retries: 2 })
+  f.replacement(id => failed(id))
   let attemptCount = 0
   f.confirm(async () => {
     attemptCount++
