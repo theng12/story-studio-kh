@@ -651,11 +651,15 @@ test('a fleet-busy Continuity retry republishes its active canonical filename on
     }
     const { runContinuityRenderJob } = await import('../generators/continuity-render.js')
     const { project, episodeId, paths } = await createEpisode('Retry active key')
+    const { setImageRetrySetting } = await import('../services/app-settings.js')
+    const { writeAuthoritativeJob } = await import('../services/job-queue.js')
+    await setImageRetrySetting({ enabled: true, retries: 1 })
     await writeScenePrerequisites(paths, episodeId, [
       { id: 'scene-001', scene_index: 1, visual_prompt: 'A lantern in a quiet archive.' },
     ])
     await fs.writeFile(path.join(paths.episode_dir, 'continuity.json'), JSON.stringify({ schema_version: 1 }))
     const job = renderJob(project.slug, episodeId)
+    await writeAuthoritativeJob(job)
     const renderPromise = runContinuityRenderJob(job)
 
     await Promise.race([secondSubmitStarted, renderPromise.then(() => { throw new Error('render finished before the second submit') })])
