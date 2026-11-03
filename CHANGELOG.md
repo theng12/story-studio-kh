@@ -4,6 +4,12 @@ What's new in each release. Newest first.
 
 ---
 
+## 1.4.376 — 2026-11-03
+
+- Writing, image, subtitle and narration retries use the saved retry settings and keep their attempt count after a restart. A held or uncertain result stops further attempts instead of sending another request.
+- Failed generation requests no longer wait for retired credit balances or use separate paid and free retry rules. Gateway refusals keep their actual reason.
+- macOS packages keep their normal app signatures instead of rewriting them after the build. This addresses the signing rejection reported when 1.4.375 started through the login agent.
+
 ## v1.4.375 — 2026-11-02
 
 - Pages show their last loaded data immediately while checking for updates. The header says when data is refreshing or could not be refreshed, and changes you save update the shared page data.

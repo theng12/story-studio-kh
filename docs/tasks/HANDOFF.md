@@ -1,5 +1,14 @@
 # HANDOFF — Story Studio KH
 
+### Release 1.4.376 candidate — held retries and normal macOS packaging (2026-11-03)
+
+- Candidate, not released or installed. `feat/no-credits-376` includes released main through `e8e0ce24` (merge `1628fd1f`) and held-retry fix `c57c0e98`. Retained retry proof: 103 tests across subtitle recovery, retry policy and writing/audio, exit0, source unchanged. Full preflight, prebuild and ten-step gate remain required for this candidate.
+- The macOS mini crash report for 375 shows CODESIGNING code4 Launch Constraint Violation before app code. The published 375 artifact was hand-sealed with `codesign --force --deep --sign - --identifier com.storystudio.kh`; standard 374 was linker-signed and unsealed. Exact violated constraint is unknown. The earlier OS-update/slowness theory is superseded; the temporary slow-launch allowance and its tests were removed.
+- Build normally: no post-build hand seal, no deep resign, no forced identifier. Release verification must accept only the normal unsealed form already accepted by updater `verifyCodeSignature`, while rejecting damaged sealed packages; the signed/public release path retains its stronger requirements.
+- Before publishing, test the exact 376 app and published hand-sealed 375 control with the same disposable launchd agent, isolated profile/HOME/port and exact-version boot-complete health. Preserve both outcomes; 375 may pass on this Mac because its macOS build differs from the mini's. Direct launch and `open` alone do not prove login-agent compatibility.
+- Package and lock versions are 1.4.376; the matching dated changelog supplies in-app What's New. Gate receipts and launchd evidence stay outside tracked source so source identity remains fixed.
+- Developer owns the mini installation after reviewing results. Story must not send an install, touch production holds, or repeat the failed 375 attempt. Remaining server/frontend credit cleanup, prompt sizing and the two-option image screen remain queued in the lead briefs; none is claimed completed here.
+
 ### Release 1.4.375 candidate — scene import, instant page data and review improvements (2026-11-02)
 
 - Candidate only, not installed. Integrated `feat/scene-import-375` through `c8dbaf2a` and `feat/instant-data-375` through `a67bf5dd` into `release/1.4.375`, keeping the 1.4.376 retry work separate.
