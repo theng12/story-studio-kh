@@ -8341,7 +8341,7 @@ async function replaceConfirmedGeneration<T>(
         }
         if (holdsUnknownOutcome(current) || isUncertainGenerationCode(current.failure_code) || (current.failure_code === 'UNKNOWN_OUTCOME' && current.recovery_required !== false)) {
           await notice('blocked', `Retry ${ordinal} of ${maxRetries} holds unknown outcome.`)
-          throw new Error(`Automatic ${kind} retry held with unknown outcome: ${committed.idempotency_key}`, { cause: attemptError })
+          throw new Error(`Automatic ${kind} retry holds unknown outcome: ${committed.idempotency_key}`, { cause: attemptError })
         }
         if (current.state === 'failed' && current.failure_class !== 'provider_transient') {
           await notice('blocked', `Retry ${ordinal} of ${maxRetries} encountered non-transient failure: ${current.failure_code || 'non-transient'}`)
