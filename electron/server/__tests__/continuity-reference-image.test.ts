@@ -519,7 +519,7 @@ test('an accepted Continuity scene publishes its durable filename as the active 
     job.params.force = false
     const renderPromise = runContinuityRenderJob(job)
 
-    await pollStarted
+    await Promise.race([pollStarted, renderPromise.then(() => { throw new Error('render finished before the held poll') })])
     const taskId = service.submissions.find(submission => submission.operation === 'image')!.jobId
     const manifest = await readManifest(outDir)
     const active = job.item_progress?.active[0]
@@ -658,7 +658,7 @@ test('a fleet-busy Continuity retry republishes its active canonical filename on
     const job = renderJob(project.slug, episodeId)
     const renderPromise = runContinuityRenderJob(job)
 
-    await secondSubmitStarted
+    await Promise.race([secondSubmitStarted, renderPromise.then(() => { throw new Error('render finished before the second submit') })])
     const secondAttempt = job.item_progress?.active[0]
     releaseSecondSubmit()
     await renderPromise
