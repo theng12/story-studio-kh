@@ -485,6 +485,12 @@ export async function sceneClipStaleReason(scene: ScenePlanEntry, context?: Scen
     // existing motion episode into stills. Only their source image and prompt identity matter.
     if (typeof scene.rendered_motion_prompt === 'string'
       && scene.rendered_motion_prompt !== (scene.motion_prompt || '')) return 'stale motion prompt'
+    // v1.4.375 — an imported external clip (Google Flow etc., owner 2026-11-02) was made
+    // outside the app from this scene's motion prompt, not rendered from the local picture.
+    // The picture's version and hash are therefore not its source: comparing them called a
+    // fresh import stale whenever the still was imported after the clip (or replaced later),
+    // and Assembly silently fell back to the still. Only the prompt it was made from stales it.
+    if (scene.clip_renderer === 'external') return null
     if (scene.image_version != null && scene.clip_source_image_version !== scene.image_version) return 'stale source image'
     if (scene.clip_source_image_sha256 !== undefined) {
       const recorded = scene.clip_source_image_sha256

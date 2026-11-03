@@ -37,7 +37,20 @@
         </button>
         <slot name="actions" />
       </div>
+
+      <!--
+        Reserved slot for the data-refresh chip: always exactly 100px wide,
+        empty or not, at the END of the bar. That is what keeps the chip off
+        the nav (it is in normal flow, never an overlay) and keeps the nav
+        from moving when the chip appears. A failure does not need the slot —
+        it takes its own strip under the bar, in flow, so it can say the whole
+        reason without squeezing anything.
+      -->
+      <div class="app-header-refresh">
+        <DataRefreshIndicator variant="pill" />
+      </div>
     </div>
+    <DataRefreshIndicator variant="banner" />
   </header>
 </template>
 
@@ -162,6 +175,22 @@ function openWhatsNew() { _whatsNew.open() }
   gap: var(--space-2, 8px);
   -webkit-app-region: no-drag;
 }
+/*
+  The reserved place for the "Updating…" chip: always exactly 100px wide,
+  whether it is showing or empty, so nothing in the bar moves when it
+  appears. It is the LAST item, so the space it holds is the bar's own
+  slack after the tools — at the widths the app is used at, the nav gives
+  up that much of its (already spare) width rather than any of its links.
+*/
+.app-header-refresh {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 100px;
+  min-width: 0;
+  -webkit-app-region: no-drag;
+}
 .app-header-standing { max-width: 180px; }
 .version-badge {
   display: inline-flex;
@@ -189,13 +218,29 @@ function openWhatsNew() { _whatsNew.open() }
   .app-header-brand span { display: none; }
 }
 
+/*
+  A window this narrow has no slack left over after the tools, so the
+  reserved refresh slot is paid for by trimming each link's INNER padding
+  by 4px. The 10px gap between links — the spacing this header was rebuilt
+  for — is untouched, and at 1280 the nav still fits every one of its seven
+  destinations with room to spare.
+*/
+@media (max-width: 1330px) {
+  .app-header-link { padding: 7px 10px; }
+}
+
 /* Small screens: the seven destinations stop fighting the window controls and
    the tools for one squeezed row. They take a row of their own and wrap, so
    every destination is visible without scrolling a strip you cannot see into
    (owner, 2026-11-02: "collapse sensibly on small screens"). */
 @media (max-width: 720px) {
   .app-header-bar { flex-wrap: wrap; row-gap: 7px; padding-block: 8px; }
-  .app-header-tools { margin-left: auto; }
+  .app-header-tools { order: 2; margin-left: auto; }
+  /* The nav owns rows of its own here, so the refresh chip takes the first
+     row beside the brand instead: it overlays nothing, and keeping the slot
+     in the flow at a fixed width means the brand and the tools hold the same
+     place whether it is showing or empty. */
+  .app-header-refresh { order: 1; }
   .app-header-nav {
     order: 3;
     flex: 1 1 100%;

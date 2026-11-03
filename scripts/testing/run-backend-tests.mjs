@@ -442,6 +442,8 @@ export const SERIAL_TEST_FILES = [
   // DECLARED — a warm read must answer inside 2 s (jobs-read-latency, jobs-history).
   'jobs-read-latency.test.ts',
   'jobs-history.test.ts',
+  // DECLARED — automatic chain handoffs and failed-child settlement must finish inside 2 s; pooled 375 gate hit that ceiling.
+  'job-queue.test.ts',
   // MEASURED, 2026-10-27 — failed in the pooled sweep on 524254f5, passed alone (job-queue timing).
   'job-cancellation-reconciliation.test.ts',
   'private-render-owner-admission.test.ts',

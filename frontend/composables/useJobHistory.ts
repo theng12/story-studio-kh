@@ -40,7 +40,7 @@ export function useJobHistory() {
     const params = new URLSearchParams({ all: '1' })
     for (const [key, value] of Object.entries(query)) if (value) params.set(key, value)
     try {
-      const body = await useApi().get<JobHistoryResponse>(`${path}?${params.toString()}`)
+      const body = await useApi().get<JobHistoryResponse>(`${path}?${params.toString()}`, { cache: 'no-store' })
       if (mine !== epoch) return
       rows.value = (body.jobs || []) as Job[]
       total.value = body.total || 0

@@ -1660,6 +1660,10 @@ export async function getSafeConfig(slug: string): Promise<any | null> {
     scene_image_check: ((raw as any).scene_image_check && typeof (raw as any).scene_image_check === 'object')
       ? (raw as any).scene_image_check
       : undefined,
+    // 1.4.375 — scene import preset and allowed clip lengths for outside video/image tools.
+    scene_import: ((raw as any).scene_import && typeof (raw as any).scene_import === 'object')
+      ? (raw as any).scene_import
+      : undefined,
     intro_standards: raw.intro_standards || '',
     standards_presets: raw.standards_presets || [],
     intro_presets: raw.intro_presets || [],

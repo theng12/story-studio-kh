@@ -271,7 +271,7 @@ export function useEpisodes(slug: string | Ref<string>, opts: UseEpisodesOptions
 
     const promise = (async () => {
       try {
-        const list = await get<EpisodeRow[]>(path)
+        const list = await get<EpisodeRow[]>(path, { cache: 'no-store' })
         // A mutation refresh deliberately bypasses an older in-flight read.
         // Only the newest request may publish data, otherwise the older response
         // can make a successfully toggled step look pending again.
