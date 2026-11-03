@@ -7166,7 +7166,6 @@ function hasSafeTerminalStallEvidence(job: Job): boolean {
     ) return false
     if (isNeverCreatedProviderTask(entry)) {
       return Boolean(entry.request?.idempotency_key)
-        && entry.reserved_credits === 0 && entry.settled_credits === 0 && entry.released_credits === 0
     }
     if (entry.id.startsWith('pending:')) return false
     if (entry.state === 'succeeded') return true

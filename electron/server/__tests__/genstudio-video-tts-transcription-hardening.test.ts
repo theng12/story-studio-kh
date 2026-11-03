@@ -235,7 +235,11 @@ void test('Gateway video, TTS and transcription settle, refuse to reopen, and ne
         'voice.tts', service.baseUrl, MOCK_GENSTUDIO_FULL_KEY, providerJob.id, {}, Date.now() + 10_000,
       )
       assert.equal(cancelled.cancelled, true)
-      assert.equal(cancelled.released_credits, 5)
+      // The Gateway publishes settlement on this cancel response; the control
+      // DTO parses none of it — Story does not track credits, the Gateway does.
+      for (const field of ['reserved_credits', 'settled_credits', 'released_credits'] as const) {
+        assert.equal(field in cancelled, false, `${field} must stay out of the control DTO`)
+      }
       assert.equal(service.providerSubmissionCount('tts'), 1)
       assert.equal(service.requests.filter(request => request.path === `/v1/jobs/${providerJob.id}/cancel`).length, 1)
     })
@@ -360,7 +364,7 @@ void test('Gateway video, TTS and transcription settle, refuse to reopen, and ne
       }
     })
 
-    await suite.test('keeps zero or absent released credits literal and drops invalid optional fields', async () => {
+    await suite.test('settlement stays out of the control DTO and invalid optional fields are dropped', async () => {
       const originalFetch = globalThis.fetch
       globalThis.fetch = async () => Response.json({
         id: 'zero-release-cancel', state: 'accepted', released_credits: 0,
@@ -370,7 +374,11 @@ void test('Gateway video, TTS and transcription settle, refuse to reopen, and ne
         const result = await client.requestGenStudioCancellation(
           'voice.tts', service.baseUrl, MOCK_GENSTUDIO_FULL_KEY, 'zero-release-cancel', {}, Date.now() + 10_000,
         )
-        assert.equal(result.released_credits, 0)
+        // A published 0 is dropped exactly like a published 5: the parser holds
+        // no credit field at all, so no zero can be mistaken for a reading.
+        for (const field of ['reserved_credits', 'settled_credits', 'released_credits'] as const) {
+          assert.equal(field in result, false, `${field} must stay out of the control DTO`)
+        }
         assert.equal(result.cancellable, undefined)
         assert.equal(result.cancellation_note, undefined)
       } finally {
@@ -657,26 +665,41 @@ void test('terminal classification uses JobState only, and cancellation is a boo
   assert.equal(cancelled.state, 'failed')
 })
 
-void test('terminal errors report only published release settlement and preserve zero', async () => {
+void test('terminal errors carry no settlement wording and keep null credit compatibility fields', async () => {
   const client = await import('../lib/genstudio-client.js')
+  // Story no longer tracks credits: a terminal error reports settlement in no
+  // wording at all — neither "not yet published" nor "N released" — whatever
+  // the job envelope published.
+  const settlementProse = /settlement is not yet published|credits released|reservation was released|credits (?:were )?returned/i
+
   const omitted = new client.GenStudioImageTerminalFailureError({
     id: 'image-omitted', state: 'failed', reserved_credits: 9, settled_credits: 0,
   })
-  assert.match(omitted.message, /settlement is not yet published/i)
-  assert.match(omitted.message, /check.*Gateway status/i)
-  assert.doesNotMatch(omitted.message, /reservation was released|credits (?:were )?returned/i)
+  assert.match(omitted.message, /could not make the image/i)
+  assert.match(omitted.message, /Retry submits a new job/i)
+  assert.doesNotMatch(omitted.message, settlementProse)
 
   const zero = new client.GenStudioVideoTerminalFailureError({
     id: 'video-zero', state: 'failed', released_credits: 0,
   })
-  assert.match(zero.message, /0 credits released/i)
-  assert.doesNotMatch(zero.message, /settlement is not yet published/i)
+  assert.match(zero.message, /could not make the video/i)
+  assert.match(zero.message, /Retry submits a new job/i)
+  assert.doesNotMatch(zero.message, settlementProse)
 
   const positive = new client.GenStudioChatTerminalFailureError({
     id: 'chat-positive', state: 'failed', failure_code: 'LANGUAGE_PROVIDER_FAILED', released_credits: 7,
   })
-  assert.match(positive.message, /7 credits released/i)
-  assert.doesNotMatch(positive.message, /reservation was released|credits (?:were )?returned/i)
+  assert.match(positive.message, /Retry this step/i)
+  assert.doesNotMatch(positive.message, settlementProse)
+
+  // The compatibility fields stay null on every modality — including when the
+  // envelope published a positive release — so nothing can read a settlement
+  // Story did not track.
+  for (const error of [omitted, zero, positive]) {
+    assert.equal(error.reservedCredits, null)
+    assert.equal(error.settledCredits, null)
+    assert.equal(error.releasedCredits, null)
+  }
 })
 
 void test('a retry scope is fresh after a terminal failure, stable otherwise, and bounded', async () => {

@@ -709,6 +709,11 @@ describe('automatic recovery for cooperative Continuity Render stall holds', () 
         assert.equal(manifest.tasks[`${sceneId}.png`]?.task_id, '', 'the executor owns prepared identity replay')
         assert.equal(job.genstudio_jobs?.[0]?.state, created ? 'succeeded' : 'not_created')
         if (created) assert.equal(job.genstudio_jobs?.[0]?.id, taskId)
+        else {
+          for (const field of ['reserved_credits', 'settled_credits', 'released_credits'] as const) {
+            assert.equal(Object.hasOwn(job.genstudio_jobs![0]!, field), false, 'never-created recovery needs no synthetic credit evidence')
+          }
+        }
       })
       const job = jq.enqueuePreparedForTest({
         project_slug: project.slug,
@@ -1003,7 +1008,16 @@ describe('automatic recovery for cooperative Continuity Render stall holds', () 
         ...seeded.entry,
         last_state: 'failed',
       })
+      // The seed's own Gateway task succeeded; this story is a terminal
+      // failure, and the decision boundary reads live control truth (a paid
+      // task whose control is not `failed` stays fail-closed, TN0355).
+      service.patchJobScenario(seeded.entry.task_id, { states: ['failed'], failureCode: 'IMAGE_FAILED' })
       service.queueScenario('image', { states: ['succeeded'] })
+      // The executor-owned retry is opt-in through the saved image retry
+      // setting (default off); the retired paid-replacement switch no longer
+      // drives it.
+      const { setImageRetrySetting } = await import('../services/app-settings.js')
+      await setImageRetrySetting({ enabled: true, retries: 1 })
       const job = stalledRender('stall-fully-released-fleet', seeded.project.slug, seeded.entry.task_id, {
         episode_id: seeded.episodeId,
         params: seeded.params,
@@ -1057,6 +1071,8 @@ describe('automatic recovery for cooperative Continuity Render stall holds', () 
       assert.ok((await fs.stat(seeded.outputPath)).size > 0)
     } finally {
       globalThis.fetch = originalFetch
+      const { setImageRetrySetting } = await import('../services/app-settings.js')
+      await setImageRetrySetting({ enabled: false, retries: 3 })
       await service.close()
     }
   })
