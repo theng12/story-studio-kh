@@ -51,9 +51,14 @@ describe('a music failure is an ordinary Gateway failure', () => {
     assert.equal(isFleetBusyFailure(new GenStudioMusicTerminalFailureError(settled()), 'music'), true)
   })
 
-  test('the same code with credits SETTLED is never retryable', () => {
-    const paid = new GenStudioMusicTerminalFailureError(settled({ settled_credits: 100, released_credits: 0 }))
-    assert.equal(isFleetBusyFailure(paid, 'music'), false)
+  test('settlement never blocks the capacity wait — credits no longer decide retry', () => {
+    // The register now fails any generator that handles a terminal failure
+    // without waiting for a busy fleet, so the music generator passes its own
+    // modality here. A job carrying settled credits waits exactly like one
+    // whose credits came back whole: Gateway owns settlement, Story owns retry.
+    const settledCredits = new GenStudioMusicTerminalFailureError(settled({ settled_credits: 100, released_credits: 0 }))
+    assert.equal(isFleetBusyFailure(settledCredits, 'music'), true)
+    assert.equal(isFleetBusyFailure(new GenStudioMusicTerminalFailureError(settled()), 'music'), true)
   })
 
   test('a busy fleet in another modality is not licence to resubmit a song', () => {
@@ -65,11 +70,11 @@ describe('a music failure is an ordinary Gateway failure', () => {
     assert.equal(isFleetBusyFailure(cancelled, 'music'), false)
   })
 
-  test('the settlement it reports is the Gateway\'s, never derived locally', () => {
-    const e = new GenStudioMusicTerminalFailureError(settled())
-    assert.equal(e.reservedCredits, 100)
-    assert.equal(e.settledCredits, 0)
-    assert.equal(e.releasedCredits, 100)
+  test('settlement fields are retired: the error reports null, never a derived figure', () => {
+    const e = new GenStudioMusicTerminalFailureError(settled({ reserved_credits: 100, settled_credits: 0, released_credits: 100 }))
+    assert.equal(e.reservedCredits, null)
+    assert.equal(e.settledCredits, null)
+    assert.equal(e.releasedCredits, null)
   })
 })
 

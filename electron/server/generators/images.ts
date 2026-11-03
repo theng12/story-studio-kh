@@ -1539,7 +1539,8 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
               ? submittedRecoveryCandidate
               : null
             let committedScope = durablePermission?.replacement_scope || ''
-            if (!freeFleet && !committedScope && !submittedRecoveryEntry && paidSelector && existing && isTerminalGenStudioImageTaskFailure(existing) && existing.original_output_selector) {
+            const sameAction = !force || logicalPaidScope(existing, existing?.request_scope || '').split(':retry:')[0] === baseScope
+            if (sameAction && !freeFleet && !committedScope && !submittedRecoveryEntry && paidSelector && existing && isTerminalGenStudioImageTaskFailure(existing) && existing.original_output_selector) {
               const decision = await decidePaidImageReplacement({
                 job,
                 asset: {

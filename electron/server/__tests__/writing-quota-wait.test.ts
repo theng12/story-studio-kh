@@ -1,5 +1,5 @@
 /**
- * A writing model that answers "quota used up" (proven, uncharged) parks its job
+ * A writing model that confirms "quota used up" without a hold parks its job
  * instead of failing it, and asks again later — 1, 2, 4 … capped at 30 minutes,
  * reset by a success. One model only: a Gateway pool falls through its own members.
  */
@@ -40,10 +40,15 @@ before(async () => {
 
 after(async () => { await cleanup() })
 
-test('only a proven, uncharged quota stop counts — even when an adapter wraps it', () => {
+test('only a confirmed quota stop counts — even when an adapter wraps it', () => {
   assert.equal(isUnchargedQuotaStop(quota()), true)
   assert.equal(isUnchargedQuotaStop(new Error('adapter summary', { cause: quota() })), true)
-  assert.equal(isUnchargedQuotaStop(quota(1)), false, 'a charged stop is not a free wait')
+  assert.equal(isUnchargedQuotaStop(quota(1)), true, 'legacy settlement fields do not decide a quota wait')
+  for (const flags of [{ cancelled: true }, { recovery_required: true }, { recovery_state: 'unknown_outcome' }]) {
+    assert.equal(isUnchargedQuotaStop(new GenStudioChatTerminalFailureError({
+      id: 'held-quota', state: 'failed', failure_code: GENSTUDIO_LANGUAGE_FAILURE_CODES.QUOTA_EXHAUSTED, ...flags,
+    })), false)
+  }
   assert.equal(isUnchargedQuotaStop(new Error('timeout')), false)
 })
 
@@ -87,7 +92,8 @@ describe('writing-model quota holds in the job queue', () => {
       const job = jq.getJob(waiting.job_id)
       return job?.status === 'queued' && /used up its allowance/.test(job.error || '') ? job : undefined
     })
-    assert.match(parked.error || '', /nothing was charged/)
+    assert.match(parked.error || '', /finished work is kept/)
+    assert.doesNotMatch(parked.error || '', /charged|credits/i)
     assert.match(parked.error || '', /pool from GatewayKH/)
 
     const unrelated = jq.enqueuePreparedForTest({
@@ -107,14 +113,22 @@ describe('writing-model quota holds in the job queue', () => {
     assert.equal(complete.params.quota_retry_at, undefined)
   })
 
-  test('a charged quota stop fails normally instead of waiting', async () => {
-    const project = await pm.createProject({ name: 'Quota fails normally' })
-    jq.registerExecutor('idea_campaign', async () => { throw quota(1) })
+  test('an uncertain quota stop fails normally instead of being resubmitted', async () => {
+    const project = await pm.createProject({ name: 'Held quota stops' })
+    let runs = 0
+    jq.registerExecutor('idea_campaign', async () => {
+      runs++
+      throw new GenStudioChatTerminalFailureError({
+        id: 'held-quota', state: 'failed', failure_code: GENSTUDIO_LANGUAGE_FAILURE_CODES.QUOTA_EXHAUSTED,
+        recovery_required: true,
+      })
+    })
     const charged = jq.enqueuePreparedForTest({
       project_slug: project.slug, type: 'idea_campaign', episode_id: 'EP-Q-CHARGED', title: 'charged', params: { model: 'paid', auto_retry: false },
     })
     await waitFor(() => jq.getJob(charged.job_id)?.status === 'error' ? true : undefined)
     assert.equal(jq.getJob(charged.job_id)?.params.quota_retry_at, undefined)
+    assert.equal(runs, 1)
   })
 
   test('a queued wait remains paused or cancelled when its due time arrives', async () => {

@@ -143,8 +143,10 @@ describe('the fleet-busy waits themselves end on pause', () => {
     const body = await read('services/subtitle-recovery.ts')
     assert.match(body, /const stopped = \(\) =>[\s\S]{0,180}?isPauseRequested\(job\.job_id\)/,
       'the shared subtitle stop predicate must include Pause')
-    assert.match(body, /await waitUnlessStopped\(delay, \(\) => !!stopped\(\)\)/,
-      'this was a bare setTimeout — up to five minutes with nothing watching')
+    assert.match(body, /for \(;;\) \{\s*if \(stopped\(\)\) throw/,
+      'every retry must recheck the owner stop before recovering or submitting')
+    assert.match(body, /beforePost: async \(\) => \{ if \(stopped\(\)\) throw/,
+      'Pause must also be checked at the actual submission boundary')
     assert.doesNotMatch(body, /await new Promise\(resolve => setTimeout\(resolve, delay\)\)/,
       'the un-interruptible sleep must be gone, not merely wrapped')
   })

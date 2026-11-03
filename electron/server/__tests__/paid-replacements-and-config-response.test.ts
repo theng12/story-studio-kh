@@ -39,14 +39,14 @@ after(async () => {
   await cleanup()
 })
 
-const off = { enabled: false, additional_credit_ceiling: null }
+const off = { enabled: false }
 
 test('every paid replacement is off until saved on, and one route returns all four', async () => {
   await request(app).get('/api/app-settings/paid-replacements')
     .expect(200, { image: off, subtitle: off, audio: off, writing: off })
   await request(app).put('/api/app-settings/paid-audio-replacement').send({ enabled: true, additional_credit_ceiling: 20 }).expect(200)
   await request(app).get('/api/app-settings/paid-replacements')
-    .expect(200, { image: off, subtitle: off, audio: { enabled: true, additional_credit_ceiling: 20 }, writing: off })
+    .expect(200, { image: off, subtitle: off, audio: { enabled: true }, writing: off })
   await request(app).put('/api/app-settings/paid-audio-replacement').send(off).expect(200)
 })
 

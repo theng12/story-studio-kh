@@ -82,7 +82,7 @@ test('a 300-scene review streams in a few KB; the per-job GET keeps every field'
   assert.equal(response.body.params.scenes.length, 300)
 })
 
-test('paid evidence that is not settled and balanced is flagged open', async () => {
+test('terminal evidence is closed regardless of retired settlement fields', async () => {
   const project = await pm.createProject({ name: 'Open Settlement' })
   const job = { ...sceneReview(project.slug), job_id: 'paid-open' }
   job.genstudio_jobs = [
@@ -91,7 +91,14 @@ test('paid evidence that is not settled and balanced is flagged open', async () 
   ] as any
   await jq.writeAuthoritativeJob(job)
   const slim = (await jq.getJobs(project.slug, { view: 'stream' })).find(row => row.job_id === job.job_id) as any
-  assert.equal(slim.genstudio_settlement_open, true)
+  assert.equal(slim.genstudio_settlement_open, false)
+  assert.deepEqual(slim.genstudio_jobs_active, [])
+  await jq.recordGenStudioJob(job.job_id, {
+    id: 'p3', operation: 'image.generation', state: 'running', model_id: 'paid-model', updated_at: AT,
+  })
+  const running = (await jq.getJobs(project.slug, { view: 'stream' })).find(row => row.job_id === job.job_id) as any
+  assert.equal(running.genstudio_settlement_open, true)
+  assert.deepEqual(running.genstudio_jobs_active.map((entry: any) => entry.id), ['p3'])
 })
 
 test('a running job is re-sent only when what the stream carries changed', async () => {

@@ -1718,7 +1718,7 @@ function clearQuotaWaitTimer(jobId: string): void {
 function quotaWaitingMessage(job: Job, retryAt: string): string {
   const model = writingModelOf(job) || 'The writing model'
   return `${model} has used up its allowance for now. Story Studio will try this job again at `
-    + `${new Date(retryAt).toLocaleString()} — nothing was charged and finished work is kept. `
+    + `${new Date(retryAt).toLocaleString()} — finished work is kept. `
     + 'To fall back across several models, choose a pool from GatewayKH as this step\'s writing model.'
 }
 

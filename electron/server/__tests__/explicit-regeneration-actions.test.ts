@@ -178,7 +178,7 @@ void test('image and music routes retain one paid provider request per operation
     const imageNew = await request(app).post(`/api/projects/${project.slug}/generate/images`).send(imageBody('22222222-2222-4222-8222-222222222222'))
     assert.equal(imageNew.status, 201, JSON.stringify(imageNew.body))
     await terminal(imageNew.body.job_id, 'new image action to settle')
-    assert.equal(service.providerSubmissionCount('image'), 2, 'a distinct image action made one fresh provider POST')
+    assert.equal(service.providerSubmissionCount('image'), 2, `a distinct image action made one fresh provider POST: ${jq.getJob(imageNew.body.job_id)?.error || ''}`)
 
     const imageRecover = await request(app).post(`/api/projects/${project.slug}/generate/images`).send(imageBody('', false))
     assert.equal(imageRecover.status, 201, JSON.stringify(imageRecover.body))
@@ -312,7 +312,7 @@ void test('image and music routes retain one paid provider request per operation
     )
     assert.equal(continuityNew.status, 201, JSON.stringify(continuityNew.body))
     await terminal(continuityNew.body.job_id, 'new continuity action to settle')
-    assert.equal(service.providerSubmissionCount('image'), continuityBefore + 2, 'a distinct continuity action made one fresh provider POST')
+    assert.equal(service.providerSubmissionCount('image'), continuityBefore + 2, `a distinct continuity action made one fresh provider POST: ${jq.getJob(continuityNew.body.job_id)?.error || ''}`)
 
     const musicBody = (operationId: string) => ({
       brief: 'warm instrumental lo-fi for reading', count: 1, model: 'mock-music-v1', instrumental: true, operation_id: operationId,

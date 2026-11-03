@@ -78,8 +78,9 @@ describe('the screenshot: a free chapter whose Mac did not answer in time', () =
     assert.doesNotMatch(error.message, /credit|fallback|GenStudio/i)
     assert.match(error.message, /Provider reason: The Mac didn't answer in time\./)
     const paid = new GenStudioTtsTerminalFailureError(submitTimeout(PAID))
-    assert.match(paid.message, /GenStudio reports 0 credits released\. No fallback route was attempted\./,
-      'paid work keeps its honest settlement line')
+    assert.match(paid.message, /No fallback route was attempted\./,
+      'paid work keeps its honest fallback line')
+    assert.doesNotMatch(paid.message, /credit/i, 'credit settlement is retired from failure messages')
   })
 
   test('the log line says why and what happens next', () => {

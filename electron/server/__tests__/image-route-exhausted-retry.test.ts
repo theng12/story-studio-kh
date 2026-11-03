@@ -80,18 +80,36 @@ test('an image route-exhaustion classifies the same way TTS does, including canc
   )
 })
 
-test('route exhaustion fails closed without a fully returned settlement', () => {
+test('settlement never decides route exhaustion — the code and cancellation do', () => {
+  // Story no longer tracks credits: the error's credit fields are null, so a
+  // legacy payload's settled/released numbers can neither grant nor deny the
+  // classification. Only the failure code and the owner's cancellation decide.
   const base = { id: 'img-exhausted', state: 'failed', failure_code: GENSTUDIO_ROUTE_EXHAUSTED_FAILURE_CODE }
   const cases = [
-    [{}, false, 'unknown settlement'],
-    [{ reserved_credits: 9 }, false, 'partial settlement'],
-    [{ reserved_credits: 9, settled_credits: 1, released_credits: 8 }, false, 'charged settlement'],
-    [{ reserved_credits: 9, settled_credits: 0, released_credits: 8 }, false, 'partial release'],
-    [{ reserved_credits: 9, settled_credits: 0, released_credits: 9 }, true, 'complete returned settlement'],
+    {}, // no settlement fields at all
+    { reserved_credits: 9 }, // reservation kept, never settled
+    { reserved_credits: 9, settled_credits: 1, released_credits: 8 }, // charged legacy shape
+    { reserved_credits: 9, settled_credits: 0, released_credits: 8 }, // partial release
+    { reserved_credits: 9, settled_credits: 0, released_credits: 9 }, // fully returned
   ] as const
-  for (const [over, expected, name] of cases) {
-    assert.equal(isGenStudioRouteExhausted(new GenStudioImageTerminalFailureError({ ...base, ...over })), expected, name)
+  for (const over of cases) {
+    const error = new GenStudioImageTerminalFailureError({ ...base, ...over })
+    assert.equal(error.settledCredits, null, 'the error publishes no settlement to decide on')
+    assert.equal(isGenStudioRouteExhausted(error), true, JSON.stringify(over))
   }
+  // ...and the two that DO decide stay right here: cancellation, and a code
+  // that is not route exhaustion.
+  assert.equal(
+    isGenStudioRouteExhausted(new GenStudioImageTerminalFailureError({ ...base, cancelled: true })),
+    false,
+    "the owner's instruction stands",
+  )
+  assert.equal(
+    isGenStudioRouteExhausted(new GenStudioImageTerminalFailureError(
+      { ...base, failure_code: 'CLOUD_PROVIDER_FAILED' })),
+    false,
+    'a provider fault is not route exhaustion',
+  )
 })
 
 test('the image retry schedule is independently tunable from the TTS one', () => {
@@ -254,7 +272,7 @@ test('images.ts reuses the retry-scope chain and progress machinery instead of i
   // goes through the same resolver. The route-exhaustion path must call that
   // shared policy instead of growing a second local scope derivation.
   assert.match(source, /const actionScope = \(entry: TaskManifestEntry \| null \| undefined, baseScope: string\): string => \(\s*force && generationActionId \? baseScope : resolveImageRetryScope\(entry, baseScope\)\.scope/)
-  assert.match(source, /const scope = actionScope\(failedEntry, previous\.baseScope\)/)
+  assert.match(source, /const logicalScope = explicitScope \|\| actionScope\(failedEntry, previous\.baseScope\)/)
   assert.doesNotMatch(source, /nextImageRouteRetryIdentity/)
 
   // Live per-item state, published on every transition including the wait.

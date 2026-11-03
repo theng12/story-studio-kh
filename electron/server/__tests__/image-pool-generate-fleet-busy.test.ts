@@ -99,17 +99,38 @@ describe('Image Pool: a busy fleet is worth asking again', () => {
     }
   })
 
-  test('(b) the same code with credits SETTLED is never resubmitted', () => {
-    // Settled credits mean a provider was paid and may already have rendered
-    // the image. Resubmitting over that charges the owner twice for one asset —
-    // the single worst outcome this change could have — so a guarantee that can
-    // no longer be verified stops the retry, whatever the failure code claims.
-    assert.equal(imagePoolFleetBusyRetryPlan(imageFailure({
-      failure_code: 'SITE_PLACEMENT_EXHAUSTED', settled_credits: 12, released_credits: 0,
-    }), 1), null)
-    assert.equal(imagePoolFleetBusyRetryPlan(imageFailure({
-      failure_code: 'SITE_CAPACITY_UNAVAILABLE', settled_credits: 3, released_credits: 9,
-    }), 1), null)
+  test('(b) legacy or missing settlement does not decide; the code and the job state do', () => {
+    // Story no longer tracks credits — the error's credit fields are null — so
+    // a legacy payload's settled/released numbers can neither grant nor deny
+    // the attempt. Only the failure code, cancellation, modality and the
+    // unknown-outcome hold decide.
+    for (const over of [
+      { failure_code: 'SITE_PLACEMENT_EXHAUSTED', settled_credits: 12, released_credits: 0 },
+      { failure_code: 'SITE_CAPACITY_UNAVAILABLE', settled_credits: 3, released_credits: 9 },
+      {
+        failure_code: 'SITE_PLACEMENT_EXHAUSTED',
+        reserved_credits: undefined, settled_credits: undefined, released_credits: undefined,
+      },
+    ]) {
+      const plan = imagePoolFleetBusyRetryPlan(imageFailure(over), 1)
+      assert.ok(plan, `${JSON.stringify(over)} must not deny the attempt by itself`)
+    }
+    assert.equal(
+      imageFailure({ failure_code: 'SITE_PLACEMENT_EXHAUSTED' }).settledCredits, null,
+      'the error publishes no settlement to decide on',
+    )
+  })
+
+  test('(b2) an unknown-outcome hold is never resubmitted', () => {
+    // The gateway may still be holding a result that has not landed; a busy
+    // code on such a job must not buy a second pool image.
+    for (const over of [{ recovery_state: 'unknown_outcome' }, { recovery_required: true }]) {
+      assert.equal(
+        imagePoolFleetBusyRetryPlan(imageFailure({ failure_code: 'SITE_PLACEMENT_EXHAUSTED', ...over }), 1),
+        null,
+        JSON.stringify(over),
+      )
+    }
   })
 
   test('(c) an unrelated failure is never retried as if the fleet were merely busy', () => {
@@ -263,8 +284,8 @@ describe('Image Pool: the wait itself', () => {
     has("}, 'failed', true)", 'the settled failure reaches disk strictly before the retry is decided')
     has('const manifest = await readManifest(pool.folder_path)',
       'and the next attempt reads it back from disk, not from a stale in-memory copy')
-    has('let logicalScope = resolveImageRetryScope(retryEntry, baseScope).scope',
-      'the promoted scope is derived from the dead job id')
+    has('let logicalScope = retryDecisionScope || resolveImageRetryScope(retryEntry, baseScope).scope',
+      "the recovery decision's scope wins; otherwise the promoted scope is derived from the dead job id")
     assert.doesNotMatch(source, /randomUUID/)
     assert.doesNotMatch(source, /Math\.random/)
 

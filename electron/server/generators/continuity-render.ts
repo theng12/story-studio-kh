@@ -1211,7 +1211,8 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
               // Free fleet skips the paid decision: a control read that throws or is
               // not "failed" made it answer "recover-original" forever (TN0355 scene 65).
               // The ordinary path below derives a new retry identity from the dead task.
-              if (!freeFleet && !sceneManualFinish && !zeroSettlementRetryPending && !replacementScope && !submittedRecoveryEntry && originalSelector && manifestEntry && isTerminalGenStudioImageTaskFailure(manifestEntry)
+              const sameAction = !force || logicalPaidScope(manifestEntry, manifestEntry?.request_scope || '').split(':retry:')[0] === baseScope
+              if (sameAction && !freeFleet && !sceneManualFinish && !zeroSettlementRetryPending && !replacementScope && !submittedRecoveryEntry && originalSelector && manifestEntry && isTerminalGenStudioImageTaskFailure(manifestEntry)
                 && manifestEntry.original_output_selector) {
                 const decision = await decidePaidImageReplacement({
                   job,

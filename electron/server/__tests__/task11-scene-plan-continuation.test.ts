@@ -476,12 +476,8 @@ test('a provider refusal keeps approved work and ordinary Retry submits only the
   assert.equal(partial.visual_prompt_batch_id, fixture.paidCheckpoint)
   assert.equal(partial.scenes[1].visual_prompt, '')
 
-  // Restoring fetch is not a top-up: admission correctly retains the 402
-  // until the account reports more credits. Prove that gate, then replenish
-  // the fake account through its existing public overview fixture.
-  await assert.rejects(runScenePlanJob(pipelineJob(fixture)), genstudio.isGenStudioPaymentRefusal)
+  // Retry asks the Gateway again; Story does not infer permission from a cached balance.
   assert.equal(chatSubmissions().length, 0)
-  service.setAccountOverviewForKey(MOCK_GENSTUDIO_FULL_KEY, { credit_balance: 2_000 })
   queuePromptResult([fixture.missingId])
   await runScenePlanJob(pipelineJob(fixture))
 

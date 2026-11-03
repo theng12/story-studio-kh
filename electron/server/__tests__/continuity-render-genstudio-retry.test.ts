@@ -65,23 +65,38 @@ test('(a) a busy fleet with the money returned earns another attempt', () => {
   }
 })
 
-test('(b) the same code with credits SETTLED is never resubmitted', () => {
-  // Settled credits mean a provider was paid and may already have rendered the
-  // image. Resubmitting over that charges the owner twice for one asset — the
-  // single worst outcome this change can have — so a guarantee that can no
-  // longer be verified stops the retry, whatever the failure code claims.
+test('(b) legacy or missing settlement does not decide; the code and the job state do', () => {
+  // Story no longer tracks credits — the error's credit fields are null — so a
+  // legacy payload's settled/released numbers can neither grant nor deny an
+  // attempt. Only the failure code, cancellation, modality and the
+  // unknown-outcome hold decide.
+  for (const over of [
+    { failure_code: 'SITE_PLACEMENT_EXHAUSTED', settled_credits: 9, released_credits: 0 },
+    { failure_code: 'SITE_CAPACITY_UNAVAILABLE', settled_credits: 2, released_credits: 7 },
+    {
+      failure_code: 'SITE_PLACEMENT_EXHAUSTED',
+      reserved_credits: undefined, settled_credits: undefined, released_credits: undefined,
+    },
+  ]) {
+    const plan = continuityFleetBusyRetryPlan(imageFailure(over), 1)
+    assert.ok(plan, `${JSON.stringify(over)} must not deny the attempt by itself`)
+  }
   assert.equal(
-    continuityFleetBusyRetryPlan(imageFailure({
-      failure_code: 'SITE_PLACEMENT_EXHAUSTED', settled_credits: 9, released_credits: 0,
-    }), 1),
-    null,
+    imageFailure({ failure_code: 'SITE_PLACEMENT_EXHAUSTED' }).settledCredits, null,
+    'the error publishes no settlement to decide on',
   )
-  assert.equal(
-    continuityFleetBusyRetryPlan(imageFailure({
-      failure_code: 'SITE_CAPACITY_UNAVAILABLE', settled_credits: 2, released_credits: 7,
-    }), 1),
-    null,
-  )
+})
+
+test('(b2) an unknown-outcome hold is never resubmitted', () => {
+  // The gateway may still be holding a result that has not landed; a busy code
+  // on such a job must not buy a second render.
+  for (const over of [{ recovery_state: 'unknown_outcome' }, { recovery_required: true }]) {
+    assert.equal(
+      continuityFleetBusyRetryPlan(imageFailure({ failure_code: 'SITE_PLACEMENT_EXHAUSTED', ...over }), 1),
+      null,
+      JSON.stringify(over),
+    )
+  }
 })
 
 test('(c) an unrelated failure is never retried as if the fleet were merely busy', () => {
@@ -186,7 +201,12 @@ test('the batch waits under the owner\'s control and resubmits under a DERIVED i
   // rebuilt identity adopted into the entry before the ordinary path uses it.
   // The next attempt still reasons from the entry written to disk.
   assert.match(source, /let manifestEntry = savedEntry/)
-  assert.match(source, /const retryScope = resolveImageRetryScope\(retryEntry, baseScope\)/)
+  // The recovery decision's own scope wins when it named one; otherwise the
+  // terminal entry promotes through the shared resolver.
+  assert.match(
+    source,
+    /const retryScope = retryDecisionScope \? \{ scope: retryDecisionScope, isRetry: true \} : resolveImageRetryScope\(retryEntry, baseScope\)/,
+  )
   assert.doesNotMatch(source, /randomUUID/)
   assert.doesNotMatch(source, /Math\.random/)
 

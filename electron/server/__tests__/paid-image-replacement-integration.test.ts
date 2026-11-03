@@ -16,6 +16,12 @@ const { _setGenStudioPollLadderForTesting } = await import('../lib/genstudio-cli
 // apply, and the retry SCHEDULE asserted below (`next_retry_at` about a minute
 // out) is a different mechanism, untouched.
 _setGenStudioPollLadderForTesting([10])
+const previousImageRetryDelay = process.env.STORY_STUDIO_IMAGE_RETRY_BASE_MS
+process.env.STORY_STUDIO_IMAGE_RETRY_BASE_MS = '1'
+test.after(() => {
+  if (previousImageRetryDelay === undefined) delete process.env.STORY_STUDIO_IMAGE_RETRY_BASE_MS
+  else process.env.STORY_STUDIO_IMAGE_RETRY_BASE_MS = previousImageRetryDelay
+})
 
 const FREE_FLEET_IMAGE_MODEL = 'studio-hub::mock-image-v1'
 
@@ -67,17 +73,29 @@ async function createContinuityFixture(name: string) {
   return { project, episodeId, paths }
 }
 
-async function waitForPaidAttempt(
-  jobsFile: string,
-  predicate: (attempt: any) => boolean,
-  diagnostic: string,
-): Promise<void> {
-  for (let turn = 0; turn < 1_000; turn++) {
-    const durable = JSON.parse(await fs.readFile(jobsFile, 'utf8')).jobs[0]
-    if (durable.paid_image_replacement_attempts?.some(predicate)) return
-    await new Promise<void>(resolve => setImmediate(resolve))
+/** Old accepted commitments remain recoverable; new failures never create this record. */
+async function seedLegacyCommittedAttempt(job: any, dir: string, key: string, failureCode: string): Promise<void> {
+  const { readManifest, recordPaidImageReplacementStrict } = await import('../services/task-manifest.js')
+  const entry = (await readManifest(dir)).tasks[key]!
+  assert.ok(entry.task_id && entry.idempotency_key && entry.original_output_selector)
+  const now = new Date().toISOString()
+  const attempt = {
+    asset_key: key, manifest_dir: dir, manifest_key: key, output_path: entry.original_output_path,
+    state: 'committed', original_task_id: entry.task_id, original_idempotency_key: entry.idempotency_key,
+    input_hash: entry.input_hash, output_selector: entry.original_output_selector,
+    reference_inputs: entry.original_reference_inputs, reference_identity_hash: entry.original_reference_identity_hash,
+    failure_code: failureCode, terminal_observed_at: now,
+    eligible_at: new Date(Date.parse(now) + 30 * 60_000).toISOString(),
+    quoted_credits: 4, price_version: 'mock-image-price-v1',
+    replacement_scope: `paid-image-replacement:${entry.task_id}`, replacement_committed_at: now,
   }
-  throw new Error(`Worker barrier exhausted: ${diagnostic}`)
+  job.paid_image_replacement_attempts = [attempt]
+  await writeAuthoritativeFixture(job)
+  await recordPaidImageReplacementStrict(dir, key, {
+    ...entry, replacement_of_task_id: entry.task_id, replacement_scope: attempt.replacement_scope,
+    replacement_quoted_credits: attempt.quoted_credits, replacement_price_version: attempt.price_version,
+    replacement_committed_at: now,
+  })
 }
 
 function blockedCheckpointJob(projectSlug: string, state: 'waiting' | 'succeeded') {
@@ -214,6 +232,7 @@ test('automatic missing-only run continues through repeated fully refunded failu
     const { readManifest } = await import('../services/task-manifest.js')
     const { runContinuityRenderJob } = await import('../generators/continuity-render.js')
     await settings.setGenStudioUrl(service.baseUrl)
+    await settings.setImageRetrySetting({ enabled: true, retries: 2 })
     await settings.setPaidImageReplacementSetting({ enabled: true, additional_credit_ceiling: 20 })
     await secrets.setApiKey('genstudio', MOCK_GENSTUDIO_FULL_KEY)
     client.clearGenStudioCatalogCache()
@@ -253,7 +272,7 @@ test('automatic missing-only run continues through repeated fully refunded failu
     const completedEntry = (await readManifest(outDir)).tasks['scene-001.png']!
     assert.equal(completedEntry.last_state, 'succeeded')
     assert.match(completedEntry.request_scope || '', /:retry:/, 'the retry scope persists before the replacement POST')
-    assert.match(automaticJob.output_lines.join('\n'), /attempt 3/)
+    assert.match(automaticJob.output_lines.join('\n'), /retry attempt 2 of 2/)
   } finally {
     if (previousRetryDelay === undefined) delete process.env.STORY_STUDIO_IMAGE_RETRY_BASE_MS
     else process.env.STORY_STUDIO_IMAGE_RETRY_BASE_MS = previousRetryDelay
@@ -382,6 +401,7 @@ test('turning automatic replacement Off after a zero-settlement decision prevent
     const { registry } = await import('../providers/registry.js')
     const { runContinuityRenderJob } = await import('../generators/continuity-render.js')
     await settings.setGenStudioUrl(service.baseUrl)
+    await settings.setImageRetrySetting({ enabled: true, retries: 1 })
     await settings.setPaidImageReplacementSetting({ enabled: true, additional_credit_ceiling: 20 })
     await secrets.setApiKey('genstudio', MOCK_GENSTUDIO_FULL_KEY)
     client.clearGenStudioCatalogCache()
@@ -393,7 +413,7 @@ test('turning automatic replacement Off after a zero-settlement decision prevent
       generateImage: async request => {
         generationCalls++
         if (generationCalls === 2) {
-          await settings.setPaidImageReplacementSetting({ enabled: false, additional_credit_ceiling: 20 })
+          await settings.setImageRetrySetting({ enabled: false, retries: 1 })
         }
         return realProvider.generateImage(request)
       },
@@ -503,6 +523,7 @@ test('manual Finish continues after two confirmed refunds only while the live po
     const { readManifest } = await import('../services/task-manifest.js')
     const { runContinuityRenderJob } = await import('../generators/continuity-render.js')
     await settings.setGenStudioUrl(service.baseUrl)
+    await settings.setImageRetrySetting({ enabled: true, retries: 2 })
     await settings.setPaidImageReplacementSetting({ enabled: true, additional_credit_ceiling: 20 })
     await secrets.setApiKey('genstudio', MOCK_GENSTUDIO_FULL_KEY)
     client.clearGenStudioCatalogCache()
@@ -620,6 +641,7 @@ test('automatic missing-only run replaces a released exhausted-failover image an
     const { readManifest } = await import('../services/task-manifest.js')
     const { runContinuityRenderJob } = await import('../generators/continuity-render.js')
     await settings.setGenStudioUrl(service.baseUrl)
+    await settings.setImageRetrySetting({ enabled: true, retries: 1 })
     await settings.setPaidImageReplacementSetting({ enabled: true, additional_credit_ceiling: 20 })
     await secrets.setApiKey('genstudio', MOCK_GENSTUDIO_FULL_KEY)
     client.clearGenStudioCatalogCache()
@@ -657,7 +679,7 @@ test('automatic missing-only run replaces a released exhausted-failover image an
     assert.deepEqual(await fs.readFile(completedPath), completedBytes, 'the completed scene remains byte-identical')
     const completedEntry = (await readManifest(outDir)).tasks['scene-001.png']!
     assert.equal(completedEntry.last_state, 'succeeded')
-    assert.match(job.output_lines.join('\n'), /attempt 2\)/)
+    assert.match(job.output_lines.join('\n'), /retry attempt 1 of 1\)/)
     const successfulSubmissions = service.submissions.filter(submission => submission.operation === 'image')
     assert.equal(new Set(successfulSubmissions.map(submission => submission.idempotencyKey)).size, 2, 'the replacement has a fresh stable identity')
 
@@ -697,6 +719,7 @@ test('Image Pool and paid thumbnails each retry one released exhausted failover 
     const pools = await import('../services/broll-pool-manager.js')
     const { toMdPath } = await import('../lib/episode-artifacts.js')
     await settings.setGenStudioUrl(service.baseUrl)
+    await settings.setImageRetrySetting({ enabled: true, retries: 1 })
     await settings.setPaidImageReplacementSetting({ enabled: true, additional_credit_ceiling: 20 })
     await secrets.setApiKey('genstudio', MOCK_GENSTUDIO_FULL_KEY)
     client.clearGenStudioCatalogCache()
@@ -1895,11 +1918,10 @@ test('Pipeline repair preserves a decodable image owned by scene.image_path', as
   }
 })
 
-test('Continuity freezes the exact original request before POST and returns a durable paid wait after positive infrastructure settlement', async () => {
+test('Continuity freezes the original request and safely recovers a legacy committed replacement', async () => {
   const temp = await useTempDataDir()
   const service = await startMockGenStudioService()
   const originalFetch = globalThis.fetch
-  let exposeOriginalAsRunning = false
   let imageStatusReads = 0
   let referenceUploads = 0
   let imageGenerationPosts = 0
@@ -1916,7 +1938,6 @@ test('Continuity freezes the exact original request before POST and returns a du
         && !url.endsWith('/file') && response.headers.get('content-type')?.includes('application/json')) {
         const body = await response.clone().json() as Record<string, unknown>
         if (body.state === 'failed') {
-          if (exposeOriginalAsRunning) return Response.json({ ...body, state: 'running', failure_code: null })
           return Response.json({ ...body, reserved_credits: 7, settled_credits: 2, released_credits: 5 }, { status: response.status })
         }
       }
@@ -1968,8 +1989,7 @@ test('Continuity freezes the exact original request before POST and returns a du
     })
 
     const { runContinuityRenderJob } = await import('../generators/continuity-render.js')
-    const result = await runContinuityRenderJob(job)
-    assert.deepEqual(result, { kind: 'paid-image-wait' })
+    await assert.rejects(runContinuityRenderJob(job), /incomplete/i)
 
     const outDir = await resolveSceneImagesDir(project.slug, episodeId, paths.episode_dir)
     assert.ok(outDir.startsWith(externalMediaRoot), 'Continuity output is rooted in external media while references remain project-owned')
@@ -1986,70 +2006,10 @@ test('Continuity freezes the exact original request before POST and returns a du
     assert.match(entry.input_hash || '', /^sha256:/)
     assert.match(entry.request_scope || '', /:selector:[a-f0-9]{64}:references:[a-f0-9]{64}$/)
 
-    const durable = JSON.parse(await fs.readFile(jobsFile, 'utf8')).jobs[0]
-    assert.equal(durable.status, 'running')
-    assert.equal(durable.paid_image_replacement_attempts.length, 1)
-    assert.equal(durable.paid_image_replacement_attempts[0].state, 'waiting')
-    assert.equal(durable.paid_image_replacement_attempts[0].output_path, entry.original_output_path)
-    assert.equal(service.providerSubmissionCount('image'), 1, 'elapsed time or wait creation never submits a replacement')
-    assert.deepEqual(await runContinuityRenderJob(job), { kind: 'paid-image-wait' })
-    assert.equal(service.providerSubmissionCount('image'), 1, 'before-due re-entry remains a wait and submits nothing')
-    const { decidePaidImageReplacement } = await import('../services/image-paid-replacement.js')
+    assert.equal(service.providerSubmissionCount('image'), 1, 'retry is off: terminal failure submits no replacement')
+    assert.equal(job.paid_image_replacement_attempts, undefined, 'new failures create no retired wait record')
     const originalReferenceBytes = await fs.readFile(entry.original_reference_inputs![0]!.path)
-    await fs.writeFile(entry.original_reference_inputs![0]!.path, Buffer.from('changed reference bytes'))
-    const changedReference = await decidePaidImageReplacement({
-      job,
-      asset: {
-        assetKey: 'scene-001.png', manifestDir: outDir, manifestKey: 'scene-001.png', outputPath,
-        owningRoot: pm.getProjectDir(project.slug)!, referenceRoot: pm.getProjectDir(project.slug)!, outputRoot: outDir,
-        trustedOriginal: { prompt: 'A lantern in a quiet archive.', baseScope: 'missing' },
-        modelId: 'mock-image-v1', apiKey: MOCK_GENSTUDIO_FULL_KEY,
-      },
-    })
-    assert.equal(changedReference.action, 'blocked')
-    assert.equal(service.providerSubmissionCount('image'), 1, 'changed original reference bytes block before replacement admission')
-    await fs.writeFile(entry.original_reference_inputs![0]!.path, originalReferenceBytes)
-
-    const eligibleAt = Date.now() - 1_000
-    durable.paid_image_replacement_attempts[0].eligible_at = new Date(eligibleAt).toISOString()
-    durable.paid_image_replacement_attempts[0].terminal_observed_at = new Date(eligibleAt - 30 * 60_000).toISOString()
-    await writeAuthoritativeFixture(durable)
-    Object.assign(job, durable)
-    exposeOriginalAsRunning = true
-    await assert.rejects(runContinuityRenderJob(job), /incomplete/i)
-    assert.equal(service.providerSubmissionCount('image'), 1, 'elapsed eligibility without terminal evidence makes zero replacement POSTs')
-    exposeOriginalAsRunning = false
-    await settings.setPaidImageReplacementSetting({ enabled: false, additional_credit_ceiling: 20 })
-    await assert.rejects(runContinuityRenderJob(job), /incomplete/i)
-    const blockedContinuity = JSON.parse(await fs.readFile(jobsFile, 'utf8')).jobs[0]
-    assert.equal(blockedContinuity.paid_image_replacement_attempts[0].state, 'blocked')
-    assert.match(blockedContinuity.paid_image_replacement_attempts[0].reason, /currently off/i)
-    assert.equal(service.providerSubmissionCount('image'), 1, 'a blocked due Continuity attempt submits nothing')
-    blockedContinuity.paid_image_replacement_attempts[0].state = 'waiting'
-    delete blockedContinuity.paid_image_replacement_attempts[0].reason
-    await writeAuthoritativeFixture(blockedContinuity)
-    Object.assign(job, blockedContinuity)
-    await settings.setPaidImageReplacementSetting({ enabled: true, additional_credit_ceiling: 20 })
-    const committed = await decidePaidImageReplacement({
-      job,
-      asset: {
-        assetKey: 'scene-001.png', manifestDir: outDir, manifestKey: 'scene-001.png',
-        outputPath, owningRoot: pm.getProjectDir(project.slug)!, referenceRoot: pm.getProjectDir(project.slug)!, outputRoot: outDir,
-        trustedOriginal: { prompt: 'A lantern in a quiet archive.', baseScope: 'missing' },
-        modelId: 'mock-image-v1', apiKey: MOCK_GENSTUDIO_FULL_KEY,
-      },
-      now: () => new Date(eligibleAt + 1),
-      dependencies: {
-        readControl: async () => ({ id: entry.task_id, state: 'failed', failure_code: 'SITE_PLACEMENT_EXHAUSTED', reserved_credits: 7, settled_credits: 2, released_credits: 5 }),
-        artifactExists: async () => false,
-        getSetting: async () => ({ enabled: true, additional_credit_ceiling: 20 }),
-        resolveRate: async () => ({ credits: 4, priceVersion: 'mock-image-price-v1', basis: 'published-rate' as const }),
-        refreshAdmission: async () => ({ capacity_verified: true, limitSource: 'account-overview', available_paid_slots: 2, queue_near_capacity: false, submissions_blocked: false, retry_after_ms: 0, credit_balance: 20, paid_concurrency_limit: 2, paid_active_jobs: 0, paid_queued_jobs: 0, max_queued_jobs: 10, generation_submissions_per_minute: 5 } as any),
-      },
-    })
-    assert.equal(committed.action, 'commit')
-    assert.equal(service.providerSubmissionCount('image'), 1, 'commitment itself makes no provider POST')
-    Object.assign(job, JSON.parse(await fs.readFile(jobsFile, 'utf8')).jobs[0])
+    await seedLegacyCommittedAttempt(job, outDir, 'scene-001.png', 'SITE_PLACEMENT_EXHAUSTED')
     const manifestPath = path.join(outDir, '.task-manifest.json')
     const committedManifest = JSON.parse(await fs.readFile(manifestPath, 'utf8'))
     const incompleteManifest = structuredClone(committedManifest)
@@ -2241,7 +2201,7 @@ test('Continuity freezes the exact original request before POST and returns a du
   }
 })
 
-test('Image Pool stays serial and returns its durable paid wait without a replacement POST', async () => {
+test('Image Pool recovers legacy commitments without replaying completed or accepted work', async () => {
   const temp = await useTempDataDir()
   const service = await startMockGenStudioService()
   const originalFetch = globalThis.fetch
@@ -2296,25 +2256,21 @@ test('Image Pool stays serial and returns its durable paid wait without a replac
     await writeAuthoritativeFixture(job)
     service.queueScenario('image', { states: ['accepted', 'failed'], failureCode: 'SITE_CAPACITY_UNAVAILABLE', reservedCredits: 9 })
     const { generateImagePoolImages } = await import('../generators/image-pool-generate.js')
-    assert.deepEqual(await generateImagePoolImages(job), { kind: 'paid-image-wait' })
+    await assert.rejects(generateImagePoolImages(job), /incomplete/i)
     const entry = (await readManifest(poolRoot)).tasks['gen-paid-run-0002.png']!
     assert.deepEqual(entry.original_reference_inputs, [])
     assert.equal(entry.original_output_selector?.reference_mode, 'normal')
     assert.match(entry.idempotency_key || '', /^story-image-/)
     assert.equal(service.providerSubmissionCount('image'), 1)
-    const durable = JSON.parse(await fs.readFile(jobsFile, 'utf8')).jobs[0]
-    const eligibleAt = Date.now() - 1_000
-    durable.paid_image_replacement_attempts[0].eligible_at = new Date(eligibleAt).toISOString()
-    durable.paid_image_replacement_attempts[0].terminal_observed_at = new Date(eligibleAt - 30 * 60_000).toISOString()
-    await writeAuthoritativeFixture(durable)
-    Object.assign(job, durable)
+    assert.equal(job.paid_image_replacement_attempts, undefined, 'terminal failure creates no retired wait')
+    await seedLegacyCommittedAttempt(job, poolRoot, 'gen-paid-run-0002.png', 'SITE_CAPACITY_UNAVAILABLE')
     await settings.setPaidImageReplacementSetting({ enabled: false, additional_credit_ceiling: 20 })
     await assert.rejects(generateImagePoolImages(job), /incomplete/i)
     const blockedPool = JSON.parse(await fs.readFile(jobsFile, 'utf8')).jobs[0]
     assert.equal(blockedPool.paid_image_replacement_attempts[0].state, 'blocked')
     assert.match(blockedPool.paid_image_replacement_attempts[0].reason, /currently off/i)
     assert.equal(service.providerSubmissionCount('image'), 1, 'a blocked due Pool attempt submits nothing')
-    blockedPool.paid_image_replacement_attempts[0].state = 'waiting'
+    blockedPool.paid_image_replacement_attempts[0].state = 'committed'
     delete blockedPool.paid_image_replacement_attempts[0].reason
     await writeAuthoritativeFixture(blockedPool)
     Object.assign(job, blockedPool)
@@ -2453,7 +2409,7 @@ test('Image Pool stays serial and returns its durable paid wait without a replac
   }
 })
 
-test('durable thumbnails checkpoint the real accepted identity and latch a paid wait', async () => {
+test('durable thumbnails preserve exact accepted identity through legacy commitment recovery', async () => {
   const temp = await useTempDataDir()
   const service = await startMockGenStudioService()
   const originalFetch = globalThis.fetch
@@ -2519,9 +2475,9 @@ test('durable thumbnails checkpoint the real accepted identity and latch a paid 
     }
     const jobsFile = path.join(pm.projectsRoot(), project.slug, 'jobs.json')
     await writeAuthoritativeFixture(job)
-    service.queueScenario('image', { states: ['accepted', 'failed'], failureCode: 'SITE_PLACEMENT_EXHAUSTED', reservedCredits: 8 })
+    service.queueScenario('image', { states: ['accepted', 'failed'], failureCode: 'IMAGE_FAILED', reservedCredits: 8 })
     const { generateImages, resolveImageDirs } = await import('../generators/images.js')
-    assert.deepEqual(await generateImages(job), { kind: 'paid-image-wait' })
+    await assert.rejects(generateImages(job), /incomplete/i)
     const { thumbDir } = await resolveImageDirs(project.slug, promptPath, episodeId)
     const filename = `${episodeId.toUpperCase()}_Thumb01_v1.png`
     const entry = (await readManifest(thumbDir)).tasks[filename]!
@@ -2533,19 +2489,15 @@ test('durable thumbnails checkpoint the real accepted identity and latch a paid 
     assert.equal(checkpoint.idempotency_key, entry.idempotency_key)
     assert.equal(checkpoint.state, 'failed')
     assert.equal(service.providerSubmissionCount('image'), 1)
-    const durable = JSON.parse(await fs.readFile(jobsFile, 'utf8')).jobs[0]
-    const eligibleAt = Date.now() - 1_000
-    durable.paid_image_replacement_attempts[0].eligible_at = new Date(eligibleAt).toISOString()
-    durable.paid_image_replacement_attempts[0].terminal_observed_at = new Date(eligibleAt - 30 * 60_000).toISOString()
-    await writeAuthoritativeFixture(durable)
-    Object.assign(job, durable)
+    assert.equal(job.paid_image_replacement_attempts, undefined)
+    await seedLegacyCommittedAttempt(job, thumbDir, filename, 'IMAGE_FAILED')
     await fs.rm(savedReferencePath)
     await assert.rejects(generateImages(job), /incomplete/i)
     assert.equal(service.providerSubmissionCount('image'), 1, 'a committed thumbnail with a deleted frozen reference makes zero replacement POSTs')
     await fs.writeFile(savedReferencePath, savedReferenceBytes)
     const blockedReference = JSON.parse(await fs.readFile(jobsFile, 'utf8')).jobs[0]
-    assert.equal(blockedReference.paid_image_replacement_attempts[0].state, 'blocked')
-    blockedReference.paid_image_replacement_attempts[0].state = 'waiting'
+    assert.equal(blockedReference.paid_image_replacement_attempts[0].state, 'committed', 'a local reference failure preserves the historical commitment for a safe retry')
+    blockedReference.paid_image_replacement_attempts[0].state = 'committed'
     delete blockedReference.paid_image_replacement_attempts[0].reason
     await writeAuthoritativeFixture(blockedReference)
     Object.assign(job, blockedReference)
@@ -2556,7 +2508,7 @@ test('durable thumbnails checkpoint the real accepted identity and latch a paid 
     assert.equal(blockedThumb.paid_image_replacement_attempts[0].state, 'blocked')
     assert.match(blockedThumb.paid_image_replacement_attempts[0].reason, /currently off/i)
     assert.equal(service.providerSubmissionCount('image'), 1, 'a blocked due thumbnail attempt submits nothing')
-    blockedThumb.paid_image_replacement_attempts[0].state = 'waiting'
+    blockedThumb.paid_image_replacement_attempts[0].state = 'committed'
     delete blockedThumb.paid_image_replacement_attempts[0].reason
     await writeAuthoritativeFixture(blockedThumb)
     Object.assign(job, blockedThumb)
@@ -2655,16 +2607,11 @@ test('durable thumbnails checkpoint the real accepted identity and latch a paid 
       paid_image_replacement: { enabled: true, wait_minutes: 30, max_replacements_per_asset: 1, additional_credit_ceiling: 20, snapshotted_at: fleetNow },
       params: { episode_id: fleetFixture.episodeId, mode: 'thumbs', model: 'mock-image-v1', aspect_ratio: '16:9', resolution: '1K' },
     }
-    const fleetJobsFile = path.join(pm.projectsRoot(), fleetFixture.project.slug, 'jobs.json')
     await writeAuthoritativeFixture(fleetJob)
-    service.queueScenario('image', { states: ['accepted', 'failed'], failureCode: 'SITE_PLACEMENT_EXHAUSTED', reservedCredits: 8 })
-    assert.deepEqual(await generateImages(fleetJob), { kind: 'paid-image-wait' })
-    const fleetDurable = JSON.parse(await fs.readFile(fleetJobsFile, 'utf8')).jobs[0]
-    const fleetEligibleAt = Date.now() - 1_000
-    fleetDurable.paid_image_replacement_attempts[0].eligible_at = new Date(fleetEligibleAt).toISOString()
-    fleetDurable.paid_image_replacement_attempts[0].terminal_observed_at = new Date(fleetEligibleAt - 30 * 60_000).toISOString()
-    await writeAuthoritativeFixture(fleetDurable)
-    Object.assign(fleetJob, fleetDurable)
+    service.queueScenario('image', { states: ['accepted', 'failed'], failureCode: 'IMAGE_FAILED', reservedCredits: 8 })
+    await assert.rejects(generateImages(fleetJob), /incomplete/i)
+    const fleetThumbDir = (await resolveImageDirs(fleetFixture.project.slug, fleetPromptPath, fleetFixture.episodeId)).thumbDir
+    await seedLegacyCommittedAttempt(fleetJob, fleetThumbDir, `${fleetFixture.episodeId.toUpperCase()}_Thumb01_v1.png`, 'IMAGE_FAILED')
     service.queueScenario('image', { states: ['accepted', 'failed'], failureCode: 'SITE_CAPACITY_UNAVAILABLE', reservedCredits: 4 })
     await assert.rejects(generateImages(fleetJob), /incomplete/i)
     assert.equal(service.providerSubmissionCount('image'), 4)
@@ -2679,7 +2626,7 @@ test('durable thumbnails checkpoint the real accepted identity and latch a paid 
   }
 })
 
-test('a successful paid thumbnail records only the completed Gateway settlement', async () => {
+test('a successful legacy thumbnail commitment records the completed task', async () => {
   const temp = await useTempDataDir()
   const service = await startMockGenStudioService()
   const originalFetch = globalThis.fetch
@@ -2730,16 +2677,12 @@ test('a successful paid thumbnail records only the completed Gateway settlement'
     const jobsFile = path.join(pm.projectsRoot(), project.slug, 'jobs.json')
     await writeAuthoritativeFixture(job)
     service.queueScenario('image', {
-      states: ['accepted', 'failed'], failureCode: 'SITE_PLACEMENT_EXHAUSTED', reservedCredits: 8, finalCredits: 2,
+      states: ['accepted', 'failed'], failureCode: 'IMAGE_FAILED', reservedCredits: 8, finalCredits: 2,
     })
-    const { generateImages } = await import('../generators/images.js')
-    assert.deepEqual(await generateImages(job), { kind: 'paid-image-wait' })
-    const durable = JSON.parse(await fs.readFile(jobsFile, 'utf8')).jobs[0]
-    const eligibleAt = Date.now() - 1_000
-    durable.paid_image_replacement_attempts[0].eligible_at = new Date(eligibleAt).toISOString()
-    durable.paid_image_replacement_attempts[0].terminal_observed_at = new Date(eligibleAt - 30 * 60_000).toISOString()
-    await writeAuthoritativeFixture(durable)
-    Object.assign(job, durable)
+    const { generateImages, resolveImageDirs } = await import('../generators/images.js')
+    await assert.rejects(generateImages(job), /incomplete/i)
+    const { thumbDir } = await resolveImageDirs(project.slug, promptPath, episodeId)
+    await seedLegacyCommittedAttempt(job, thumbDir, `${episodeId.toUpperCase()}_Thumb01_v1.png`, 'IMAGE_FAILED')
     service.queueScenario('image', { states: ['succeeded'], reservedCredits: 4, finalCredits: 4 })
     assert.equal(await generateImages(job), undefined)
     assert.equal(service.providerSubmissionCount('image'), 2)
@@ -2793,7 +2736,7 @@ test('a configured thumbnail reference missing before the original manifest exis
   }
 })
 
-test('a thumbnail paid-wait latch wins after another active worker fails while the pool drains', async () => {
+test('a thumbnail held outcome stays incomplete after another active worker fails while the pool drains', async () => {
   const temp = await useTempDataDir()
   const service = await startMockGenStudioService()
   const originalFetch = globalThis.fetch
@@ -2806,7 +2749,7 @@ test('a thumbnail paid-wait latch wins after another active worker fails while t
         && !url.endsWith('/file') && response.headers.get('content-type')?.includes('application/json')) {
         const body = await response.clone().json() as Record<string, unknown>
         if (body.state === 'failed') {
-          return Response.json({ ...body, reserved_credits: 8, settled_credits: 2, released_credits: 6 })
+          return Response.json({ ...body, recovery_required: true, reserved_credits: 8, settled_credits: 2, released_credits: 6 })
         }
       }
       if (url.startsWith(`${service.baseUrl}/v1/image/models`) && response.headers.get('content-type')?.includes('application/json')) {
@@ -2823,7 +2766,6 @@ test('a thumbnail paid-wait latch wins after another active worker fails while t
     const settings = await import('../services/app-settings.js')
     const secrets = await import('../services/app-secrets-store.js')
     const client = await import('../lib/genstudio-client.js')
-    const pm = await import('../services/project-manager.js')
     const { toMdPath } = await import('../lib/episode-artifacts.js')
     const { registry } = await import('../providers/registry.js')
     await settings.setGenStudioUrl(service.baseUrl)
@@ -2846,29 +2788,28 @@ test('a thumbnail paid-wait latch wins after another active worker fails while t
       paid_image_replacement: { enabled: true, wait_minutes: 30, max_replacements_per_asset: 1, additional_credit_ceiling: 20, snapshotted_at: now },
       params: { episode_id: episodeId, mode: 'thumbs', model: 'mock-image-v1', aspect_ratio: '16:9', resolution: '1K' },
     }
-    const jobsFile = path.join(pm.projectsRoot(), project.slug, 'jobs.json')
     await writeAuthoritativeFixture(job)
     const realProvider = registry.getImageProvider('genstudio-image')!
     restoreImageProvider = () => registry.registerImage(realProvider)
+    const manifestDir = await (await import('../generators/images.js')).resolveImageDirs(project.slug, promptPath, episodeId).then(dirs => dirs.thumbDir)
     let providerCalls = 0
     registry.registerImage({
       ...realProvider,
       generateImage: async request => {
         providerCalls++
         if (providerCalls === 1) return realProvider.generateImage(request)
-        await waitForPaidAttempt(
-          jobsFile,
-          attempt => attempt.state === 'waiting',
-          'thumbnail worker never observed the paid-wait latch',
-        )
+        await waitFor(async () => {
+          const { readManifest } = await import('../services/task-manifest.js')
+          return Object.values((await readManifest(manifestDir)).tasks).some(entry => entry.last_state === 'failed')
+        }, { label: 'first worker terminal evidence before drain', timeoutMs: 2_000 })
         throw new Error('second active worker failed after the paid-wait latch')
       },
     })
     service.queueScenario('image', { states: ['accepted', 'failed'], failureCode: 'SITE_PLACEMENT_EXHAUSTED', reservedCredits: 8 })
     const { generateImages } = await import('../generators/images.js')
-    assert.deepEqual(await generateImages(job), { kind: 'paid-image-wait' })
+    await assert.rejects(generateImages(job), /incomplete/i)
     assert.equal(service.providerSubmissionCount('image'), 1)
-    assert.equal(providerCalls, 2, 'the second worker was already active and drained before the exported wait returned')
+    assert.equal(providerCalls, 2, 'the second worker was already active and drained before the incomplete result returned')
   } finally {
     restoreImageProvider?.()
     globalThis.fetch = originalFetch
@@ -2877,7 +2818,7 @@ test('a thumbnail paid-wait latch wins after another active worker fails while t
   }
 })
 
-test('a Continuity paid-wait latch wins after another active worker fails while the pool drains', async () => {
+test('a Continuity held outcome stays incomplete after another active worker fails while the pool drains', async () => {
   const temp = await useTempDataDir()
   const service = await startMockGenStudioService()
   const originalFetch = globalThis.fetch
@@ -2889,7 +2830,7 @@ test('a Continuity paid-wait latch wins after another active worker fails while 
       if ((init?.method || 'GET') === 'GET' && url.startsWith(`${service.baseUrl}/v1/images/`)
         && !url.endsWith('/file') && response.headers.get('content-type')?.includes('application/json')) {
         const body = await response.clone().json() as Record<string, unknown>
-        if (body.state === 'failed') return Response.json({ ...body, reserved_credits: 8, settled_credits: 2, released_credits: 6 })
+        if (body.state === 'failed') return Response.json({ ...body, recovery_required: true, reserved_credits: 8, settled_credits: 2, released_credits: 6 })
       }
       if (url.startsWith(`${service.baseUrl}/v1/image/models`) && response.headers.get('content-type')?.includes('application/json')) {
         const models = await response.clone().json() as Array<Record<string, any>>
@@ -2905,7 +2846,6 @@ test('a Continuity paid-wait latch wins after another active worker fails while 
     const settings = await import('../services/app-settings.js')
     const secrets = await import('../services/app-secrets-store.js')
     const client = await import('../lib/genstudio-client.js')
-    const pm = await import('../services/project-manager.js')
     const { registry } = await import('../providers/registry.js')
     await settings.setGenStudioUrl(service.baseUrl)
     await settings.setPaidImageReplacementSetting({ enabled: true, additional_credit_ceiling: 20 })
@@ -2925,27 +2865,26 @@ test('a Continuity paid-wait latch wins after another active worker fails while 
       paid_image_replacement: { enabled: true, wait_minutes: 30, max_replacements_per_asset: 1, additional_credit_ceiling: 20, snapshotted_at: now },
       params: { episode_id: episodeId, model: 'mock-image-v1', aspect_ratio: '16:9', resolution: '1K' },
     }
-    const jobsFile = path.join(pm.projectsRoot(), project.slug, 'jobs.json')
     await writeAuthoritativeFixture(job)
     const realProvider = registry.getImageProvider('genstudio-image')!
     restoreImageProvider = () => registry.registerImage(realProvider)
+    const manifestDir = await (await import('../generators/scene-image.js')).resolveSceneImagesDir(project.slug, episodeId, paths.episode_dir)
     let providerCalls = 0
     registry.registerImage({
       ...realProvider,
       generateImage: async request => {
         providerCalls++
         if (providerCalls === 1) return realProvider.generateImage(request)
-        await waitForPaidAttempt(
-          jobsFile,
-          attempt => attempt.state === 'waiting',
-          'Continuity worker never observed the paid-wait latch',
-        )
+        await waitFor(async () => {
+          const { readManifest } = await import('../services/task-manifest.js')
+          return Object.values((await readManifest(manifestDir)).tasks).some(entry => entry.last_state === 'failed')
+        }, { label: 'first worker terminal evidence before drain', timeoutMs: 2_000 })
         throw new Error('second active Continuity worker failed after the paid-wait latch')
       },
     })
     service.queueScenario('image', { states: ['accepted', 'failed'], failureCode: 'SITE_PLACEMENT_EXHAUSTED', reservedCredits: 8 })
     const { runContinuityRenderJob } = await import('../generators/continuity-render.js')
-    assert.deepEqual(await runContinuityRenderJob(job), { kind: 'paid-image-wait' })
+    await assert.rejects(runContinuityRenderJob(job), /incomplete/i)
     assert.equal(service.providerSubmissionCount('image'), 1)
     assert.equal(providerCalls, 2)
   } finally {

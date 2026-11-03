@@ -44,7 +44,7 @@ import {
 const GENERATOR = path.join(
   path.dirname(fileURLToPath(import.meta.url)), '..', 'generators', 'contextual-cues.ts')
 
-/** A settled-failed GenStudio job with the reservation returned whole. */
+/** A failed GenStudio job; any legacy settlement fields it carries do not decide. */
 const settled = (over: Record<string, unknown> = {}) => ({
   id: 'job-dead-1', state: 'failed', cancelled: false,
   reserved_credits: 23, settled_credits: 0, released_credits: 23, ...over,
@@ -102,13 +102,20 @@ describe('Contextual Cues: a busy fleet is worth asking again', () => {
     assert.ok(plan.waitMs >= 30_000)
   })
 
-  test('(b) the same code with credits settled means stop, not resubmit', () => {
-    // If money was taken, the guarantee this retry rests on has stopped
-    // holding, and the response to an assumption you can no longer verify is
-    // to stop rather than buy a second job.
-    assert.equal(contextualCueFleetBusyRetryPlan(chatFailure({
+  test('(b) legacy or missing settlement does not decide; the code and the job state do', () => {
+    // Story no longer tracks credits — the error's credit fields are null — so
+    // a legacy payload's settled/released numbers can neither grant nor deny
+    // the plan. Only the failure code, cancellation, modality and the
+    // unknown-outcome hold decide.
+    const charged = chatFailure({
       failure_code: 'SITE_PLACEMENT_EXHAUSTED', settled_credits: 23, released_credits: 0,
-    }), 0), null)
+    })
+    assert.equal(charged.settledCredits, null, 'the error publishes no settlement to decide on')
+    assert.ok(contextualCueFleetBusyRetryPlan(charged, 0), 'a legacy settled payload does not decide')
+    assert.ok(contextualCueFleetBusyRetryPlan(chatFailure({
+      failure_code: 'SITE_PLACEMENT_EXHAUSTED',
+      reserved_credits: undefined, settled_credits: undefined, released_credits: undefined,
+    }), 0), 'missing settlement does not decide either')
   })
 
   test('(c) an unrelated failure is never retried', () => {
@@ -130,6 +137,17 @@ describe('Contextual Cues: a busy fleet is worth asking again', () => {
     }), 0), null)
   })
 
+  test('(d2) an unknown-outcome hold is never retried', () => {
+    // The gateway may still be holding a result that has not landed; a busy
+    // code on such a job must not buy a second one.
+    assert.equal(contextualCueFleetBusyRetryPlan(chatFailure({
+      failure_code: 'SITE_PLACEMENT_EXHAUSTED', recovery_state: 'unknown_outcome',
+    }), 0), null)
+    assert.equal(contextualCueFleetBusyRetryPlan(chatFailure({
+      failure_code: 'SITE_PLACEMENT_EXHAUSTED', recovery_required: true,
+    }), 0), null)
+  })
+
   test('(e) a busy fleet in another modality is not licence for a cue batch', () => {
     // A saturated TTS queue says nothing about whether THIS batch's credits
     // came back, and the chat and TTS ladders are not the same queue.
@@ -147,6 +165,19 @@ describe('Contextual Cues: the backpressure ladder is untouched', () => {
       'still recognised exactly as before')
     assert.equal(contextualCueFleetBusyRetryPlan(backpressure, 0), null,
       'the new guard must not swallow it and hand it a five-minute wait')
+    // The classifier answers from the failure code and the job's own state,
+    // never from credit settlement: a legacy payload carrying no settlement at
+    // all still recognises, and Cancel or an unknown-outcome hold never does.
+    assert.equal(isReleasedContextualCueBackpressure(chatFailure({
+      failure_code: 'LANGUAGE_PROVIDER_BACKPRESSURE',
+      reserved_credits: undefined, settled_credits: undefined, released_credits: undefined,
+    })), true, 'missing settlement does not decide backpressure either')
+    assert.equal(isReleasedContextualCueBackpressure(chatFailure({
+      failure_code: 'LANGUAGE_PROVIDER_BACKPRESSURE', cancelled: true,
+    })), false, "the owner's instruction stands")
+    assert.equal(isReleasedContextualCueBackpressure(chatFailure({
+      failure_code: 'LANGUAGE_PROVIDER_BACKPRESSURE', recovery_state: 'unknown_outcome',
+    })), false, 'an unknown-outcome hold is not a released refusal')
   })
 
   test('the two guards are disjoint, so neither can shadow the other', () => {

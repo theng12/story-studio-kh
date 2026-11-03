@@ -8,6 +8,7 @@ What's new in each release. Newest first.
 
 - Writing, image, subtitle and narration retries use the saved retry settings and keep their attempt count after a restart. A held or uncertain result stops further attempts instead of sending another request.
 - Failed generation requests no longer wait for retired credit balances or use separate paid and free retry rules. Gateway refusals keep their actual reason.
+- A new thumbnail or scene re-render starts its own request even when the previous action failed. Replaying the same action keeps its existing request identity. Contextual Cues can retry confirmed provider backpressure while cancellation and uncertain outcomes remain stopped.
 - macOS packages keep their normal app signatures instead of rewriting them after the build. This addresses the signing rejection reported when 1.4.375 started through the login agent.
 
 ## v1.4.375 — 2026-11-02

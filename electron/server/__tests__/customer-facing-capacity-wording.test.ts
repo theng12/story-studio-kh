@@ -163,7 +163,9 @@ describe('customer-facing capacity wording (v1.4.82)', () => {
     assert.match(clip, /nothing was charged and the credits were returned/)
     assert.match(clip, /trying again/)
     const subtitles = await readFile(path.join(SERVER_ROOT, 'services/subtitle-recovery.ts'), 'utf-8')
-    assert.match(subtitles, /No charge was settled/)
-    assert.match(subtitles, /attempt \$\{freeRetriesThisRun\} of/)
+    // The free/paid charge sentence was removed with the credit retirement (S2); the retry
+    // count is what this path still tells the customer.
+    assert.match(subtitles, /Preparing retry \$\{[^}]+\} of \$\{authority\.maxRetries\} for \$\{section\}\./)
+    assert.doesNotMatch(subtitles, /No charge was settled/, 'the retired free-retry charge claim must not return')
   })
 })
