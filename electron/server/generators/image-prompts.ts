@@ -895,7 +895,12 @@ export async function generateImagePrompts(job: Job): Promise<void> {
               job.output_lines.push(`[pipeline] image prompts using Gateway product "${selected}".`)
             },
             outputContract: thumbnailPromptsOutputContract(targetNumbers.length),
-            outputBudget: 'standard',
+            // As much as this request can fit: a thumbnail pack is several long
+            // prompts (measured ~2,350 tokens each in English), so a fixed
+            // quarter of the ceiling can be too small on a reading model. The
+            // submission boundary sizes it against the live output, request and
+            // context figures — never a number of ours.
+            outputBudget: 'maximum',
             disableReasoning: true,
             temperature: 0.35,
           })
@@ -905,8 +910,8 @@ export async function generateImagePrompts(job: Job): Promise<void> {
         signal: controller.signal,
         requestIdentity: promptRequestIdentity,
         outputContract: thumbnailPromptsOutputContract(targetNumbers.length),
-        // Standard: a structured pack of N thumbnail prompts.
-        outputBudget: 'standard',
+        // As much as this request can fit — see the policy branch above.
+        outputBudget: 'maximum',
         disableReasoning: true,
         temperature: 0.35,
       })

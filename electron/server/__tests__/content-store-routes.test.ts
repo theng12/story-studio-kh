@@ -740,11 +740,10 @@ describe('Content Store commerce routes', () => {
     assert.equal(response.body.products[0].presentation.licenseLabel, merchandising.license.label)
     assert.equal(response.body.products[0].presentation.licenseText, merchandising.license.text)
     assert.deepEqual(response.body.products[0].presentation.tags, merchandising.tags)
-    assert.deepEqual(response.body.products[0].discount, {
-      id: 'cdsc_test_formula', version: 1, percent: 25,
-      startsOn: null, endsOn: '2026-12-31', timezone: 'Asia/Phnom_Penh',
-      listCreditPrice: 300, discountedCreditPrice: 225,
-    })
+    // The shop is retired: a published discount and its credit prices are not
+    // projected, so no money fact reaches the page.
+    assert.equal('discount' in response.body.products[0], false)
+    assert.doesNotMatch(JSON.stringify(response.body), /creditPrice|CreditValue|credit_price/i)
     assert.doesNotMatch(JSON.stringify(response.body), /canonicalJson|canonicalBytes|"raw"/)
     assert.equal(mock.requests.filter(row => row.path === '/v1/content/shelves').length, 1)
   })

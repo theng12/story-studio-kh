@@ -35,7 +35,8 @@ import {
   SCENE_SUBJECT_GUIDANCE,
   sceneSubjectGuidanceBlock,
 } from '../lib/image-content-guidance.js'
-import { availableInputTokens, maxSafeScenePromptPackSize } from './scene-prompt-batching.js'
+import { availableInputTokens, describeSceneRequestLimits, maxSafeScenePromptPackSize, resolveSceneUnitTokenRates, sceneRequestFits } from './scene-prompt-batching.js'
+import { nonAsciiCharacterCount } from './output-token-budget.js'
 import type {
   EpisodePromptContext,
   ResearchOutput,
@@ -55,6 +56,11 @@ import { pacingBandAt, type ScenePacing, type ScenePacingBand, type ScenePacingP
 type ScenePlannerRunOptions = ScenePlanRunOptions & {
   /** Pipeline supplies this only for an explicit per-run model policy. */
   callAi?: typeof callAi
+  /**
+   * The selected product's published request (input) ceiling. Absent = unknown;
+   * the planner then sizes against the context window alone, as before.
+   */
+  max_request_tokens?: number
 }
 
 const MIN_SCENE_SEC = 3
@@ -2672,11 +2678,18 @@ export function resolveTargetScenesPerWindow(
   sizeMode: ScenePlanRunOptions['window_size'],
   contextWindowTokens: unknown,
   maxOutputTokens: unknown,
+  maxRequestTokens?: unknown,
 ): number {
   if (sizeMode === 'small') return 10
   if (sizeMode === 'full') return 30
   const availableInput = availableInputTokens(contextWindowTokens, maxOutputTokens)
-  const inputSized = availableInput < AUTO_SMALL_WINDOW_INPUT_CEILING ? 10 : 30
+  // A published request ceiling is the Gateway's input admission line; when it
+  // is lower than the window-derived input budget, it is what binds.
+  const requestLimit = Number.isInteger(maxRequestTokens) && (maxRequestTokens as number) >= 1
+    ? maxRequestTokens as number
+    : null
+  const inputBudget = requestLimit === null ? availableInput : Math.min(availableInput, requestLimit)
+  const inputSized = inputBudget < AUTO_SMALL_WINDOW_INPUT_CEILING ? 10 : 30
   const outputSized = maxSafeScenePromptPackSize(maxOutputTokens)
   return outputSized === null ? inputSized : Math.max(1, Math.min(inputSized, outputSized))
 }
@@ -2734,6 +2747,7 @@ export async function planScenes(opts: ScenePlannerRunOptions): Promise<ScenePla
     opts.window_size,
     opts.context_window_tokens,
     opts.max_output_tokens,
+    opts.max_request_tokens,
   )
   // Window-seconds bounds shrink in lockstep with the target count so a
   // 10-scene window doesn't accidentally span 5 minutes of audio. The
@@ -2774,11 +2788,29 @@ export async function planScenes(opts: ScenePlannerRunOptions): Promise<ScenePla
   // (parallel, no recap). `lowerBound` is where this window's scenes must start
   // (the previous window's fixed end); `storySoFar` is the rolling recap or
   // undefined when continuity is off.
-  const planOneWindow = async (w: number, lowerBound: number, storySoFar: string | undefined): Promise<ScenePlanEntry[]> => {
-    const win = windows[w]!
-    const windowBand = opts.pacing ? plannerPacingBandAt(opts.pacing as PlannerPacing, win.start) : { min_sec: minSec, max_sec: maxSec }
+  //
+  // A window is also sized from the prompt it will ACTUALLY send: the assembled
+  // system+user text plus the answer it expects must fit the selected product's
+  // request ceiling and context window. When it does not, the cue range is split
+  // in half and each half planned in turn (the second half sees the first half's
+  // scenes as story-so-far). A single cue that still does not fit refuses before
+  // any call, naming the model and the figures. Splitting a segment keeps its
+  // "SEGMENT n of m" label — it is a sub-range of the same segment.
+  const plannerUnitRates = resolveSceneUnitTokenRates('planner-window', 'en')
+  const plannerLimits = {
+    maxRequestTokens: opts.max_request_tokens ?? null,
+    contextWindowTokens: opts.context_window_tokens ?? null,
+    maxOutputTokens: opts.max_output_tokens ?? null,
+  }
+  const planWindowRange = async (
+    range: { start: number; end: number; cues: SrtCue[] },
+    segmentIndex: number,
+    lowerBound: number,
+    storySoFar: string | undefined,
+  ): Promise<ScenePlanEntry[]> => {
+    const windowBand = opts.pacing ? plannerPacingBandAt(opts.pacing as PlannerPacing, range.start) : { min_sec: minSec, max_sec: maxSec }
     const { system, user } = buildScenePlannerPrompt({
-      stitched_srt: cuesToSrt(win.cues),
+      stitched_srt: cuesToSrt(range.cues),
       research,
       narration_text: narrationText,
       total_duration_sec: totalDuration,
@@ -2794,14 +2826,57 @@ export async function planScenes(opts: ScenePlannerRunOptions): Promise<ScenePla
       prompt_char_cap_reserved: opts.prompt_char_cap_reserved,
       prompt_char_cap_source: opts.prompt_char_cap_source,
       window: {
-        index: w + 1,
+        index: segmentIndex + 1,
         total: windows.length,
-        start_sec: win.start,
-        end_sec: win.end,
+        start_sec: range.start,
+        end_sec: range.end,
         prev_scene_end_sec: lowerBound,
         story_so_far: storySoFar,
       },
     })
+    const assembled = `${system}\n\n${user}`
+    const expectedScenes = Math.max(1, Math.round((range.end - range.start) / avgSceneSec))
+    const expectedAnswerTokens = expectedScenes * plannerUnitRates.perUnit
+    const fit = sceneRequestFits({
+      promptCharacters: assembled.length,
+      promptNonAsciiCharacters: nonAsciiCharacterCount(assembled),
+      answerTokens: expectedAnswerTokens,
+      limits: plannerLimits,
+    })
+    if (!fit.fits) {
+      if (range.cues.length <= 1) {
+        throw new Error(
+          `The scene planner's request for segment ${segmentIndex + 1} (${range.start.toFixed(0)}–${range.end.toFixed(0)}s) `
+          + `is about ${fit.promptTokens.toLocaleString()} tokens and needs about ${expectedAnswerTokens.toLocaleString()} answer tokens, `
+          + `which does not fit ${opts.model}: ${describeSceneRequestLimits(plannerLimits)} (refused by the ${fit.refusedBy} limit). `
+          + 'No request was made. Shorten the research/narration input, or choose a model with a larger limit.',
+        )
+      }
+      const mid = Math.ceil(range.cues.length / 2)
+      const leftCues = range.cues.slice(0, mid)
+      const rightCues = range.cues.slice(mid)
+      const left = { start: leftCues[0]!.start_sec, end: leftCues[leftCues.length - 1]!.end_sec, cues: leftCues }
+      const right = { start: rightCues[0]!.start_sec, end: range.end, cues: rightCues }
+      opts.onWarn?.(
+        `Segment ${segmentIndex + 1}/${windows.length}: the assembled request would not fit ${opts.model} `
+        + `(${describeSceneRequestLimits(plannerLimits)}), so it was split into `
+        + `${left.start.toFixed(0)}–${left.end.toFixed(0)}s and ${right.start.toFixed(0)}–${right.end.toFixed(0)}s.`,
+      )
+      const leftScenes = await planWindowRange(left, segmentIndex, lowerBound, storySoFar)
+      // Keep the incoming recap as well as the left half's own: dropping it
+      // would make the right half forget everything planned before this segment.
+      const rightStorySoFar = [storySoFar, buildStorySoFar(leftScenes, !!opts.pacing)]
+        .filter(Boolean).join('\n\n') || undefined
+      const rightScenes = await planWindowRange(right, segmentIndex, left.end, rightStorySoFar)
+      // Same gap rule normalizeScenes applies inside one response, now across
+      // the split seam: no seconds of narration left without a scene.
+      const leftLast = leftScenes[leftScenes.length - 1]
+      const rightFirst = rightScenes[0]
+      if (leftLast && rightFirst && rightFirst.start_sec > leftLast.end_sec) {
+        leftLast.end_sec = rightFirst.start_sec
+      }
+      return [...leftScenes, ...rightScenes]
+    }
 
     // v1.0.245 — guardrail: retry a window before giving up. A single
     // transient LLM failure (timeout, malformed JSON) used to collapse the
@@ -2823,37 +2898,42 @@ export async function planScenes(opts: ScenePlannerRunOptions): Promise<ScenePla
           outputContract: JSON_OBJECT_OUTPUT_CONTRACT,
         })
         const parsed = parsePlannerJson(raw)
-        // Clamp this window's scenes to [lowerBound, win.end] so they stay
+        // Clamp this window's scenes to [lowerBound, range.end] so they stay
         // in-segment and don't overlap the neighbouring windows.
         winScenes = normalizeScenes(
-          parsed.scenes || [], dedupedBoundaries, win.end,
+          parsed.scenes || [], dedupedBoundaries, range.end,
           windowBand.min_sec, windowBand.max_sec, lowerBound,
         )
         if (winScenes.length === 0 && attempt < MAX_ATTEMPTS) {
-          opts.onWarn?.(`Segment ${w + 1}/${windows.length} (${win.start.toFixed(0)}–${win.end.toFixed(0)}s) returned no usable scenes — retrying…`)
+          opts.onWarn?.(`Segment ${segmentIndex + 1}/${windows.length} (${range.start.toFixed(0)}–${range.end.toFixed(0)}s) returned no usable scenes — retrying…`)
         }
       } catch (e: any) {
         errRef.last = e instanceof Error ? e : new Error(String(e))
         if (attempt < MAX_ATTEMPTS) {
-          opts.onWarn?.(`Segment ${w + 1}/${windows.length} failed (${errRef.last.message}) — retrying…`)
+          opts.onWarn?.(`Segment ${segmentIndex + 1}/${windows.length} failed (${errRef.last.message}) — retrying…`)
         }
       }
     }
 
-    // Contiguity: a window must fully cover [lowerBound, win.end]. Extend the
+    // Contiguity: a window must fully cover [lowerBound, range.end]. Extend the
     // last scene to the window end; on total failure, subdivide into cue-aligned
     // placeholder scenes rather than one giant blob.
     if (winScenes.length) {
       const last = winScenes[winScenes.length - 1]!
-      if (last.end_sec < win.end) last.end_sec = win.end
-    } else if (win.end > lowerBound) {
-      winScenes = subdivideWindow(win.cues, lowerBound, win.end, windowBand.max_sec)
+      if (last.end_sec < range.end) last.end_sec = range.end
+    } else if (range.end > lowerBound) {
+      winScenes = subdivideWindow(range.cues, lowerBound, range.end, windowBand.max_sec)
       opts.onWarn?.(
-        `⚠ Segment ${w + 1}/${windows.length} (${win.start.toFixed(0)}–${win.end.toFixed(0)}s) failed after ${MAX_ATTEMPTS} tries — ` +
+        `⚠ Segment ${segmentIndex + 1}/${windows.length} (${range.start.toFixed(0)}–${range.end.toFixed(0)}s) failed after ${MAX_ATTEMPTS} tries — ` +
         `split into ${winScenes.length} placeholder scene(s) with empty prompts. Use "Re-plan this scene" or write prompts for them.`,
       )
     }
     return winScenes
+  }
+
+  const planOneWindow = async (w: number, lowerBound: number, storySoFar: string | undefined): Promise<ScenePlanEntry[]> => {
+    const win = windows[w]!
+    return planWindowRange({ start: win.start, end: win.end, cues: win.cues }, w, lowerBound, storySoFar)
   }
 
   // Each window's lower bound is deterministic — the previous window's FIXED

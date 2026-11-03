@@ -70,4 +70,16 @@ describe('resolveTargetScenesPerWindow', () => {
     assert.equal(resolveTargetScenesPerWindow('full', 262_144, 4_096), 30)
     assert.equal(resolveTargetScenesPerWindow('small', 262_144, 65_536), 10)
   })
+
+  it('a published request ceiling narrows auto when it is below the input budget', () => {
+    // Gemma-4: 32,768 window, 8,192 answer → 24,576 input budget, but the
+    // Gateway admits only 23,000 request tokens, so the smaller window is honest.
+    assert.equal(resolveTargetScenesPerWindow('auto', 32_768, 8_192, 23_000), 10)
+    // A generous request ceiling leaves the context-derived choice standing.
+    assert.equal(resolveTargetScenesPerWindow('auto', 200_000, 16_000, 100_000), 30)
+    // Absent = unknown, exactly as before.
+    assert.equal(resolveTargetScenesPerWindow('auto', 200_000, 16_000, undefined), 30)
+    // Explicit sizes still override every published figure.
+    assert.equal(resolveTargetScenesPerWindow('full', 32_768, 8_192, 23_000), 30)
+  })
 })

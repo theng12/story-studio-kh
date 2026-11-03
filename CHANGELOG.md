@@ -4,6 +4,12 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.378 — 2026-11-04
+
+- Writing requests use the selected pool’s published request-token limit alongside its context and answer limits. Missing provider limits stay unknown; when no caller allowance or published answer cap is available, the output fallback is 128,000 tokens.
+- Studio Library removes retired credit and price fields while keeping old receipts readable.
+- The existing page guide uses the current New Channel, Library and channel-settings wording.
+
 ## v1.4.377 — 2026-11-03
 
 - Upload review shows a checklist for the title, description, tags, thumbnail, schedule, visibility, category and AI disclosure choice. Each says Present, Missing or Not checked; the checklist never blocks an upload and is also available in the preview JSON.

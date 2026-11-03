@@ -110,7 +110,6 @@ export interface GenStudioContentBundleComponent {
   entitlementFamily: string
   title: string
   kind: GenStudioContentProductKind
-  componentCreditValue: number
   owned: boolean
   raw: CanonicalJsonObject
 }
@@ -131,17 +130,6 @@ export interface GenStudioContentLicense {
   text: string
 }
 
-export interface GenStudioContentDiscount {
-  discountId: string
-  version: number
-  percent: number
-  startsOn: string | null
-  endsOn: string | null
-  timezone: 'Asia/Phnom_Penh'
-  listCreditPrice: number
-  discountedCreditPrice: number
-}
-
 export interface GenStudioContentProduct {
   productId: string
   entitlementFamily: string
@@ -150,7 +138,6 @@ export interface GenStudioContentProduct {
   summary: string
   description: string
   publisherId: string
-  creditPrice: number
   free: boolean
   owned: boolean
   retired: boolean
@@ -159,13 +146,11 @@ export interface GenStudioContentProduct {
   compatible: boolean
   compatibilityReason: string | null
   bundleComponents: GenStudioContentBundleComponent[]
-  ownedComponentCreditValue: number
   showcaseVideos: GenStudioShowcaseVideo[]
   cover: GenStudioContentMedia | null
   hero: GenStudioContentMedia | null
   tags: string[]
   license: GenStudioContentLicense | null
-  discount: GenStudioContentDiscount | null
   /**
    * The Gateway's request that this pack be taken off every install.
    *
@@ -203,8 +188,6 @@ export interface GenStudioOwnedContent {
 export interface GenStudioContentAccount {
   accountId: string
   contentAccountId: string
-  availableCredits: number
-  contentSpendableCredits: number
   owned: GenStudioOwnedContent[]
   raw: CanonicalJsonObject
 }
@@ -229,6 +212,12 @@ export interface GenStudioContentStoreShelves {
   raw: CanonicalJsonObject
 }
 
+/**
+ * Legacy signed quote envelope, kept only so old stored evidence still parses.
+ * The shop is retired: Story requests no quotes, shows no price and gates
+ * nothing on credits. The credit figures here are bytes inside the signed
+ * envelope and are never a price this app computes or presents.
+ */
 export interface GenStudioContentQuote {
   signedQuote: CanonicalJsonObject
   quoteSignature: string
@@ -673,27 +662,6 @@ function parseLicense(value: unknown): GenStudioContentLicense | null {
   }
 }
 
-function parseDiscount(value: unknown, free: boolean): GenStudioContentDiscount | null {
-  if (value === null) return null
-  if (free) throw new Error('discount must be null for a free product')
-  const row = plainObject(value, 'discount')
-  const percent = uint(row, 'percent')
-  if (percent < 1 || percent > 99) throw new Error('discount.percent must be between 1 and 99')
-  const version = uint(row, 'version')
-  if (version < 1) throw new Error('discount.version must be at least 1')
-  if (row.timezone !== 'Asia/Phnom_Penh') throw new Error('discount.timezone must be Asia/Phnom_Penh')
-  return {
-    discountId: text(row, 'discount_id'),
-    version,
-    percent,
-    startsOn: nullableDate(row, 'starts_on'),
-    endsOn: nullableDate(row, 'ends_on'),
-    timezone: 'Asia/Phnom_Penh',
-    listCreditPrice: uint(row, 'list_credit_price'),
-    discountedCreditPrice: uint(row, 'discounted_credit_price'),
-  }
-}
-
 function strictBase64(value: string, field: string, expectedBytes?: number): Uint8Array {
   if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value)) {
     throw new Error(`${field} must be valid base64`)
@@ -792,9 +760,7 @@ function parseShowcaseVideos(value: unknown, field: string): GenStudioShowcaseVi
 function parseProduct(value: unknown): GenStudioContentProduct {
   const raw = canonicalizeContentStoreObject(value)
   const row = raw.value
-  const creditPrice = uint(row, 'credit_price')
   const free = bool(row, 'free')
-  if (free !== (creditPrice === 0)) throw new Error('free must match whether credit_price is zero')
   const cover = parseContentMedia(row.cover, 'cover')
   const hero = parseContentMedia(row.hero, 'hero')
   if (hero !== null && cover === null) throw new Error('hero must be null when cover is null')
@@ -806,7 +772,6 @@ function parseProduct(value: unknown): GenStudioContentProduct {
     summary: typeof row.summary === 'string' ? row.summary : (() => { throw new Error('summary must be a string') })(),
     description: typeof row.description === 'string' ? row.description : (() => { throw new Error('description must be a string') })(),
     publisherId: text(row, 'publisher_id'),
-    creditPrice,
     free,
     owned: bool(row, 'owned'),
     retired: bool(row, 'retired'),
@@ -822,18 +787,15 @@ function parseProduct(value: unknown): GenStudioContentProduct {
         entitlementFamily: text(component, 'entitlement_family'),
         title: text(component, 'title'),
         kind: kind(component),
-        componentCreditValue: uint(component, 'component_credit_value'),
         owned: bool(component, 'owned'),
         raw: componentRaw,
       }
     }),
-    ownedComponentCreditValue: uint(row, 'owned_component_credit_value'),
     showcaseVideos: parseShowcaseVideos(row.showcase_videos, 'showcase_videos'),
     cover,
     hero,
     tags: parseTags(row.tags),
     license: parseLicense(row.license),
-    discount: parseDiscount(row.discount, free),
     // A Gateway that does not publish these means "nothing to do", never a default removal.
     removeFromInstalls: row.remove_from_installs === true,
     removeFromInstallsAt: optionalInstant(row, 'remove_from_installs_at'),
@@ -847,8 +809,6 @@ export function parseContentStoreAccount(value: unknown): GenStudioContentAccoun
   return {
     accountId: text(row, 'account_id'),
     contentAccountId: text(row, 'content_account_id'),
-    availableCredits: uint(row, 'available_credits'),
-    contentSpendableCredits: uint(row, 'content_spendable_credits'),
     owned: array(row, 'owned').map(value => {
       const ownedRaw = canonicalizeContentStoreObject(value)
       const owned = ownedRaw.value

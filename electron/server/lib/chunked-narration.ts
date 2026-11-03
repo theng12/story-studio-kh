@@ -210,11 +210,13 @@ const TYPICAL_PROMPT_TOKENS = 2000
  * is measured with the same "characters ÷ 4" approximation every other
  * prompt-size readout in the app uses; that is an estimate of OUR input, not a
  * words→tokens conversion of the answer, so it cannot under-request output the
- * way the old ratio did.
+ * way the old ratio did. The Gateway's published request ceiling
+ * (`max_request_tokens`) refuses a prompt that is too large for admission; it
+ * never lowers the answer, and an unpublished one enforces nothing.
  *
- * Throws when the published window cannot hold the prompt at all. Sending a
- * one-token ceiling and letting the provider cut the answer off is precisely
- * the silent zero this replaced.
+ * Throws when the published request ceiling or window cannot hold the prompt at
+ * all. Sending a one-token ceiling and letting the provider cut the answer off
+ * is precisely the silent zero this replaced.
  */
 export function expansionOutputTokenCap(
   budget: ChunkingBudget,
@@ -223,12 +225,22 @@ export function expansionOutputTokenCap(
 ): number | null {
   // The SAME bound every writing request now uses
   // (`boundOutputTokensToContext`): the published output ceiling, capped by the
-  // product's published context window minus this prompt. Only the wording of a
-  // refusal is local; the numbers are computed in one place.
+  // product's published context window minus this prompt, and refused when the
+  // prompt alone exceeds the Gateway's published request ceiling. Only the
+  // wording of a refusal is local; the numbers are computed in one place.
   const bounded = boundOutputTokensToContext(
     chunkingOutputBudget(budget.outputTokenCap), budget.contextWindowTokens, promptCharacters, promptNonAsciiCharacters,
+    budget.maxRequestTokens,
   )
   if (bounded.overflow) {
+    if (bounded.overflowLimit === 'request') {
+      throw new Error(
+        `This chapter request's instructions are about ${bounded.promptTokens.toLocaleString()} tokens, and `
+        + `${budget.productName || 'the selected writing model'} publishes a `
+        + `${(bounded.requestLimit as number).toLocaleString()}-token request limit, so the Gateway would refuse it. `
+        + 'Shorten the outline or pick a model with a larger request limit. Nothing was requested.',
+      )
+    }
     throw new Error(
       `This chapter request's instructions are about ${bounded.promptTokens.toLocaleString()} tokens, which leaves no room `
       + `inside ${budget.productName || 'the selected writing model'}'s published ${(bounded.contextWindowTokens as number).toLocaleString()}-token `
@@ -501,6 +513,9 @@ export interface ChunkingBudget {
    *  published. Together with `outputTokenCap` it is the only thing that may
    *  bound one expansion request (see `expansionOutputTokenCap`). */
   contextWindowTokens: number | null
+  /** The product's published `max_request_tokens` — the Gateway's input-side
+   *  admission line. `null` = nothing published, and nothing is refused for it. */
+  maxRequestTokens: number | null
   /** Words this product can produce in one call, per the same estimate.
    *  `null` whenever `outputTokenCap` is. */
   thresholdWords: number | null
@@ -515,6 +530,7 @@ function unresolvedChunkingBudget(): ChunkingBudget {
   return {
     outputTokenCap: null,
     contextWindowTokens: null,
+    maxRequestTokens: null,
     thresholdWords: null,
     productId: null,
     productName: null,
@@ -538,6 +554,7 @@ export async function resolveChunkingBudget(model: string): Promise<ChunkingBudg
     return {
       outputTokenCap: chunkingOutputBudget(product.max_output_tokens),
       contextWindowTokens: chunkingOutputBudget(product.context_window_tokens),
+      maxRequestTokens: chunkingOutputBudget(product.max_request_tokens),
       thresholdWords: chunkThresholdWords(product.max_output_tokens),
       productId: product.id,
       productName: product.display_name || product.id,

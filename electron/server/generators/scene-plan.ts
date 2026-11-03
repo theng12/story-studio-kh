@@ -53,14 +53,19 @@ import { pipelinePolicyCheckpointStore, pipelinePolicyForJob, pipelinePolicyInpu
 import {
   SCENE_TIMELINE_ONLY_OUTPUT_BUDGET,
   describeScenePromptPackSize,
+  describeSceneRequestLimits,
+  packSceneRequestGroups,
   parseScenePromptPackSetting,
   parseScenePromptPackTuning,
   parseScenePromptTokenSetting,
   resolveScenePromptPackSize,
   resolveScenePromptTokenBudget,
+  resolveSceneUnitTokenRates,
   type ScenePromptPackSetting,
   type ScenePromptTokenSetting,
+  type SceneRequestLimits,
 } from '../services/scene-prompt-batching.js'
+import { nonAsciiCharacterCount } from '../services/output-token-budget.js'
 import {
   addAssemblyOverhead,
   assemblyOverheadOf,
@@ -345,6 +350,8 @@ interface ScenePolicyRequestPlan {
   model_id: string
   context_window_tokens: number
   max_output_tokens: number | null
+  /** Published request (input) ceiling when the shape was saved. Null = unknown. */
+  max_request_tokens: number | null
   visual_max_tokens: number | null
   active_output_budget: number | null
   prompt_pack_size: number
@@ -365,16 +372,21 @@ export function readScenePolicyRequestPlan(value: unknown): ScenePolicyRequestPl
   const maxOutputTokens = plan.max_output_tokens === 0
     ? null
     : positiveOrUnpublished('max_output_tokens')
+  // Older checkpoints predate the request-side figure; absent = unknown, not invalid.
+  const maxRequestTokens = plan.max_request_tokens === undefined
+    ? null
+    : positiveOrUnpublished('max_request_tokens')
   const visualMaxTokens = positiveOrUnpublished('visual_max_tokens')
   const activeOutputBudget = positiveOrUnpublished('active_output_budget')
   const promptPackSize = typeof plan.prompt_pack_size === 'number'
     && Number.isSafeInteger(plan.prompt_pack_size) && plan.prompt_pack_size >= 1
     ? plan.prompt_pack_size : undefined
-  if (maxOutputTokens === undefined || visualMaxTokens === undefined || activeOutputBudget === undefined || promptPackSize === undefined) return null
+  if (maxOutputTokens === undefined || maxRequestTokens === undefined || visualMaxTokens === undefined || activeOutputBudget === undefined || promptPackSize === undefined) return null
   return {
     model_id: plan.model_id,
     context_window_tokens: plan.context_window_tokens,
     max_output_tokens: maxOutputTokens,
+    max_request_tokens: maxRequestTokens,
     visual_max_tokens: visualMaxTokens,
     active_output_budget: activeOutputBudget,
     prompt_pack_size: promptPackSize,
@@ -858,7 +870,12 @@ export async function runScenePlanJob(job: Job): Promise<void> {
     throw new Error('The saved Scene Plan request shape is invalid; no new request was submitted.')
   }
   const promptModel = savedRequestPlan
-    ? { id: savedRequestPlan.model_id, context_window_tokens: savedRequestPlan.context_window_tokens, max_output_tokens: savedRequestPlan.max_output_tokens }
+    ? {
+        id: savedRequestPlan.model_id,
+        context_window_tokens: savedRequestPlan.context_window_tokens,
+        max_output_tokens: savedRequestPlan.max_output_tokens,
+        max_request_tokens: savedRequestPlan.max_request_tokens,
+      }
     : needsModel ? (scenePolicy
       ? await getScenePlanPolicyPlanningModel(scenePolicy)
       : await getScenePlanGenStudioModel(model)) : null
@@ -890,10 +907,23 @@ export async function runScenePlanJob(job: Job): Promise<void> {
     ? savedRequestPlan.active_output_budget
     : visualMaxTokens
   const promptPackSetting = parseScenePromptPackSetting(params.prompt_pack_size)
-  let promptPackTuning = parseScenePromptPackTuning(undefined)
-  try { promptPackTuning = parseScenePromptPackTuning(await getConfig(job.project_slug)) } catch { /* defaults apply */ }
+  let promptPackConfig: unknown
+  try { promptPackConfig = await getConfig(job.project_slug) } catch { /* defaults apply */ }
+  let promptPackTuning = parseScenePromptPackTuning(promptPackConfig)
   const promptPackSize = savedRequestPlan?.prompt_pack_size
     ?? resolveScenePromptPackSize(activePromptOutputBudget, promptPackSetting, promptPackTuning)
+  // The request is sized from the prompt it will actually send (below), so the
+  // answer side uses the measured per-kind/per-language rate instead of the
+  // output-ceiling derivation's single pessimistic number. These writers are
+  // asked for English image prompts, so the channel's narration language is not
+  // the prompt's output language. The owner's `scene_prompt_tokens_per_scene`
+  // still overrides it.
+  const promptOutputLanguage = 'en' as const
+  const promptRequestLimits: SceneRequestLimits = {
+    maxRequestTokens: promptModel?.max_request_tokens ?? null,
+    contextWindowTokens: promptModel?.context_window_tokens ?? null,
+    maxOutputTokens: promptModel?.max_output_tokens ?? null,
+  }
   if (scenePolicy && promptModel && !savedRequestPlan) {
     params.pipeline_scene_request_plan = {
       model_id: promptModel.id,
@@ -901,6 +931,9 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       max_output_tokens: typeof promptModel.max_output_tokens === 'number'
         && Number.isSafeInteger(promptModel.max_output_tokens) && promptModel.max_output_tokens >= 1
         ? promptModel.max_output_tokens : null,
+      max_request_tokens: typeof promptModel.max_request_tokens === 'number'
+        && Number.isSafeInteger(promptModel.max_request_tokens) && promptModel.max_request_tokens >= 1
+        ? promptModel.max_request_tokens : null,
       visual_max_tokens: visualMaxTokens,
       active_output_budget: activePromptOutputBudget,
       prompt_pack_size: promptPackSize,
@@ -1451,6 +1484,14 @@ export async function runScenePlanJob(job: Job): Promise<void> {
 
     if (!ordinaryContinuation && !existsSync(outPath)) throw new Error('Create the scene timeline first.')
     const isMotion = stage === 'motion'
+    // Answer tokens one scene costs for THIS stage and output language, from
+    // the measured start values (see SCENE_PROMPT_MEASURED_TOKENS_PER_UNIT).
+    // The owner's `scene_prompt_tokens_per_scene` still overrides it.
+    const promptUnitRates = resolveSceneUnitTokenRates(
+      isMotion ? 'motion' : 'visual',
+      promptOutputLanguage,
+      (promptPackConfig as { scene_prompt_tokens_per_scene?: unknown } | null | undefined)?.scene_prompt_tokens_per_scene,
+    )
     // ── Read + the whole-plan rewrites that follow it are ONE locked unit ──
     //
     // This block reads the plan once and then writes the WHOLE document back
@@ -1901,11 +1942,51 @@ export async function runScenePlanJob(job: Job): Promise<void> {
         },
       ]
     }
+    // Size each request from the prompt it will ACTUALLY send. The pack split
+    // above is the requested batch; the selected product's published request
+    // ceiling and context window decide how much of it can be assembled. A group
+    // that would overflow is split here rather than sent to be refused at the
+    // Gateway, and one scene that cannot fit refuses the run before any call.
+    const refuseUnfittableSceneRequest = (promptTokens: number, label: string): never => {
+      throw new Error(
+        `One ${label} scene cannot be requested from ${promptModel?.id ?? model}: its assembled prompt is about `
+        + `${promptTokens.toLocaleString()} tokens and needs about `
+        + `${promptUnitRates.singleUnit.toLocaleString()} answer tokens, but the published limits are `
+        + `${describeSceneRequestLimits(promptRequestLimits)}. This request was not sent. `
+        + 'Shorten the Style Bible/research, or choose a model with a larger limit.',
+      )
+    }
+    const fittedPackIds: string[][] = []
+    for (const group of targetPacks) {
+      const fitted = packSceneRequestGroups({
+        items: group.map(({ scene }) => scene.id),
+        // Paid repair keeps one logical audit set; each request within it is one scene.
+        maxUnitsPerGroup: explicitPaidRepair ? 1 : effectivePackSize,
+        rates: promptUnitRates,
+        limits: promptRequestLimits,
+        buildPrompt: sceneIds => {
+          const payloads = sceneIds
+            .map(id => payloadBySceneId.get(id))
+            .filter((payload): payload is ScenePromptPayload => !!payload)
+          const text = buildPackMessages(payloads).map(message => message.content).join('\n\n')
+          return { characters: text.length, nonAsciiCharacters: nonAsciiCharacterCount(text) }
+        },
+      })
+      if (fitted.refused) refuseUnfittableSceneRequest(fitted.refused.promptTokens, stage)
+      fittedPackIds.push(...fitted.groups)
+    }
+    const packSceneIdGroups = explicitPaidRepair ? [fittedPackIds.flat()] : fittedPackIds
+    const sizedRequestGroups = explicitPaidRepair ? fittedPackIds : packSceneIdGroups
+    job.output_lines.push(
+      `Prompt sizing: ${sizedRequestGroups.length} request(s), up to `
+      + `${Math.max(...sizedRequestGroups.map(group => group.length))} scene(s) each, sized for ${promptModel?.id ?? model} — `
+      + `${describeSceneRequestLimits(promptRequestLimits)}, ${promptUnitRates.perUnit} answer tokens per scene.`,
+    )
     const packs: ScenePromptPack[] = []
-    for (const [packIndex, group] of targetPacks.entries()) {
+    for (const [packIndex, sceneIds] of packSceneIdGroups.entries()) {
       packs.push({
         pack_id: `${stage}-${String(packIndex + 1).padStart(4, '0')}`,
-        scene_ids: group.map(({ scene }) => scene.id),
+        scene_ids: sceneIds,
         // Chat Studio defaults to only 1,024 output tokens, which cannot hold
         // ten 110–150 word visual prompts. Set an explicit pack-sized budget.
         //
@@ -1997,16 +2078,12 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       throwIfPauseRequested(job.job_id)
       try {
         const messages = buildPackMessages(payloads, input.recoveryIssues, input.recoveryNote)
-        // **How long this pack's answer is expected to be**, which is what the Gateway forwards
-        // to Studio Hub to size the chat job's deadline from. The Hub cannot tell a 100-prompt
-        // pack from a one-line question by reading the body, and sizing every job from
-        // `max_tokens` would make every job hours long. `sceneIds x tokensPerScene` is the same
-        // arithmetic Story already uses to size the pack itself (`maxSafeScenePromptPackSize`),
-        // so the expectation and the allowance cannot disagree about what a scene costs. It
-        // follows the ids actually being asked for, so a repair of three scenes expects three.
+        // Gateway deadlines use the same measured answer rate as this request's pack fit.
         const expectedOutputTokens = Math.max(
           1,
-          Math.round(input.sceneIds.length * promptPackTuning.tokensPerScene),
+          Math.ceil(input.sceneIds.length === 1
+            ? promptUnitRates.singleUnit
+            : input.sceneIds.length * promptUnitRates.perUnit),
         )
         const requestIdentity = explicitPaidRepair
           ? `${job.project_slug}:${episode_id}:scene-plan:${stage}:paid-auto-repair:${job.job_id}:${input.requestLabel}`
@@ -2316,11 +2393,35 @@ export async function runScenePlanJob(job: Job): Promise<void> {
           outstanding,
           explicitPaidRepair ? 1 : scenePromptRepairPackSize(outstanding.length, outstanding.length),
         )
+        // The repair prompt adds the recovery findings/note the first request did
+        // not carry. Fit the REAL repair text, not the original pack size.
+        const recoveryNote = 'The previous request for these scene IDs ended before any response was received, so no prompt exists for them yet.'
+        const fittedRepairGroups: string[][] = []
+        for (const group of repairGroups) {
+          const groupIssues = issues.filter(issue => group.includes(issue.scene_id))
+          const fitted = packSceneRequestGroups({
+            items: group,
+            maxUnitsPerGroup: group.length,
+            rates: promptUnitRates,
+            limits: promptRequestLimits,
+            buildPrompt: sceneIds => {
+              const payloads = sceneIds
+                .map(id => payloadBySceneId.get(id))
+                .filter((payload): payload is ScenePromptPayload => !!payload)
+              const issuesForIds = groupIssues.filter(issue => sceneIds.includes(issue.scene_id))
+              const text = buildPackMessages(payloads, issuesForIds, issuesForIds.length ? '' : recoveryNote)
+                .map(message => message.content).join('\n\n')
+              return { characters: text.length, nonAsciiCharacters: nonAsciiCharacterCount(text) }
+            },
+          })
+          if (fitted.refused) refuseUnfittableSceneRequest(fitted.refused.promptTokens, stage)
+          fittedRepairGroups.push(...fitted.groups)
+        }
         job.output_lines.push(
           explicitPaidRepair
             ? `↻ Paid repair pass ${attempt}: requesting ${outstanding.length} still-missing prompt(s), one scene per request.`
             : `↻ Gateway prompt repair ${attempt}: requesting ${outstanding.length} missing or invalid scene prompt(s) only`
-              + `${repairGroups.length > 1 ? `, one scene per request (${repairGroups.length} requests — small packs fail far more often than single scenes)` : ''}.`,
+              + `${fittedRepairGroups.length > 1 ? `, in ${fittedRepairGroups.length} requests — small packs fail far more often than single scenes` : ''}.`,
         )
         const repairBudget = isMotion ? activePromptOutputBudget : visualMaxTokens
         const repairMaxTokens = repairBudget === null ? undefined : Math.min(
@@ -2328,7 +2429,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
           Math.max(2_048, Math.max(...repairGroups.map(group => group.length)) * 768),
         )
         const repair = await requestPromptGroups({
-          groups: repairGroups,
+          groups: fittedRepairGroups,
           saved,
           requestLabel: `${pack.pack_id}:repair-${attempt}`,
             // WHY 768 HERE AND ~400 IN THE SIZER, DELIBERATELY.
@@ -2362,7 +2463,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
             // still-missing group means exactly one thing: the attempt before
             // this one produced no response to find fault with. Say that,
             // rather than inheriting — or inventing — an accusation.
-          recoveryNote: 'The previous request for these scene IDs ended before any response was received, so no prompt exists for them yet.',
+          recoveryNote,
         })
         previousRequestUnresolved = repair.requestUnresolved
         receipt = await auditScenePromptCompletion(outPath, pack.scene_ids, isMotion ? 'motion' : 'visual')
@@ -2745,6 +2846,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       // to the smaller, safer window rather than guess.
       context_window_tokens: promptModel?.context_window_tokens,
       max_output_tokens: promptModel?.max_output_tokens ?? undefined,
+      max_request_tokens: promptModel?.max_request_tokens ?? undefined,
       detail_level: params.detail_level,
       style_prompt: replanStyle,
       custom_instructions: params.custom_instructions,
@@ -2868,6 +2970,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
     // planScenesTwoPass; absent when this run is model-free.
     context_window_tokens: promptModel?.context_window_tokens,
     max_output_tokens: promptModel?.max_output_tokens ?? undefined,
+    max_request_tokens: promptModel?.max_request_tokens ?? undefined,
     target_scene_count: params.target_scene_count,
     detail_level: params.detail_level,
     style_prompt: effectiveStyle,

@@ -205,7 +205,7 @@ describe('GenStudio Content Store 0.21 canonical parser', () => {
     assert.equal(catalog.products[0]?.hero?.url, 'https://catalog.example.test/media/archival-ledger-hero.webp')
     assert.equal(catalog.products[0]?.license?.label, wire.expected_license_label)
     assert.deepEqual(catalog.products[0]?.tags, ['documentary', 'archive'])
-    assert.equal(catalog.products[0]?.discount?.discountedCreditPrice, 200)
+    assert.equal('discount' in catalog.products[0]!, false, 'the retired shop publishes no price or discount')
     assert.deepEqual(catalog.products[0]?.showcaseVideos, wire.products_response.products[0].showcase_videos)
   })
 
@@ -333,7 +333,7 @@ describe('GenStudio Content Store 0.21 canonical parser', () => {
     })] }), /showcase|12/i)
   })
 
-  test('reads account ownership and uses the published content-spendable balance independently', () => {
+  test('reads account ownership and ignores published balance fields', () => {
     const parsed = parseContentStoreAccount({
       account_id: 'acct_a', content_account_id: 'acct_a', available_credits: 5300,
       content_spendable_credits: 5000,
@@ -343,10 +343,15 @@ describe('GenStudio Content Store 0.21 canonical parser', () => {
         current_release: null,
       }],
     })
-    assert.equal(parsed.availableCredits, 5300)
-    assert.equal(parsed.contentSpendableCredits, 5000)
+    // A Gateway that still publishes a balance is readable; Story keeps no
+    // credit figure, and an absent one is unknown, never zero.
+    assert.equal('availableCredits' in parsed, false)
+    assert.equal('contentSpendableCredits' in parsed, false)
     assert.equal(parsed.owned[0].purchaseId, null)
     assert.equal(parsed.owned[0].currentRelease, null)
+    assert.deepEqual(parseContentStoreAccount({
+      account_id: 'acct_b', content_account_id: 'acct_b', owned: [],
+    }).owned, [])
   })
 
   test('accepts unaffordable quotes while retaining the shortfall and signed bytes', () => {
@@ -463,8 +468,10 @@ describe('GenStudio Content Store 0.21 canonical parser', () => {
     assert.throws(() => canonicalizeContentStoreObject(deep), /depth/i)
     assert.throws(() => canonicalizeContentStoreObject({ values: Array.from({ length: 65_536 }, () => null) }), /nodes/i)
     assert.throws(() => canonicalizeContentStoreObject({ value: 'x'.repeat(1024 * 1024) }), /payload|string/i)
-    assert.throws(() => parseContentStoreCatalog({ products: [product({ credit_price: -1 })] }), /credit_price/i)
-    assert.throws(() => parseContentStoreCatalog({ products: [product({ credit_price: 1.5 })] }), /credit_price/i)
+    for (const credit_price of [-1, 1.5]) {
+      const parsed = parseContentStoreCatalog({ products: [product({ credit_price })] })
+      assert.equal('creditPrice' in parsed.products[0]!, false, 'retired price fields are ignored')
+    }
     assert.throws(() => parseContentStoreCatalog({ products: 'not-an-array' }), /products/i)
   })
 
@@ -528,7 +535,9 @@ describe('GenStudio Content Store one-attempt HTTP client', () => {
       })
       return Response.json({ products: [] })
     }
-    assert.equal((await getGenStudioContentAccount('gsk_test')).contentSpendableCredits, 5000)
+    const account = await getGenStudioContentAccount('gsk_test')
+    assert.equal(account.accountId, 'acct_a')
+    assert.equal('contentSpendableCredits' in account, false)
     assert.deepEqual((await listGenStudioContentProducts('gsk_test', '1.0.834')).products, [])
     assert.deepEqual(calls.map(call => call.url), [
       'http://127.0.0.1:8787/v1/content/account',

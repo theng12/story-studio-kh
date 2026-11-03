@@ -38,10 +38,12 @@ const InsufficientCreditsRefusalSchema = z.object({
   status: z.literal(402),
   code: z.literal('insufficient_credits'),
   detail: ContentStoreDetailSchema,
-  required_credits: CreditsSchema,
-  available_credits: CreditsSchema,
-  shortfall_credits: CreditsSchema,
+  /** Legacy money figures: readable from an old journal row, never written by a new one. */
+  required_credits: CreditsSchema.optional(),
+  available_credits: CreditsSchema.optional(),
+  shortfall_credits: CreditsSchema.optional(),
 }).strict().superRefine((value, context) => {
+  if (value.required_credits === undefined || value.available_credits === undefined || value.shortfall_credits === undefined) return
   if (value.shortfall_credits !== Math.max(0, value.required_credits - value.available_credits)) {
     context.addIssue({ code: z.ZodIssueCode.custom, message: 'shortfall_credits does not match the published refusal figures' })
   }
@@ -97,14 +99,15 @@ export const CachedContentPurchaseSchema = z.object({
   purchase_id: OpaqueIdSchema,
   quote_id: OpaqueIdSchema.optional(),
   account_id: OpaqueIdSchema,
-  credits_charged: CreditsSchema,
-  discount_credits: CreditsSchema,
+  /** Legacy money figures: readable from an old journal row, never written by a new one. */
+  credits_charged: CreditsSchema.optional(),
+  discount_credits: CreditsSchema.optional(),
   base_credit_price: CreditsSchema.optional(),
   component_discount_credits: CreditsSchema.optional(),
   operator_discount: ContentOperatorDiscountSchema.nullable().optional(),
   operator_discount_credits: CreditsSchema.optional(),
-  balance_before: CreditsSchema,
-  balance_after: CreditsSchema,
+  balance_before: CreditsSchema.optional(),
+  balance_after: CreditsSchema.optional(),
   entitlement_ids: z.array(OpaqueIdSchema).max(200),
   entitlement_families: z.array(OpaqueIdSchema).min(1).max(200),
   granted_families: z.array(OpaqueIdSchema).max(200).optional(),
@@ -162,19 +165,20 @@ export const CachedContentQuoteSchema = z.object({
   quote_signature: SignatureSchema,
   key_id: OpaqueIdSchema,
   idempotency_key: z.string().min(8).max(128).regex(/^story-content-[0-9a-f-]+$/),
-  base_credit_price: CreditsSchema,
-  discount_credits: CreditsSchema,
+  /** Legacy money figures: readable from an old journal row, never written by a new one. */
+  base_credit_price: CreditsSchema.optional(),
+  discount_credits: CreditsSchema.optional(),
   entitlement_families: z.array(OpaqueIdSchema).min(1).max(200).optional(),
   bundle_closure: z.array(ContentBundleClosureSchema).max(200).optional(),
   operator_discount: ContentOperatorDiscountSchema.nullable().optional(),
   operator_discount_credits: CreditsSchema.optional(),
-  quoted_credits: CreditsSchema,
-  balance_before: CreditsSchema,
-  balance_after: CreditsSchema,
+  quoted_credits: CreditsSchema.optional(),
+  balance_before: CreditsSchema.optional(),
+  balance_after: CreditsSchema.optional(),
   owned_components: z.array(OpaqueIdSchema).max(200),
-  sufficient_credits: z.boolean(),
-  insufficient_reason: z.literal('insufficient_credits').nullable(),
-  shortfall_credits: CreditsSchema,
+  sufficient_credits: z.boolean().optional(),
+  insufficient_reason: z.literal('insufficient_credits').nullable().optional(),
+  shortfall_credits: CreditsSchema.optional(),
   status: ContentPurchaseAttemptStatusSchema,
   submission_owner: ContentSubmissionOwnerSchema.optional(),
   created_at: IsoDateTimeSchema,
@@ -195,7 +199,8 @@ export const CachedContentQuoteSchema = z.object({
   if (value.status === 'uncertain' && !value.uncertain_detail) {
     context.addIssue({ code: z.ZodIssueCode.custom, message: 'uncertain status requires uncertain_detail' })
   }
-  if (value.sufficient_credits === (value.insufficient_reason !== null)) {
+  if (value.sufficient_credits !== undefined && value.insufficient_reason !== undefined
+    && value.sufficient_credits === (value.insufficient_reason !== null)) {
     context.addIssue({ code: z.ZodIssueCode.custom, message: 'quote sufficiency fields disagree' })
   }
 })

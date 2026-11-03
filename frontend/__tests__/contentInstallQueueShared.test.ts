@@ -19,9 +19,9 @@ let monitoredOperation: any = null
 let monitorFailures = 0
 const overview = {
   phase: 'delivery_ready', origin: 'https://catalog.example.test',
-  account: { accountId: 'acct_a', contentAccountId: 'content_a', availableCredits: 10, contentSpendableCredits: 10, owned: [] },
+  account: { accountId: 'acct_a', contentAccountId: 'content_a', owned: [] },
   products: [
-    { productId: 'p1', entitlementFamily: 'f1', kind: 'topic_pack', title: 'Pack One', summary: '', description: '', publisherId: 'x', creditPrice: 300, free: false, owned: true, retired: false, successorProductId: null, compatible: true, compatibilityReason: null, currentRelease: { releaseId: 'rel-1', packId: 'pack-1', version: '1.0.0', archiveSha256: 'a'.repeat(64), archiveBytes: 1, archiveAvailable: true, minStoryVersion: '1.0.0', changelog: '', componentSummary: {} }, bundleComponents: [], ownedComponentCreditValue: 0, presentation: { cover: null, licenseLabel: '', tags: [] }, discount: null },
+    { productId: 'p1', entitlementFamily: 'f1', kind: 'topic_pack', title: 'Pack One', summary: '', description: '', publisherId: 'x', free: false, owned: true, retired: false, successorProductId: null, compatible: true, compatibilityReason: null, currentRelease: { releaseId: 'rel-1', packId: 'pack-1', version: '1.0.0', archiveSha256: 'a'.repeat(64), archiveBytes: 1, archiveAvailable: true, minStoryVersion: '1.0.0', changelog: '', componentSummary: {} }, bundleComponents: [], presentation: { cover: null, licenseLabel: '', tags: [] } },
   ],
   shelves: [], attempts: [],
   installed: [],

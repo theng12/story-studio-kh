@@ -37,12 +37,12 @@ export const featureGuides: Record<string, FeatureGuide> = {
       // discovery is a filesystem scan, so the honest answer is where to put the
       // folder, not which button to press.
       { title: 'Adding a channel that already exists on disk', purpose: 'Story Studio finds any folder in your channels folder that contains a project.json, so a channel you copied or restored appears on its own.', useWhen: 'Use after restoring a backup or moving a channel between Macs. Settings → Files & maintenance shows where your Library is.' },
-      { title: 'Hidden channels', purpose: 'Lists channels removed from the list with Hide Channel, and restores them without touching any files.', useWhen: 'Use when a channel you hid needs to come back.' },
-      { title: 'New Project', purpose: 'Creates the channel structure, production format, and initial settings.', effect: 'A new project folder and project record are created.' },
-      { title: 'Usage', purpose: 'Shows your GenStudio credits: what is set aside for running jobs and what finished jobs actually cost.' },
+      { title: 'Hidden channels', purpose: 'Lists channels hidden with Settings’ Hide Channel (Keep Files), and restores them without touching any files.', useWhen: 'Use when a channel you hid needs to come back.' },
+      { title: 'New Channel', purpose: 'Creates the channel with its name, folder, and Series Formula; everything else is set inside the channel.', effect: 'A new project folder and project record are created.' },
+      { title: 'Usage', purpose: 'Opens the Usage page — Gateway credits, running and waiting jobs, and recent Gateway work, exactly as your Gateway reports them.' },
       { title: 'Settings', purpose: 'Opens settings that belong to this Mac, including appearance, remote access, and the Gateway connection.' },
     ],
-    tips: ['Removing a project from the app is different from deleting its files. Use project controls rather than deleting folders blindly.', 'A "Folder missing" badge means the project record is safe but the episodes folder it points at is not there — the path is named on the project page so you can move the folder back, reconnect the drive it lives on, or choose the Library in Settings → Files & maintenance.'],
+    tips: ['Hiding a channel is different from deleting its files — use Settings’ Hide Channel (Keep Files) rather than deleting folders blindly.', 'A "Folder missing" badge means the project record is safe but the episodes folder it points at is not there — the path is named on the project page so you can move the folder back, reconnect the drive it lives on, or choose the Library in Settings → Files & maintenance.'],
   },
   dashboard: {
     title: 'Project Dashboard',
@@ -355,11 +355,11 @@ export const featureGuides: Record<string, FeatureGuide> = {
   },
   settings: {
     title: 'Settings',
-    summary: 'Configure what belongs to this Mac and what travels with this project. Type in “Find a setting” to jump straight to any control.',
-    workflow: ['Pick a section on the left: This Mac sections apply to every channel, This Project sections to this one.', 'Each section starts with what you change most; rarer options sit under one Advanced.', 'Search finds single settings (for example “time zone” or “finished videos”) and opens them.'],
+    summary: 'Configure what belongs to this Mac and what travels with this channel. Type in “Find a setting” to jump straight to any control.',
+    workflow: ['Pick a section on the left: This Mac sections apply to every channel, This Channel sections to this one.', 'Each section starts with what you change most; rarer options sit under one Advanced.', 'Search finds single settings (for example “time zone” or “finished videos”) and opens them.'],
     topics: [
       { title: 'Connections', purpose: 'The Gateway address and Gateway API Key, and the YouTube accounts on this Mac.' },
-      { title: 'Performance & recovery', purpose: 'How much work runs at once, and whether a confirmed failure may buy one paid replacement. One Save for the section.' },
+      { title: 'Performance & recovery', purpose: 'How much work runs at once and the saved recovery settings for failed requests. One Save for the section.' },
       { title: 'Appearance & notifications', purpose: 'Light or dark, desktop and Telegram alerts, the daily brief, and Server Mode under Advanced.' },
       { title: 'Files & maintenance', purpose: 'Where your files are (Library and finished videos folders, chosen with a folder picker), Free up space (every way to free space, and what is using it), smaller files, and FFmpeg.' },
       { title: 'Channel identity', purpose: 'Chooses the Series Formula and Topic Packs that define what the channel produces.' },
@@ -368,7 +368,7 @@ export const featureGuides: Record<string, FeatureGuide> = {
       { title: 'Publishing', purpose: 'The channel’s upload schedule — the same plan the Upload Center shows — plus its YouTube channel and upload defaults.' },
       { title: 'Project files & behavior', purpose: 'Episode numbering, confirmation prompts, folder names, and hiding the project.' },
     ],
-    tips: ['Labels state whether a setting stays on this Mac or travels with the project.', 'Never expose the Story Studio server port publicly; use authenticated Server Mode over a private network such as Tailscale.'],
+    tips: ['Labels state whether a setting stays on this Mac or travels with the channel.', 'Never expose the Story Studio server port publicly; use authenticated Server Mode over a private network such as Tailscale.'],
   },
   'channel-characters': {
     title: 'Channel Characters',
@@ -411,14 +411,14 @@ export const featureGuides: Record<string, FeatureGuide> = {
   'content-store': {
     title: 'Studio Library',
     summary: 'Everything reusable in one place — visual styles, Series Formulas, topic packs and thumbnail recipes. Browse what your Gateway publishes and install it on this Mac.',
-    workflow: ['Open Discover to see what your Gateway publishes, or Owned for the packs this account already has.', 'Install on this Mac from a pack card, or use Install all missing.', 'Install a .sspack from a file, or from the Gateway archive bank.'],
+    workflow: ['Open Discover to see what your Gateway publishes, or Installed for the packs already on this Mac.', 'Install on this Mac from a pack card, or use Install all missing.', 'Install a .sspack from a file, or from the Gateway archive bank.'],
     topics: [
-      { title: 'Re-check my packs', purpose: 'Asks the Gateway to confirm again which packs this account owns, e.g. on a new Mac. It never charges anything.' },
-      { title: 'Owned', purpose: 'Packs your account owns, installed here or not.' },
+      { title: 'Refresh Library', purpose: 'Re-reads the published catalogue and what is installed on this Mac; local .sspack installs keep working without the Gateway.' },
+      { title: 'Gateway archives', purpose: 'The Gateway archive bank — releases you can install directly on this Mac.' },
       { title: 'Installed', purpose: 'Signed packs verified and present on this Mac.' },
       { title: 'Updates', purpose: 'Installed packs with a newer release ready to install.' },
     ],
-    tips: ['Installing stays off while the Gateway is not answering; nothing is lost, and Install Content Pack from a file still works.', 'A pack you do not own is shown as not owned; ownership is granted by the Gateway, not here.'],
+    tips: ['Installing stays off while the Gateway is not answering; nothing is lost, and Install Content Pack from a file still works.', 'Cards read Installed on this Mac, Ready to install on this Mac, or Not available to this Mac.'],
   },
   remote: {
     title: 'Remote Control',

@@ -16,7 +16,7 @@ const settings = await import('../services/app-settings.js')
 const secrets = await import('../services/app-secrets-store.js')
 const genstudio = await import('../lib/genstudio-client.js')
 await import('../providers/text/genstudio.js')
-const { runScenePlanJob, scenePromptRequestIsUnresolved } = await import('../generators/scene-plan.js')
+const { runScenePlanJob, scenePromptRequestIsUnresolved, readScenePolicyRequestPlan } = await import('../generators/scene-plan.js')
 const jq = await import('../services/job-queue.js')
 const { resolveEpisodePathsByCode } = await import('../services/utils.js')
 const { router, scenePromptAutoRepairParams, scenePromptAutoRepairRecoveries } = await import('../routes/jobs.js')
@@ -211,6 +211,16 @@ after(async () => {
   await temp.cleanup()
 })
 
+test('a saved request shape keeps its published request limit and accepts pre-limit checkpoints', () => {
+  const base = {
+    model_id: 'mock-chat-v1', context_window_tokens: 32_768, max_output_tokens: 8_192,
+    visual_max_tokens: 8_192, active_output_budget: 8_192, prompt_pack_size: 10,
+  }
+  assert.equal(readScenePolicyRequestPlan(base)?.max_request_tokens, null, 'older checkpoints are unknown, not invalid')
+  assert.equal(readScenePolicyRequestPlan({ ...base, max_request_tokens: 23_000 })?.max_request_tokens, 23_000)
+  assert.equal(readScenePolicyRequestPlan({ ...base, max_request_tokens: 0 }), null, 'zero is not a published limit')
+})
+
 test('Pipeline checkpoints a no-ceiling request as an omission and recovers its saved pack without another paid POST', async () => {
   service.reset()
   await withPipelineChatModel(null, async () => {
@@ -234,11 +244,13 @@ test('Pipeline checkpoints a no-ceiling request as an omission and recovers its 
 
     const savedShape = {
       model_id: 'mock-chat-v1', context_window_tokens: 128_000, max_output_tokens: null,
+      max_request_tokens: null,
       visual_max_tokens: null, active_output_budget: null, prompt_pack_size: 50,
     }
     assert.deepEqual(first.params.pipeline_scene_request_plan, savedShape)
     assert.deepEqual((await jq.loadAuthoritativeJob(f.project.slug, first.job_id))?.params.pipeline_scene_request_plan, savedShape)
     assert.equal('max_output_tokens' in (chatSubmissions()[0]!.parsedBody || {}), false)
+    assert.equal(chatSubmissions()[0]!.parsedBody?.expected_output_tokens, 8 * 550, 'Gateway deadline sizing follows the same measured answer rate as pack sizing')
 
     const plan = JSON.parse(await fs.readFile(f.planPath, 'utf8'))
     for (const scene of plan.scenes.slice(1)) scene.visual_prompt = ''
@@ -303,6 +315,7 @@ test('direct and Pipeline no-ceiling requests preserve an explicit allowance and
       if (pipeline) {
         assert.deepEqual(job.params.pipeline_scene_request_plan, {
           model_id: 'mock-chat-v1', context_window_tokens: 128_000, max_output_tokens: null,
+          max_request_tokens: null,
           visual_max_tokens: 8_192, active_output_budget: 8_192, prompt_pack_size: 20,
         })
         assert.equal(job.params.pipeline_scene_prompt_pack_sizes?.visual, 20)
@@ -329,6 +342,7 @@ test('Pipeline checkpoints the published ceiling separately from an explicit cal
 
     assert.deepEqual(job.params.pipeline_scene_request_plan, {
       model_id: 'mock-chat-v1', context_window_tokens: 128_000, max_output_tokens: 4_096,
+      max_request_tokens: null,
       visual_max_tokens: 2_048, active_output_budget: 2_048, prompt_pack_size: 5,
     })
     assert.equal((chatSubmissions()[0]!.parsedBody as any).max_output_tokens, 2_048)

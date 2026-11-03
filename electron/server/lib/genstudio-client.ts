@@ -2013,6 +2013,18 @@ export interface GenStudioChatModel extends GenStudioCatalogLock, GenStudioPrice
    * Hub's fallback as the model's own ceiling.
    */
   max_output_tokens_source: GenStudioLimitSource | null
+  /**
+   * The largest REQUEST (input) this Gateway will accept for this product,
+   * published as `max_request_tokens`. A pool publishes the smallest of its
+   * enabled members', and only when every one of them states it.
+   *
+   * 0 means "not published" — same contract as `max_output_tokens`. Read live
+   * per product/pool and enforced before submission; Story never infers one
+   * from a provider or model name, and an absent value enforces nothing.
+   */
+  max_request_tokens?: number
+  /** Whose `max_request_tokens` that is, or `null` when nobody labelled it. */
+  max_request_tokens_source?: GenStudioLimitSource | null
   /** Published structured-item ceiling. Null means unmeasured, never unlimited. */
   max_structured_items_per_request: number | null
   controls: string[]
@@ -5698,24 +5710,32 @@ function readPublishedTokenLimit(preferred: unknown, deprecatedAlias: unknown): 
 }
 
 /**
- * Preserve the three authoritative chat output-limit states at ingestion:
- * omitted/null, a positive safe integer, or malformed. The first keeps the
- * existing local `0` sentinel; the second is copied exactly; the third stops
- * before any request can mistake bad catalogue data for an omission or `1`.
+ * Preserve the three authoritative chat limit states at ingestion: omitted/null,
+ * a positive safe integer, or malformed. The first keeps the existing local `0`
+ * sentinel; the second is copied exactly; the third stops before any request can
+ * mistake bad catalogue data for an omission or `1`.
+ *
+ * Reads `max_output_tokens` or `max_request_tokens` — the same contract, said by
+ * the Gateway for both. `field` only names the figure in the refusal.
  *
  * The malformed value is deliberately not interpolated into the error: a wire
  * object is arbitrary remote data and may contain private provider metadata.
  */
-function readPublishedChatMaxOutputTokens(value: unknown, rawModelId: unknown): number {
+function readPublishedChatTokenLimit(value: unknown, rawModelId: unknown, field = 'max_output_tokens'): number {
   if (value === null || value === undefined) return 0
   if (Number.isSafeInteger(value) && (value as number) > 0) return value as number
   const modelId = typeof rawModelId === 'string' && rawModelId.trim()
     ? rawModelId.trim().replace(/[\r\n\t]/g, ' ').slice(0, 120)
     : '(missing model id)'
   throw new GenStudioCatalogFieldValidationError(
-    `Gateway chat model ${JSON.stringify(modelId)} published malformed max_output_tokens; `
+    `Gateway chat model ${JSON.stringify(modelId)} published malformed ${field}; `
     + 'expected null/omitted or a positive safe integer. No request or credit charge was made.',
   )
+}
+
+/** The historical name, kept at its call site. */
+function readPublishedChatMaxOutputTokens(value: unknown, rawModelId: unknown): number {
+  return readPublishedChatTokenLimit(value, rawModelId)
 }
 
 /**
@@ -5778,6 +5798,11 @@ export async function listChatModelsSnapshot(
     // against it comes back truncated after the customer has paid for it.
     max_output_tokens: readPublishedChatMaxOutputTokens(value?.max_output_tokens, value?.id),
     max_output_tokens_source: readPublishedLimitSource(value?.max_output_tokens_source),
+    // The Gateway's admission line for a request, published per model and per
+    // pool (smallest of the members'). 0 = nobody stated one, and nothing is
+    // refused for it — never a number of ours, never a provider-name guess.
+    max_request_tokens: readPublishedChatTokenLimit(value?.max_request_tokens, value?.id, 'max_request_tokens'),
+    max_request_tokens_source: readPublishedLimitSource(value?.max_request_tokens_source),
     max_structured_items_per_request: Number.isInteger(value?.max_structured_items_per_request)
       && value.max_structured_items_per_request > 0
       ? value.max_structured_items_per_request
@@ -7800,11 +7825,28 @@ async function prepareChatSubmission(
   // report publishes 128,000 output tokens in a 32,768-token window — so "under its published
   // output limit" is not "fits beside this prompt". This is the ONE place every writing request
   // (research, outline, chapters, metadata) passes through with the product's LIVE figures, so the
-  // bound is applied here and nowhere else; a product that publishes no window is unchanged.
+  // bound is applied here and nowhere else.
+  //
+  // The same rule now carries the Gateway's published REQUEST ceiling (`max_request_tokens`,
+  // per model and per pool). That is the INPUT-side admission line: a prompt above it is refused
+  // by the Gateway, so it is refused here first, before any network call, with the model's own
+  // figure. It does not shrink the answer — a published request ceiling already reserves room for
+  // the answer (gemma-4: 23,000 request + 8,192 answer inside a 32,768 window). When the Gateway
+  // publishes none, nothing is enforced and no number is invented: the fleet's
+  // `caller → published cap → 128,000` fallback keeps its last link downstream, never a 4,096.
   const contextBounded = boundOutputTokensToContext(
     maxOutputTokens, product.context_window_tokens, promptCharacters, promptNonAsciiCharacters,
+    product.max_request_tokens,
   )
   if (contextBounded.overflow) {
+    if (contextBounded.overflowLimit === 'request') {
+      throw new Error(
+        `This request's instructions are about ${contextBounded.promptTokens.toLocaleString()} tokens, and `
+        + `${product.display_name} publishes a ${(contextBounded.requestLimit as number).toLocaleString()}-token request limit, `
+        + 'so the Gateway would refuse it. Shorten the request or choose a model with a larger request limit. '
+        + 'No request or credit charge was made.',
+      )
+    }
     throw new Error(
       `This request's instructions are about ${contextBounded.promptTokens.toLocaleString()} tokens, and ${product.display_name} publishes a `
       + `${(contextBounded.contextWindowTokens as number).toLocaleString()}-token context window, so there is no room left for an answer. `

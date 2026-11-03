@@ -193,6 +193,7 @@ test('Chunked policy restart retains an accepted chapter range when today\'s bat
 test('Scene Plan accepts only a complete persisted request shape for saved-key recovery', () => {
   const saved = {
     model_id: 'primary', context_window_tokens: 128_000, max_output_tokens: 32_768,
+    max_request_tokens: null,
     visual_max_tokens: 16_384, active_output_budget: 16_384, prompt_pack_size: 4,
   }
   assert.deepEqual(readScenePolicyRequestPlan(saved), saved)
@@ -215,6 +216,12 @@ test('Scene Plan accepts only a complete persisted request shape for saved-key r
   }
   assert.equal(readScenePolicyRequestPlan({ ...saved, visual_max_tokens: 0 }), null)
   assert.equal(readScenePolicyRequestPlan({ ...saved, active_output_budget: 0 }), null)
+  // A checkpoint written before the request-side figure existed stays valid and
+  // reads as UNKNOWN, not as a number of ours.
+  const { max_request_tokens: _omitted, ...legacy } = saved
+  assert.deepEqual(readScenePolicyRequestPlan(legacy), { ...saved, max_request_tokens: null })
+  assert.equal(readScenePolicyRequestPlan({ ...saved, max_request_tokens: '23000' }), null)
+  assert.equal(readScenePolicyRequestPlan({ ...saved, max_request_tokens: 0 }), null)
 })
 
 test('A confirmed terminal quota failure lets the next run make a fresh request on the same model', async () => {

@@ -21,7 +21,7 @@ type Publication =
 
 let requestSequence = 0
 
-function catalogue(publication: Publication) {
+function catalogue(publication: Publication, requestPublication: Publication = { kind: 'absent' }) {
   return [{
     id: 'writer-alpha',
     display_name: 'Writer Alpha',
@@ -29,6 +29,7 @@ function catalogue(publication: Publication) {
     qualification_only: false,
     context_window_tokens: 128_000,
     ...(publication.kind === 'published' ? { max_output_tokens: publication.value } : {}),
+    ...(requestPublication.kind === 'published' ? { max_request_tokens: requestPublication.value } : {}),
     controls: ['max_output_tokens'],
     activation_blockers: [],
     structured_output_mode: 'json_object',
@@ -64,7 +65,10 @@ function completedChatJob() {
   }
 }
 
-async function submitFromCatalogue(publication: Publication): Promise<{
+async function submitFromCatalogue(
+  publication: Publication,
+  requestPublication: Publication = { kind: 'absent' },
+): Promise<{
   error: Error | null
   submissions: Array<Record<string, unknown>>
 }> {
@@ -75,7 +79,7 @@ async function submitFromCatalogue(publication: Publication): Promise<{
   try {
     globalThis.fetch = async (input, init) => {
       const url = String(input)
-      if (url.endsWith('/v1/chat/models')) return Response.json(catalogue(publication))
+      if (url.endsWith('/v1/chat/models')) return Response.json(catalogue(publication, requestPublication))
       if (url.endsWith('/v1/account/overview')) return Response.json(accountOverview())
       if (url.endsWith('/v1/chat/responses')) {
         submissions.push(JSON.parse(String(init?.body)))
@@ -145,4 +149,37 @@ test('a positive integer max_output_tokens reaches chat submission unchanged', a
   assert.equal(error, null)
   assert.equal(submissions.length, 1)
   assert.equal(submissions[0]?.max_output_tokens, 4_096)
+})
+
+// ── The Gateway's published request ceiling takes the same three states ───
+
+for (const [label, value] of [
+  ['numeric string', '23000'],
+  ['fraction', 23_000.5],
+  ['zero', 0],
+  ['negative integer', -23_000],
+] as const) {
+  test(`malformed published max_request_tokens (${label}) fails before chat submission`, async () => {
+    const { error, submissions } = await submitFromCatalogue(
+      { kind: 'absent' },
+      { kind: 'published', value },
+    )
+    assert.equal(submissions.length, 0, 'a malformed request ceiling must not reach POST')
+    assert.ok(error instanceof Error)
+    assert.match(error.message, /max_request_tokens/i)
+    assert.match(error.message, /writer-alpha/i)
+  })
+}
+
+test('a published max_request_tokens is consumed before the call', async () => {
+  // 4 tokens cannot hold the fixture prompt, so the request is refused locally
+  // with the Gateway's own figure instead of being sent to fail.
+  const { error, submissions } = await submitFromCatalogue(
+    { kind: 'absent' },
+    { kind: 'published', value: 4 },
+  )
+  assert.equal(submissions.length, 0)
+  assert.ok(error instanceof Error)
+  assert.match(error.message, /4-token request limit/)
+  assert.match(error.message, /No request or credit charge was made/)
 })

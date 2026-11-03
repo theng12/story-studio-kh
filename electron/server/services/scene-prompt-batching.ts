@@ -21,6 +21,8 @@
  * more, because the clamp sat directly on top of a correct derivation and the
  * Scene Plan panel advertised the derivation as the thing it was doing.
  */
+import { boundOutputTokensToContext } from './output-token-budget.js'
+
 export type ScenePromptPackSize = number
 export type ScenePromptPackSetting = 'auto' | ScenePromptPackSize
 /** 'auto' = the selected product's published maximum when one exists; a number
@@ -342,4 +344,238 @@ export function availableInputTokens(
   if (!Number.isInteger(contextWindow) || contextWindow < 1) return 0
   if (!Number.isInteger(output) || output < 0) return contextWindow
   return Math.max(0, contextWindow - output)
+}
+
+// ── Sizing a request from the prompt it will ACTUALLY send ─────────────────
+//
+// The output-ceiling derivation above answers "how many scenes fit in one
+// answer". It cannot see the REQUEST. Measured on 2,458 real calls
+// (2026-09-23 … 2026-11-01, `_orchestra/story-lead/token-measure/measure.md`),
+// 13% of English visual packs and 52% of Khmer ones already exceeded Gemma's
+// 23,000-token request limit before the model was asked anything, and planner
+// windows were never sized against it at all. A request that is too large is
+// refused by the Gateway, so the work is split here instead: the caller
+// assembles the REAL prompt for a candidate size and this shrinks the candidate
+// until the prompt AND the answer it needs both fit.
+//
+// `max_request_tokens` is the INPUT-side admission line. It never lowers the
+// answer: a published request ceiling already reserves room for the answer
+// (gemma-4: 23,000 request + 8,192 answer inside a 32,768 window). The answer is
+// bounded separately by the published output ceiling and by what the context
+// window still holds beside this prompt. An ABSENT limit is unknown and
+// enforces nothing — never a number of ours.
+
+export interface SceneRequestLimits {
+  /** Published `max_request_tokens` (input side). Absent/null = unknown. */
+  maxRequestTokens?: number | null
+  /** Published `context_window_tokens`. Absent/null = unknown. */
+  contextWindowTokens?: number | null
+  /** Published `max_output_tokens`. Absent/null = unknown. */
+  maxOutputTokens?: number | null
+}
+
+export interface SceneRequestFit {
+  fits: boolean
+  /** The assembled prompt's estimated tokens. */
+  promptTokens: number
+  /** The answer allowance this prompt leaves, capped by the published output ceiling. Null when unknown. */
+  answerTokens: number | null
+  /** Which published limit refused, or null when the request fits. */
+  refusedBy: 'request' | 'window' | 'answer' | null
+}
+
+/** A published token limit. `0`/absent = unpublished (the catalogue's sentinel). */
+function publishedSceneLimit(value: unknown): number | null {
+  if (value === null || value === undefined || value === 0) return null
+  const parsed = Number(value)
+  if (!Number.isInteger(parsed) || parsed < 1) {
+    throw new Error(
+      `Cannot size a scene request: the selected Gateway product published a malformed limit (got ${JSON.stringify(value)}). `
+      + 'Story Studio does not substitute a figure of its own.',
+    )
+  }
+  return parsed
+}
+
+/**
+ * Does ONE assembled request fit? Prompt on the input side, the answer it
+ * expects on the output side, both inside the context window.
+ */
+export function sceneRequestFits(opts: {
+  promptCharacters: number
+  promptNonAsciiCharacters?: number
+  answerTokens: number
+  limits: SceneRequestLimits
+}): SceneRequestFit {
+  const answer = Math.max(1, Math.ceil(opts.answerTokens))
+  const bounded = boundOutputTokensToContext(
+    answer,
+    opts.limits.contextWindowTokens,
+    opts.promptCharacters,
+    opts.promptNonAsciiCharacters ?? 0,
+    opts.limits.maxRequestTokens,
+  )
+  const outputCeiling = publishedSceneLimit(opts.limits.maxOutputTokens)
+  const window = Number.isInteger(opts.limits.contextWindowTokens) && (opts.limits.contextWindowTokens as number) >= 1
+    ? opts.limits.contextWindowTokens as number
+    : null
+  const refusedBy: SceneRequestFit['refusedBy'] = bounded.overflow
+    ? (bounded.overflowLimit === 'request' ? 'request' : 'window')
+    : outputCeiling !== null && answer > outputCeiling
+      ? 'answer'
+      : bounded.maxTokens !== null && bounded.maxTokens < answer
+        ? 'window'
+        : null
+  // The allowance is what the request LEAVES, not the answer it was asked for.
+  const available = window === null ? null : Math.max(0, window - bounded.promptTokens)
+  const allowance = bounded.overflow
+    ? 0
+    : available === null
+      ? outputCeiling
+      : outputCeiling === null ? available : Math.min(outputCeiling, available)
+  return { fits: refusedBy === null, promptTokens: bounded.promptTokens, answerTokens: allowance, refusedBy }
+}
+
+/**
+ * Measured answer tokens per scene, by kind and output language, with margin.
+ *
+ * These are STARTING VALUES from provider-reported (unverified) usage, not
+ * limits: p95 + 25%, rounded up. They are used only by the request-sizing path
+ * below; `ScenePromptPackTuning.tokensPerScene` keeps its own meaning for the
+ * output-ceiling derivation. An owner who sets `scene_prompt_tokens_per_scene`
+ * overrides the visual/motion rates through that existing key.
+ *
+ * Motion and planner windows have NO measured data — 0 stored calls — so their
+ * 300 is the existing tuning value, marked unmeasured rather than presented as
+ * measured. Single-scene visual English is measured separately because one
+ * scene pays the pack's whole fixed overhead.
+ */
+export type ScenePromptUnitKind = 'visual' | 'motion' | 'planner-window'
+export type ScenePromptOutputLanguage = 'en' | 'km'
+
+export interface SceneUnitTokenRates {
+  /** Answer tokens one unit costs inside a request that carries several. */
+  perUnit: number
+  /** Answer tokens a request that carries exactly ONE unit costs (fixed overhead included). */
+  singleUnit: number
+}
+
+export const SCENE_PROMPT_MEASURED_TOKENS_PER_UNIT: Readonly<
+  Record<ScenePromptUnitKind, Readonly<Record<ScenePromptOutputLanguage, Readonly<SceneUnitTokenRates>>>>
+> = Object.freeze({
+  visual: Object.freeze({
+    en: Object.freeze({ perUnit: 550, singleUnit: 1_550 }),
+    km: Object.freeze({ perUnit: 400, singleUnit: 400 }), // single Khmer unmeasured → perUnit
+  }),
+  motion: Object.freeze({ // unmeasured
+    en: Object.freeze({ perUnit: 300, singleUnit: 300 }),
+    km: Object.freeze({ perUnit: 300, singleUnit: 300 }),
+  }),
+  'planner-window': Object.freeze({ // unmeasured
+    en: Object.freeze({ perUnit: 300, singleUnit: 300 }),
+    km: Object.freeze({ perUnit: 300, singleUnit: 300 }),
+  }),
+})
+
+export function resolveSceneUnitTokenRates(
+  kind: ScenePromptUnitKind,
+  language: ScenePromptOutputLanguage | string | null | undefined,
+  configuredPerScene?: unknown,
+): SceneUnitTokenRates {
+  const owner = Number(configuredPerScene)
+  if (Number.isInteger(owner) && owner >= 1) return { perUnit: owner, singleUnit: owner }
+  return SCENE_PROMPT_MEASURED_TOKENS_PER_UNIT[kind][language === 'km' ? 'km' : 'en']
+}
+
+function sceneAnswerTokens(units: number, rates: SceneUnitTokenRates): number {
+  return Math.max(1, Math.ceil(units === 1 ? rates.singleUnit : units * rates.perUnit))
+}
+
+export interface SceneUnitFit extends SceneRequestFit {
+  /** Units that fit. 0 = not even one does. */
+  units: number
+}
+
+/**
+ * Shrink a candidate unit count until the assembled prompt and its expected
+ * answer both fit. `buildPrompt` must assemble the REAL prompt for that count —
+ * this is the point: the size comes from the request, not from a per-scene
+ * guess about the input.
+ */
+export function fitSceneUnitsToRequest(opts: {
+  maxUnits: number
+  rates: SceneUnitTokenRates
+  limits: SceneRequestLimits
+  buildPrompt: (units: number) => { characters: number; nonAsciiCharacters?: number }
+}): SceneUnitFit {
+  const maxUnits = Math.max(1, Math.floor(opts.maxUnits))
+  let last: SceneRequestFit | null = null
+  // Descending, not binary: the single-unit answer can be larger than a
+  // two-unit one, so fit is not guaranteed monotone at the bottom.
+  for (let units = maxUnits; units >= 1; units--) {
+    const size = opts.buildPrompt(units)
+    const fit = sceneRequestFits({
+      promptCharacters: size.characters,
+      promptNonAsciiCharacters: size.nonAsciiCharacters,
+      answerTokens: sceneAnswerTokens(units, opts.rates),
+      limits: opts.limits,
+    })
+    if (fit.fits) return { ...fit, units }
+    last = fit
+  }
+  return { ...(last ?? { fits: false, promptTokens: 0, answerTokens: null, refusedBy: 'window' as const }), units: 0 }
+}
+
+export interface SceneRequestGroups<T> {
+  groups: T[][]
+  /** The unit that could not fit, with its figures, or null when every unit was placed. */
+  refused: SceneUnitFit | null
+}
+
+/**
+ * Greedy, order-preserving packing: each group is the largest prefix (up to
+ * `maxUnitsPerGroup`) whose assembled prompt and answer fit. A single unit that
+ * cannot fit refuses the whole run before any request is made.
+ */
+export function packSceneRequestGroups<T>(opts: {
+  items: readonly T[]
+  maxUnitsPerGroup: number
+  rates: SceneUnitTokenRates
+  limits: SceneRequestLimits
+  buildPrompt: (items: readonly T[]) => { characters: number; nonAsciiCharacters?: number }
+}): SceneRequestGroups<T> {
+  const groups: T[][] = []
+  const maxUnits = Math.max(1, Math.floor(opts.maxUnitsPerGroup))
+  let index = 0
+  while (index < opts.items.length) {
+    const candidate = opts.items.slice(index, index + maxUnits)
+    let fit: SceneUnitFit | null = null
+    for (let units = candidate.length; units >= 1; units--) {
+      const size = opts.buildPrompt(candidate.slice(0, units))
+      const sized = sceneRequestFits({
+        promptCharacters: size.characters,
+        promptNonAsciiCharacters: size.nonAsciiCharacters,
+        answerTokens: sceneAnswerTokens(units, opts.rates),
+        limits: opts.limits,
+      })
+      fit = { ...sized, units: sized.fits ? units : 0 }
+      if (sized.fits) break
+    }
+    if (!fit || fit.units === 0) return { groups, refused: fit }
+    groups.push(candidate.slice(0, fit.units))
+    index += fit.units
+  }
+  return { groups, refused: null }
+}
+
+/** One line for the job log: every enforced limit, and "no published" when unknown. */
+export function describeSceneRequestLimits(limits: SceneRequestLimits): string {
+  const request = publishedSceneLimit(limits.maxRequestTokens)
+  const window = publishedSceneLimit(limits.contextWindowTokens)
+  const output = publishedSceneLimit(limits.maxOutputTokens)
+  return [
+    request === null ? 'no published request limit' : `${request.toLocaleString()}-token request limit`,
+    window === null ? 'no published context window' : `${window.toLocaleString()}-token context window`,
+    output === null ? 'no published answer ceiling' : `${output.toLocaleString()}-token answers`,
+  ].join(', ')
 }
