@@ -10089,9 +10089,14 @@ export async function clearFinished(projectSlug: string, status?: JobHistoryClea
   }
   // Rows the memory map does not hold but the saved history still has: the
   // list shows them (the history read falls back to the file), so the bulk
-  // clear must take them too. Same rule as the single-row removal.
+  // clear must take them too. Same rule as the single-row removal. Rows whose
+  // delete is already in flight (deletedIds) are not counted again: an earlier
+  // clear's file write may not have landed, and re-counting it would inflate
+  // the number the customer sees.
+  const alreadyRemovedIds = projectPersistence.get(projectSlug)?.deletedIds
   for (const job of await savedHistoryRows(projectSlug)) {
     if (jobs.has(job.job_id) || clearedIds.includes(job.job_id)) continue
+    if (alreadyRemovedIds?.has(job.job_id)) continue
     if (job.project_slug !== projectSlug) continue
     if (hasFinalRenderFence(job)) continue
     if (!matchesHistoryClearStatus(job, status)) continue
