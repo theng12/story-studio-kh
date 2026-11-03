@@ -27,6 +27,31 @@ export interface YouTubeMetadataModification {
   reason: string
 }
 
+export interface UploadChecklistItem {
+  field: 'title' | 'description' | 'tags' | 'thumbnail' | 'schedule' | 'privacy' | 'category' | 'disclosure'
+  label: string
+  state: 'present' | 'missing' | 'not_checked'
+  detail?: string
+}
+
+/** Presence information only; upload admission keeps its separate guards. */
+export function uploadMetadataChecklist(
+  snippet: VideoSnippet,
+  status: VideoStatus,
+  thumbnail: string | null | undefined,
+): UploadChecklistItem[] {
+  return [
+    { field: 'title', label: 'Title', state: snippet.title?.trim() ? 'present' : 'missing' },
+    { field: 'description', label: 'Description', state: snippet.description?.trim() ? 'present' : 'missing' },
+    { field: 'tags', label: 'Tags', state: snippet.tags?.some(tag => tag.trim()) ? 'present' : 'missing' },
+    { field: 'thumbnail', label: 'Thumbnail', state: thumbnail === undefined ? 'not_checked' : thumbnail ? 'present' : 'missing' },
+    { field: 'schedule', label: 'Schedule', state: status.publishAt ? 'present' : 'missing', ...(status.publishAt ? {} : { detail: 'No publish date selected.' }) },
+    { field: 'privacy', label: 'Visibility', state: status.privacyStatus ? 'present' : 'not_checked' },
+    { field: 'category', label: 'Category', state: snippet.categoryId ? 'present' : 'missing' },
+    { field: 'disclosure', label: 'AI disclosure choice', state: typeof status.containsSyntheticMedia === 'boolean' ? 'present' : 'not_checked' },
+  ]
+}
+
 export interface YouTubeMetadataPackage {
   /** sha256 over the exact bytes the request will carry. */
   package_revision: string
@@ -36,6 +61,7 @@ export interface YouTubeMetadataPackage {
   status: VideoStatus
   modifications: YouTubeMetadataModification[]
   warnings: string[]
+  checklist: UploadChecklistItem[]
   /** Resolved local thumbnail for this request. Not part of the video insert payload. */
   thumbnail_filename?: string | null
   /**
@@ -100,6 +126,7 @@ export function metadataPackageFromFinalPayload(
     status,
     modifications: [],
     warnings: ['Using the exact metadata approved before this YouTube upload was queued.'],
+    checklist: uploadMetadataChecklist(snippet, status, undefined),
     authored: {
       title: finalPayload.title_authored === true,
       description: finalPayload.description_authored === true,
@@ -275,6 +302,7 @@ export async function buildYouTubeMetadataPackage(input: {
     status,
     modifications,
     warnings,
+    checklist: uploadMetadataChecklist(snippet, status, meta.thumbnailPath || null),
     ...(meta.thumbnailPath
       ? { thumbnail_filename: path.basename(meta.thumbnailPath) }
       : input.thumbnail_filename === null ? { thumbnail_filename: null } : {}),

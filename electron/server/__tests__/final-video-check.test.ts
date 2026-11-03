@@ -17,9 +17,11 @@ import path from 'node:path'
 
 import {
   closingMusicWanted,
+  FINAL_CHECK_DEFAULTS,
   finalCheckIdentity,
   finalCheckIdentityMatches,
   finalCheckIssues,
+  finalCheckOptionsFromConfig,
   finalCheckPath,
   finalCheckSummary,
   finalCheckVerdict,
@@ -31,6 +33,7 @@ import {
   readStoredFinalCheck,
   runFinalCheck,
   sectionGapWindows,
+  SILENCE_MIN_SEC_BOUNDS,
   speechEndSecFromScenePlan,
   storeFinalCheck,
   tailWindow,
@@ -244,6 +247,44 @@ describe('the verdicts that need no ffmpeg', () => {
       finalCheckIssues({ ...actual, silence: [run] }, plan(), { silence_min_sec: 2 }).map(issue => issue.check),
       ['silence'],
     )
+  })
+
+  test("the owner's rule: a silence of exactly the threshold is fine, one past it is flagged", () => {
+    // 2026-11-03: accept silence up to and including the threshold (10 s by default), flag only
+    // longer — so the boundary run itself must be the accepted side of the line.
+    assert.deepEqual(
+      finalCheckIssues({ ...actual, silence: [{ start_sec: 4, end_sec: 14 }] }, plan()), [],
+      'exactly 10 s is accepted by default',
+    )
+    assert.deepEqual(
+      finalCheckIssues({ ...actual, silence: [{ start_sec: 4, end_sec: 14.1 }] }, plan()).map(issue => issue.check),
+      ['silence'], '10.1 s is flagged by default',
+    )
+    // A channel's own threshold moves that line and behaves the same way on both sides of it.
+    assert.deepEqual(
+      finalCheckIssues({ ...actual, silence: [{ start_sec: 4, end_sec: 9 }] }, plan(), { silence_min_sec: 5 }), [],
+    )
+    assert.deepEqual(
+      finalCheckIssues({ ...actual, silence: [{ start_sec: 4, end_sec: 9.1 }] }, plan(), { silence_min_sec: 5 })
+        .map(issue => issue.check),
+      ['silence'],
+    )
+  })
+
+  test('a channel config sets the silence threshold; anything unusable keeps the default', () => {
+    assert.deepEqual(finalCheckOptionsFromConfig(null), {})
+    assert.deepEqual(finalCheckOptionsFromConfig({}), {})
+    assert.deepEqual(finalCheckOptionsFromConfig({ final_check: { silence_min_sec: 30 } }), { silence_min_sec: 30 })
+    // Out of range, the wrong type, or hand-mangled: the default applies — never a number nobody
+    // chose, and never a silent zero standing for an answer (AGENTS.md §6).
+    for (const bad of [0, -5, 301, NaN, Infinity, '20', null, true]) {
+      assert.deepEqual(
+        finalCheckOptionsFromConfig({ final_check: { silence_min_sec: bad } }), {},
+        `silence_min_sec ${String(bad)} must not become a threshold`,
+      )
+    }
+    assert.equal(FINAL_CHECK_DEFAULTS.silence_min_sec, 10, "the owner's default of 2026-11-03")
+    assert.deepEqual(SILENCE_MIN_SEC_BOUNDS, { min: 1, max: 300 })
   })
 
   /**
@@ -460,10 +501,13 @@ describe('the verdicts that need no ffmpeg', () => {
     )
     // And the planned pauses are still counted back from where the words actually stop: the pause
     // before the last section sits at 220–225 s, not 100 s later where the tail's window begins.
+    // The override drops the threshold under this pause's 5.05 s so the proof is the PLANNED GAP
+    // doing the exempting, not the default 10 s threshold accepting it.
     assert.deepEqual(
       finalCheckIssues(
         { ...file, silence: [{ start_sec: 220.2, end_sec: 225.25 }] },
         { ...plan, section_gaps: { gap_sec: 5, durations_sec: [100, 200, 300] } },
+        { silence_min_sec: 2 },
       ),
       [],
     )
@@ -505,7 +549,7 @@ describe('the verdicts that need no ffmpeg', () => {
   })
 
   test('a silence the check cannot place is reported as unknown, never as speech', () => {
-    const issues = finalCheckIssues({ ...legacy, silence: [{ start_sec: 4000, end_sec: 4010 }] }, noPlan())
+    const issues = finalCheckIssues({ ...legacy, silence: [{ start_sec: 4000, end_sec: 4011 }] }, noPlan())
     assert.deepEqual(issues.map(issue => issue.check), ['silence'])
     assert.match(issues[0]!.verdict, /speech end is not recorded/)
     assert.doesNotMatch(issues[0]!.verdict, /inside the speech/)
@@ -513,7 +557,7 @@ describe('the verdicts that need no ffmpeg', () => {
 
   test('a recorded speech end keeps the old verdicts', () => {
     const inside = finalCheckIssues(
-      { ...legacy, silence: [{ start_sec: 9000, end_sec: 9010 }] },
+      { ...legacy, silence: [{ start_sec: 9000, end_sec: 9011 }] },
       { ...noPlan(), speech_end_sec: 9140 },
     )
     assert.deepEqual(inside.map(issue => issue.check), ['silence'])
@@ -682,12 +726,13 @@ describe('planned pauses between sections', () => {
 
   test('a silence that is a planned pause is not a fault; the same silence elsewhere is', () => {
     const pause = { start_sec: 313.2, end_sec: 318.25 }
-    assert.deepEqual(finalCheckIssues({ ...actual, silence: [pause] }, plan({ section_gaps: gaps })), [])
-    const unplanned = finalCheckIssues({ ...actual, silence: [pause] }, plan())
+    const options = { silence_min_sec: 5 }
+    assert.deepEqual(finalCheckIssues({ ...actual, silence: [pause] }, plan({ section_gaps: gaps }), options), [])
+    const unplanned = finalCheckIssues({ ...actual, silence: [pause] }, plan(), options)
     assert.deepEqual(unplanned.map(issue => issue.check), ['silence'])
     const elsewhere = { start_sec: 200, end_sec: 205.1 }
     assert.deepEqual(
-      finalCheckIssues({ ...actual, silence: [elsewhere] }, plan({ section_gaps: gaps })).map(issue => issue.check),
+      finalCheckIssues({ ...actual, silence: [elsewhere] }, plan({ section_gaps: gaps }), options).map(issue => issue.check),
       ['silence'],
     )
   })

@@ -200,28 +200,52 @@ router.put('/projects/:slug/settings/subfolder-config', async (req, res) => {
 // ── Safety checks (1.4.300): Off / Warn / Block per channel ──────────────────
 router.get('/projects/:slug/safety-checks', async (req, res) => {
   const { SAFETY_CHECKS, safetyModeFromConfig } = await import('../services/safety-checks.js')
+  const { finalCheckOptionsFromConfig, FINAL_CHECK_DEFAULTS } = await import('../lib/final-video-check.js')
   const config = await pm.getConfig(req.params.slug)
   if (!config) return res.status(404).json({ detail: 'Project not found' })
-  res.json({ checks: SAFETY_CHECKS.map(check => ({ ...check, mode: safetyModeFromConfig(config, check.id) })) })
+  res.json({
+    checks: SAFETY_CHECKS.map(check => ({ ...check, mode: safetyModeFromConfig(config, check.id) })),
+    // The threshold in force for this channel — its own value or the default — so the control shows
+    // exactly what the final check will use, never a number the server will not apply.
+    silence_min_sec: finalCheckOptionsFromConfig(config).silence_min_sec ?? FINAL_CHECK_DEFAULTS.silence_min_sec,
+  })
 })
 
-async function saveSafetyModes(slug: string, modes: unknown): Promise<boolean | string> {
+async function saveSafetyModes(slug: string, modes: unknown, silenceMinSec?: unknown): Promise<boolean | string> {
   const { SAFETY_CHECKS, isSafetyMode } = await import('../services/safety-checks.js')
-  if (!modes || typeof modes !== 'object' || Array.isArray(modes)) return 'Send { modes: { <check id>: "off" | "warn" | "block" } }.'
-  const switchable = new Set(SAFETY_CHECKS.filter(check => !check.locked).map(check => check.id))
+  const { SILENCE_MIN_SEC_BOUNDS } = await import('../lib/final-video-check.js')
+  const hasSilence = silenceMinSec !== undefined
+  if (modes === undefined && !hasSilence) {
+    return 'Send { modes: { <check id>: "off" | "warn" | "block" } } or { silence_min_sec: <seconds> }.'
+  }
   const next: Record<string, 'off' | 'warn' | 'block'> = {}
-  for (const [id, mode] of Object.entries(modes as Record<string, unknown>)) {
-    if (!switchable.has(id)) return `"${id}" is not a safety check that can be switched.`
-    if (!isSafetyMode(mode)) return `"${String(mode)}" is not Off, Warn or Block.`
-    next[id] = mode
+  if (modes !== undefined) {
+    if (!modes || typeof modes !== 'object' || Array.isArray(modes)) return 'Send { modes: { <check id>: "off" | "warn" | "block" } }.'
+    const switchable = new Set(SAFETY_CHECKS.filter(check => !check.locked).map(check => check.id))
+    for (const [id, mode] of Object.entries(modes as Record<string, unknown>)) {
+      if (!switchable.has(id)) return `"${id}" is not a safety check that can be switched.`
+      if (!isSafetyMode(mode)) return `"${String(mode)}" is not Off, Warn or Block.`
+      next[id] = mode
+    }
   }
   const config = await pm.getConfig(slug)
   if (!config) return false
-  return pm.updateConfig(slug, { safety_checks: { ...(config.safety_checks || {}), ...next } })
+  // Only the keys this call was asked to move: a silence-only save must not rewrite the modes
+  // object (a config.json rewrite stales every episode-status row, mtime included).
+  const patch: { safety_checks?: Record<string, 'off' | 'warn' | 'block'>; final_check?: { silence_min_sec: number } } = {}
+  if (modes !== undefined) patch.safety_checks = { ...(config.safety_checks || {}), ...next }
+  if (hasSilence) {
+    const value = silenceMinSec
+    if (typeof value !== 'number' || !Number.isFinite(value) || value < SILENCE_MIN_SEC_BOUNDS.min || value > SILENCE_MIN_SEC_BOUNDS.max) {
+      return `${String(silenceMinSec)} is not a silence threshold between ${SILENCE_MIN_SEC_BOUNDS.min} and ${SILENCE_MIN_SEC_BOUNDS.max} seconds.`
+    }
+    patch.final_check = { ...(config.final_check || {}), silence_min_sec: value }
+  }
+  return pm.updateConfig(slug, patch)
 }
 
 router.put('/projects/:slug/safety-checks', async (req, res) => {
-  const saved = await saveSafetyModes(req.params.slug, req.body?.modes)
+  const saved = await saveSafetyModes(req.params.slug, req.body?.modes, req.body?.silence_min_sec)
   if (typeof saved === 'string') return res.status(400).json({ detail: saved })
   if (!saved) return res.status(404).json({ detail: 'Project not found' })
   res.json({ ok: true })
@@ -232,7 +256,7 @@ router.post('/safety-checks/apply-to-all', async (req, res) => {
   const projects = await pm.listProjects()
   const applied: string[] = []
   for (const project of projects) {
-    const saved = await saveSafetyModes(project.slug, req.body?.modes)
+    const saved = await saveSafetyModes(project.slug, req.body?.modes, req.body?.silence_min_sec)
     if (typeof saved === 'string') return res.status(400).json({ detail: saved })
     if (saved) applied.push(project.slug)
   }

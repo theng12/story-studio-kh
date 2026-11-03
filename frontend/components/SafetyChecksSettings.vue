@@ -14,18 +14,31 @@
     <template v-for="group in groups" :key="group.name">
       <fieldset>
         <legend>{{ group.name }}</legend>
-        <div v-for="check in group.checks" :key="check.id" class="safety-row" :data-testid="`safety-${check.id}`">
-          <div class="safety-text">
-            <span class="safety-name">{{ check.name }}</span>
-            <span class="hint">{{ check.protects }}</span>
+        <template v-for="check in group.checks" :key="check.id">
+          <div class="safety-row" :data-testid="`safety-${check.id}`">
+            <div class="safety-text">
+              <span class="safety-name">{{ check.name }}</span>
+              <span class="hint">{{ check.protects }}</span>
+            </div>
+            <span v-if="check.locked" class="safety-fixed" :title="check.locked_reason">{{ labels[check.locked] }} (fixed)<br><small>{{ check.locked_reason }}</small></span>
+            <select v-else v-model="modes[check.id]" class="input" :aria-label="check.name" :disabled="saving" @change="save(check.id)">
+              <option value="off">Off{{ check.default === 'off' ? ' (default)' : '' }}</option>
+              <option value="warn">Warn{{ check.default === 'warn' ? ' (default)' : '' }}</option>
+              <option value="block">Block{{ check.default === 'block' ? ' (default)' : '' }}</option>
+            </select>
           </div>
-          <span v-if="check.locked" class="safety-fixed" :title="check.locked_reason">{{ labels[check.locked] }} (fixed)<br><small>{{ check.locked_reason }}</small></span>
-          <select v-else v-model="modes[check.id]" class="input" :aria-label="check.name" :disabled="saving" @change="save(check.id)">
-            <option value="off">Off{{ check.default === 'off' ? ' (default)' : '' }}</option>
-            <option value="warn">Warn{{ check.default === 'warn' ? ' (default)' : '' }}</option>
-            <option value="block">Block{{ check.default === 'block' ? ' (default)' : '' }}</option>
-          </select>
-        </div>
+          <div v-if="check.id === 'final_check'" class="safety-row" data-testid="safety-silence-min-sec">
+            <div class="safety-text">
+              <span class="safety-name">Flag narration silence longer than</span>
+              <span class="hint">Silences up to this many seconds inside the speech are accepted; longer ones are flagged. The default is 10.</span>
+            </div>
+            <span class="safety-value">
+              <input v-model.number="silenceMinSec" type="number" class="input" min="1" max="300" step="1"
+                aria-label="Flag narration silence longer than, in seconds" :disabled="saving" @change="saveSilence">
+              <span class="hint">seconds</span>
+            </span>
+          </div>
+        </template>
       </fieldset>
     </template>
     <div v-if="checks.length" class="row">
@@ -50,6 +63,8 @@ const { get, put, post } = useApi()
 const { ask } = useConfirm()
 const checks = ref<Check[]>([])
 const modes = ref<Record<string, Mode>>({})
+/** The channel's narration-silence threshold in seconds; the server sends the one in force. */
+const silenceMinSec = ref(10)
 const loadError = ref('')
 const saving = ref(false)
 const result = ref('')
@@ -69,11 +84,27 @@ const message = (error: any, fallback: string) => error?.data?.detail || error?.
 async function load() {
   loadError.value = ''
   try {
-    const data = await get<{ checks: Check[] }>(`/projects/${props.slug}/safety-checks`)
+    const data = await get<{ checks: Check[]; silence_min_sec?: number }>(`/projects/${props.slug}/safety-checks`)
     checks.value = data.checks
     modes.value = Object.fromEntries(data.checks.map(check => [check.id, check.mode]))
+    silenceMinSec.value = data.silence_min_sec ?? 10
   } catch (error) {
     loadError.value = message(error, 'Could not load the safety checks.')
+  }
+}
+
+async function saveSilence() {
+  saving.value = true
+  result.value = ''
+  try {
+    await put(`/projects/${props.slug}/safety-checks`, { silence_min_sec: silenceMinSec.value })
+    result.value = 'Saved for this channel.'
+    await load()
+  } catch (error) {
+    result.value = message(error, 'Could not save.')
+    await load()
+  } finally {
+    saving.value = false
   }
 }
 
@@ -97,7 +128,7 @@ async function applyToAll() {
   if (!await ask({ title: 'Apply to all channels?', message: 'Every channel on this Mac gets the switches shown here.', confirmLabel: 'Apply to All', danger: false })) return
   saving.value = true
   try {
-    const data = await post<{ applied: string[] }>('/safety-checks/apply-to-all', { modes: switchable() })
+    const data = await post<{ applied: string[] }>('/safety-checks/apply-to-all', { modes: switchable(), silence_min_sec: silenceMinSec.value })
     result.value = `Applied to ${data.applied.length} channel(s).`
   } catch (error) {
     result.value = message(error, 'Could not apply to all channels.')
@@ -110,7 +141,7 @@ async function resetDefaults() {
   saving.value = true
   try {
     const defaults = Object.fromEntries(checks.value.filter(check => !check.locked).map(check => [check.id, check.default]))
-    await put(`/projects/${props.slug}/safety-checks`, { modes: defaults })
+    await put(`/projects/${props.slug}/safety-checks`, { modes: defaults, silence_min_sec: 10 })
     await load()
     result.value = 'This channel is back to the defaults.'
   } catch (error) {
@@ -131,6 +162,8 @@ legend { font-weight: 600; padding: 0; margin-bottom: 4px; }
 .safety-name { font-weight: 500; }
 .safety-fixed { color: var(--text-secondary); font-size: var(--font-sm); max-width: 320px; text-align: right; }
 select.input { width: 160px; max-width: 100%; }
+.safety-value { display: flex; align-items: center; gap: 6px; }
+.safety-value input.input { width: 88px; }
 .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
 .hint { color: var(--text-secondary); font-size: var(--font-sm); margin: 0; overflow-wrap: anywhere; }
 .safety-error { color: var(--error, #ff9696); }

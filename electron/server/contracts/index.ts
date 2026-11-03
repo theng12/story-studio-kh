@@ -505,6 +505,14 @@ export const UpdateConfigSchema = z.object({
   confirmation_preferences: z.record(z.string(), z.any()).optional(),
   /** 1.4.300 — per-channel Off / Warn / Block for each safety check (services/safety-checks.ts). */
   safety_checks: z.record(z.string().max(80), z.enum(['off', 'warn', 'block'])).optional(),
+  /**
+   * 1.4.377 — this channel's final-check knobs. `silence_min_sec` is the owner's rule of
+   * 2026-11-03: a narration silence up to and including it is accepted, longer is flagged
+   * (default 10; bounds match lib/final-video-check.ts's SILENCE_MIN_SEC_BOUNDS).
+   */
+  final_check: z.object({
+    silence_min_sec: z.number().min(1).max(300).optional(),
+  }).optional(),
   auto_upload: z.enum(['off', 'private', 'scheduled']).optional(),
   shorts_per_episode: z.number().int().min(0).max(3).optional(),
   /**

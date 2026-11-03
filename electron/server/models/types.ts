@@ -2320,6 +2320,12 @@ export interface ProjectConfig {
   /** 1.4.300 — per-channel Off / Warn / Block for each safety check; only changed rows are saved. */
   safety_checks?: Record<string, 'off' | 'warn' | 'block'>
   /**
+   * 1.4.377 — this channel's final-check knobs (owner rule, 2026-11-03): a narration silence up to
+   * and including `silence_min_sec` seconds is accepted, a longer one is flagged. Absent = the
+   * default of 10 s; bounds live in lib/final-video-check.ts's SILENCE_MIN_SEC_BOUNDS.
+   */
+  final_check?: { silence_min_sec?: number }
+  /**
    * The channel's local identity — handle, About text and the logo/banner
    * art the app shows for this channel. See `ChannelProfileConfig`; the
    * channel's name stays in `ProjectMeta.name`.
@@ -2645,6 +2651,8 @@ export interface UpdateConfigRequest {
   episode_length?: EpisodeLengthSetting
   /** 1.4.300 — per-channel Off / Warn / Block for each safety check. */
   safety_checks?: Record<string, 'off' | 'warn' | 'block'>
+  /** 1.4.377 — this channel's final-check knobs (`silence_min_sec`, owner rule 2026-11-03). */
+  final_check?: { silence_min_sec?: number }
   /** Server-written only (the HTTP schema strips it). */
   llm_lineup_migration?: LlmLineupMigration
   image_models?: Record<string, ImageModelConfig>

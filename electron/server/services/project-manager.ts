@@ -1199,7 +1199,12 @@ export async function updateProject(slug: string, req: UpdateProjectRequest): Pr
     changed = JSON.stringify(merged) !== JSON.stringify(data)
     if (changed) await writeJsonAtomic(metaPath, merged)
   })
-  if (changed) await syncManifest(slug)
+  if (changed) {
+    await syncManifest(slug)
+    // Refresh saved channel facts immediately; dynamic import avoids the overview's dependency cycle.
+    const { invalidatePublishingOverviewCache } = await import('./publishing-overview.js')
+    invalidatePublishingOverviewCache()
+  }
   return merged
 }
 

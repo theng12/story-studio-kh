@@ -313,7 +313,7 @@ export interface FinalCheckOptions {
   black_min_sec?: number
   /** How dark counts as black (blackdetect `pix_th`). */
   black_pixel_threshold?: number
-  /** A silence this long or longer inside the speech is a fault (silencedetect `d`). */
+  /** A silence LONGER than this inside the speech is a fault; up to and including it is fine (owner rule, 2026-11-03). Also the silencedetect `d` floor. */
   silence_min_sec?: number
   /** How quiet counts as silence (silencedetect `n`). */
   silence_noise_db?: number
@@ -328,7 +328,9 @@ export interface FinalCheckOptions {
 export const FINAL_CHECK_DEFAULTS: Required<FinalCheckOptions> = {
   black_min_sec: 2,
   black_pixel_threshold: 0.1,
-  silence_min_sec: 5,
+  // Owner rule, 2026-11-03: a narration silence of up to and including 10 s is accepted; only
+  // longer is flagged. A channel moves it in Settings → Safety checks (`config.final_check`).
+  silence_min_sec: 10,
   silence_noise_db: -40,
   av_tolerance_sec: 1,
   tail_silent_lufs: -70,
@@ -339,6 +341,34 @@ export const FINAL_CHECK_DEFAULTS: Required<FinalCheckOptions> = {
 
 function opts(o: FinalCheckOptions): Required<FinalCheckOptions> {
   return { ...FINAL_CHECK_DEFAULTS, ...o }
+}
+
+/** The seconds a channel's own silence threshold may sit between (the settings control's bounds too). */
+export const SILENCE_MIN_SEC_BOUNDS = { min: 1, max: 300 } as const
+
+/**
+ * A channel's own final-check thresholds from its config, or `{}` when it keeps the defaults.
+ *
+ * Only a finite number inside the bounds becomes a threshold the check enforces: an absent,
+ * out-of-range or hand-mangled value falls back to the default rather than silently becoming a
+ * number nobody chose (AGENTS.md §6). The settings readback shows the threshold in force, so the
+ * fallback is never invisible.
+ */
+export function finalCheckOptionsFromConfig(
+  config: { final_check?: { silence_min_sec?: unknown } } | null | undefined,
+): FinalCheckOptions {
+  const raw = config?.final_check?.silence_min_sec
+  return typeof raw === 'number' && Number.isFinite(raw)
+    && raw >= SILENCE_MIN_SEC_BOUNDS.min && raw <= SILENCE_MIN_SEC_BOUNDS.max
+    ? { silence_min_sec: raw }
+    : {}
+}
+
+/** The same, read fresh from the channel at the moment a check starts — never cached. */
+export async function finalCheckOptionsFor(slug: string | null | undefined): Promise<FinalCheckOptions> {
+  if (!slug) return {}
+  const { getConfig } = await import('../services/project-manager.js')
+  return finalCheckOptionsFromConfig(await getConfig(slug))
 }
 
 /**
@@ -694,7 +724,10 @@ export function finalCheckIssues(
 
   for (const run of actual.silence) {
     const length = run.end_sec - run.start_sec
-    if (length < o.silence_min_sec) continue
+    // `<=` because the owner's rule accepts a silence OF the threshold (10 s is fine) and flags
+    // only one longer than it; silencedetect's own `d` is the same number, so the boundary run is
+    // still measured and then judged here.
+    if (length <= o.silence_min_sec) continue
     if (speechEndSec === null) {
       // Nothing recorded where this file's speech stops — a render from before the plan sidecar
       // existed (Night Atlas Science EP0006, 2026-10-19), whose every expected value is 0. "Inside

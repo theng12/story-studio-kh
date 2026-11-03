@@ -405,6 +405,8 @@
           <li v-for="(warning, i) in previewed.warnings" :key="i"><b>Warning:</b> {{ warning }}</li>
         </ul>
 
+        <UploadMetadataChecklist :items="previewed.checklist" />
+
         <section class="thumbnail-review" aria-labelledby="upload-thumbnail-title">
           <div class="thumbnail-review-head">
             <div>
@@ -935,11 +937,12 @@
                   </div>
                   <dl>
                     <div><dt>Video file</dt><dd>{{ item.preview.source?.filename || 'Unavailable' }}</dd></div>
-                    <div><dt>YouTube title</dt><dd><strong>{{ item.preview.snippet.title }}</strong><small>{{ metadataReadiness(item.preview) }}</small></dd></div>
+                    <div><dt>YouTube title</dt><dd><strong>{{ item.preview.snippet.title }}</strong><small :class="{ 'tone-warn': item.preview.warnings.length > 0 }">{{ metadataReadiness(item.preview) }}</small></dd></div>
                     <div><dt>Channel</dt><dd>{{ item.channel_title }} · {{ item.channel_id }}</dd></div>
                     <div><dt>Publishing</dt><dd>{{ bulkTimingLabel(item) }}<small v-if="item.preview.status.publishAt">{{ item.preview.status.publishAt }}</small></dd></div>
                   </dl>
                 </div>
+                <UploadMetadataChecklist :items="item.preview.checklist" />
                 <details class="bulk-metadata disclosure">
                   <summary>Review Metadata</summary>
                   <dl>
@@ -1078,6 +1081,7 @@ interface Preview {
   video_id?: string | null
   modifications: Array<{ field: string; reason: string }>
   warnings: string[]
+  checklist?: Array<{ field: string; label: string; state: 'present' | 'missing' | 'not_checked'; detail?: string }>
   /**
    * What the editor may accept, published by the server that owns the
    * limits. The page does not keep its own copy of these numbers: a second
@@ -2707,8 +2711,9 @@ async function upload(episodeCode: string): Promise<void> {
 function metadataReadiness(value: Preview): string {
   const changes = value.modifications.length
   const warnings = value.warnings.length
-  if (!changes && !warnings) return 'Ready · no changes needed'
-  return `Ready · ${changes} reviewed change${changes === 1 ? '' : 's'}${warnings ? ` · ${warnings} warning${warnings === 1 ? '' : 's'}` : ''}`
+  if (warnings) return `Warnings · ${warnings} warning${warnings === 1 ? '' : 's'}${changes ? ` · ${changes} reviewed change${changes === 1 ? '' : 's'}` : ''}`
+  if (!changes) return 'Ready · no changes needed'
+  return `Ready · ${changes} reviewed change${changes === 1 ? '' : 's'}`
 }
 function bulkTimingLabel(item: BulkUploadReview): string {
   const publishAt = item.preview?.status.publishAt

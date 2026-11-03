@@ -55,6 +55,7 @@ import { checkAssetAvailability } from '../lib/sync-safe.js'
 import { finalDurationIssue, missingEnabledVideoInputs, missingInputsMessage, switchedOnCueGate } from '../lib/video-enabled-inputs.js'
 import {
   closingMusicWanted, runFinalCheck, storeFinalCheck, finalCheckSummary, readPlannedSectionGaps,
+  finalCheckOptionsFor,
   type FinalCheckExpectation, type FinalCheckIntro, type FinalCheckResult, type PlannedSectionGaps,
 } from '../lib/final-video-check.js'
 import { withLock } from '../lib/atomic-store.js'
@@ -920,7 +921,7 @@ async function finalCheckFinalVideo(
   expected: FinalCheckExpectation,
 ): Promise<FinalCheckResult | null> {
   try {
-    const result = await runFinalCheck(outputPath, expected)
+    const result = await runFinalCheck(outputPath, expected, await finalCheckOptionsFor(job.project_slug))
     await storeFinalCheck(outputPath, result)
     job.output_lines.push(`Final check: ${finalCheckSummary({ result, stale: false })}`)
     for (const issue of result.issues) job.output_lines.push(`Final check: ${issue.verdict}`)

@@ -4,6 +4,13 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.377 — 2026-11-03
+
+- Upload review shows a checklist for the title, description, tags, thumbnail, schedule, visibility, category and AI disclosure choice. Each says Present, Missing or Not checked; the checklist never blocks an upload and is also available in the preview JSON.
+- Upload previews with warnings say Warnings instead of Ready.
+- Publishing reflects saved channel labels and settings immediately, without waiting for the overview cache to expire.
+- Final video checks accept narration gaps of up to 10 seconds by default. Each channel can adjust its allowed gap in Safety Checks; only longer gaps are flagged.
+
 ## 1.4.376 — 2026-11-03
 
 - Writing, image, subtitle and narration retries use the saved retry settings and keep their attempt count after a restart. A held or uncertain result stops further attempts instead of sending another request.

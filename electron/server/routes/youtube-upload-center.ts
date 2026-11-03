@@ -102,6 +102,7 @@ import {
   finalCheckVerdict, finalCheckIdentity, finalCheckIdentityMatches, freshStoredExpectation,
   readStoredFinalCheck, readFrozenShape,
   speechEndSecFromScenePlan, finalCheckSummary, finalCheckProgress, startFinalCheck, readPlannedSectionGaps,
+  finalCheckOptionsFor,
   type FinalCheckExpectation,
 } from '../lib/final-video-check.js'
 import {
@@ -3462,7 +3463,7 @@ router.post('/projects/:slug/youtube/final-check', async (req, res) => {
       if (settled.kind === 'frozen') Object.assign(expected, expectationFromFrozenShape(settled.shape))
       else expected.expectation_unknown = settled.reason
     }
-    const { started } = startFinalCheck(sourceVideoPath, expected, {}, async () => {
+    const { started } = startFinalCheck(sourceVideoPath, expected, await finalCheckOptionsFor(slug), async () => {
       const { readAutoScheduleHold, scheduleCheckedEpisode } = await import('../services/episode-autoschedule.js')
       if (await readAutoScheduleHold(sourceVideoPath)) {
         const scheduled = await scheduleCheckedEpisode(slug, episodeCode, sourceVideoPath)
