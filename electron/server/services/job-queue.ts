@@ -9948,6 +9948,57 @@ export function removeTerminalJob(projectSlug: string, jobId: string): boolean {
 }
 
 /**
+ * Is this job still in the scope's SAVED history (jobs.json)?
+ *
+ * The queue's memory map and the saved file are two different stores: a scope
+ * the queue has not loaded keeps its rows only on disk. The history read
+ * falls back to the file, so the customer sees a row the memory map does not
+ * hold. This is how the removal path finds the scope that owns such a row.
+ */
+export async function savedJobExists(projectSlug: string, jobId: string): Promise<boolean> {
+  return (await savedHistoryRows(projectSlug)).some(job => job.job_id === jobId)
+}
+
+/** The scope's saved history rows, read straight from its jobs file. */
+async function savedHistoryRows(projectSlug: string): Promise<Job[]> {
+  try {
+    const parsed = JSON.parse(await fs.readFile(jobsPath(projectSlug), 'utf-8')) as { jobs?: Job[] }
+    return Array.isArray(parsed.jobs) ? parsed.jobs : []
+  } catch { return [] }
+}
+
+/**
+ * Remove a terminal row from the list, whether the queue still holds it in
+ * memory or only the project's saved jobs do.
+ *
+ * A scope whose jobs file the queue never loaded leaves the saved rows in the
+ * file and out of the memory map. The history read falls back to the file, so
+ * the customer sees those rows; the removal paths read the memory map, so they
+ * answer "Job not found" and the row can never be cleared. This removes the
+ * row from wherever it still lives. Files, provider evidence and billing
+ * records are never touched — only the list entry goes.
+ */
+export async function removeTerminalJobRow(projectSlug: string, jobId: string): Promise<boolean> {
+  const live = jobs.get(jobId)
+  if (live) {
+    if (live.project_slug !== projectSlug) return false
+    return removeTerminalJob(projectSlug, jobId)
+  }
+  let durable: Job | undefined
+  try {
+    const parsed = JSON.parse(await fs.readFile(jobsPath(projectSlug), 'utf-8')) as { jobs?: Job[] }
+    durable = (Array.isArray(parsed.jobs) ? parsed.jobs : []).find(job => job?.job_id === jobId)
+  } catch { return false }
+  if (!durable || durable.project_slug !== projectSlug) return false
+  if (!TERMINAL_JOB_STATUSES.has(durable.status)) return false
+  if (hasFinalRenderFence(durable)) return false
+  if (!durable.force_abandoned && (hasUnsettledProviderEvidence(durable) || durable.music_results_awaiting_import?.length)) return false
+  await persistProjectMutation(projectSlug, { kind: 'delete', jobId })
+  emitCleared(projectSlug, [jobId])
+  return true
+}
+
+/**
  * The Jobs toolbar's terminal-history subsets. Omitting this selector keeps
  * the legacy clear-all-terminal-history behavior for existing callers.
  */
@@ -10031,6 +10082,17 @@ export async function clearFinished(projectSlug: string, status?: JobHistoryClea
       if (job.type === 'continuity_render') clearedSceneRenderJobs.push(job)
       count++
     }
+  }
+  // Rows the memory map does not hold but the saved history still has: the
+  // list shows them (the history read falls back to the file), so the bulk
+  // clear must take them too. Same rule as the single-row removal.
+  for (const job of await savedHistoryRows(projectSlug)) {
+    if (jobs.has(job.job_id) || clearedIds.includes(job.job_id)) continue
+    if (job.project_slug !== projectSlug) continue
+    if (!matchesHistoryClearStatus(job, status)) continue
+    if (!job.force_abandoned && (hasUnsettledProviderEvidence(job) || job.music_results_awaiting_import?.length)) continue
+    clearedIds.push(job.job_id)
+    count++
   }
   void Promise.all(clearedSceneRenderJobs.map(job => (
     deactivateSceneRenderStatus(projectSlug, job.episode_id, job.job_id).catch(() => {})

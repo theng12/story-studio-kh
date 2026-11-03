@@ -1063,7 +1063,7 @@ import { formatCredits } from '~/utils/genstudio-credit-cost'
 import { recoverEpisodeAssets, describeEpisodeAssetRecovery, type EpisodeAssetRecovery } from '~/utils/job-asset-recovery'
 import { groupEpisodeRecoveryRetries, isEpisodeRecoveryType, isRecoveredFailure, isSkippedJob, isVerifiedRecoveredSubtitleJob, jobDisplayStatus } from '~/utils/episode-recovery'
 import { effectiveGenStudioTaskState, holdsUnknownProviderOutcome, isFreeFleetWork } from '@shared/provider-task-state'
-import { bulkConfirmOptions, capList, controlLabel, deriveOutputDir, episodeQueryValue, isPaidWork, matchesEpisodeSearch, orderJobsForDisplay, pageCount, pageSlice, rowOutputLineCount, rowProgressCounter, rowSummaryLine } from '~/utils/jobs-list'
+import { bulkConfirmOptions, capList, controlLabel, deriveOutputDir, episodeQueryValue, isMissingJobError, isPaidWork, matchesEpisodeSearch, orderJobsForDisplay, pageCount, pageSlice, rowOutputLineCount, rowProgressCounter, rowSummaryLine } from '~/utils/jobs-list'
 type RJob = DeepReadonly<Job>
 
 definePageMeta({ layout: 'dashboard' })
@@ -2192,6 +2192,32 @@ function hideJob(job: RJob) {
   successUndoable({ message: 'Hidden from Jobs.', onUndo: () => restoreJob(job) })
 }
 
+/** Hide follows the backend: a Hide for a row that is gone goes with it. */
+function forgetHiddenJob(jobId: string) {
+  if (!hiddenJobIds.value.has(jobId)) return
+  const next = new Set(hiddenJobIds.value)
+  next.delete(jobId)
+  saveHiddenJobIds(next)
+}
+
+/**
+ * Drop the Hides for rows the backend no longer holds.
+ *
+ * Scoped to the rows this page showed for the cleared subset: a Hide for
+ * another channel's row is none of this read's business. A row the backend
+ * dropped is gone, so its Hide is stale — keeping it would leave the hidden
+ * count naming a row that is not there.
+ */
+function forgetHiddenJobsAbsentFromBackend(candidates: readonly string[]) {
+  if (history.error.value || !candidates.length) return
+  const known = new Set([...history.rows.value, ...streamedJobs.value].map(job => job.job_id))
+  const stale = candidates.filter(jobId => !known.has(jobId))
+  if (!stale.length) return
+  const next = new Set(hiddenJobIds.value)
+  for (const jobId of stale) next.delete(jobId)
+  saveHiddenJobIds(next)
+}
+
 // A hidden card never hides a new actionable failure. Recovered subtitle
 // attempts retain their raw error for diagnostics, so the display status is
 // the authority for whether the row needs attention.
@@ -2826,10 +2852,18 @@ async function runJobControl(job: RJob, requestedControl?: JobControl) {
     } else if (control.action === 'pause-submissions') {
       await post(`${jobQueuePath(job)}/pause`, {})
     } else if (control.action === 'clear-history') {
-      await del(jobQueuePath(job))
+      try {
+        await del(jobQueuePath(job))
+      } catch (error: any) {
+        // The row can outlive the job it names. "Job not found" means the job
+        // is already gone, so the removal's goal — this row off the list — is
+        // already true. Drop the row instead of failing the customer's click.
+        if (!isMissingJobError(error)) throw error
+      }
       projectQueue.removeJobs([job.job_id])
       universalQueue.removeJobs([job.job_id])
       history.removeIds([job.job_id])
+      forgetHiddenJob(job.job_id)
       await loadJobHistory()
     } else if (control.action === 'recheck-provider-status') {
       // v1.2.6 — this button actually asks GenStudio. The refreshed control
@@ -3631,6 +3665,10 @@ async function clearHistory(status: 'finished' | 'failed') {
     if (isUniversal.value) void refreshVisibleJobs()
     else await refreshVisibleJobs()
     await loadJobHistory()
+    // The rows the backend no longer holds are gone from the list, so the
+    // Hides for them are stale. The count on the button and the hidden count
+    // both follow the backend.
+    forgetHiddenJobsAbsentFromBackend()
   } catch (e: any) { showError(e?.data?.detail || `Failed to clear ${status} history`) }
   finally { clearingHistory.value = null }
 }

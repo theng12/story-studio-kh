@@ -151,3 +151,18 @@ export function controlLabel(control: { action: string; label?: string }): strin
   if (control.action === 'clear-history') return 'Remove From List'
   return control.label || ''
 }
+
+/**
+ * Did the backend answer that this job no longer exists?
+ *
+ * A row can outlive the job it names. The removal then answers "Job not
+ * found", which is not a refusal to remove it: the goal of the removal — that
+ * job is not on the list — already holds. The row goes either way.
+ */
+export function isMissingJobError(error: unknown): boolean {
+  const candidate = error as { status?: unknown; statusCode?: unknown; response?: { status?: unknown }; data?: { detail?: unknown } } | null
+  const status = candidate?.status ?? candidate?.statusCode ?? candidate?.response?.status
+  if (status === 404) return true
+  const detail = candidate?.data?.detail
+  return typeof detail === 'string' && detail.trim().toLowerCase() === 'job not found'
+}
