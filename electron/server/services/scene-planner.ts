@@ -23,6 +23,7 @@ import fs from 'fs/promises'
 import { existsSync } from 'fs'
 import { callAi, sanitizeJsonControlChars } from '../lib/ai-client.js'
 import { JSON_OBJECT_OUTPUT_CONTRACT } from '../lib/json-output-contract.js'
+import { jsonWrapperInstructionForContract } from '../lib/genstudio-client.js'
 import { parseSrt, formatSrtTime, type SrtCue } from '../lib/subtitle-builder.js'
 import {
   buildCreativeDirectionPrompt,
@@ -2835,10 +2836,13 @@ export async function planScenes(opts: ScenePlannerRunOptions): Promise<ScenePla
       },
     })
     const assembled = `${system}\n\n${user}`
+    // Measure the real assembled prompt including the wrapper instruction
+    // prepareChatSubmission appends to system for JSON output contracts.
+    const wrapperChars = jsonWrapperInstructionForContract(JSON_OBJECT_OUTPUT_CONTRACT).length
     const expectedScenes = Math.max(1, Math.round((range.end - range.start) / avgSceneSec))
     const expectedAnswerTokens = expectedScenes * plannerUnitRates.perUnit
     const fit = sceneRequestFits({
-      promptCharacters: assembled.length,
+      promptCharacters: assembled.length + wrapperChars,
       promptNonAsciiCharacters: nonAsciiCharacterCount(assembled),
       answerTokens: expectedAnswerTokens,
       limits: plannerLimits,

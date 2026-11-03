@@ -37,6 +37,7 @@ import { resolveDefaultModel } from '../services/genstudio-default-model.js'
 import type { TextGenerationDiagnostics } from '../providers/types.js'
 import { scenePromptPackOutputContract } from '../lib/story-output-contracts.js'
 import {
+  jsonWrapperInstructionForContract,
   listChatModels as listGenStudioChatModels,
   GenStudioApiError,
   GenStudioChatCapabilityUnavailableError,
@@ -922,7 +923,17 @@ export async function runScenePlanJob(job: Job): Promise<void> {
   const promptRequestLimits: SceneRequestLimits = {
     maxRequestTokens: promptModel?.max_request_tokens ?? null,
     contextWindowTokens: promptModel?.context_window_tokens ?? null,
+    // Published figure kept for log/error messages. Fit checks below use
+    // fitLimits(), which substitutes the chosen allowance so a smaller owner
+    // setting cannot pass fit and then truncate at the wire.
     maxOutputTokens: promptModel?.max_output_tokens ?? null,
+  }
+  /** Fit limits honour the chosen output ceiling (visualMaxTokens or
+   *  activePromptOutputBudget) rather than the published maximum, so the
+   *  sizer refuses packs the wire would truncate. Logs still quote published. */
+  const fitLimits = (isMotionStage: boolean): SceneRequestLimits => {
+    const chosen = isMotionStage ? activePromptOutputBudget : visualMaxTokens
+    return { ...promptRequestLimits, maxOutputTokens: chosen ?? promptRequestLimits.maxOutputTokens }
   }
   if (scenePolicy && promptModel && !savedRequestPlan) {
     params.pipeline_scene_request_plan = {
@@ -1963,13 +1974,18 @@ export async function runScenePlanJob(job: Job): Promise<void> {
         // Paid repair keeps one logical audit set; each request within it is one scene.
         maxUnitsPerGroup: explicitPaidRepair ? 1 : effectivePackSize,
         rates: promptUnitRates,
-        limits: promptRequestLimits,
+        limits: fitLimits(isMotion),
         buildPrompt: sceneIds => {
           const payloads = sceneIds
             .map(id => payloadBySceneId.get(id))
             .filter((payload): payload is ScenePromptPayload => !!payload)
           const text = buildPackMessages(payloads).map(message => message.content).join('\n\n')
-          return { characters: text.length, nonAsciiCharacters: nonAsciiCharacterCount(text) }
+          // Measure the real assembled prompt including the wrapper
+          // instruction prepareChatSubmission appends to system.
+          const wrapperChars = jsonWrapperInstructionForContract(
+            scenePromptPackOutputContract(sceneIds, isMotion ? 'motion' : 'visual'),
+          ).length
+          return { characters: text.length + wrapperChars, nonAsciiCharacters: nonAsciiCharacterCount(text) }
         },
       })
       if (fitted.refused) refuseUnfittableSceneRequest(fitted.refused.promptTokens, stage)
@@ -2403,7 +2419,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
             items: group,
             maxUnitsPerGroup: group.length,
             rates: promptUnitRates,
-            limits: promptRequestLimits,
+            limits: fitLimits(isMotion),
             buildPrompt: sceneIds => {
               const payloads = sceneIds
                 .map(id => payloadBySceneId.get(id))
@@ -2411,7 +2427,12 @@ export async function runScenePlanJob(job: Job): Promise<void> {
               const issuesForIds = groupIssues.filter(issue => sceneIds.includes(issue.scene_id))
               const text = buildPackMessages(payloads, issuesForIds, issuesForIds.length ? '' : recoveryNote)
                 .map(message => message.content).join('\n\n')
-              return { characters: text.length, nonAsciiCharacters: nonAsciiCharacterCount(text) }
+              // Measure the real assembled prompt including the wrapper
+              // instruction prepareChatSubmission appends to system.
+              const wrapperChars = jsonWrapperInstructionForContract(
+                scenePromptPackOutputContract(sceneIds, isMotion ? 'motion' : 'visual'),
+              ).length
+              return { characters: text.length + wrapperChars, nonAsciiCharacters: nonAsciiCharacterCount(text) }
             },
           })
           if (fitted.refused) refuseUnfittableSceneRequest(fitted.refused.promptTokens, stage)

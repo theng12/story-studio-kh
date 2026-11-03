@@ -106,4 +106,46 @@ describe('feature help center', () => {
   test('unknown future routes fail safely with the generic guide', () => {
     assert.equal(resolveFeatureGuide('/projects/example/future-workspace'), fallbackFeatureGuide)
   })
+
+  test('Scene Plan prompt-batch copy names upper bound, request ceiling figure, and output source separately', () => {
+    const scenePlan = source('../pages/projects/[slug]/scene-plan.vue')
+    assert.match(scenePlan, /upper bound/i, 'must call the output-derived figure an upper bound')
+    assert.match(scenePlan, /published request ceiling/i, 'must name the published request ceiling explicitly')
+    assert.match(scenePlan, /No request ceiling is published/i, 'must state honestly when no request ceiling is published')
+    assert.match(scenePlan, /output limit is/, 'must label the output source separately from the request ceiling')
+    assert.doesNotMatch(scenePlan, /only ceiling/i, 'must not claim the output limit is the only ceiling')
+    assert.doesNotMatch(scenePlan, /any published request ceiling/i, 'must not imply a ceiling exists without a figure')
+  })
+
+  test('ModelTokenLimits type includes max_request_tokens and source', () => {
+    const budgetUtil = source('../utils/model-token-budget.ts')
+    assert.match(budgetUtil, /max_request_tokens\?:\s*number/, 'ModelTokenLimits must include max_request_tokens field')
+    assert.match(budgetUtil, /max_request_tokens_source\?:\s*PublishedLimitSource\s*\|\s*null/, 'ModelTokenLimits must include max_request_tokens_source field')
+  })
+
+  test('Performance guide mentions paid replacements, duplicate screening, and omits "One Save"', () => {
+    const perfTopic = featureGuides.settings.topics.find((t) => t.title === 'Performance & recovery')
+    assert.ok(perfTopic, 'Performance & recovery topic must exist')
+    assert.match(perfTopic.purpose, /paid replacements after a confirmed failure/i)
+    assert.match(perfTopic.purpose, /duplicate screening/i)
+    assert.doesNotMatch(perfTopic.purpose, /One Save/i)
+  })
+
+  test('Library tip quotes all current status labels', () => {
+    const libraryGuide = featureGuides['content-store']
+    const tip = libraryGuide.tips.find((t) => /Cards read/.test(t))
+    assert.ok(tip, 'Library must have a card-status tip')
+    for (const label of ['Installed on this Mac', 'Ready to install on this Mac', 'Update available', 'Incomplete', 'Not compatible', 'Not available to this Mac']) {
+      assert.ok(tip.includes(label), `Library tip must include "${label}"`)
+    }
+  })
+
+  test('New Channel guide mentions deliberate Generic choice and audience language', () => {
+    const newChannel = featureGuides.projects.topics.find((t) => t.title === 'New Channel')
+    assert.ok(newChannel, 'New Channel topic must exist')
+    assert.match(newChannel.purpose, /Generic choice/i)
+    assert.match(newChannel.purpose, /audience language/i)
+    assert.match(newChannel.effect ?? '', /channel folder/i)
+    assert.match(newChannel.effect ?? '', /channel record/i)
+  })
 })

@@ -3650,6 +3650,9 @@ async function clearHistory(status: 'finished' | 'failed') {
   const endpoint = isUniversal.value && project === 'all' ? '/jobs/all'
     : project === '_app_' ? '/jobs/app' : `/projects/${project}/jobs`
   clearingHistory.value = status
+  // Snapshot before the delete: after the reload the cleared rows are gone, so
+  // the stale-Hide check needs the ids this click actually targeted.
+  const hiddenCandidatesBeforeClear = removableJobs.value.map(job => job.job_id)
   // A history read that began before this delete may still carry a row it removes.
   history.invalidate()
   try {
@@ -3668,7 +3671,7 @@ async function clearHistory(status: 'finished' | 'failed') {
     // The rows the backend no longer holds are gone from the list, so the
     // Hides for them are stale. The count on the button and the hidden count
     // both follow the backend.
-    forgetHiddenJobsAbsentFromBackend()
+    forgetHiddenJobsAbsentFromBackend(hiddenCandidatesBeforeClear)
   } catch (e: any) { showError(e?.data?.detail || `Failed to clear ${status} history`) }
   finally { clearingHistory.value = null }
 }

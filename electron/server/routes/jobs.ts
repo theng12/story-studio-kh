@@ -726,7 +726,7 @@ router.post('/jobs/all/:jobId/abandon', async (req, res, next) => {
   }
 })
 
-router.delete('/jobs/all/:jobId', async (req, res, next) => {
+router.delete('/jobs/all/:jobId', async (req, res) => {
   const existing = await findUniversalJob(req.params.jobId)
   if (!existing) {
     // The row is on the customer's list but no longer in the queue's store:
@@ -1051,7 +1051,7 @@ router.post('/projects/:slug/jobs/:jobId/abandon', async (req, res, next) => {
   }
 })
 
-router.delete('/projects/:slug/jobs/:jobId', async (req, res, next) => {
+router.delete('/projects/:slug/jobs/:jobId', async (req, res) => {
   const existing = (await jq.findJobs(req.params.slug, job => job.job_id === req.params.jobId))[0]
   if (!existing || existing.project_slug !== req.params.slug) {
     // A row the queue's store no longer holds is still on the customer's list

@@ -6,9 +6,10 @@ What's new in each release. Newest first.
 
 ## v1.4.378 — 2026-11-04
 
-- Writing requests use the selected pool’s published request-token limit alongside its context and answer limits. Missing provider limits stay unknown; when no caller allowance or published answer cap is available, the output fallback is 128,000 tokens.
+- Writing requests now respect the request-size limit each AI pool publishes, alongside its context and answer limits. A limit the provider has not published is shown as unknown, never guessed. When neither your chosen allowance nor the provider sets an answer limit, requests allow up to 128,000 tokens of answer instead of a small default.
 - Studio Library removes retired credit and price fields while keeping old receipts readable.
 - The existing page guide uses the current New Channel, Library and channel-settings wording.
+- Job lists can now clear a row whose job the server no longer holds: Remove From List and Remove Finished work on those rows instead of answering "Job not found". Hidden-row counts follow the list, and files and billing records stay untouched.
 
 ## v1.4.377 — 2026-11-03
 

@@ -21,6 +21,7 @@ import request from 'supertest'
 import fs from 'fs/promises'
 import path from 'path'
 import { useTempDataDir } from './_helpers.js'
+import * as jq from '../services/job-queue.js'
 
 let tempDir: string
 let cleanup: () => Promise<void>
@@ -84,6 +85,9 @@ describe('removing a row whose job is gone', () => {
     assert.equal(removed.body.ok, true)
 
     // And it is gone: not on the list, and not in the scope's saved history.
+    // The list must be correct immediately — the removal's file write is
+    // fire-and-forget, so the read must not resurrect the row from the stale
+    // file while it is still in flight.
     const after = await request(app).get(`/api/projects/${project.slug}/jobs/history?all=1`)
     assert.equal(after.status, 200)
     assert.equal(
@@ -91,6 +95,7 @@ describe('removing a row whose job is gone', () => {
       false,
       'the leftover row is off the list',
     )
+    await jq._waitForJobPersistenceForTesting()
     const jobsFile = path.join(pm.getProjectDir(project.slug)!, 'jobs.json')
     const saved = JSON.parse(await fs.readFile(jobsFile, 'utf-8')) as { jobs?: Array<{ job_id: string }> }
     assert.equal(

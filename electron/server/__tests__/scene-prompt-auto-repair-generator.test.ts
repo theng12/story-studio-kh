@@ -282,13 +282,18 @@ test('Pipeline checkpoints a no-ceiling request as an omission and recovers its 
   })
 })
 
-test('direct and Pipeline no-ceiling requests preserve an explicit allowance and derive 20-scene packs', async () => {
+test('direct and Pipeline no-ceiling requests preserve an explicit allowance and fit packs to it', async () => {
   await withPipelineChatModel(null, async () => {
     for (const pipeline of [false, true]) {
       service.reset()
       const f = await fixture(21)
       const sceneIds = Array.from({ length: 21 }, (_, index) => `scene-${String(index + 2).padStart(4, '0')}`)
-      queuePromptPackOutputs(sceneIds, 20)
+      // Chosen 8,192 allowance / 550 measured tokens per scene = 14 scenes per
+      // request; the derived 20-scene tuning is fitted down to 14 + 6, and the
+      // trailing 1-scene pack stays its own request.
+      queuePromptPackOutputs(sceneIds.slice(0, 14), 14)
+      queuePromptPackOutputs(sceneIds.slice(14, 20), 6)
+      queuePromptPackOutputs(sceneIds.slice(20), 1)
       const job = directJob(f, `explicit-no-ceiling-${pipeline ? 'pipeline' : 'direct'}`)
       job.params = {
         ...f.params,
@@ -304,12 +309,12 @@ test('direct and Pipeline no-ceiling requests preserve an explicit allowance and
       await runScenePlanJob(job)
 
       const submissions = chatSubmissions()
-      assert.equal(submissions.length, 2, pipeline ? 'Pipeline pack count' : 'direct pack count')
-      assert.deepEqual(submissions.map(entry => (entry.parsedBody as any).max_output_tokens), [8_192, 8_192])
+      assert.equal(submissions.length, 3, pipeline ? 'Pipeline pack count' : 'direct pack count')
+      assert.deepEqual(submissions.map(entry => (entry.parsedBody as any).max_output_tokens), [8_192, 8_192, 8_192])
       assert.deepEqual(submissions.map(entry => (
         (entry.parsedBody as any)?.response_format?.json_schema?.schema
           ?.properties?.results?.items?.properties?.scene_id?.enum?.length
-      )), [20, 1])
+      )), [14, 6, 1])
       assert.ok(job.output_lines.some((line: string) => /selected output allowance/i.test(line)))
       assert.ok(job.output_lines.every((line: string) => !/this model can only return/i.test(line)))
       if (pipeline) {

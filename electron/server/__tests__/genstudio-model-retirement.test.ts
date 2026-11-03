@@ -267,3 +267,22 @@ test('the web-research option carries it too', async () => {
   assert.equal(healthy.deprecation_warning, false)
   assert.equal(healthy.retires_at, null)
 })
+
+test('the published request ceiling survives the /api/models whitelist', async () => {
+  // Fourth instance of this file's headline shape: Scene Plan's request-ceiling
+  // line was dead text because the mapper parsed `max_request_tokens` and the
+  // route whitelist then dropped it. The page must be able to show the figure
+  // (or its honest absence), so both the number and its source travel whole.
+  clearCache()
+  publishing([chatRow({ max_request_tokens: 23_000, max_request_tokens_source: 'gateway' })])
+  const row = (await request(app).get('/api/models').expect(200)).body[0]
+  assert.equal(row.max_request_tokens, 23_000, 'the published request ceiling survives the whitelist')
+  assert.equal(row.max_request_tokens_source, 'gateway', 'and the page can say whose figure it is')
+
+  clearCache()
+  publishing([chatRow()])
+  const absent = (await request(app).get('/api/models').expect(200)).body[0]
+  // 0 is the catalogue's sentinel for "unpublished" (same as max_output_tokens):
+  // publishedSceneLimit maps it to null and the picker reads it as absent.
+  assert.equal(absent.max_request_tokens, 0, 'an unpublished ceiling arrives as the sentinel 0, never a real budget')
+})

@@ -8614,10 +8614,14 @@ export async function queryJobHistory(
   // the scope, read the channel's own saved jobs file once, read-only.
   if (!scopeJobs.length) {
     for (const scope of scopes) {
+      // Rows removed but not yet flushed to disk stay removed on read, the
+      // same filter the durable write applies (a just-cleared row must never
+      // resurrect from the stale file).
+      const removedIds = projectPersistence.get(scope)?.deletedIds
       try {
         const saved = JSON.parse(await fs.readFile(jobsPath(scope), 'utf-8')) as { jobs?: Job[] }
         for (const job of Array.isArray(saved.jobs) ? saved.jobs : []) {
-          if (job && job.project_slug === scope) scopeJobs.push(job)
+          if (job && job.project_slug === scope && !removedIds?.has(job.job_id)) scopeJobs.push(job)
         }
       } catch { /* no saved history is an empty history */ }
     }
@@ -10089,6 +10093,7 @@ export async function clearFinished(projectSlug: string, status?: JobHistoryClea
   for (const job of await savedHistoryRows(projectSlug)) {
     if (jobs.has(job.job_id) || clearedIds.includes(job.job_id)) continue
     if (job.project_slug !== projectSlug) continue
+    if (hasFinalRenderFence(job)) continue
     if (!matchesHistoryClearStatus(job, status)) continue
     if (!job.force_abandoned && (hasUnsettledProviderEvidence(job) || job.music_results_awaiting_import?.length)) continue
     clearedIds.push(job.job_id)

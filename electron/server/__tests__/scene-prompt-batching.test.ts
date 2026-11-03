@@ -350,4 +350,30 @@ describe('sizing a request from the prompt it will actually send', () => {
     assert.deepEqual(resolveSceneUnitTokenRates('visual', 'en', 229), { perUnit: 229, singleUnit: 229 })
     assert.deepEqual(resolveSceneUnitTokenRates('visual', 'en', 'nonsense'), { perUnit: 550, singleUnit: 1_550 })
   })
+
+  test('a smaller chosen allowance refuses before the provider would truncate', () => {
+    // The defect: promptRequestLimits used the published max_output_tokens
+    // (8,192) for fit, but the wire sent the chosen visualMaxTokens (4,096).
+    // A pack that fit 8,192 passed sizing, then truncated at 4,096 on the
+    // provider. Fix: fit uses the chosen allowance so the sizer refuses or
+    // splits before any request is sent.
+    const published = { maxRequestTokens: 23_000, contextWindowTokens: 32_768, maxOutputTokens: 8_192 }
+    const chosenSmaller = { ...published, maxOutputTokens: 4_096 }
+    // 8 scenes × 550 = 4,400 answer tokens: fits 8,192 but not 4,096.
+    const fitsPublished = sceneRequestFits({ promptCharacters: 4_000, answerTokens: 4_400, limits: published })
+    assert.equal(fitsPublished.fits, true, 'must fit the published ceiling')
+    const refusedByChosen = sceneRequestFits({ promptCharacters: 4_000, answerTokens: 4_400, limits: chosenSmaller })
+    assert.equal(refusedByChosen.fits, false, 'must refuse under the smaller chosen allowance')
+    assert.equal(refusedByChosen.refusedBy, 'answer')
+    // Packing must also split/refuse under the chosen ceiling.
+    const packed = packSceneRequestGroups({
+      items: Array.from({ length: 8 }, (_, i) => i),
+      maxUnitsPerGroup: 8,
+      rates: { perUnit: 550, singleUnit: 1_550 },
+      limits: chosenSmaller,
+      buildPrompt: slice => ({ characters: 4_000 + slice.length * 200 }),
+    })
+    assert.ok(packed.groups.every(g => g.length < 8), 'pack must split when chosen ceiling is smaller')
+    assert.equal(packed.refused, null, 'every scene must still be placed')
+  })
 })

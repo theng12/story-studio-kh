@@ -7434,6 +7434,19 @@ const PROSE_RESPONSE_FORMAT: Record<string, unknown> | null = null
  * acceptance run. "No format" is the honest way to ask for prose; the explicit
  * object was a compatibility shim for a rule the one endpoint no longer has.
  */
+/** The wrapper instruction `prepareChatSubmission` appends to the system turn
+ * for a JSON output contract. Exported so request-sizing can measure the real
+ * assembled prompt (system + wrapper + user) without duplicating the logic. */
+export function jsonWrapperInstructionForContract(
+  outputContract: TextOutputContract,
+): string {
+  if (outputContract.mode === 'prose') return ''
+  const name = outputContract.name ?? 'story_studio_json_object'
+  return outputContract.schema
+    ? describeSchemaForInstructions(name, outputContract.schema)
+    : JSON_OBJECT_WRAPPER_INSTRUCTION
+}
+
 function productResponseFormat(
   productMode: GenStudioChatModel['structured_output_mode'],
   outputContract: TextOutputContract,
