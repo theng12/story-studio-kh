@@ -2955,7 +2955,8 @@ export interface GenerationReplacementAttempt {
   original_task_id: string
   original_idempotency_key: string
   idempotency_key: string
-  max_credits: number
+  /** Legacy records only; ignored. Credits retired with the paid/free retry distinction. */
+  max_credits?: number
   state: 'committed' | 'submitted' | 'succeeded' | 'failed'
   task_id?: string
   settled_credits?: number

@@ -244,7 +244,7 @@ export type GenStudioQueueState =
   | 'cancelled'
 
 interface GenStudioOperationContext {
-  /** Internal automatic replacement cap/marker; keeps replacement idempotency key from moving. */
+  /** Internal automatic replacement marker (no credit cap; retired); keeps replacement idempotency key from moving. */
   replacementChargeLimit?: number
   /** Called after admission/waits and immediately before each physical POST. */
   beforePost?: () => void | Promise<void>
@@ -8127,7 +8127,7 @@ function replacementConnectionFingerprint(baseUrl: string, apiKey: string): stri
   return createHash('sha256').update(JSON.stringify([apiBase(baseUrl), apiKey])).digest('hex')
 }
 
-/** Restore the immutable cap after restart, even when the asset checkpoint only has its key. */
+/** Restore the replacement marker after restart, even when the asset checkpoint only has its key. */
 async function restoreReplacementRequest<R extends GenStudioOperationContext>(
   kind: ReplacementKind, apiKey: string, key: string, itemKey: string, request: R,
 ): Promise<{ request: R; taskId?: string; key: string }> {
@@ -8158,11 +8158,11 @@ async function restoreReplacementRequest<R extends GenStudioOperationContext>(
       })
       return authoritative
     })
-    return { request: { ...request, replacementChargeLimit: attempt.max_credits }, taskId: accepted.id, key }
+    return { request: { ...request, replacementChargeLimit: 0 }, taskId: accepted.id, key }
   } catch (error) {
     if (!(error instanceof GenStudioApiError) || error.status !== 404 || attempt.state !== 'committed') throw error
   }
-  return { key, request: { ...request, replacementChargeLimit: attempt.max_credits,
+  return { key, request: { ...request, replacementChargeLimit: 0,
     withPost: async post => {
       const policy = await getRetryFailedRequestsSetting(kind)
       const live = await queue.loadAuthoritativeJob(job.project_slug, job.job_id)
@@ -8283,7 +8283,7 @@ async function replaceConfirmedGeneration<T>(
       attempt = {
         kind, item_key: itemKey, connection_fingerprint: replacementConnectionFingerprint(baseUrl, apiKey),
         original_task_id: original.id, original_idempotency_key: originalKey,
-        idempotency_key: retryKey, max_credits: 0, state: 'committed', revision: 1, ordinal,
+        idempotency_key: retryKey, state: 'committed', revision: 1, ordinal,
       }
       job.generation_replacement_attempts = [...attempts, attempt]
       return job

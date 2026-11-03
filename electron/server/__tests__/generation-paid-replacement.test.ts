@@ -384,7 +384,6 @@ test('generation replacement: configurable retries with count 2, payload stabili
             original_idempotency_key: origKey,
             original_task_id: 'orig-task',
             idempotency_key: retry1Key,
-            max_credits: 0,
             state: 'failed',
             revision: 2,
             ordinal: 1,
@@ -402,10 +401,15 @@ test('generation replacement: configurable retries with count 2, payload stabili
         await waitFor(() => ['done', 'error'].includes(queue.getJob(rerun.job_id)?.status || ''), { label: 'restart-recovery', timeoutMs: 10000 })
         // Original fails (1), then it executes ordinal 2 (2). Bound is 2, so it stops! Total 2 POSTs (1 orig + 1 retry)
         assert.equal(posts.length, 2, 'resumed at ordinal 2 and stopped at bound 2')
-        assert.equal(posts[1]!.key, generationReplacementKey('writing', origKey, 2))
+        // Restart recovery from an attempt WITHOUT max_credits (field retired): the
+        // original idempotency key is re-POSTed exactly as recorded and the only extra
+        // POST is ordinal 2 of the SAME chain — identity kept, no second chain.
+        assert.equal(posts[0]!.key, origKey, 'restart re-POSTs the recorded original key, unmoved')
+        assert.equal(posts[1]!.key, generationReplacementKey('writing', origKey, 2), 'next POST is ordinal 2 of the same chain, not a fresh chain')
         const persisted = await queue.loadAuthoritativeJob(project.slug, rerun.job_id)
         assert.equal(persisted?.generation_replacement_attempts?.length, 2)
         assert.equal(persisted?.generation_replacement_attempts?.[1]?.ordinal, 2)
+        assert.equal('max_credits' in (persisted?.generation_replacement_attempts?.[1] ?? {}), false, 'new attempts never carry the retired field')
       })
     })
 
