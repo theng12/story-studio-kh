@@ -31,553 +31,6 @@
           </span>
         </section>
 
-        <!-- ═══ This Mac → Connections ═══ -->
-        <template v-if="activeTab === 'connections'">
-          <div class="card settings-panel settings-panel-embedded">
-            <ThisMacSettings section="connections" embedded />
-          </div>
-          <div class="card settings-panel settings-panel-embedded" data-setting="youtube-accounts">
-            <YouTubeConnectionSettings :slug="slug" scope="connections" />
-          </div>
-          <!-- Facebook / Instagram / TikTok accounts. Opt-in by construction:
-               a channel that never opens this posts nowhere. -->
-          <div class="card settings-panel settings-panel-embedded" data-setting="social-accounts">
-            <SocialPublishingSettings :slug="slug" scope="connections" />
-          </div>
-          <div class="card settings-panel settings-panel-embedded" data-setting="scene-analysis"><SceneAnalysisSettings /></div>
-          <AdvancedDisclosure label="Advanced: Gateway model catalog" data-setting="gateway-catalog">
-            <div class="card settings-panel settings-panel-embedded"><GenStudioCatalogSettings /></div>
-          </AdvancedDisclosure>
-        </template>
-
-        <!-- ═══ This Mac → Default models ═══ -->
-        <div v-if="activeTab === 'default-models'" class="settings-plain">
-          <DefaultModelsSettings />
-        </div>
-
-        <!-- ═══ This Mac → Performance & recovery ═══ -->
-        <div v-if="activeTab === 'performance'" class="settings-plain">
-          <ThisMacSettings section="performance" embedded />
-        </div>
-
-        <!-- ═══ This Mac → Appearance & notifications ═══ -->
-        <template v-if="activeTab === 'appearance'">
-          <div class="settings-plain">
-            <ThisMacSettings section="appearance" embedded />
-          </div>
-    <div class="card settings-panel notification-panel" data-setting="notifications">
-      <header class="settings-section-head">
-        <div>
-          <h3>Notifications</h3>
-          <p>Choose what deserves your attention, where it should reach you, and when the daily production brief arrives.</p>
-        </div>
-        <span class="settings-section-count">{{ notificationReadinessLabel }}</span>
-      </header>
-
-      <section class="notification-status-grid" aria-label="Notification channel status">
-        <article :class="['notification-status-card', { active: notifSettings.enabled }]">
-          <span class="notification-status-icon" aria-hidden="true">▣</span>
-          <div><strong>Desktop</strong><small>{{ notifSettings.enabled ? 'Active on this Mac' : 'Muted' }}</small></div>
-          <span :class="['notification-state', notifSettings.enabled ? 'ready' : 'off']">{{ notifSettings.enabled ? 'ON' : 'OFF' }}</span>
-        </article>
-        <article :class="['notification-status-card', { active: telegramReady }]">
-          <span class="notification-status-icon" aria-hidden="true">↗</span>
-          <div><strong>Telegram</strong><small>{{ telegramStatusText }}</small></div>
-          <span :class="['notification-state', telegramReady ? 'ready' : notifSettings.telegram.enabled ? 'warn' : 'off']">{{ telegramReady ? 'READY' : notifSettings.telegram.enabled ? 'SETUP' : 'OFF' }}</span>
-        </article>
-        <article :class="['notification-status-card', { active: digestReady }]">
-          <span class="notification-status-icon" aria-hidden="true">◷</span>
-          <div><strong>Daily brief</strong><small>{{ digestStatusText }}</small></div>
-          <span :class="['notification-state', digestReady ? 'ready' : notifSettings.digest.enabled ? 'warn' : 'off']">{{ digestReady ? 'SET' : notifSettings.digest.enabled ? 'CHECK' : 'OFF' }}</span>
-        </article>
-      </section>
-
-      <div class="notification-layout">
-        <section class="notification-section notification-section--events">
-          <div class="notification-section-head">
-            <div><span class="settings-section-kicker">What reaches you</span><h4>Alert events</h4></div>
-            <span>{{ enabledNotificationEventCount }}/3 selected</span>
-          </div>
-          <div class="notification-event-grid">
-            <label :class="['notification-event-card', { active: notifSettings.events.failures }]">
-              <input v-model="notifSettings.events.failures" type="checkbox" />
-              <span class="notification-event-mark" aria-hidden="true">!</span>
-              <span><strong>Job needs attention</strong><small>Send immediately when any generation or assembly job fails.</small></span>
-            </label>
-            <label :class="['notification-event-card', { active: notifSettings.events.pipeline_finished }]">
-              <input v-model="notifSettings.events.pipeline_finished" type="checkbox" />
-              <span class="notification-event-mark" aria-hidden="true">✓</span>
-              <span><strong>Pipeline run complete</strong><small>Send one result summary after every episode in the batch settles.</small></span>
-            </label>
-            <label :class="['notification-event-card', { active: notifSettings.events.long_job }]">
-              <input v-model="notifSettings.events.long_job" type="checkbox" />
-              <span class="notification-event-mark" aria-hidden="true">◷</span>
-              <span><strong>Long job complete</strong><small>Notify for standalone jobs that ran longer than your threshold.</small></span>
-            </label>
-          </div>
-        </section>
-
-        <section class="notification-section notification-section--desktop">
-          <div class="notification-channel-head">
-            <span class="notification-channel-icon" aria-hidden="true">▣</span>
-            <div><h4>Desktop alerts</h4><p>Native macOS or Windows alerts. Clicking one opens the matching channel’s Jobs page.</p></div>
-            <label class="notification-switch">
-              <input v-model="notifSettings.enabled" type="checkbox" />
-              <span aria-hidden="true" />
-            </label>
-          </div>
-          <div :class="['notification-threshold', { disabled: !notifSettings.events.long_job }]">
-            <div><strong>Long-job threshold</strong><small>Fast jobs stay quiet. Failures ignore this threshold and alert immediately.</small></div>
-            <span class="notification-threshold-value">{{ notifMinDurationMinutes }} min</span>
-            <SliderWithNumber v-model="notifMinDurationMinutes" :min="1" :max="60" :step="1" />
-          </div>
-        </section>
-
-        <section class="notification-section notification-section--telegram" data-setting="telegram">
-          <div class="notification-channel-head">
-            <span class="notification-channel-icon" aria-hidden="true">↗</span>
-            <div><h4>Telegram</h4><p>Receive the same alerts on your phone when you are away from this Mac.</p></div>
-            <label class="notification-switch">
-              <input v-model="notifSettings.telegram.enabled" type="checkbox" />
-              <span aria-hidden="true" />
-            </label>
-          </div>
-
-          <details class="notification-setup" :open="notifSettings.telegram.enabled && !telegramReady">
-            <summary>
-              <span><strong>{{ telegramReady ? 'Connection settings' : 'Set up Telegram' }}</strong><small>{{ telegramReady ? 'Bot token and chat are configured.' : 'Three short steps. No JSON or command line needed.' }}</small></span>
-              <span :class="['notification-state', telegramReady ? 'ready' : 'warn']">{{ telegramReady ? 'CONNECTED' : '3 STEPS' }}</span>
-            </summary>
-            <div class="notification-setup-body">
-              <article class="notification-setup-step">
-                <span>1</span>
-                <div><strong>Create a Telegram bot</strong><p>Open BotFather, send <code>/newbot</code>, and follow its prompts. Copy the token it gives you.</p></div>
-                <button type="button" class="btn btn-sm btn-secondary" @click="openExternal('https://t.me/BotFather')">Open BotFather ↗</button>
-              </article>
-              <article class="notification-setup-step">
-                <span>2</span>
-                <div class="notification-setup-fields">
-                  <strong>Connect your bot</strong>
-                  <p>Paste the token, then message your new bot with <code>/start</code>. Story Studio can detect that chat automatically.</p>
-                  <label>Bot token</label>
-                  <div class="notification-secret-row">
-                    <input v-model="notifSettings.telegram.bot_token" :type="showTelegramToken ? 'text' : 'password'" class="input" placeholder="1234567890:ABCdef…" spellcheck="false" autocomplete="off" />
-                    <button type="button" class="btn btn-sm btn-ghost" @click="showTelegramToken = !showTelegramToken">{{ showTelegramToken ? 'Hide' : 'Show' }}</button>
-                  </div>
-                  <div class="notification-connect-row">
-                    <button type="button" class="btn btn-sm btn-secondary" :disabled="telegramDetectBusy || !notifSettings.telegram.bot_token" @click="detectTelegramChatId">
-                      {{ telegramDetectBusy ? 'Looking for Your Chat…' : 'Detect My Chat' }}
-                    </button>
-                    <input v-model="notifSettings.telegram.chat_id" type="text" class="input" placeholder="Chat ID (detected or pasted)" spellcheck="false" autocomplete="off" />
-                  </div>
-                  <p v-if="telegramDetectResult" :class="['notification-inline-result', telegramDetectResult.ok && telegramDetectResult.chat_id ? 'ok' : 'error']">
-                    {{ telegramDetectResult.ok && telegramDetectResult.chat_id
-                      ? `Chat connected${telegramDetectResult.chat_label ? `: ${telegramDetectResult.chat_label}` : ''}.`
-                      : telegramDetectResult.error || 'No recent chat found. Send /start to the bot, then try again.' }}
-                  </p>
-                </div>
-              </article>
-              <article class="notification-setup-step">
-                <span>3</span>
-                <div><strong>Verify delivery</strong><p>Send one test before relying on Telegram for unattended overnight work.</p></div>
-                <div class="notification-test-action">
-                  <button type="button" class="btn btn-sm btn-primary" :disabled="telegramTestBusy || !telegramReady" @click="testTelegram">
-                    {{ telegramTestBusy ? 'Sending Test…' : 'Send Test Message' }}
-                  </button>
-                  <small v-if="telegramTestResult" :class="telegramTestResult.ok ? 'ok' : 'error'">{{ telegramTestResult.ok ? 'Delivered. Check Telegram.' : telegramTestResult.error || 'Delivery failed.' }}</small>
-                </div>
-              </article>
-            </div>
-          </details>
-        </section>
-
-        <section class="notification-section notification-section--digest" data-setting="daily-brief">
-          <div class="notification-channel-head">
-            <span class="notification-channel-icon" aria-hidden="true">◷</span>
-            <div><h4>Daily production brief</h4><p>A once-daily view of publishing today, scheduled inventory, and episodes awaiting upload across every channel.</p></div>
-            <label class="notification-switch">
-              <input v-model="notifSettings.digest.enabled" type="checkbox" />
-              <span aria-hidden="true" />
-            </label>
-          </div>
-          <div :class="['notification-digest-controls', { disabled: !notifSettings.digest.enabled }]">
-            <label class="notification-time-control"><span>Send at</span><input v-model="notifSettings.digest.time_local" type="time" class="input" :disabled="!notifSettings.digest.enabled" /><small>Local time. The app must be running.</small></label>
-            <div class="notification-route-control">
-              <span>Deliver to</span>
-              <label><input v-model="notifSettings.digest.desktop_enabled" type="checkbox" :disabled="!notifSettings.digest.enabled" /> Desktop</label>
-              <label><input v-model="notifSettings.digest.telegram_enabled" type="checkbox" :disabled="!notifSettings.digest.enabled || !telegramReady" /> Telegram</label>
-              <small v-if="notifSettings.digest.telegram_enabled && !telegramReady">Finish Telegram setup before using it for the brief.</small>
-            </div>
-            <label class="notification-quiet-control"><input v-model="notifSettings.digest.quiet_when_empty" type="checkbox" :disabled="!notifSettings.digest.enabled" /><span><strong>Skip quiet days</strong><small>Do not send when nothing is scheduled to publish today.</small></span></label>
-            <div class="notification-last-fired"><span>Last scheduled delivery</span><strong>{{ formattedDigestLastFired }}</strong></div>
-          </div>
-          <div class="notification-digest-actions">
-            <button type="button" class="btn btn-sm btn-secondary" :disabled="digestPreviewBusy" @click="loadDigestPreview">{{ digestPreviewBusy ? 'Building Preview…' : 'Preview Brief' }}</button>
-            <button type="button" class="btn btn-sm btn-primary" :disabled="digestSendNowBusy || !digestHasReadyDestination" @click="sendDigestNow">{{ digestSendNowBusy ? 'Sending Now…' : 'Send Now' }}</button>
-            <span v-if="digestSendResult" :class="['notification-inline-result', digestSendResult.ok ? 'ok' : 'error']">{{ digestSendResult.ok ? 'Brief sent.' : digestSendResult.reason || 'Send failed.' }}</span>
-          </div>
-          <div v-if="digestPreview" class="notification-preview">
-            <span class="settings-section-kicker">Preview</span>
-            <strong>{{ digestPreview.title }}</strong>
-            <pre>{{ digestPreview.body }}</pre>
-          </div>
-        </section>
-      </div>
-
-      <div class="notification-save-bar">
-        <div>
-          <strong>{{ notificationsDirty ? 'Unsaved notification changes' : 'Notification settings are saved' }}</strong>
-          <span>Applies to every channel on this Mac.</span>
-          <span v-if="notifSaveStatus === 'error'" class="error">{{ notifSaveError }}</span>
-        </div>
-        <button type="button" class="btn btn-sm btn-ghost" @click="applyRecommendedNotifications">Use Recommended Alerts</button>
-        <button type="button" class="btn btn-sm btn-secondary" :disabled="!notificationsDirty || notifSaveStatus === 'saving'" @click="discardNotificationChanges">Revert</button>
-        <SaveIndicator v-bind="savedHintProps('notifications')" />
-        <button type="button" class="btn btn-primary" :disabled="!notificationsDirty || notifSaveStatus === 'saving'" @click="saveNotifSettings">{{ notifSaveStatus === 'saving' ? 'Saving…' : 'Save Notifications' }}</button>
-      </div>
-    </div>
-          <AdvancedDisclosure label="Advanced: open Story Studio from another computer (Server Mode)" data-setting="server-mode">
-            <div class="card settings-panel settings-panel-embedded"><ServerModeSettingsPanel /></div>
-          </AdvancedDisclosure>
-        </template>
-
-        <!-- ═══ This Mac → Backup & restore (1.4.287) ═══ -->
-        <section v-if="activeTab === 'backup'" class="card settings-panel" data-setting="backup">
-          <BackupPanel :library-path="library?.path || ''" />
-        </section>
-
-        <!-- ═══ This Mac → Files & maintenance ═══ -->
-        <template v-if="activeTab === 'maintenance'">
-          <!-- v1.4.249 — "Where your files are". Replaces the storage map, Your
-               Library, Where finished videos go and Advanced: move uploaded videos
-               ("this library and your storage map thing is so confusing"). -->
-          <section class="card settings-panel files-where" aria-labelledby="files-where-title">
-            <header class="settings-card-head">
-              <h3 id="files-where-title">Where your files are</h3>
-              <p>Two folders on this Mac. Choose a folder with the button — no paths to type.</p>
-            </header>
-
-            <div data-setting="library-folder">
-              <FolderField
-                :model-value="library?.path || ''"
-                label="Library folder"
-                hint="Every channel lives here, each with its own files. Choosing another folder copies everything there and restarts Story Studio; the old folder is left untouched."
-                picker-title="Choose where to keep your Library"
-                picker-button-label="Use This Folder"
-                choose-label="Move Library…"
-                :disabled="projectsRootBusy"
-                @change="moveLibraryTo"
-              >
-                <template #badge>
-                  <span v-if="library && !library.exists" class="status-chip warn">Not found</span>
-                </template>
-              </FolderField>
-              <p v-if="library && !library.exists" class="settings-warn">
-                Story Studio looked here and the folder is not there. If it is on a drive that is not plugged in, reconnect it — nothing has been lost.
-              </p>
-              <p v-if="projectsRootStatus" :class="['settings-status', projectsRootStatusKind]">{{ projectsRootStatus }}</p>
-            </div>
-
-            <div data-setting="exports-folder">
-              <FolderField
-                :model-value="library?.exports_custom ? library.exports_dir : channelExportsDir"
-                label="Finished videos folder"
-                :hint="library?.exports_custom
-                  ? 'New finished videos are saved here. Videos made before you changed it stay where they are and are still found.'
-                  : 'Each channel saves its finished videos in its own Exports folder, so copying the channel folder takes them along. Choose another folder — another drive, say — to keep them separate.'"
-                picker-title="Choose where finished videos go"
-                picker-button-label="Use This Folder"
-                :disabled="exportsBusy"
-                :clearable="!!library?.exports_custom"
-                clear-label="Use Library Folder"
-                @change="chooseExportsFolder"
-              />
-              <p v-if="exportsStatus" :class="['settings-status', exportsStatusKind]">{{ exportsStatus }}</p>
-            </div>
-
-            <!-- v1.4.317 — the archive sweep moved here from Free up space, which now offers
-                 only the two all-channel actions ("too many options"). It is about where finished
-                 videos live, not a cleanup control. -->
-            <details class="disclosure space-option" data-setting="move-uploaded" :open="archiveBusy || !!archivePreview || !!archiveResult">
-              <summary><strong>Move uploaded videos to another drive</strong><small>Finished videos confirmed on YouTube, from every channel, are copied to a folder you choose and checked there before the original is removed. Everything else stays put.</small></summary>
-              <div class="space-option-body">
-              <div class="archive-flow">
-                <FolderField
-                  v-model="archiveSource"
-                  label="Look for videos in"
-                  placeholder="Your finished videos folder"
-                  hint="Usually your finished videos folder. Choose another folder if your videos are somewhere else."
-                  picker-title="Where are your finished videos?"
-                  picker-button-label="Scan This Folder"
-                  :disabled="archiveBusy"
-                  @update:model-value="archivePreview = null"
-                />
-                <FolderField
-                  v-model="archiveDest"
-                  label="Move them to"
-                  placeholder="Choose a folder on the other drive"
-                  picker-title="Move finished videos into…"
-                  picker-button-label="Move Here"
-                  :disabled="archiveBusy"
-                />
-                <div class="flex gap-2 items-center">
-                  <button class="btn btn-secondary btn-sm" :disabled="archiveBusy" @click="loadArchivePreview">
-                    {{ archiveChecking ? 'Checking…' : 'Check What Would Move' }}
-                  </button>
-                  <button v-if="archivePreview?.complete && archivePreview?.ready_count" class="btn btn-primary btn-sm"
-                          :disabled="archiveBusy || !archiveDest.trim()" @click="startArchive">
-                    Move {{ archivePreview.ready_count }} Video{{ archivePreview.ready_count === 1 ? '' : 's' }} · {{ formatBytes(archivePreview.ready_bytes) }}
-                  </button>
-                  <button v-if="archiveRunning || archiveChecking" class="btn btn-danger btn-sm" @click="stopArchive">Stop</button>
-                </div>
-          <div v-if="archivePreview" class="mt-2">
-            <p v-if="!archivePreview.source_exists" class="validation-msg text-sm">
-              Nothing to scan — <code>{{ archivePreview.source_root }}</code> is not there.
-            </p>
-            <template v-else>
-              <p v-if="!archivePreview.complete" class="validation-msg text-sm">
-                Check stopped early. Nothing can move until the folder has been checked completely.
-              </p>
-              <p class="text-sm">
-                <strong>{{ archivePreview.ready_count }}</strong> video(s) ready
-                ({{ formatBytes(archivePreview.ready_bytes) }} ready to move),
-                <strong>{{ archivePreview.skipped_count }}</strong> skipped
-                ({{ formatBytes(archivePreview.skipped_bytes) }} staying put).
-              </p>
-              <ul v-if="archivePreview.by_channel.length" class="archive-channels">
-                <li v-for="c in archivePreview.by_channel" :key="c.slug">
-                  {{ c.slug }} — {{ c.count }} video(s), {{ formatBytes(c.bytes) }}
-                </li>
-              </ul>
-              <details v-if="archivePreview.ready_count" class="mt-1 disclosure">
-                <summary class="text-sm">Review {{ archivePreview.ready_count }} uploaded videos to move</summary>
-                <ul class="archive-skipped">
-                  <li v-for="c in archiveReadyRows" :key="c.source_path">
-                    <strong>{{ c.slug }} · {{ c.code }}</strong> — <code>{{ c.filename }}</code>
-                    · {{ formatBytes(c.bytes) }}
-                    <a v-if="c.youtube_video_id" :href="`https://www.youtube.com/watch?v=${encodeURIComponent(c.youtube_video_id)}`"
-                       target="_blank" rel="noopener noreferrer">Open recorded YouTube upload</a>
-                  </li>
-                </ul>
-              </details>
-              <details v-if="archivePreview.skipped_count" class="mt-1 disclosure">
-                <summary class="text-muted text-sm">Why {{ archivePreview.skipped_count }} were skipped</summary>
-                <ul class="archive-skipped">
-                  <li v-for="c in archiveSkippedRows" :key="c.source_path">
-                    <code>{{ c.filename }}</code> — {{ c.reason }}
-                  </li>
-                </ul>
-              </details>
-            </template>
-          </div>
-
-          <div v-if="archiveChecking || archiveRunning || archiveResult" class="mt-2">
-            <p v-if="archiveChecking" class="text-sm">
-              Checking {{ archiveProgress.checked }} video file{{ archiveProgress.checked === 1 ? '' : 's' }} —
-              <code>{{ archiveProgress.current }}</code>
-              <span v-if="archiveStopping"> · stopping after this file…</span>
-            </p>
-            <p v-else-if="archiveRunning" class="text-sm">
-              {{ archiveStage === 'checking' ? 'Rechecking proof' : 'Moving' }} {{ archiveProgress.done }} / {{ archiveProgress.total }} —
-              <code>{{ archiveProgress.current }}</code>
-              <span v-if="archiveStopping"> · stopping after this file…</span>
-            </p>
-            <p v-if="archiveResult" class="text-sm">
-              ✓ Moved {{ archiveResult.moved.length }} video(s), {{ formatBytes(archiveResult.bytes_moved) }} total.
-              <span v-if="archiveResult.cancelled">Stopped early — everything not yet moved is untouched.</span>
-              <span v-if="archiveResult.failed.length">
-                {{ archiveResult.failed.length }} could not be verified and were left in both places.
-              </span>
-            </p>
-            <ul v-if="archiveResult?.warnings?.length" class="archive-skipped">
-              <li v-for="w in archiveResult.warnings" :key="w">{{ w }}</li>
-            </ul>
-          </div>
-              </div>
-              </div>
-            </details>
-
-          </section>
-
-          <section class="card settings-panel" data-setting="self-contained-all">
-            <SelfContainedPanel />
-          </section>
-
-          <!-- v1.4.317 — Free Up Space is now just the two all-channel actions
-               (Shrink images, Clean up all channels) in the panel, plus the read-only
-               "What's using space" breakdown. The old per-channel/category/conversion
-               tools, the verified-clear duplicate and the archive sweep were removed
-               from this screen; the archive moved up to "Where your files are". -->
-          <section class="card settings-panel" data-setting="free-up-space">
-            <MediaCleanupPanel :slug="slug" />
-            <details class="disclosure space-option" data-setting="episode-storage">
-              <summary><strong>What's using space</strong><small>Space used by each episode in this channel, largest first.</small></summary>
-              <div class="space-option-body storage-panel">
-                <button class="btn btn-secondary btn-sm" :disabled="auditLoading" @click="loadStorageAudit">
-                  {{ auditLoading ? 'Scanning…' : (storage ? 'Scan Again' : 'Scan Episodes') }}
-                </button>
-                <div v-if="storage?.space" class="storage-summary mt-2">
-                  <span><strong>Free on this drive:</strong> {{ formatMeasurement(storage.space.free_bytes) }}</span>
-                  <span class="dot">·</span>
-                  <span title="Everything Story Studio removed from this channel waits in the Trash until you empty it yourself.">
-                    <strong>This channel in the Trash:</strong> {{ formatMeasurement(storage.space.project_trash_bytes) }}
-                  </span>
-                  <span class="dot">·</span>
-                  <span><strong>Whole Trash:</strong> {{ formatMeasurement(storage.space.library_trash_bytes) }} <NuxtLink to="/trash">Open Trash</NuxtLink></span>
-                  <span class="dot">·</span>
-                  <span><strong>Old app copies from updates:</strong> {{ formatMeasurement(storage.space.app_trash_bytes) }}</span>
-                </div>
-                <div v-if="storage" class="storage-summary mt-2">
-                  <span><strong>Channel total:</strong> {{ formatBytes(storage.project_bytes_total) }}</span>
-                  <span class="dot">·</span>
-                  <span><strong>Final videos:</strong> {{ formatBytes(storage.project_bytes_final_video) }}</span>
-                  <span class="dot">·</span>
-                  <span title="Per-scene motion clips, including the episode's Video Assets folder"><strong>Per-scene clips:</strong> {{ formatBytes(storage.project_bytes_per_scene_clips) }}</span>
-                  <span class="dot">·</span>
-                  <span title="Kept per-part narration takes (hidden .parts folders), already counted in each episode's audio.">
-                    <strong>Narration parts:</strong> {{ formatBytes(storage.project_bytes_narration_parts ?? 0) }}
-                  </span>
-                  <span v-if="storage.project_bytes_thumbnail_cache" class="dot">·</span>
-                  <span v-if="storage.project_bytes_thumbnail_cache" title="Small previews for the review grids. Safe to delete: they are rebuilt on demand.">
-                    <strong>Preview cache:</strong> {{ formatBytes(storage.project_bytes_thumbnail_cache) }}
-                  </span>
-                  <button
-                    v-if="storage.project_bytes_thumbnail_cache"
-                    class="btn btn-secondary btn-sm"
-                    :disabled="previewCacheClearing"
-                    title="Moves the small review-grid previews to Story's Trash. They rebuild automatically as you open Scene Review and Motion Review."
-                    @click="clearPreviewCache"
-                  >
-                    {{ previewCacheClearing ? 'Clearing…' : `Clear Preview Cache (${formatBytes(storage.project_bytes_thumbnail_cache)})` }}
-                  </button>
-                  <span v-if="storage.external_root_configured" class="dot">·</span>
-                  <span v-if="storage.external_root_configured">
-                    <strong>In the Exports folder:</strong> {{ formatBytes(storage.project_bytes_external_final_video) }}
-                  </span>
-                </div>
-                <div v-if="lastPreviewCacheClear" class="storage-result mt-2">
-                  Preview cache ({{ formatBytes(lastPreviewCacheClear.bytes) }}) moved to Story's Trash.
-                  It rebuilds automatically as you use the review pages.
-                </div>
-                <div v-if="storage" class="storage-table mt-2">
-                  <div class="storage-row storage-head">
-                    <span class="col-code">Code</span>
-                    <span class="col-title">Title</span>
-                    <span class="col-final">Final</span>
-                    <span class="col-clips">Clips</span>
-                    <span class="col-other">Audio + img + other</span>
-                    <span class="col-status">Upload</span>
-                  </div>
-                  <div
-                    v-for="row in sortedStorageRows"
-                    :key="row.episode_code"
-                    :class="['storage-row', { uploaded: row.uploaded_to_youtube, 'no-final': row.bytes_final_video === 0 }]"
-                  >
-                    <span class="col-code"><strong>{{ row.episode_code }}</strong></span>
-                    <span class="col-title" :title="row.title">{{ row.title }}</span>
-                    <span class="col-final">
-                      {{ formatBytes(row.bytes_final_video) }}
-                      <span v-if="row.bytes_external_final_video > 0" class="ext-badge" title="Final video also in the Exports folder">
-                        + {{ formatBytes(row.bytes_external_final_video) }} in Exports
-                      </span>
-                    </span>
-                    <span class="col-clips">{{ formatBytes(row.bytes_per_scene_clips) }}</span>
-                    <span class="col-other">{{ formatBytes(row.bytes_audio + row.bytes_images + row.bytes_other) }}<small v-if="row.bytes_narration_parts" class="row-reason">incl. {{ formatBytes(row.bytes_narration_parts) }} narration parts</small></span>
-                    <span class="col-status">
-                      <span v-if="row.cleanup_eligible" class="upload-badge ok" :title="`Candidate for fresh verification against YouTube video ${row.youtube_video_id}`">
-                        ✓ verify candidate
-                      </span>
-                      <span
-                        v-else-if="row.uploaded_to_youtube"
-                        class="upload-badge warn"
-                        :title="`YouTube video ${row.youtube_video_id}`"
-                      >
-                        ⚠ remains local
-                      </span>
-                      <small v-if="!row.cleanup_eligible && row.uploaded_to_youtube" class="row-reason">{{ row.cleanup_reason || 'The upload record cannot confirm the YouTube copy, so the local video is kept.' }}</small>
-                      <span v-else class="upload-badge none">—</span>
-                    </span>
-                  </div>
-                </div>
-              </div>
-            </details>
-          </section>
-
-          <section class="card settings-panel" data-setting="smaller-files">
-            <GenerationCompressionPanel />
-          </section>
-
-          <!-- FFmpeg — plain status, one fix button; internals behind Advanced. -->
-          <section id="ffmpeg-section" class="card settings-panel ffmpeg-card" data-setting="ffmpeg">
-            <header class="settings-card-head">
-              <h3>FFmpeg (video engine)</h3>
-              <p>Joins narration, mixes music and makes the final MP4 for Audio Assembly and Video Assembly.</p>
-            </header>
-            <div class="ffmpeg-state" :class="ffmpegState.tone" role="status">
-              <span class="ffmpeg-state-dot" aria-hidden="true" />
-              <div>
-                <strong>{{ ffmpegState.title }}</strong>
-                <span v-if="ffmpegState.detail">{{ ffmpegState.detail }}</span>
-              </div>
-              <button v-if="ffmpegState.fix" class="btn btn-primary btn-sm" :disabled="ffmpegInstalling" @click="installFfmpeg">
-                {{ ffmpegInstalling ? `${ffmpegInstallMessage || 'Installing…'} ${ffmpegInstallProgress}%` : ffmpegState.fix }}
-              </button>
-              <button class="btn btn-ghost btn-sm" :disabled="ffmpegStatusLoading" @click="refreshFfmpegStatus">{{ ffmpegStatusLoading ? 'Checking…' : 'Check Again' }}</button>
-            </div>
-            <p v-if="ffmpegInstallMessage && !ffmpegInstalling" class="settings-status" :class="ffmpegInstallError ? 'err' : 'ok'">{{ ffmpegInstallMessage }}</p>
-            <div v-if="showFfmpegRestartPrompt" class="ffmpeg-restart-prompt">
-              <span class="restart-msg"><strong>Install complete.</strong> Restart the app so Audio Assembly and Video Assembly use it.</span>
-              <div class="flex gap-2 mt-1">
-                <button class="btn btn-sm btn-primary" :disabled="restarting" @click="restartApp">{{ restarting ? 'Restarting…' : 'Restart Now' }}</button>
-                <button class="btn btn-sm btn-secondary" @click="showFfmpegRestartPrompt = false">Later</button>
-              </div>
-            </div>
-            <AdvancedDisclosure label="Advanced: FFmpeg details">
-              <dl class="ffmpeg-details">
-                <dt>Version</dt><dd>{{ ffmpegStatus?.version || '—' }}</dd>
-                <dt>Copy in use</dt><dd>{{ ffmpegSourceLabel }}</dd>
-                <dt>Location</dt><dd><code>{{ ffmpegStatus?.path || '—' }}</code></dd>
-                <dt>Text overlays (drawtext)</dt><dd>{{ ffmpegStatus?.installed ? (ffmpegStatus.has_drawtext ? 'Yes' : 'No') : '—' }}</dd>
-                <dt>Subtitle burn-in (libass)</dt><dd>{{ ffmpegStatus?.installed ? (ffmpegStatus.has_libass ? 'Yes' : 'No') : '—' }}</dd>
-              </dl>
-              <div v-if="ffmpegStatus?.installed && ffmpegStatus.source !== 'bundled' && !ffmpegState.fix" class="mt-2">
-                <button class="btn btn-secondary btn-sm" :disabled="ffmpegInstalling" @click="installFfmpeg">Replace Recovery Copy</button>
-                <span class="settings-hint"> Downloads the same pinned FFmpeg this app was tested with and checks it before use.</span>
-              </div>
-        <div v-if="ffmpegInstallError" class="ffmpeg-log-block mt-2">
-          <div class="flex gap-2" style="align-items: center;">
-            <button class="btn btn-sm btn-secondary" @click="loadInstallLog" :disabled="ffmpegLogLoading" title="Fetches the last hour of ffmpeg-install log entries">
-              <span v-if="ffmpegLogLoading">Loading…</span>
-              <span v-else-if="ffmpegInstallLog.length">Refresh Log</span>
-              <span v-else>Show Install Log</span>
-            </button>
-            <button v-if="ffmpegInstallLog.length" class="btn btn-sm btn-primary" @click="copyInstallLog" title="Copies the log entries + your platform info to the clipboard so you can paste it into a bug report">
-              Copy Log to Clipboard
-            </button>
-            <span v-if="ffmpegLogCopiedAt" class="text-muted" style="font-size: var(--font-xs);">Copied ✓</span>
-          </div>
-          <pre v-if="ffmpegInstallLog.length" class="ffmpeg-log-output mt-1">{{ ffmpegInstallLogText }}</pre>
-          <p v-else-if="ffmpegInstallLogChecked" class="text-muted mt-1" style="font-size: var(--font-xs);">
-            No ffmpeg-install entries in the last hour. The error may have happened before logging was wired up — try clicking Install again.
-          </p>
-        </div>
-              <details v-if="ffmpegStatus && ffmpegStatus.source !== 'bundled'" class="ffmpeg-manual mt-2 disclosure">
-                <summary>Install it yourself</summary>
-                <p class="settings-hint">If the download is blocked, install FFmpeg with Homebrew (<code>brew install ffmpeg</code>), then press Check Again.</p>
-              </details>
-            </AdvancedDisclosure>
-          </section>
-
-          <section class="card settings-panel about-card" data-setting="about">
-            <div>
-              <h3>About Story Studio KH</h3>
-              <p class="settings-hint">Version <strong>{{ appVersion }}</strong><template v-if="buildDate"> · built {{ buildDate }}</template>. Copy this when you report a problem.</p>
-            </div>
-            <button class="btn btn-secondary btn-sm" @click="copyVersionString">{{ versionCopied ? 'Copied' : 'Copy Version' }}</button>
-          </section>
-          <AppUpdatePanel />
-        </template>
-
         <!-- ═══ This Project → Channel identity ═══ -->
         <template v-if="activeTab === 'identity'">
           <!-- The channel's name, handle, description, logo and banner. It owns the
@@ -1377,7 +830,7 @@
           <!-- Opt-in, per channel. Every upload still asks; this only decides
                what is pre-ticked there. -->
           <div class="card settings-panel settings-panel-embedded" data-setting="social-platforms">
-            <SocialPublishingSettings :slug="slug" scope="channel" @open-connections="activeTab = 'connections'" />
+            <SocialPublishingSettings :slug="slug" scope="channel" @open-connections="useAppSettingsModal().open('connections')" />
           </div>
 
           <section class="card settings-panel">
@@ -1522,6 +975,99 @@
 
         <!-- ═══ This Project → Project files & behavior ═══ -->
         <template v-if="activeTab === 'files'">
+          <section class="card settings-panel">
+            <details class="disclosure space-option" data-setting="episode-storage">
+              <summary><strong>What's using space</strong><small>Space used by each episode in this channel, largest first.</small></summary>
+              <div class="space-option-body storage-panel">
+                <button class="btn btn-secondary btn-sm" :disabled="auditLoading" @click="loadStorageAudit">
+                  {{ auditLoading ? 'Scanning…' : (storage ? 'Scan Again' : 'Scan Episodes') }}
+                </button>
+                <div v-if="storage?.space" class="storage-summary mt-2">
+                  <span><strong>Free on this drive:</strong> {{ formatMeasurement(storage.space.free_bytes) }}</span>
+                  <span class="dot">·</span>
+                  <span title="Everything Story Studio removed from this channel waits in the Trash until you empty it yourself.">
+                    <strong>This channel in the Trash:</strong> {{ formatMeasurement(storage.space.project_trash_bytes) }}
+                  </span>
+                  <span class="dot">·</span>
+                  <span><strong>Whole Trash:</strong> {{ formatMeasurement(storage.space.library_trash_bytes) }} <NuxtLink to="/trash">Open Trash</NuxtLink></span>
+                  <span class="dot">·</span>
+                  <span><strong>Old app copies from updates:</strong> {{ formatMeasurement(storage.space.app_trash_bytes) }}</span>
+                </div>
+                <div v-if="storage" class="storage-summary mt-2">
+                  <span><strong>Channel total:</strong> {{ formatBytes(storage.project_bytes_total) }}</span>
+                  <span class="dot">·</span>
+                  <span><strong>Final videos:</strong> {{ formatBytes(storage.project_bytes_final_video) }}</span>
+                  <span class="dot">·</span>
+                  <span title="Per-scene motion clips, including the episode's Video Assets folder"><strong>Per-scene clips:</strong> {{ formatBytes(storage.project_bytes_per_scene_clips) }}</span>
+                  <span class="dot">·</span>
+                  <span title="Kept per-part narration takes (hidden .parts folders), already counted in each episode's audio.">
+                    <strong>Narration parts:</strong> {{ formatBytes(storage.project_bytes_narration_parts ?? 0) }}
+                  </span>
+                  <span v-if="storage.project_bytes_thumbnail_cache" class="dot">·</span>
+                  <span v-if="storage.project_bytes_thumbnail_cache" title="Small previews for the review grids. Safe to delete: they are rebuilt on demand.">
+                    <strong>Preview cache:</strong> {{ formatBytes(storage.project_bytes_thumbnail_cache) }}
+                  </span>
+                  <button
+                    v-if="storage.project_bytes_thumbnail_cache"
+                    class="btn btn-secondary btn-sm"
+                    :disabled="previewCacheClearing"
+                    title="Moves the small review-grid previews to Story's Trash. They rebuild automatically as you open Scene Review and Motion Review."
+                    @click="clearPreviewCache"
+                  >
+                    {{ previewCacheClearing ? 'Clearing…' : `Clear Preview Cache (${formatBytes(storage.project_bytes_thumbnail_cache)})` }}
+                  </button>
+                  <span v-if="storage.external_root_configured" class="dot">·</span>
+                  <span v-if="storage.external_root_configured">
+                    <strong>In the Exports folder:</strong> {{ formatBytes(storage.project_bytes_external_final_video) }}
+                  </span>
+                </div>
+                <div v-if="lastPreviewCacheClear" class="storage-result mt-2">
+                  Preview cache ({{ formatBytes(lastPreviewCacheClear.bytes) }}) moved to Story's Trash.
+                  It rebuilds automatically as you use the review pages.
+                </div>
+                <div v-if="storage" class="storage-table mt-2">
+                  <div class="storage-row storage-head">
+                    <span class="col-code">Code</span>
+                    <span class="col-title">Title</span>
+                    <span class="col-final">Final</span>
+                    <span class="col-clips">Clips</span>
+                    <span class="col-other">Audio + img + other</span>
+                    <span class="col-status">Upload</span>
+                  </div>
+                  <div
+                    v-for="row in sortedStorageRows"
+                    :key="row.episode_code"
+                    :class="['storage-row', { uploaded: row.uploaded_to_youtube, 'no-final': row.bytes_final_video === 0 }]"
+                  >
+                    <span class="col-code"><strong>{{ row.episode_code }}</strong></span>
+                    <span class="col-title" :title="row.title">{{ row.title }}</span>
+                    <span class="col-final">
+                      {{ formatBytes(row.bytes_final_video) }}
+                      <span v-if="row.bytes_external_final_video > 0" class="ext-badge" title="Final video also in the Exports folder">
+                        + {{ formatBytes(row.bytes_external_final_video) }} in Exports
+                      </span>
+                    </span>
+                    <span class="col-clips">{{ formatBytes(row.bytes_per_scene_clips) }}</span>
+                    <span class="col-other">{{ formatBytes(row.bytes_audio + row.bytes_images + row.bytes_other) }}<small v-if="row.bytes_narration_parts" class="row-reason">incl. {{ formatBytes(row.bytes_narration_parts) }} narration parts</small></span>
+                    <span class="col-status">
+                      <span v-if="row.cleanup_eligible" class="upload-badge ok" :title="`Candidate for fresh verification against YouTube video ${row.youtube_video_id}`">
+                        ✓ verify candidate
+                      </span>
+                      <span
+                        v-else-if="row.uploaded_to_youtube"
+                        class="upload-badge warn"
+                        :title="`YouTube video ${row.youtube_video_id}`"
+                      >
+                        ⚠ remains local
+                      </span>
+                      <small v-if="!row.cleanup_eligible && row.uploaded_to_youtube" class="row-reason">{{ row.cleanup_reason || 'The upload record cannot confirm the YouTube copy, so the local video is kept.' }}</small>
+                      <span v-else class="upload-badge none">—</span>
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </details>
+          </section>
           <!-- 2026-10-07 — self-contained channels: this channel's shared files and
                finished videos move into its own folder, so the folder can be copied
                to another Mac. -->
@@ -1987,6 +1533,7 @@ import { CONTENT_LANGUAGE_OPTIONS } from '~/utils/content-language'
 definePageMeta({ layout: 'dashboard', scrollToTop: to => !to.hash })
 useAppTitle('Settings')
 const route = useRoute()
+const settingsRouter = useRouter()
 const slug = computed(() => route.params.slug as string)
 const { get, post, put, patch, del } = useApi()
 const {
@@ -1997,12 +1544,7 @@ const {
 } = useVisualStyleCatalog()
 onMounted(() => { void refreshVisualStyles() })
 const { ask } = useConfirm()
-const { project, config, refreshConfig, loadProject, episodesRoot } = useProject()
-/** `<channel>/Exports` — where this channel's finals go unless a separate folder is chosen. */
-const channelExportsDir = computed(() => {
-  const root = episodesRoot.value || ''
-  return root ? `${root.replace(/[\\/]+$/, '').replace(/[\\/][^\\/]+$/, '')}/Exports` : ''
-})
+const { project, config, refreshConfig, loadProject } = useProject()
 const { success, error: showError, info } = useToast()
 const {
   modelId: audioQualityAlternateModel,
@@ -2022,28 +1564,7 @@ const audioQualityCatalogStaleNote = computed(() => genstudioStaleNote(
 // folder. `projectLocation` below still shows where this channel sits; moving
 // it is a Finder drag inside the Library.
 
-const activeTab = ref('connections')
-
-// ── About-tab bindings ──────────────────────────────────────────────────
-// App version + build date come from runtimeConfig (set in nuxt.config.ts
-// at build time from the root package.json). Surfaced here so beta
-// testers can copy "Story Studio KH v1.0.11 · built 2026-04-27" into a
-// bug report.
-const { public: pubCfg } = useRuntimeConfig()
-const appVersion = computed(() => (pubCfg.appVersion as string | undefined) || '0.0.0')
-const buildDate = computed(() => (pubCfg.buildDate as string | undefined) || '')
-const versionCopied = ref(false)
-async function copyVersionString() {
-  const txt = `Story Studio KH v${appVersion.value} · built ${buildDate.value}`
-  try {
-    await navigator.clipboard.writeText(txt)
-    versionCopied.value = true
-    setTimeout(() => { versionCopied.value = false }, 1400)
-    success('Version copied')
-  } catch {
-    showError('Could not copy — your browser/OS blocked clipboard access.')
-  }
-}
+const activeTab = ref('identity')
 
 // Per-action "Saved Xs ago" persistent indicator. Each successful save
 // stamps a timestamp under its key; <SaveIndicator> renders a permanent
@@ -2837,313 +2358,6 @@ async function migrateMediaToRoot() {
   }
 }
 
-/**
- * The Library — one location, replacing the projects-root override (v1.4.3).
- *
- * Changing it is a COPY, done by the same mover the old flow used, then a
- * restart: long-lived state (job queue, watchers, caches) still points at the
- * old place until the app comes back up. The old folder is deliberately left
- * behind — deleting someone's library after copying it is not a decision this
- * app makes.
- */
-interface LibraryStatus {
-  configured: boolean
-  path: string
-  exists: boolean
-  writable: boolean
-  suggested: string
-  assets_dir: string
-  exports_dir: string
-  exports_custom?: boolean
-  exports_previous?: string[]
-}
-
-const library = ref<LibraryStatus | null>(null)
-const projectsRootBusy = ref(false)
-const projectsRootStatus = ref('')
-const projectsRootStatusKind = ref<'ok' | 'warn' | 'err'>('ok')
-const exportsBusy = ref(false)
-const exportsStatus = ref('')
-const exportsStatusKind = ref<'ok' | 'warn' | 'err'>('ok')
-
-async function loadLibrary() {
-  try {
-    library.value = await get<LibraryStatus>('/library')
-  } catch (e: any) {
-    projectsRootStatus.value = `Couldn't read your Library location: ${e?.data?.detail || e?.message}`
-    projectsRootStatusKind.value = 'err'
-  }
-}
-onMounted(loadLibrary)
-
-/**
- * Archive uploaded videos (v1.4.4) — Library-wide.
- *
- * Preview first, then move. The run is fire-and-poll rather than one long
- * request: 220 GB takes many minutes and any proxy in between would give up
- * long before the copy did.
- */
-type ArchiveSkipReason =
-  | 'no_code' | 'unknown_channel' | 'ambiguous_channel'
-  | 'not_uploaded' | 'not_reviewed' | 'collision'
-interface ArchivePreviewRow {
-  source_path: string; filename: string; bytes: number; code: string
-  slug?: string; youtube_video_id?: string
-  status: 'ready' | 'skipped'; reason?: string; reason_code?: ArchiveSkipReason
-}
-interface ArchivePreviewResult {
-  source_root: string; source_exists: boolean
-  complete: boolean; cancelled: boolean
-  candidates: ArchivePreviewRow[]
-  ready_count: number; ready_bytes: number
-  skipped_count: number; skipped_bytes: number
-  by_channel: Array<{ slug: string; count: number; bytes: number }>
-}
-
-const archiveSource = ref('')
-const archiveDest = ref('')
-const archiveBusy = ref(false)
-const archiveRunning = ref(false)
-const archiveChecking = ref(false)
-const archiveStopping = ref(false)
-const archiveStage = ref<'checking' | 'moving' | null>(null)
-const archivePreview = ref<ArchivePreviewResult | null>(null)
-const archiveResult = ref<any>(null)
-const archiveProgress = ref({ done: 0, total: 0, checked: 0, current: '' })
-let archivePoll: ReturnType<typeof setInterval> | null = null
-let archivePollInFlight = false
-let archiveRestoreInFlight = false
-let archivePanelDisposed = false
-
-const archiveSkippedRows = computed(
-  () => (archivePreview.value?.candidates || []).filter(c => c.status === 'skipped'),
-)
-const archiveReadyRows = computed(
-  () => (archivePreview.value?.candidates || []).filter(c => c.status === 'ready'),
-)
-
-/**
- * What the skipped pile is actually made of, in his words.
- *
- * The confirm dialog used to describe every skip as "not confirmed uploaded".
- * That was wrong twice: files with no episode code at all were counted as
- * unproven uploads (his TerenceGaming folder is full of them), and until
- * v1.4.10 the sentence's promise — that nothing unproven would be touched —
- * was not true across channels. Say what is true instead.
- */
-const archiveSkipSummary = computed(() => {
-  const counts: Record<string, number> = {}
-  for (const row of archiveSkippedRows.value) {
-    const key = row.reason_code || 'other'
-    counts[key] = (counts[key] || 0) + 1
-  }
-  const phrases: string[] = []
-  const say = (key: string, one: string, many: string) => {
-    const n = counts[key]
-    if (n) phrases.push(`${n} ${n === 1 ? one : many}`)
-  }
-  say('not_uploaded', 'is not confirmed uploaded', 'are not confirmed uploaded')
-  say('no_code', 'has no episode code', 'have no episode code')
-  say('unknown_channel', 'cannot be tied to a channel', 'cannot be tied to a channel')
-  say('ambiguous_channel', 'sits where more than one channel could own it',
-    'sit where more than one channel could own them')
-  say('other', 'is skipped for another reason', 'are skipped for other reasons')
-  return phrases
-})
-
-async function loadArchivePreview() {
-  if (archiveBusy.value) return
-  archiveBusy.value = true
-  archiveChecking.value = true
-  archiveRunning.value = false
-  archiveStopping.value = false
-  archiveStage.value = 'checking'
-  archiveProgress.value = { done: 0, total: 0, checked: 0, current: '' }
-  archiveResult.value = null
-  archivePreview.value = null
-  try {
-    await post('/library/archive/preview', {
-      source_root: archiveSource.value.trim() || undefined,
-    })
-    if (archivePoll) clearInterval(archivePoll)
-    archivePoll = setInterval(pollArchive, 1000)
-    void pollArchive()
-  } catch (e: any) {
-    archiveChecking.value = false
-    archiveStage.value = null
-    archiveBusy.value = false
-    showError(e?.data?.detail || e?.message || 'Could not check the folder')
-  }
-}
-
-async function startArchive() {
-  if (archiveBusy.value) return
-  const preview = archivePreview.value
-  if (!preview?.complete) return
-  const approved = preview.candidates.filter(c => c.status === 'ready').map(c => c.source_path)
-  const staying = archiveSkipSummary.value.length
-    ? `${preview.skipped_count} video(s) stay where they are — ${archiveSkipSummary.value.join(', ')}.`
-    : 'Nothing else in that folder is affected.'
-  const ok = await ask({
-    title: 'Move finished videos?',
-    message: `${preview.ready_count} video(s) — ${formatBytes(preview.ready_bytes)} — will be COPIED to\n`
-      + `  ${archiveDest.value}\n\n`
-      + `Each one is checked at the destination before the original is removed, so nothing is lost `
-      + `if the copy fails.\n\n`
-      + `${staying}\n\n`
-      + `Only the ${preview.ready_count} listed above will be moved — anything added to the folder `
-      + `after this check is left alone.`,
-    confirmLabel: 'Move Them',
-  })
-  if (!ok) return
-
-  archiveBusy.value = true
-  archiveRunning.value = true
-  archiveChecking.value = false
-  archiveStopping.value = false
-  archiveStage.value = 'checking'
-  archiveProgress.value = { done: 0, total: approved.length, checked: 0, current: '' }
-  archiveResult.value = null
-  try {
-    await post('/library/archive/run', {
-      destination: archiveDest.value.trim(),
-      // Bind the move to the root that produced this bill. Editing the input
-      // after a completed review must not substitute a different folder.
-      source_root: preview.source_root,
-      // The reviewed set. The server re-checks each one's upload proof and can
-      // only get stricter, but it will not move anything outside this list.
-      approved,
-    })
-    if (archivePoll) clearInterval(archivePoll)
-    archivePoll = setInterval(pollArchive, 1000)
-    void pollArchive()
-  } catch (e: any) {
-    archiveRunning.value = false
-    archiveBusy.value = false
-    archiveStage.value = null
-    showError(e?.data?.detail || e?.message || 'Could not start the sweep')
-  }
-}
-
-function applyArchiveStatus(st: any): boolean {
-  const phase = st.phase === 'preview' || st.phase === 'run' ? st.phase : null
-  // A fresh server has no archive operation to restore. Do not turn that into
-  // an empty result or a fake stopped scan when Settings first opens.
-  if (!st.running && !phase) return false
-
-  archiveStage.value = st.stage || null
-  archiveProgress.value = {
-    done: st.done || 0, total: st.total || 0, checked: st.checked || 0, current: st.current || '',
-  }
-  archiveStopping.value = !!st.stopping
-  archiveBusy.value = !!st.running
-  archiveChecking.value = !!st.running && phase === 'preview'
-  archiveRunning.value = !!st.running && phase === 'run'
-  if (st.running) return true
-
-  if (archivePoll) { clearInterval(archivePoll); archivePoll = null }
-  archiveStage.value = null
-  if (phase === 'preview') {
-    archivePreview.value = st.result || null
-    archiveResult.value = null
-  } else {
-    archiveResult.value = st.result
-    archivePreview.value = null
-  }
-  if (st.error) showError(st.error)
-  return true
-}
-
-async function pollArchive() {
-  if (archivePollInFlight) return
-  archivePollInFlight = true
-  try {
-    applyArchiveStatus(await get<any>('/library/archive/status'))
-  } catch { /* transient — keep polling */ }
-  finally { archivePollInFlight = false }
-}
-
-async function stopArchive() {
-  archiveStopping.value = true
-  try { await post('/library/archive/stop', {}) } catch { /* best effort */ }
-}
-
-async function restoreArchiveInFlight() {
-  if (archiveBusy.value || archivePoll || archiveRestoreInFlight || archivePanelDisposed) return
-  archiveRestoreInFlight = true
-  try {
-    const st = await get<any>('/library/archive/status')
-    if (archivePanelDisposed || archiveBusy.value || archivePoll) return
-    if (applyArchiveStatus(st) && st.running) archivePoll = setInterval(pollArchive, 1000)
-  } catch { /* the archive panel remains idle until its next explicit action */ }
-  finally { archiveRestoreInFlight = false }
-}
-
-onBeforeUnmount(() => {
-  archivePanelDisposed = true
-  if (archivePoll) clearInterval(archivePoll)
-  archivePoll = null
-})
-
-async function moveLibraryTo(picked: string) {
-  if (!picked || picked === library.value?.path) return
-  const ok = await ask({
-    title: 'Move your Library?',
-    message: `To: ${picked}\n\nEvery channel, your shared assets and your exports are COPIED there. ` +
-      'The current folder is left exactly as it is, so nothing can be lost — you can delete it yourself once you have checked the new one. ' +
-      'Story Studio restarts afterwards.',
-    confirmLabel: 'Copy and Restart',
-  })
-  if (!ok) return
-
-  projectsRootBusy.value = true
-  projectsRootStatus.value = 'Copying your Library…'
-  projectsRootStatusKind.value = 'ok'
-  try {
-    await put('/library', { path: picked, move: true })
-    projectsRootStatus.value = '✓ Moved. Restarting…'
-    setTimeout(async () => {
-      try { await post('/system/restart-app', {}) } catch (e: any) {
-        if (e?.status === 503) {
-          showError('App is in dev mode and can\'t auto-restart. Quit and start it again to use the new Library.')
-        } else {
-          showError(`Restart failed: ${e?.data?.detail || e?.message}. Quit and reopen manually.`)
-        }
-      }
-    }, 600)
-  } catch (e: any) {
-    projectsRootStatus.value = `Move failed: ${e?.data?.detail || e?.message}`
-    projectsRootStatusKind.value = 'err'
-    projectsRootBusy.value = false
-  }
-}
-
-
-/** Choose where NEW finished videos go ('' = the Library's Exports folder). Moves nothing. */
-async function chooseExportsFolder(picked: string) {
-  const current = library.value?.exports_dir || ''
-  if (picked && picked === current) return
-  const ok = await ask({
-    title: picked ? 'Save new finished videos here?' : 'Go back to the Library folder?',
-    message: `${picked || 'The Exports folder inside your Library'}\n\nNew finished videos are saved there from now on. `
-      + 'Videos you already made are NOT moved: they stay where they are and Story Studio still finds them.',
-    confirmLabel: picked ? 'Use This Folder' : 'Use Library Folder',
-  })
-  if (!ok) return
-  exportsBusy.value = true
-  exportsStatus.value = ''
-  try {
-    library.value = await put<LibraryStatus>('/library/exports', { path: picked })
-    exportsStatusKind.value = 'ok'
-    exportsStatus.value = 'Saved. New finished videos go to this folder.'
-  } catch (e: any) {
-    exportsStatusKind.value = 'err'
-    exportsStatus.value = e?.data?.detail || e?.message || 'Could not use that folder.'
-  } finally {
-    exportsBusy.value = false
-  }
-}
-
 // v1.0.150 — The Chatterbox standalone provider was removed. All the
 // chatterbox* state, loaders, savers, test-connection, and reference-upload
 // handlers that used to live here have been deleted. Old project.json
@@ -3166,14 +2380,6 @@ watch(activeTab, (t) => {
   }
   if (t === 'publishing' && !ytAppDefaults.value) {
     void loadYoutubeAppDefaults()
-  }
-  if (t === 'maintenance') {
-    // F-04 (DS-11) — entering the tab that owns the FFmpeg card must fetch the
-    // real status before the card can propose an install or recovery download.
-    // Re-probing only while the answer is unknown keeps the explicit
-    // "Re-check status" button meaningful and avoids a hidden fetch per visit.
-    if (!ffmpegStatus.value && !ffmpegStatusLoading.value) void refreshFfmpegStatus()
-    void restoreArchiveInFlight()
   }
   // v1.0.107+ — load location status so the "Unlink from this Mac"
   // danger-zone renders only when the project is actually linked.
@@ -3295,7 +2501,7 @@ async function onYoutubeBackfillApply() {
   await runYoutubeBackfill(false)
 }
 
-const tabZones = SETTINGS_ZONES
+const tabZones = SETTINGS_ZONES.filter(zone => zone.id === 'project')
 
 const tabs = tabZones.flatMap(zone => zone.sections)
 const settingsHashTargetIds = settingsAnchorTargetIds(tabs.map(tab => tab.id))
@@ -3334,540 +2540,26 @@ async function goToSetting(hit: SettingEntry): Promise<void> {
   setTimeout(() => el.classList.remove('setting-flash'), 1600)
 }
 
-// ── FFmpeg tab state ─────────────────────────────────────────────────────
-// The backend exposes a self-contained installer at POST /ffmpeg/install
-// that downloads the binary from the official release mirror into the app's
-// user-data directory. No brew / sudo / Terminal needed. Status is fetched
-// at GET /ffmpeg/status. Other generator pages link here via the URL hash
-// `#ffmpeg` — see `route.hash` watcher below for the auto-tab-switch.
-interface FfmpegStatus {
-  installed: boolean
-  version?: string
-  source?: 'bundled' | 'app-data' | 'system' | 'not-found'
-  has_drawtext?: boolean
-  has_libass?: boolean
-  path?: string
-}
-const ffmpegStatus = ref<FfmpegStatus | null>(null)
-/** The FFmpeg card in one plain sentence, plus the one button that fixes it (v1.4.249). */
-const ffmpegState = computed<{ tone: 'ok' | 'warn' | 'err' | 'idle'; title: string; detail: string; fix: string }>(() => {
-  const st = ffmpegStatus.value
-  if (ffmpegStatusError.value) return { tone: 'err', title: 'Could not check FFmpeg', detail: `${ffmpegStatusError.value} — this does not mean it is missing. Check again.`, fix: '' }
-  if (!st) return { tone: 'idle', title: 'Checking FFmpeg…', detail: '', fix: '' }
-  if (!st.installed) return { tone: 'err', title: 'FFmpeg is missing', detail: 'Audio Assembly and Video Assembly cannot run until it is installed.', fix: 'Install FFmpeg' }
-  const missing = [!st.has_drawtext && 'text overlays', !st.has_libass && 'subtitle burn-in'].filter(Boolean) as string[]
-  if (!missing.length) return { tone: 'ok', title: 'Ready — includes text overlays and subtitle burn-in', detail: st.source === 'bundled' ? 'The copy that ships with Story Studio.' : '', fix: '' }
-  // A bundled copy is pinned to the app; it is never replaced from here.
-  return {
-    tone: 'warn',
-    title: `Works, but missing ${missing.join(' and ')}`,
-    detail: st.source === 'bundled' ? 'Update Story Studio to get the full version.' : 'Install the full version Story Studio was tested with.',
-    fix: st.source === 'bundled' ? '' : 'Install Full Version',
-  }
-})
-const ffmpegSourceLabel = computed(() => ({
-  bundled: 'Bundled with Story Studio', 'app-data': 'Recovery copy', system: 'Installed on this Mac', 'not-found': 'None',
-} as Record<string, string>)[ffmpegStatus.value?.source || ''] || '—')
-const ffmpegStatusLoading = ref(false)
-// F-04 (DS-11) — the FFmpeg card proposes an install/recovery download from
-// `ffmpegStatus.installed === false`, and a failed status check used to be
-// written as exactly that (`{ installed: false }`). "I could not check" must
-// not become "not installed" (AGENTS.md §6), and no install action may be
-// offered for a status that was never read. `null` status = unknown.
-const ffmpegStatusError = ref('')
-const ffmpegInstalling = ref(false)
-const ffmpegInstallProgress = ref(0)
-const ffmpegInstallMessage = ref('')
-const ffmpegInstallError = ref(false)
-
-// Install-log fetch state. Populated on demand (after a failed install
-// the user clicks "Show install log") rather than auto-loaded so a
-// successful run doesn't hit the log endpoint unnecessarily.
-interface InstallLogEntry { ts: string; level: string; message: string; phase?: string; error?: string; code?: string; stack?: string; [k: string]: any }
-const ffmpegInstallLog = ref<InstallLogEntry[]>([])
-const ffmpegInstallLogChecked = ref(false)
-const ffmpegLogLoading = ref(false)
-const ffmpegLogCopiedAt = ref(0)
-
-// Restart prompt — shown after the in-app installer succeeds OR after a
-// Re-check status flips the badges from missing → installed. The renderer
-// keeps a stale "ffmpeg not found" state for some pages until the whole
-// app restarts; one explicit relaunch saves the user from "I installed
-// it but it's still broken" confusion.
-const showFfmpegRestartPrompt = ref(false)
-const restarting = ref(false)
-const ffmpegInstallLogText = computed(() => {
-  // Render entries as one-line-per-event with phase + duration + key
-  // fields, then a separate stack/error block when present. Format
-  // chosen so the user can paste into a chat/issue without further
-  // formatting, and the assistant can scan it quickly.
-  return ffmpegInstallLog.value.map(e => {
-    const ts = e.ts || '?'
-    const phase = e.phase || (e.message.split(':').slice(1).join(':') || '?')
-    const ms = typeof e.ms === 'number' ? ` (${e.ms}ms)` : ''
-    const errBits: string[] = []
-    if (e.code) errBits.push(`code=${e.code}`)
-    if (e.error) errBits.push(`error="${e.error}"`)
-    const head = `[${ts}] ${e.level.toUpperCase()} ${phase}${ms}${errBits.length ? ' · ' + errBits.join(' ') : ''}`
-    return e.stack ? `${head}\n  ${e.stack.split('\n').slice(0, 6).join('\n  ')}` : head
-  }).join('\n')
-})
-
-async function refreshFfmpegStatus() {
-  // Capture the previous state so we can detect a "missing → installed"
-  // flip after the user installed ffmpeg externally (brew, manual). When
-  // that happens, surface the restart prompt automatically — same UX as
-  // the in-app installer success path.
-  const wasMissing = !!ffmpegStatus.value && !ffmpegStatus.value.installed
-  ffmpegStatusLoading.value = true
-  ffmpegStatusError.value = ''
-  try {
-    ffmpegStatus.value = await get<FfmpegStatus>('/ffmpeg/status')
-    if (wasMissing && ffmpegStatus.value.installed) {
-      showFfmpegRestartPrompt.value = true
-    }
-  } catch (e: any) {
-    // Unknown, not missing. The card keeps the installer closed and shows the
-    // failure with a Retry instead of inviting a download it cannot justify.
-    ffmpegStatus.value = null
-    ffmpegStatusError.value = e?.data?.detail || e?.message || 'Could not check FFmpeg'
-  } finally {
-    ffmpegStatusLoading.value = false
-  }
-}
-
-async function installFfmpeg() {
-  if (ffmpegInstalling.value) return
-  if (ffmpegStatus.value?.installed && ffmpegStatus.value.source === 'bundled') {
-    success('Bundled FFmpeg is already verified — no download is needed')
-    return
-  }
-  ffmpegInstalling.value = true
-  ffmpegInstallProgress.value = 0
-  ffmpegInstallError.value = false
-  ffmpegInstallMessage.value = 'Starting download…'
-
-  // Poll the install-progress endpoint every second while the POST is in
-  // flight. The POST is synchronous (waits for the whole download to
-  // finish), so without polling the user sees a frozen progress bar for
-  // up to 5 minutes. The polling endpoint reads the same in-memory state
-  // that downloadFFmpeg writes to on every phase transition.
-  let pollHandle: ReturnType<typeof setInterval> | null = null
-  pollHandle = setInterval(async () => {
-    try {
-      const p = await get<{ status: string; phase?: string; percent: number; message: string; error?: string }>('/ffmpeg/install-progress')
-      if (typeof p.percent === 'number') ffmpegInstallProgress.value = p.percent
-      if (p.message) ffmpegInstallMessage.value = p.message
-      if (p.status === 'done' || p.status === 'error' || p.status === 'idle') {
-        if (pollHandle) { clearInterval(pollHandle); pollHandle = null }
-      }
-    } catch { /* polling is best-effort */ }
-  }, 1000)
-
-  try {
-    const result = await post<{ ok: boolean; path: string; status: FfmpegStatus }>('/ffmpeg/install', {})
-    ffmpegInstallProgress.value = 100
-    ffmpegInstallMessage.value = `Installed to ${result.path}`
-    ffmpegStatus.value = result.status
-    showFfmpegRestartPrompt.value = true
-    success('FFmpeg installed successfully')
-  } catch (e: any) {
-    ffmpegInstallError.value = true
-    ffmpegInstallMessage.value = e?.data?.detail || e?.message || 'Install failed — see manual instructions below'
-    showError('FFmpeg install failed')
-  } finally {
-    if (pollHandle) clearInterval(pollHandle)
-    ffmpegInstalling.value = false
-  }
-}
-
-async function restartApp() {
-  if (restarting.value) return
-  restarting.value = true
-  try {
-    // Backend responds with `{ ok: true }`, then triggers `app.relaunch()
-    // + app.exit(0)` after a 200ms grace. The fetch resolves before the
-    // process dies, then the renderer is killed by the relaunch — Nuxt
-    // boots fresh on the new process and lands the user back on this
-    // same page (the URL is preserved by Electron's restoreSession).
-    await post('/app/restart', {})
-    // Don't reset `restarting` — the page is about to be replaced, and
-    // showing the spinner during the brief relaunch window is the
-    // correct affordance.
-  } catch (e: any) {
-    restarting.value = false
-    showError(e?.data?.detail || 'Restart failed — please quit and reopen the app manually.')
-  }
-}
-
-async function loadInstallLog() {
-  ffmpegLogLoading.value = true
-  ffmpegInstallLogChecked.value = true
-  try {
-    const resp = await get<{ entries: InstallLogEntry[]; path: string; total?: number; message?: string }>('/ffmpeg/install-log')
-    ffmpegInstallLog.value = resp.entries || []
-  } catch (e: any) {
-    showError('Could not load install log: ' + (e?.data?.detail || e?.message || 'unknown'))
-    ffmpegInstallLog.value = []
-  } finally {
-    ffmpegLogLoading.value = false
-  }
-}
-
-async function copyInstallLog() {
-  // Bundle the log entries WITH platform info so a recipient (assistant
-  // or support engineer) doesn't have to ask "what arch / OS / app
-  // version?" as a follow-up. Browsing this clipboard payload should
-  // be enough to triage 90% of install failures.
-  const platformInfo = [
-    `Platform: ${navigator.platform || 'unknown'}`,
-    `User agent: ${navigator.userAgent || 'unknown'}`,
-    `App URL: ${window.location.origin}`,
-    `Captured at: ${new Date().toISOString()}`,
-  ].join('\n')
-  const body = `=== Story Studio FFmpeg install log ===\n${platformInfo}\n\n--- log entries (${ffmpegInstallLog.value.length}) ---\n${ffmpegInstallLogText.value}\n=== end ===`
-  try {
-    await navigator.clipboard.writeText(body)
-    ffmpegLogCopiedAt.value = Date.now()
-    setTimeout(() => { if (Date.now() - ffmpegLogCopiedAt.value >= 2500) ffmpegLogCopiedAt.value = 0 }, 2700)
-  } catch {
-    showError('Could not copy — select the text in the log box and copy manually.')
-  }
-}
-
-// Open external URLs in the system browser instead of the Electron window
-// (which doesn't load arbitrary domains by default and would just blank out).
-function openExternal(url: string) {
-  if (typeof window !== 'undefined' && (window as any).require) {
-    try {
-      const { shell } = (window as any).require('electron')
-      shell.openExternal(url)
-      return
-    } catch { /* fall through to web fallback */ }
-  }
-  window.open(url, '_blank', 'noopener')
-}
-
 const _route = useRoute()
 function applyHash() {
   const rawTarget = (_route.hash || '').toLowerCase().replace(/^#/, '')
+  const appDestination: Record<string, string> = {
+    app: 'connections', models: 'connections', youtube: 'connections', connections: 'connections',
+    'default-models': 'default-models', performance: 'performance', appearance: 'appearance',
+    notifications: 'appearance', maintenance: 'files', ffmpeg: 'files', about: 'files',
+    'free-up-space': 'files', backup: 'backup',
+  }
+  if (appDestination[rawTarget]) {
+    void settingsRouter.replace({ path: '/settings', query: { section: appDestination[rawTarget] }, hash: `#${rawTarget === 'youtube' ? 'youtube-accounts' : rawTarget}` })
+    return
+  }
   const target = resolveSettingsSectionHash(rawTarget, tabs.map(tab => tab.id))
   if (!target) return
   activeTab.value = target
-  if (rawTarget === 'youtube') {
-    // The Reconnect links land on the channel rows, each with its own Reconnect.
-    nextTick(() => document.querySelector('[data-setting="youtube-accounts"]')?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
-  }
-  if (rawTarget === 'free-up-space') {
-    nextTick(() => document.getElementById('free-up-space')?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
-  }
-  if (rawTarget === 'ffmpeg') {
-    refreshFfmpegStatus()
-    nextTick(() => {
-      document.getElementById('ffmpeg-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-    })
-  }
-}
-onMounted(() => {
-  applyHash()
-  if (activeTab.value === 'maintenance') {
-    refreshFfmpegStatus()
-    void restoreArchiveInFlight()
-  }
 
-  loadNotifSettings()
-})
+}
+onMounted(applyHash)
 watch(() => _route.hash, applyHash)
-
-// ── Notifications tab (app-level, not per-project) ─────────────────────
-// Backed by `/api/app-settings/notifications`. Edits are staged locally and
-// committed together so a quick series of toggles cannot race overlapping
-// PUT responses and restore an older value.
-interface TelegramConfigUI { enabled: boolean; bot_token: string; chat_id: string }
-interface EventsConfigUI { pipeline_finished: boolean; failures: boolean; long_job: boolean }
-interface DigestConfigUI {
-  enabled: boolean
-  time_local: string
-  desktop_enabled: boolean
-  telegram_enabled: boolean
-  quiet_when_empty?: boolean
-  last_fired_date?: string
-}
-interface NotifSettings {
-  enabled: boolean
-  min_duration_ms: number
-  events: EventsConfigUI
-  telegram: TelegramConfigUI
-  digest: DigestConfigUI
-}
-function defaultEvents(): EventsConfigUI { return { pipeline_finished: true, failures: true, long_job: true } }
-const notifSettings = ref<NotifSettings>({
-  enabled: true,
-  min_duration_ms: 300_000,
-  events: defaultEvents(),
-  telegram: { enabled: false, bot_token: '', chat_id: '' },
-  digest: { enabled: false, time_local: '09:00', desktop_enabled: true, telegram_enabled: true, quiet_when_empty: false },
-})
-const savedNotifSettings = ref<NotifSettings | null>(null)
-const showTelegramToken = ref(false)
-const notifSaveStatus = ref<'idle' | 'saving' | 'saved' | 'error'>('idle')
-const notifSaveError = ref('')
-function cloneNotifSettings(value: NotifSettings): NotifSettings {
-  return JSON.parse(JSON.stringify(value)) as NotifSettings
-}
-function normalizeNotifSettings(raw: Partial<NotifSettings> | null | undefined): NotifSettings {
-  return {
-    enabled: !!raw?.enabled,
-    min_duration_ms: typeof raw?.min_duration_ms === 'number' ? raw.min_duration_ms : 300_000,
-    events: raw?.events
-      ? {
-          pipeline_finished: raw.events.pipeline_finished !== false,
-          failures: raw.events.failures !== false,
-          long_job: raw.events.long_job !== false,
-        }
-      : defaultEvents(),
-    telegram: raw?.telegram
-      ? {
-          enabled: !!raw.telegram.enabled,
-          bot_token: raw.telegram.bot_token || '',
-          chat_id: raw.telegram.chat_id || '',
-        }
-      : { enabled: false, bot_token: '', chat_id: '' },
-    digest: raw?.digest
-      ? {
-          enabled: !!raw.digest.enabled,
-          time_local: raw.digest.time_local || '09:00',
-          desktop_enabled: raw.digest.desktop_enabled !== false,
-          telegram_enabled: raw.digest.telegram_enabled !== false,
-          quiet_when_empty: !!raw.digest.quiet_when_empty,
-          last_fired_date: raw.digest.last_fired_date,
-        }
-      : { enabled: false, time_local: '09:00', desktop_enabled: true, telegram_enabled: true, quiet_when_empty: false },
-  }
-}
-const notificationsDirty = computed(() =>
-  !!savedNotifSettings.value
-  && JSON.stringify(notifSettings.value) !== JSON.stringify(savedNotifSettings.value),
-)
-const telegramConfigured = computed(() =>
-  !!notifSettings.value.telegram.bot_token.trim() && !!notifSettings.value.telegram.chat_id.trim(),
-)
-const telegramReady = computed(() => notifSettings.value.telegram.enabled && telegramConfigured.value)
-const telegramStatusText = computed(() => {
-  if (!notifSettings.value.telegram.enabled) return 'Not enabled'
-  if (!notifSettings.value.telegram.bot_token.trim()) return 'Bot token needed'
-  if (!notifSettings.value.telegram.chat_id.trim()) return 'Chat connection needed'
-  return 'Connected for remote alerts'
-})
-const digestHasReadyDestination = computed(() =>
-  (notifSettings.value.digest.desktop_enabled && notifSettings.value.enabled)
-  || (notifSettings.value.digest.telegram_enabled && telegramReady.value),
-)
-const digestReady = computed(() => notifSettings.value.digest.enabled && digestHasReadyDestination.value)
-const digestStatusText = computed(() => {
-  if (!notifSettings.value.digest.enabled) return 'Not scheduled'
-  if (!digestHasReadyDestination.value) return 'Choose an active destination'
-  return `Daily at ${notifSettings.value.digest.time_local || '09:00'}`
-})
-const notificationReadinessLabel = computed(() => {
-  const count = Number(notifSettings.value.enabled) + Number(telegramReady.value)
-  return count === 0 ? 'Alerts muted' : `${count} channel${count === 1 ? '' : 's'} active`
-})
-const enabledNotificationEventCount = computed(() =>
-  Object.values(notifSettings.value.events).filter(Boolean).length,
-)
-const formattedDigestLastFired = computed(() => {
-  const raw = notifSettings.value.digest.last_fired_date
-  if (!raw) return 'Never'
-  const date = new Date(`${raw}T00:00:00`)
-  return Number.isFinite(date.getTime())
-    ? date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
-    : raw
-})
-const notifMinDurationMinutes = computed({
-  get: () => Math.max(1, Math.round(notifSettings.value.min_duration_ms / 60_000)),
-  set: (v: number) => {
-    const m = Math.max(1, Math.min(60, Math.round(Number(v) || 1)))
-    notifSettings.value.min_duration_ms = m * 60_000
-  },
-})
-async function loadNotifSettings() {
-  try {
-    const r = await get<NotifSettings>('/app-settings/notifications')
-    notifSettings.value = normalizeNotifSettings(r)
-    savedNotifSettings.value = cloneNotifSettings(notifSettings.value)
-    notifSaveStatus.value = 'idle'
-    notifSaveError.value = ''
-  } catch { /* leave defaults */ }
-}
-function discardNotificationChanges() {
-  if (!savedNotifSettings.value) return
-  notifSettings.value = cloneNotifSettings(savedNotifSettings.value)
-  notifSaveStatus.value = 'idle'
-  notifSaveError.value = ''
-  telegramDetectResult.value = null
-  telegramTestResult.value = null
-  digestSendResult.value = null
-}
-function applyRecommendedNotifications() {
-  notifSettings.value.enabled = true
-  notifSettings.value.min_duration_ms = 5 * 60_000
-  notifSettings.value.events = defaultEvents()
-}
-async function saveNotifSettings(): Promise<boolean> {
-  notifSaveStatus.value = 'saving'
-  notifSaveError.value = ''
-  try {
-    const saved = await put<NotifSettings>('/app-settings/notifications', {
-      enabled: notifSettings.value.enabled,
-      min_duration_ms: notifSettings.value.min_duration_ms,
-      events: {
-        pipeline_finished: notifSettings.value.events.pipeline_finished,
-        failures: notifSettings.value.events.failures,
-        long_job: notifSettings.value.events.long_job,
-      },
-      telegram: {
-        enabled: notifSettings.value.telegram.enabled,
-        bot_token: notifSettings.value.telegram.bot_token,
-        chat_id: notifSettings.value.telegram.chat_id,
-      },
-      digest: {
-        enabled: notifSettings.value.digest.enabled,
-        time_local: notifSettings.value.digest.time_local,
-        desktop_enabled: notifSettings.value.digest.desktop_enabled,
-        telegram_enabled: notifSettings.value.digest.telegram_enabled,
-        quiet_when_empty: notifSettings.value.digest.quiet_when_empty,
-      },
-    })
-    notifSettings.value = normalizeNotifSettings(saved)
-    savedNotifSettings.value = cloneNotifSettings(notifSettings.value)
-    notifSaveStatus.value = 'saved'
-    stampSaved('notifications')
-    return true
-  } catch (e: any) {
-    notifSaveError.value = e?.data?.detail || e?.message || 'Unknown error'
-    notifSaveStatus.value = 'error'
-    return false
-  }
-}
-
-// Telegram test-message round-trip. Sends with the values currently
-// in the form (NOT the saved values) so the user can verify a token
-// before committing it. Result is shown inline next to the button.
-const telegramTestBusy = ref(false)
-const telegramTestResult = ref<{ ok: boolean; error?: string } | null>(null)
-async function testTelegram() {
-  telegramTestBusy.value = true
-  telegramTestResult.value = null
-  try {
-    const r = await post<{ ok: boolean; status: number; error?: string }>(
-      '/app-settings/notifications/telegram-test',
-      {
-        bot_token: notifSettings.value.telegram.bot_token,
-        chat_id: notifSettings.value.telegram.chat_id,
-      },
-    )
-    telegramTestResult.value = { ok: !!r.ok, error: r.error }
-  } catch (e: any) {
-    telegramTestResult.value = {
-      ok: false,
-      error: e?.data?.detail || e?.data?.error || e?.message || 'Send failed',
-    }
-  } finally {
-    telegramTestBusy.value = false
-  }
-}
-
-// Daily digest preview + manual send-now (v1.0.62+). Preview hits a
-// read-only endpoint that builds the digest body without dispatching;
-// Send Now actually fires through whichever channels are routed on.
-const digestPreviewBusy = ref(false)
-const digestPreview = ref<{ title: string; body: string } | null>(null)
-const digestSendNowBusy = ref(false)
-const digestSendResult = ref<{ ok: boolean; reason?: string } | null>(null)
-async function loadDigestPreview() {
-  digestPreviewBusy.value = true
-  try {
-    const r = await get<{ payload: { title: string; body: string } }>(
-      '/app-settings/notifications/digest-preview',
-    )
-    digestPreview.value = r.payload
-  } catch (e: any) {
-    digestPreview.value = {
-      title: 'Preview failed',
-      body: e?.data?.detail || e?.message || 'Could not build digest.',
-    }
-  } finally {
-    digestPreviewBusy.value = false
-  }
-}
-async function sendDigestNow() {
-  digestSendNowBusy.value = true
-  digestSendResult.value = null
-  try {
-    if (notificationsDirty.value && !await saveNotifSettings()) return
-    const r = await post<{ ok: boolean; reason?: string; payload?: { title: string; body: string } }>(
-      '/app-settings/notifications/send-digest-now',
-      {},
-    )
-    digestSendResult.value = { ok: !!r.ok, reason: r.reason }
-    // Mirror the dispatched body into the preview pane so the user can
-    // confirm what just got sent without round-tripping through Telegram.
-    if (r.ok && r.payload) digestPreview.value = r.payload
-  } catch (e: any) {
-    digestSendResult.value = {
-      ok: false,
-      reason: e?.data?.detail || e?.message || 'Send failed',
-    }
-  } finally {
-    digestSendNowBusy.value = false
-  }
-}
-
-// Auto-detect chat id by reading the bot's recent messages — saves
-// the user from having to open `https://api.telegram.org/bot<TOKEN>/getUpdates`
-// and parse JSON by hand. Empty result usually means the user hasn't
-// sent /start to their bot yet; the inline message tells them so.
-const telegramDetectBusy = ref(false)
-const telegramDetectResult = ref<{
-  ok: boolean
-  chat_id?: string
-  chat_label?: string
-  error?: string
-} | null>(null)
-async function detectTelegramChatId() {
-  telegramDetectBusy.value = true
-  telegramDetectResult.value = null
-  try {
-    const r = await post<{
-      ok: boolean
-      chat_id?: string
-      chat_label?: string
-      total_updates?: number
-      error?: string
-    }>(
-      '/app-settings/notifications/telegram-detect-chat-id',
-      { bot_token: notifSettings.value.telegram.bot_token },
-    )
-    telegramDetectResult.value = {
-      ok: !!r.ok,
-      chat_id: r.chat_id,
-      chat_label: r.chat_label,
-      error: r.error,
-    }
-    // Auto-fill the chat id but keep it visibly staged with the other edits.
-    if (r.ok && r.chat_id) {
-      notifSettings.value.telegram.chat_id = r.chat_id
-    }
-  } catch (e: any) {
-    telegramDetectResult.value = {
-      ok: false,
-      error: e?.data?.detail || e?.data?.error || e?.message || 'Detection failed',
-    }
-  } finally {
-    telegramDetectBusy.value = false
-  }
-}
 
 // (Removed: KEY_PROVIDERS catalog. The API Keys tab moved to app-level
 // Settings — see /app-settings — so this page no longer drives a
@@ -5184,161 +3876,11 @@ async function saveChannelDefault(): Promise<void> {
   background: rgba(248, 113, 113, 0.1);
 }
 
-/* ── Notification center ───────────────────────────────────────────── */
-/* DS-12/F-14 — `overflow: hidden` made this panel the scroll container for its own
-   `position: sticky; bottom: 10px` save bar. A hidden-overflow ancestor is a scroll
-   container whose scroll position never changes, so the bar measured exactly its
-   natural offset at every scroll position and its Save action was invisible until
-   the very end of a 2680px page. `clip` still clips the panel's rounded corners but
-   is not a scroll container, so the bar sticks against main.main-content instead. */
-.notification-panel { overflow: clip; }
-.notification-status-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; margin-bottom: 12px; }
-.notification-status-card {
-  display: grid;
-  grid-template-columns: 34px minmax(0, 1fr) auto;
-  gap: 9px;
-  align-items: center;
-  min-width: 0;
-  padding: 11px;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--bg-tertiary) 58%, transparent);
-}
-.notification-status-card.active { border-color: rgba(88,198,146,.35); background: linear-gradient(135deg, rgba(88,198,146,.08), rgba(227,180,90,.035)); }
-.notification-status-icon,
-.notification-channel-icon {
-  display: grid;
-  place-items: center;
-  width: 32px;
-  height: 32px;
-  border-radius: 9px;
-  color: var(--settings-green);
-  background: rgba(88,198,146,.1);
-  font-size: 13px;
-  font-weight: 800;
-}
-.notification-status-card > div { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
-.notification-status-card strong { font-size: var(--font-xs); }
-.notification-status-card small { overflow: hidden; color: var(--text-muted); font-size: var(--font-xs); text-overflow: ellipsis; white-space: nowrap; }
-.notification-state { padding: 3px 6px; border-radius: 999px; font-size: var(--font-xs); font-weight: 850; letter-spacing: .08em; white-space: nowrap; }
-.notification-state.ready { color: #6bd6a8; background: rgba(88,198,146,.14); }
-.notification-state.warn { color: #e0b760; background: rgba(227,180,90,.13); }
-.notification-state.off { color: var(--text-muted); background: rgba(128,138,150,.12); }
-.notification-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
-.notification-section {
-  min-width: 0;
-  padding: 16px;
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  background: color-mix(in srgb, var(--bg-tertiary) 60%, transparent);
-}
-.notification-section--events,
-.notification-section--telegram,
-.notification-section--digest { grid-column: 1 / -1; }
-.notification-section-head,
-.notification-channel-head { display: flex; gap: 11px; align-items: center; }
-.notification-section-head { justify-content: space-between; margin-bottom: 11px; }
-.notification-section-head h4,
-.notification-channel-head h4 { margin: 2px 0 3px; font-size: 13px; }
-.notification-section-head > span { color: var(--text-muted); font-size: var(--font-xs); }
-.notification-channel-head > div:nth-child(2) { min-width: 0; flex: 1; }
-.notification-channel-head p { margin: 0; color: var(--text-muted); font-size: var(--font-xs); line-height: 1.45; }
-.notification-event-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
-.notification-event-card {
-  display: grid;
-  grid-template-columns: 28px minmax(0, 1fr);
-  gap: 9px;
-  align-items: start;
-  padding: 11px;
-  border: 1px solid var(--border);
-  border-radius: 11px;
-  background: color-mix(in srgb, var(--bg-primary) 48%, transparent);
-  cursor: pointer;
-  transition: .15s ease;
-}
-.notification-event-card:hover { border-color: rgba(227,180,90,.35); transform: translateY(-1px); }
-.notification-event-card.active { border-color: rgba(88,198,146,.38); background: rgba(88,198,146,.07); }
-/* The card is the containing block for its hidden checkbox. Without it the
-   checkbox was positioned against the page and stretched the window, so
-   Appearance & notifications scrolled far past its content (v1.4.249). */
-.notification-event-card { position: relative; }
-.notification-event-card input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
-.notification-event-mark { display: grid; place-items: center; width: 27px; height: 27px; border-radius: 8px; color: var(--text-muted); background: var(--bg-tertiary); font-size: var(--font-xs); font-weight: 850; }
-.notification-event-card.active .notification-event-mark { color: var(--settings-green); background: rgba(88,198,146,.12); }
-.notification-event-card > span:last-child { display: flex; min-width: 0; flex-direction: column; gap: 3px; }
-.notification-event-card strong { font-size: var(--font-xs); }
-.notification-event-card small { color: var(--text-muted); font-size: var(--font-xs); line-height: 1.45; }
-.notification-switch { position: relative; flex: 0 0 auto; width: 34px; height: 20px; cursor: pointer; }
-.notification-switch input { position: absolute; width: 1px; height: 1px; opacity: 0; }
-.notification-switch span { display: block; width: 100%; height: 100%; border-radius: 999px; background: rgba(128,138,150,.28); transition: .18s ease; }
-.notification-switch span::after { content: ''; position: absolute; top: 3px; left: 3px; width: 14px; height: 14px; border-radius: 50%; background: #c9ced4; transition: .18s ease; }
-.notification-switch input:checked + span { background: rgba(88,198,146,.48); }
-.notification-switch input:checked + span::after { left: 17px; background: #eaf9f2; }
-.notification-threshold { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px 12px; align-items: end; margin-top: 15px; padding-top: 12px; border-top: 1px solid var(--border); }
-.notification-threshold.disabled { opacity: .48; }
-.notification-threshold > div { display: flex; flex-direction: column; gap: 3px; }
-.notification-threshold strong { font-size: var(--font-xs); }
-.notification-threshold small { color: var(--text-muted); font-size: var(--font-xs); line-height: 1.4; }
-.notification-threshold > :last-child { grid-column: 1 / -1; }
-.notification-threshold-value { color: var(--settings-gold); font-size: var(--font-xs); font-weight: 800; }
-.notification-setup { margin-top: 14px; border: 1px dashed var(--border); border-radius: 12px; background: rgba(0,0,0,.06); }
-.notification-setup[open] { border-style: solid; }
-.notification-setup > summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 13px; cursor: pointer; list-style: none; }
-.notification-setup > summary::-webkit-details-marker { display: none; }
-.notification-setup > summary > span:first-child { display: flex; flex-direction: column; gap: 2px; }
-.notification-setup > summary strong { font-size: var(--font-xs); }
-.notification-setup > summary small { color: var(--text-muted); font-size: var(--font-xs); }
-.notification-setup-body { display: grid; gap: 0; border-top: 1px solid var(--border); }
-.notification-setup-step { display: grid; grid-template-columns: 25px minmax(0, 1fr) auto; gap: 10px; align-items: start; padding: 13px; }
-.notification-setup-step + .notification-setup-step { border-top: 1px solid var(--border); }
-.notification-setup-step > span:first-child { display: grid; place-items: center; width: 23px; height: 23px; border-radius: 50%; color: #16231e; background: var(--settings-green); font-size: var(--font-xs); font-weight: 850; }
-.notification-setup-step strong { font-size: var(--font-xs); }
-.notification-setup-step p { margin: 3px 0 0; color: var(--text-muted); font-size: var(--font-xs); line-height: 1.5; }
-.notification-setup-fields { min-width: 0; }
-.notification-setup-fields > label { display: block; margin: 10px 0 4px; color: var(--text-secondary); font-size: var(--font-xs); font-weight: 700; }
-.notification-secret-row,
-.notification-connect-row { display: flex; gap: 7px; align-items: center; }
-.notification-secret-row .input,
-.notification-connect-row .input { min-width: 0; flex: 1; }
-.notification-connect-row { margin-top: 7px; }
-.notification-test-action { display: flex; flex-direction: column; align-items: flex-end; gap: 5px; }
-.notification-test-action small,
-.notification-inline-result { font-size: var(--font-xs); line-height: 1.4; }
-.notification-test-action .ok,
-.notification-inline-result.ok { color: var(--success); }
-.notification-test-action .error,
-.notification-inline-result.error { color: var(--error); }
-.notification-digest-controls { display: grid; grid-template-columns: .7fr 1fr 1fr .7fr; gap: 10px; align-items: stretch; margin-top: 14px; }
-.notification-digest-controls.disabled { opacity: .55; }
-.notification-time-control,
-.notification-route-control,
-.notification-quiet-control,
-.notification-last-fired { display: flex; min-width: 0; flex-direction: column; gap: 5px; padding: 10px; border: 1px solid var(--border); border-radius: 10px; background: rgba(0,0,0,.055); }
-.notification-time-control > span,
-.notification-route-control > span,
-.notification-last-fired > span { color: var(--text-secondary); font-size: var(--font-xs); font-weight: 750; }
-.notification-time-control small,
-.notification-route-control small,
-.notification-quiet-control small { color: var(--text-muted); font-size: var(--font-xs); line-height: 1.35; }
-.notification-route-control label { display: flex; align-items: center; gap: 5px; font-size: var(--font-xs); }
-.notification-quiet-control { flex-direction: row; align-items: flex-start; cursor: pointer; }
-.notification-quiet-control > span { display: flex; flex-direction: column; gap: 3px; }
-.notification-quiet-control strong { font-size: var(--font-xs); }
-.notification-last-fired strong { margin-top: auto; color: var(--settings-gold); font-size: var(--font-xs); }
-.notification-digest-actions { display: flex; flex-wrap: wrap; gap: 7px; align-items: center; margin-top: 10px; }
 .art-style-options { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; padding: 16px; overflow-y: auto; }
 .art-style-option { display: grid; gap: 8px; text-align: left; padding: 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-primary); color: var(--text-primary); cursor: pointer; }
 .art-style-option[aria-pressed="true"] { border-color: var(--accent); }
 .art-style-option img { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; }
 .art-style-option span { color: var(--text-muted); }
-.notification-preview { margin-top: 10px; padding: 12px; border: 1px solid var(--border); border-radius: 11px; background: color-mix(in srgb, var(--bg-primary) 62%, transparent); }
-.notification-preview > strong { display: block; margin: 4px 0 7px; font-size: var(--font-xs); }
-.notification-preview pre { max-height: 280px; margin: 0; overflow: auto; color: var(--text-muted); font-family: var(--font-mono, monospace); font-size: var(--font-xs); line-height: 1.55; white-space: pre-wrap; }
-.notification-save-bar { position: sticky; bottom: 10px; z-index: 4; display: flex; align-items: center; gap: 9px; margin-top: 12px; padding: 11px 12px; border: 1px solid rgba(88,198,146,.3); border-radius: 13px; background: color-mix(in srgb, var(--bg-secondary) 94%, rgba(88,198,146,.2)); box-shadow: 0 10px 28px rgba(0,0,0,.24); }
-.notification-save-bar > div:first-child { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 2px; }
-.notification-save-bar strong { font-size: var(--font-xs); }
-.notification-save-bar span { color: var(--text-muted); font-size: var(--font-xs); }
-.notification-save-bar .error { color: var(--error); }
 
 /* ── Storage tab ─────────────────────────────────────────────────────── */
 .storage-panel { overflow: hidden; }
@@ -5461,24 +4003,7 @@ async function saveChannelDefault(): Promise<void> {
 .storage-result .error-text { color: var(--error, #e25c5c); margin-left: 4px; }
 .cleanup-item-results { margin: 6px 0 0; padding-left: 18px; }
 
-@media (max-width: 980px) {
-  .notification-status-grid { grid-template-columns: 1fr; }
-  .notification-layout { grid-template-columns: 1fr; }
-  .notification-section--events,
-  .notification-section--telegram,
-  .notification-section--digest { grid-column: auto; }
-  .notification-event-grid { grid-template-columns: 1fr; }
-  .notification-digest-controls { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-}
 @media (max-width: 640px) {
-  .notification-setup-step { grid-template-columns: 25px minmax(0, 1fr); }
-  .notification-setup-step > .btn,
-  .notification-test-action { grid-column: 2; align-items: flex-start; }
-  .notification-secret-row,
-  .notification-connect-row { align-items: stretch; flex-direction: column; }
-  .notification-digest-controls { grid-template-columns: 1fr; }
-  .notification-save-bar { position: static; align-items: stretch; flex-direction: column; }
-  .notification-save-bar .btn { width: 100%; }
     .storage-disclosure-summary { grid-template-columns: 28px minmax(0, 1fr) 18px; }
   .storage-disclosure-summary .overview-badge { grid-column: 2; justify-self: start; margin-left: 0; }
   .storage-disclosure-summary::after { grid-column: 3; }

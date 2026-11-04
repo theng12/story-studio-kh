@@ -56,6 +56,7 @@ async function mount(input: {
   electron?: boolean
   connectionError?: { code: string; detail: string }
   section?: 'all' | 'connections' | 'assignment'
+  slug?: string | null
 }): Promise<{
   el: HTMLElement
   calls: Recorded[]
@@ -126,7 +127,7 @@ async function mount(input: {
   const Component = await loadComponent()
   const el = document.createElement('div')
   const app = createApp(defineComponent({
-    render: () => h(Component as any, { slug: 'demo-project', scope: input.section }),
+    render: () => h(Component as any, { slug: input.slug === null ? undefined : input.slug ?? 'demo-project', scope: input.section }),
   }))
   app.mount(el)
   await nextTick()
@@ -143,6 +144,15 @@ async function clickConnect(mounted: { el: HTMLElement }): Promise<void> {
 }
 
 describe('Settings → YouTube', () => {
+  test('app connections load without a channel or an assignment request', async () => {
+    const mounted = await mount({ section: 'connections', slug: null })
+    try {
+      assert.match(mounted.el.textContent!, /YouTube accounts on this Mac/)
+      assert.deepEqual(mounted.calls.filter(call => call.method === 'GET').map(call => call.path), ['/youtube/connections'])
+      assert.doesNotMatch(mounted.el.textContent!, /Could not load|Choose a channel/)
+    } finally { mounted.destroy() }
+  })
+
   test('separates Mac connection setup from this project’s assignment', async () => {
     const connections = await mount({ section: 'connections' })
     assert.match(connections.el.textContent!, /OAuth application/)

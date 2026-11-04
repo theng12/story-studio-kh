@@ -36,10 +36,13 @@
 const route = useRoute()
 const router = useRouter()
 
-type SettingsSection = 'all' | 'connections' | 'performance' | 'appearance'
+type SettingsSection = import('../composables/useAppSettingsModal').AppSettingsSection
 const SECTIONS: Array<{ id: SettingsSection; label: string }> = [
   { id: 'all', label: 'This Mac' },
   { id: 'connections', label: 'Connections' },
+  { id: 'default-models', label: 'Default models' },
+  { id: 'files', label: 'Files & maintenance' },
+  { id: 'backup', label: 'Backup & restore' },
   { id: 'performance', label: 'Performance & recovery' },
   { id: 'appearance', label: 'Appearance & app behaviour' },
 ]
@@ -56,6 +59,15 @@ watch(section, (now) => {
   if (String(route.query.section || 'all') === now) return
   void router.replace({ query: { ...route.query, section: now === 'all' ? undefined : now } })
 }, { immediate: true })
+
+onMounted(() => {
+  watch(() => [section.value, route.hash], async () => {
+    await nextTick()
+    const anchor = route.hash.slice(1)
+    if (anchor) [...document.querySelectorAll<HTMLElement>('[data-setting]')]
+      .find(element => element.dataset.setting === anchor)?.scrollIntoView({ block: 'start' })
+  }, { immediate: true, flush: 'post' })
+})
 
 useAppTitle('Settings')
 </script>

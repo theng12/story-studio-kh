@@ -133,7 +133,7 @@ describe('Folder pickers', () => {
     // <AppFilesSettings>; the channel page keeps only its per-channel media root.
     const appFiles = read('../components/AppFilesSettings.vue')
     assert.match(appFiles, /<FolderField\s+:model-value="library\?\.path \|\| ''"[\s\S]{0,500}@change="moveLibraryTo"/)
-    // App-wide: an empty binding reads as the Library's own Exports folder.
+    // An empty app-wide override preserves each channel's own Exports folder.
     assert.match(appFiles, /<FolderField\s+:model-value="library\?\.exports_custom \? library\.exports_dir : ''"[\s\S]{0,800}@change="chooseExportsFolder"/)
     assert.match(appFiles, /async function moveLibraryTo\(picked: string\) \{[\s\S]{0,200}await ask\(/)
     assert.match(appFiles, /async function chooseExportsFolder\(picked: string\) \{[\s\S]{0,300}await ask\(/)
@@ -150,6 +150,7 @@ describe('Folder pickers', () => {
     // Library, finished videos, both archive folders — the media-root field is
     // per-channel and stays in the channel settings.
     assert.equal(appFilesTemplate.match(/<FolderField/g)?.length, 4, 'library, finished videos and both archive folders use FolderField')
+    assert.equal(channelTemplate.match(/<FolderField/g)?.length, 1, 'the channel media root keeps its shared folder picker')
     assert.doesNotMatch(channelTemplate, /v-model="archiveSource" class="input"|v-model="archiveDest" class="input"/)
   })
 })

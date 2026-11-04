@@ -48,6 +48,9 @@ const modal = useAppSettingsModal()
 const modalTitle = computed(() => ({
   all: 'Settings — This Mac',
   connections: 'Settings — Connections',
+  'default-models': 'Settings — Default models',
+  files: 'Settings — Files & maintenance',
+  backup: 'Settings — Backup & restore',
   performance: 'Settings — Performance & recovery',
   appearance: 'Settings — Appearance & app behavior',
 }[modal.section.value]))

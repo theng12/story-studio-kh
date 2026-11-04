@@ -2,7 +2,7 @@
   <section id="free-up-space" class="media-cleanup" aria-labelledby="media-cleanup-heading">
     <div class="cleanup-heading">
       <div><h3 id="media-cleanup-heading">Free up space</h3><p>Two one-click actions across every channel on this Mac. Story Studio lists your channels itself, so you never change channels one by one. Nothing is deleted: files move to Story’s Trash (Story → Trash; the space is freed when you empty it), and you review exactly what will move before anything changes.</p></div>
-      <div class="cleanup-heading-actions">
+      <div v-if="slug" class="cleanup-heading-actions">
         <button class="btn btn-secondary" :disabled="busy || checkingYouTube" title="Asks YouTube about every upload, older ones included, so confirmed uploads can be freed" @click="checkAllUploads">{{ checkingYouTube ? 'Checking with YouTube…' : 'Check All Uploads' }}</button>
       </div>
     </div>
@@ -113,7 +113,7 @@ interface Space { free_bytes: number | null; project_trash_bytes: number | null;
 /** The one automatic-retention setting (Story → Trash shows the same switch); `last_auto_cleanup` is what this panel reports back. */
 interface RetentionRun { at: string; status: 'completed' | 'failed' | 'skipped'; detail: string; moved?: number; bytes?: number }
 interface Retention { auto_cleanup_enabled: boolean; last_auto_cleanup: RetentionRun | null }
-const props = defineProps<{ slug: string }>()
+const props = defineProps<{ slug?: string }>()
 const { get, post, put } = useApi()
 const { ask } = useConfirm()
 const preview = ref<LibraryPreview | null>(null)
@@ -279,6 +279,7 @@ function restore() {
 /** Free disk and _trash sizes; a failed read just leaves the line out. */
 async function loadSpace() {
   const version = generation, slug = props.slug
+  if (!slug) return
   try {
     const result = await get<Space>(`/projects/${slug}/media-cleanup/space`)
     if (current(version) && isSpace(result)) space.value = result
@@ -309,7 +310,7 @@ async function saveAutoCleanup() {
   } finally { retentionSaving.value = false }
 }
 async function checkAllUploads() {
-  if (checkingYouTube.value) return
+  if (checkingYouTube.value || !props.slug) return
   const version = generation, slug = props.slug
   checkingYouTube.value = true; checkResult.value = ''; error.value = ''
   try {

@@ -67,6 +67,25 @@ const cleanupPreview = {
 }
 const libraryOperation = (action: string, preview: any) => ({ id: 'lib-op', project_slug: '*', kind: 'preview', status: 'completed', stage: null, done: 1, total: 1, current: '', library: true, library_action: action, library_preview: preview })
 
+test('app-wide cleanup needs no channel and keeps both reviewed library actions', async () => {
+  const gets: string[] = []
+  const posts: any[] = []
+  const ui = await mount({
+    get: async (url: string) => { gets.push(url); return url.includes('/library/media-cleanup/operations/') ? libraryOperation('shrink_images', shrinkPreview) : {} },
+    post: async (url: string, body: any) => { posts.push({ url, body }); return { operation_id: 'lib-op' } },
+  }, async () => true, ref(undefined))
+  try {
+    assert.ok(button(ui.host, 'Shrink Images (All Channels)'))
+    assert.ok(button(ui.host, 'Clean Up All Channels'))
+    assert.ok(gets.every(url => !url.startsWith('/projects/')))
+    assert.doesNotMatch(ui.host.textContent || '', /Check All Uploads|This channel in the Trash/)
+    button(ui.host, 'Shrink Images (All Channels)').click()
+    for (let i = 0; i < 5; i++) await flush()
+    assert.deepEqual(posts[0], { url: '/library/media-cleanup/preview', body: { action: 'shrink_images', check_again: false } })
+    assert.match(ui.host.textContent || '', /Channel A/)
+  } finally { ui.close() }
+})
+
 test('the panel offers exactly the two all-channel actions and none of the removed per-channel tools', async () => {
   const ui = await mount({ get: async (url: string) => url.endsWith('/space') ? space : {}, post: async () => ({}) })
   try {

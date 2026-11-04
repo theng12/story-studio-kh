@@ -4,8 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
-## v1.4.381 — 2026-11-04
+## v1.4.381 — 2026-11-05
 
+- Adding closing music to older narration preserves its original opening timing, so a newly selected music lead-in cannot shift the narration away from its scene plan and subtitles.
+- App Settings now holds this Mac's connections, default models, notifications, files, backup and maintenance controls. Channel Settings keeps channel controls, with each moved control in one place and existing saved choices preserved.
 - Coffee Jazz keeps recognizing its saved music formula when the store pack is unavailable. Episode Builder now saves an editable channel target for future mixes; existing mixes keep their saved length and songs.
 - Replace a published or scheduled video's YouTube thumbnail from any local candidate after confirmation. Progress and fresh YouTube readback show the result; the previous image is retained for restoration, including a friend's titled thumbnail. Visibility, schedule and metadata stay unchanged.
 - Private final rendering asks the Gateway for a Mac that supports the video's exact encoding settings, including hardware encoding and its chosen bitrate cap. Older Gateways keep the existing compatibility check; unavailable settings keep the render local with the reason shown.

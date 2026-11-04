@@ -122,7 +122,7 @@ test('"What\'s using space" is read-only and lives on the channel files tab only
   assert.doesNotMatch(view, /cleanupRow|runBulkCleanup|col-actions|Verify &amp; clear|Verify & clear/)
   assert.doesNotMatch(read('../components/AppFilesSettings.vue'), /episode-storage|Space used by each episode/,
     'the per-episode breakdown stays a per-channel control')
-  assert.match(read('../utils/settingsIndex.ts'), /section: 'maintenance', anchor: 'episode-storage'/)
+  assert.match(read('../utils/settingsIndex.ts'), /section: 'files', anchor: 'episode-storage'/)
 })
 
 test('the actual Settings storage fragment renders every unavailable summary metric honestly', async () => {
