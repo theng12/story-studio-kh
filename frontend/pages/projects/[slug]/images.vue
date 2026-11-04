@@ -58,11 +58,12 @@
           <ImageModelPicker
             v-model="activeForm.model"
             :project-slug="slug"
-            :image-mode="thumbnailReferenceActive ? 'img2img' : 'text2img'"
+            v-model:image-mode="thumbnailImageMode"
+            allow-mode-selection
           />
+          <p v-if="thumbnailImageMode === 'img2img' && !thumbnailReferenceActive" class="reference-notice" role="status">Add a reference thumbnail on Thumbnail Prompts before generating.</p>
           <p v-if="thumbnailReferenceActive" class="reference-notice" role="status">
-            A reference thumbnail is switched on for this project, so only <strong>paid</strong> models that can use a
-            reference image are listed. Your image is used privately as a composition guide.
+            Reference to image uses your saved reference thumbnail privately as a composition guide.
             <button type="button" class="btn btn-sm btn-ghost" :disabled="clearingReference" @click="stopUsingReference">
               {{ clearingReference ? 'Turning Off…' : 'Stop Using the Reference' }}
             </button>
@@ -512,7 +513,11 @@ const extraDetails = ref('')
 // Template auto-unwraps computed refs — `activeForm.model` Just Works
 // there; script uses `activeForm.value.model`.
 const activeForm = computed<ImagesSubForm>(() => form.thumbnail)
-const thumbnailReferenceActive = computed(() => !!(config.value as any)?.thumbnail_reference_asset?.id)
+const thumbnailImageMode = ref<'text2img' | 'img2img'>('text2img')
+const thumbnailReferenceActive = computed(() => thumbnailImageMode.value === 'img2img' && !!(config.value as any)?.thumbnail_reference_asset?.id)
+watch(() => (config.value as any)?.thumbnail_reference_asset?.id, id => {
+  thumbnailImageMode.value = id ? 'img2img' : 'text2img'
+}, { immediate: true })
 const clearingReference = ref(false)
 /** Same project setting the Thumbnail Prompts "Remove reference" button clears. */
 async function stopUsingReference(): Promise<void> {
@@ -1509,6 +1514,15 @@ const regenerateAllAction = computed(() => activeModelPaid.value
  * button shows (rows render a single image and skip it).
  */
 async function prepareGeneration(forceOverride?: boolean, ask = true): Promise<any | null> {
+  const modeId = thumbnailImageMode.value === 'img2img' ? 'edit' : 'txt2img'
+  if (!activeGenStudioModel.value?.image_modes?.some(mode => mode.id === modeId && mode.available)) {
+    showError('This image mode is unavailable. Refresh the Gateway model list or choose another mode.')
+    return null
+  }
+  if (thumbnailImageMode.value === 'img2img' && !thumbnailReferenceActive.value) {
+    showError('Add a reference thumbnail on Thumbnail Prompts before generating.')
+    return null
+  }
   const params = generationParams(forceOverride)
   if (!params) {
     showError("This model doesn't list any picture shapes yet. Refresh the model list or choose another model before generating.")
@@ -1529,7 +1543,8 @@ async function prepareGeneration(forceOverride?: boolean, ask = true): Promise<a
   // published only by an output row is valid even when `aspect_ratios` omits it.
   if (activeForm.value.model !== params.model
     || activeForm.value.aspect_ratio !== params.aspect_ratio
-    || !isPublishedAspectRatio(activeGenStudioModel.value, params.aspect_ratio)) {
+    || !isPublishedAspectRatio(activeGenStudioModel.value, params.aspect_ratio)
+    || params.image_mode !== thumbnailImageMode.value) {
     showError('The image model or picture shape changed during confirmation. Review the current selection and generate again to confirm it.')
     return null
   }

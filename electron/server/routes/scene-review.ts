@@ -1078,6 +1078,7 @@ function finishRequestFingerprint(
     seed: Number.isInteger(body.seed) ? body.seed : null,
     auto_approve_generated: autoApproveOn(body.auto_approve_generated),
     // A changed character selection is a different request for the same action id.
+    image_mode: body.image_mode === 'text2img' || body.image_mode === 'img2img' ? body.image_mode : undefined,
     reference_character_ids: referenceCharacterIds(body.reference_character_ids) || [],
   })).digest('hex')
 }
@@ -1141,6 +1142,7 @@ function continuityRenderParams(
     scene_ids: sceneIds,
     missing_only: body.missing_only === true,
     auto_approve_generated: autoApproveOn(body.auto_approve_generated),
+    ...(body.image_mode === 'text2img' || body.image_mode === 'img2img' ? { image_mode: body.image_mode } : {}),
     ...(referenceIds ? { reference_character_ids: referenceIds } : {}),
     ...(manualFinish ? { manual_image_finish: manualFinish } : {}),
   }
@@ -1212,6 +1214,7 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-image', async (req
           seed: Number.isInteger(body.seed) ? body.seed : undefined,
           generation_action: { id: operationId, kind: 'fresh' },
           auto_approve_generated: autoApproveOn(body.auto_approve_generated),
+          ...(body.image_mode === 'text2img' || body.image_mode === 'img2img' ? { image_mode: body.image_mode } : {}),
           ...(referenceIds ? { reference_character_ids: referenceIds } : {}),
         },
       })

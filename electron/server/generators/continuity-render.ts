@@ -121,6 +121,7 @@ interface ContinuityRenderParams {
   /** Scene Review "Reference to Image": ids of THIS episode's characters whose
    *  portraits are attached before the episode template. Resolved to files by
    *  ownership lookup in the generator — the client never sends a path. */
+  image_mode?: 'text2img' | 'img2img'
   reference_character_ids?: string[]
   /** Set on the one automatic remake after a failed free image check. */
   image_check_remake?: boolean
@@ -418,7 +419,7 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
     .map(name => path.join(referenceDir, name))
     .filter(candidate => existsSync(candidate))
   const referencePlan = planEpisodeReference({
-    enabled: cfg.use_episode_reference,
+    enabled: cfg.use_episode_reference && params.image_mode !== 'text2img',
     availablePaths: availableReferences,
     supportsReferences,
     maxReferences,
@@ -764,7 +765,7 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
     // 300-scene batch with one cast must not re-read the portraits 300 times.
     const resolvedBySelection = new Map<string, ResolvedSceneReferences>()
     for (const scene of toRender) {
-      const ids = sceneReferenceIds(scene, defaultReferenceIds)
+      const ids = sceneReferenceIds(scene, defaultReferenceIds, params.image_mode)
       if (!ids.length) {
         if (minReferences > 0) {
           throw new Error(
@@ -1767,6 +1768,7 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
                           ...(params.width ? { width: params.width } : {}),
                           ...(params.height ? { height: params.height } : {}),
                           auto_approve_generated: autoApproveOn(params.auto_approve_generated),
+                          ...(params.image_mode ? { image_mode: params.image_mode } : {}),
                           ...(Array.isArray(params.reference_character_ids) ? { reference_character_ids: params.reference_character_ids } : {}),
                         },
                       })
@@ -1813,6 +1815,7 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
                           ...(params.width ? { width: params.width } : {}),
                           ...(params.height ? { height: params.height } : {}),
                           auto_approve_generated: autoApproveOn(params.auto_approve_generated),
+                          ...(params.image_mode ? { image_mode: params.image_mode } : {}),
                           ...(Array.isArray(params.reference_character_ids) ? { reference_character_ids: params.reference_character_ids } : {}),
                         },
                       })

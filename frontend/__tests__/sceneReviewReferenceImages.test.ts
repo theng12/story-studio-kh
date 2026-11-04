@@ -153,9 +153,10 @@ describe('the selection is per scene', () => {
 
 describe('the page wiring', () => {
   test('the block is gated on the live published capability and ceiling', () => {
-    assert.match(sceneReviewSource, /const referenceLimits = computed\(\(\) => sceneReferenceLimits\(selectedGenStudioModel\.value\)\)/)
+    assert.match(sceneReviewSource, /selectedGenStudioModel\.value\?\.image_modes\?\.find\(mode => mode\.id === 'edit' && mode\.available\)/)
+    assert.match(sceneReviewSource, /sceneImageMode\.value === 'img2img' && mode \? sceneReferenceLimits/)
     assert.match(sceneReviewSource, /<div v-if="referenceLimits" class="sr-reference-block">/)
-    assert.match(sceneReviewSource, /:reference-active="!!referenceLimits"/)
+    assert.match(sceneReviewSource, /v-model:image-mode="sceneImageMode"/)
     assert.match(sceneReviewSource, /\{\{ referenceWindowNotice \}\}/)
   })
 
@@ -170,7 +171,8 @@ describe('the page wiring', () => {
   test('every render request carries the selection, and never a path', () => {
     const sends = sceneReviewSource.match(/\.\.\.referenceCharacterBody\.value/g) || []
     assert.ok(sends.length >= 5, `single, batch, finish and replace requests must all carry the selection (found ${sends.length})`)
-    assert.match(sceneReviewSource, /const referenceCharacterBody = computed\(\(\) => referenceCharacterIds\.value\.length/)
+    assert.match(sceneReviewSource, /image_mode: sceneImageMode\.value/)
+    assert.match(sceneReviewSource, /sceneImageMode\.value === 'img2img' && referenceCharacterIds\.value\.length/)
     assert.doesNotMatch(sceneReviewSource, /reference_paths|referenceImagePaths:/, 'the client sends ids only')
   })
 
@@ -206,16 +208,17 @@ describe('the page wiring', () => {
     assert.doesNotMatch(sceneReviewSource, /max_reference_images\s*[:=]\s*\d/, 'no ceiling may be hardcoded')
   })
 
-  test('the picker keeps offering text-to-image models and only turns on the notices', () => {
+  test('the picker offers live modes without filtering the selectable model list', () => {
     // The `img2img` FILTER is untouched: reference capability is a mode of the
     // same model, so Scene Review (`image-mode="text2img"`) must keep every model.
-    assert.match(pickerSource, /props\.imageMode === 'img2img'\n\s+\? models\.value\.filter/)
+    assert.match(pickerSource, /!props\.allowModeSelection && props\.imageMode === 'img2img'\n\s+\? models\.value\.filter/)
     assert.match(pickerSource, /const referenceMode = computed\(\(\) => props\.imageMode === 'img2img' \|\| props\.referenceActive\)/)
     assert.match(pickerSource, /if \(!referenceMode\.value\) return ''/,
       'the count window notice honours reference-active')
-    assert.match(pickerSource, /if \(props\.imageMode !== 'img2img'\) return ''/,
+    assert.match(pickerSource, /if \(props\.imageMode !== 'img2img' \|\| props\.referenceActive\) return ''/,
       'the dimension notice keeps its img2img wording; Scene Review fits portraits itself')
     assert.match(pickerSource, /referenceActive\?: boolean/)
-    assert.match(sceneReviewSource, /image-mode="text2img"/)
+    assert.match(sceneReviewSource, /allow-mode-selection/)
+    assert.match(pickerSource, /publishedImageModes\(selectedModel\.value\?\.image_modes\)/)
   })
 })

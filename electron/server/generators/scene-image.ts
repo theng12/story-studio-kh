@@ -132,6 +132,7 @@ interface SceneImageGenerateParams {
   /** Scene Review "Reference to Image": ids of THIS episode's characters whose
    *  portraits are attached as references. Resolved to files here, by
    *  ownership lookup — the client never sends a path (AGENTS.md §4). */
+  image_mode?: 'text2img' | 'img2img'
   reference_character_ids?: string[]
   /** Set on the one automatic remake after a failed free image check. */
   image_check_remake?: boolean
@@ -211,7 +212,7 @@ export async function generateSceneImageJob(job: Job): Promise<void> {
   // request-level selection is only the default for scenes that name none.
   // Any problem throws here, before the manifest is touched and before
   // anything is uploaded or charged.
-  const referenceIds = sceneReferenceIds(scene, params.reference_character_ids || [])
+  const referenceIds = sceneReferenceIds(scene, params.reference_character_ids || [], params.image_mode)
   if (!referenceIds.length && (modelConfig.min_reference_images ?? 0) > 0) {
     throw new Error(
       `Scene ${scene.scene_index} has no reference characters, but ${modelConfig.label} needs at least ` +

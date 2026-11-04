@@ -5,6 +5,7 @@
  * Studio URL, token, worker list, or direct provider connection.
  */
 
+import { publishedImageModes, type GenStudioImageMode } from '../contracts/genstudio-image-modes.js'
 import { submitSent } from './inflight-submits.js'
 import { safetyGate, safetyMode, type SafetyMode } from '../services/safety-checks.js'
 import { STORY_CALLER } from './machine-name.js'
@@ -1432,6 +1433,7 @@ export interface GenStudioImageModel extends GenStudioCatalogLock, GenStudioPric
   default_resolution?: string
   /** Valid `(resolution, aspect_ratio)` pairs with their own pricing. */
   output_options?: GenStudioImageOutputOption[]
+  image_modes?: GenStudioImageMode[]
   supports_reference_images: boolean
   /** Explicit img2img flag, where a model separates it from plain references. */
   supports_image_to_image?: boolean
@@ -9278,6 +9280,7 @@ async function loadImageModelsFromGenStudio(baseUrl: string, apiKey: string, sig
           reference_generation_price_version: publishedText(option?.reference_generation_price_version),
         }))
       : undefined,
+    image_modes: publishedImageModes(value?.image_modes),
     supports_reference_images: value?.supports_reference_images === true,
     supports_image_to_image: publishedFlag(value?.supports_image_to_image),
     supports_seed: publishedFlag(value?.supports_seed),

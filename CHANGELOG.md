@@ -6,6 +6,8 @@ What's new in each release. Newest first.
 
 ## v1.4.379 — 2026-11-04
 
+- Thumbnail Generator and Scene Review offer Text to image or Reference to image from the selected model's live Gateway modes. Unavailable modes show the reason. Text mode leaves saved references out of new requests; reference mode shows its published limits.
+
 - Refreshing YouTube status now checks the channel listing every time, so schedules created in YouTube Studio appear even when the previous check was recent. A failed listing refresh keeps the last successful results and reports the failure.
 
 ## v1.4.378 — 2026-11-04

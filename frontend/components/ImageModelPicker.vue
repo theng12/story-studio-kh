@@ -12,6 +12,17 @@
       :catalogue-error="error"
       @update:model-value="select"
     />
+    <fieldset v-if="allowModeSelection && modes.length" class="image-modes">
+      <legend>Image mode</legend>
+      <label v-for="mode in modes" :key="mode.id" :title="mode.reason || ''">
+        <input type="radio" :name="modeGroup" :value="mode.id"
+          :checked="mode.id === currentModeId" :disabled="!isUsable || !mode.available"
+          @change="emit('update:imageMode', mode.id === 'edit' ? 'img2img' : 'text2img')">
+        {{ mode.label }}
+        <small v-if="!mode.available">{{ mode.reason || 'Currently unavailable' }}</small>
+      </label>
+    </fieldset>
+    <p v-if="allowModeSelection && selectedModel && !modes.length" class="notice" role="status">The Gateway has not published image modes for this model.</p>
     <!-- Price of the CURRENT selection, in the Gateway's published terms. A
          computed, so switching model re-prices immediately. -->
     <p v-if="selectedModel" class="notice notice-cost" :class="`basis-${unitCost.basis}`" :title="unitCost.title">
@@ -40,6 +51,8 @@
 </template>
 
 <script setup lang="ts">
+import { imageModeId, publishedImageModes } from '../../electron/server/contracts/genstudio-image-modes.js'
+import type { GenStudioImageModelInfo } from '../composables/useGenStudioImageModels.js'
 import { genStudioModelLockReason, selectLiveGenStudioModel } from '../utils/live-genstudio-model-selection.js'
 import { CREDIT_BASIS_LABEL, describeImageModelRate, describeImageUnitCost } from '../utils/genstudio-credit-cost.js'
 import { defaultOutputOption } from '../utils/genstudio-output-options.js'
@@ -58,11 +71,13 @@ const props = withDefaults(defineProps<{
    * mode of the same model, not a separate model list.
    */
   referenceActive?: boolean
+  allowModeSelection?: boolean
   defaultLabel?: string
   preserveAutomaticSelection?: boolean
 }>(), {
   imageMode: 'text2img',
   referenceActive: false,
+  allowModeSelection: false,
   defaultLabel: 'Pick an image model…',
   preserveAutomaticSelection: false,
 })
@@ -70,16 +85,31 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{
   'update:modelValue': [modelId: string]
   selected: [modelId: string]
+  'update:imageMode': [mode: 'text2img' | 'img2img']
 }>()
 const { models, loading, error, isStale, isUsable, lastFetchedAt, refresh } = useGenStudioImageModels()
 const { get } = useApi()
 const catalogStaleNote = computed(() => genstudioStaleNote(isStale.value, lastFetchedAt.value))
 /** Reference mode without changing which models are offered. */
 const referenceMode = computed(() => props.imageMode === 'img2img' || props.referenceActive)
+const selectedModel = computed(() => models.value.find(model => model.id === props.modelValue) || null)
+const switchNotice = ref('')
+const modeGroup = useId()
+const currentModeId = computed(() => imageModeId(referenceMode.value ? 'img2img' : 'text2img'))
+const modes = computed(() => publishedImageModes(selectedModel.value?.image_modes) || [])
+watch([modes, isUsable, () => props.imageMode], ([availableModes]) => {
+  if (!props.allowModeSelection || !isUsable.value) return
+  if (availableModes.some(mode => mode.id === currentModeId.value && mode.available)) return
+  const next = availableModes.find(mode => mode.available)
+  if (next) {
+    switchNotice.value = `The selected model's available mode is ${next.label}.`
+    emit('update:imageMode', next.id === 'edit' ? 'img2img' : 'text2img')
+  }
+}, { deep: true, immediate: true })
 
 const options = computed(() => {
-  const visibleModels = props.imageMode === 'img2img'
-    ? models.value.filter(model => model.available && model.supports_reference_images && model.max_reference_images >= 1)
+  const visibleModels = !props.allowModeSelection && props.imageMode === 'img2img'
+    ? models.value.filter(model => isUsableModelRow(model))
     : models.value
   const rows = visibleModels.map((model) => {
     const rate = describeImageModelRate(model, { referenceGuided: referenceMode.value })
@@ -90,10 +120,12 @@ const options = computed(() => {
       provider: model.provider_name || '',
       price: rate.text,
       priceTitle: rate.title,
-      disabled: !isUsable.value || !model.available || model.locked === true,
+      disabled: !isUsable.value || !model.available || model.locked === true
+        || (!props.allowModeSelection && !isUsableModelRow(model)),
       disabledReason: !isUsable.value
         ? 'Last-known catalog only. Refresh the Gateway before starting new image work.'
-        : genStudioModelLockReason(model) || (!model.available
+        : genStudioModelLockReason(model) || (!props.allowModeSelection && !isUsableModelRow(model)
+          ? 'No available published mode for this request.' : '') || (!model.available
           ? 'This model is currently unavailable in the Gateway.'
           : ''),
       badges: !isUsable.value ? [{ label: 'last known', tone: 'warning' as const }] : [],
@@ -111,7 +143,6 @@ const options = computed(() => {
  * an unpublished limit is shown as nothing, never as an invented number.
  * A computed, so switching model re-derives it immediately.
  */
-const selectedModel = computed(() => models.value.find(model => model.id === props.modelValue) || null)
 
 /**
  * Price of the current selection, for the model's DEFAULT published output
@@ -129,9 +160,9 @@ const referenceDimensionNotice = computed(() => {
   // Deliberately NOT reference-active: that flow (Scene Review) fits oversized
   // portraits itself, so the img2img advice to "resize them first" would be
   // wrong there. The block states the ceiling in its own words instead.
-  if (props.imageMode !== 'img2img') return ''
+  if (props.imageMode !== 'img2img' || props.referenceActive) return ''
   const selected = selectedModel.value
-  const limit = selected?.reference_image_max_dimension
+  const limit = modes.value.find(mode => mode.id === 'edit')?.references?.max_dimension
   if (!selected || typeof limit !== 'number' || !Number.isFinite(limit) || limit <= 0) return ''
   return `${selected.display_name} accepts reference images up to ${limit.toLocaleString()}px on the longest side. `
     + 'Larger references are refused before upload, so resize them first.'
@@ -145,13 +176,10 @@ const referenceDimensionNotice = computed(() => {
 const referenceCountNotice = computed(() => {
   if (!referenceMode.value) return ''
   const selected = selectedModel.value
-  if (!selected?.supports_reference_images) return ''
-  const max = typeof selected.max_reference_images === 'number' && selected.max_reference_images > 0
-    ? selected.max_reference_images
-    : null
-  const min = typeof selected.min_reference_images === 'number' && selected.min_reference_images > 0
-    ? selected.min_reference_images
-    : null
+  if (!selected) return ''
+  const references = modes.value.find(mode => mode.id === 'edit')?.references
+  const max = references?.max ?? null
+  const min = references?.min ?? null
   if (max === null && min === null) return ''
   const clauses: string[] = []
   if (max !== null) clauses.push(`accepts up to ${max} reference image${max === 1 ? '' : 's'}`)
@@ -162,10 +190,8 @@ const referenceCountNotice = computed(() => {
 /** A published "no" is stated as the MODEL's, so it is not mistaken for a Story Studio restriction. */
 const referenceUnsupportedNotice = computed(() => {
   const selected = selectedModel.value
-  if (!selected || selected.supports_reference_images !== false) return ''
-  return `${selected.display_name} publishes no support for reference images, so attaching one would be ignored. `
-    + "That is the model's published capability in the Gateway, not a Story Studio restriction. "
-    + 'Choose a reference-capable model to render from references.'
+  if (!selected || modes.value.some(mode => mode.id === 'edit')) return ''
+  return `${selected.display_name} publishes no Reference to image mode.`
 })
 
 /** `supports_seed: false` is published, so the seed control is not offered. */
@@ -176,22 +202,19 @@ const seedNotice = computed(() => {
     + "That is the model's published capability in the Gateway, not a Story Studio restriction."
 })
 
-/** Set when the picker replaced the selection itself; cleared on a manual pick. */
-const switchNotice = ref('')
-
 function select(modelId: string): void {
   if (!isUsable.value) return
   switchNotice.value = ''
   const selected = models.value.find(model => model.id === modelId)
-  if (!selected?.available || (props.imageMode === 'img2img' && (!selected.supports_reference_images || selected.max_reference_images < 1))) return
+  if (!selected?.available || (!props.allowModeSelection && !isUsableModelRow(selected))) return
   emit('update:modelValue', modelId)
   emit('selected', modelId)
 }
 
 function syncLiveSelection(): void {
   if (!isUsable.value || !models.value.length) return
-  const candidates = props.imageMode === 'img2img'
-    ? models.value.filter(model => model.available && model.supports_reference_images && model.max_reference_images >= 1)
+  const candidates = !props.allowModeSelection && props.imageMode === 'img2img'
+    ? models.value.filter(model => isUsableModelRow(model))
     : models.value
   const selected = selectLiveGenStudioModel(props.modelValue, candidates)
   if (selected && selected.id !== props.modelValue) {
@@ -239,10 +262,10 @@ function fillAppDefault(): void {
   emit('selected', fallback)
 }
 
-function isUsableModelRow(model: { available: boolean; supports_reference_images?: boolean; max_reference_images?: number }): boolean {
+function isUsableModelRow(model: GenStudioImageModelInfo): boolean {
   if (!model.available) return false
-  return props.imageMode !== 'img2img'
-    || (model.supports_reference_images === true && typeof model.max_reference_images === 'number' && model.max_reference_images >= 1)
+  if (props.allowModeSelection) return true
+  return (publishedImageModes(model.image_modes) || []).some(mode => mode.id === currentModeId.value && mode.available)
 }
 
 onMounted(async () => {
@@ -258,6 +281,10 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+.image-modes { display: flex; flex-wrap: wrap; gap: 8px 16px; border: 0; padding: 0; margin: 12px 0 0; }
+.image-modes legend { font-size: var(--font-xs); margin-bottom: 6px; }
+.image-modes label { display: flex; align-items: center; gap: 6px; font-size: var(--font-sm); }
+.image-modes small { color: var(--text-muted); }
 .notice { margin: 6px 0 0; color: var(--warning, #d97706); font-size: var(--font-xs); line-height: 1.4; }
 .notice-limit { color: var(--text-muted); }
 .notice-cost { color: var(--text); }

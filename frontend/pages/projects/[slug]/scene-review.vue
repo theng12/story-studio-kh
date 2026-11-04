@@ -187,8 +187,9 @@
               v-model="form.model"
               :project-slug="slug"
               :image-models="config?.image_models || {}"
-              image-mode="text2img"
-              :reference-active="!!referenceLimits"
+              v-model:image-mode="sceneImageMode"
+              allow-mode-selection
+              :reference-active="sceneImageMode === 'img2img'"
               default-label="Pick an image model…"
             />
             <!-- Reference to Image — shown ONLY when the selected model itself
@@ -1438,7 +1439,22 @@ const referenceCarriedIds = ref<string[]>([])
 const referenceSelectionNotice = ref('')
 let referenceEpisodeSequence = 0
 
-const referenceLimits = computed(() => sceneReferenceLimits(selectedGenStudioModel.value))
+const sceneImageMode = ref<'text2img' | 'img2img'>('text2img')
+const imageModeUnavailable = computed(() => {
+  const id = sceneImageMode.value === 'img2img' ? 'edit' : 'txt2img'
+  const mode = selectedGenStudioModel.value?.image_modes?.find(mode => mode.id === id)
+  return mode?.available ? '' : (mode?.reason || 'This image mode is unavailable. Refresh the Gateway model list or choose another mode.')
+})
+watch(episodeId, () => { sceneImageMode.value = 'text2img' })
+const referenceLimits = computed(() => {
+  const mode = selectedGenStudioModel.value?.image_modes?.find(mode => mode.id === 'edit' && mode.available)
+  return sceneImageMode.value === 'img2img' && mode ? sceneReferenceLimits({
+    supports_reference_images: true,
+    min_reference_images: mode.references?.min,
+    max_reference_images: mode.references?.max,
+    reference_image_max_dimension: mode.references?.max_dimension,
+  }) : null
+})
 const referenceWindowNotice = computed(() => {
   const limits = referenceLimits.value
   return limits ? sceneReferenceNotice(limits) : ''
@@ -1528,7 +1544,7 @@ function toggleReferenceCharacter(character: SceneReferenceCharacter): void {
 // is dropped and named; a model that takes no references clears the selection
 // out loud rather than sending references the model cannot use.
 watch(referenceLimits, (limits) => {
-  if (!selectedGenStudioModel.value) return
+  if (sceneImageMode.value === 'text2img' || !selectedGenStudioModel.value) return
   const selected = referenceCharacterIds.value
   if (!limits) {
     if (!selected.length) return
@@ -1604,9 +1620,11 @@ async function applyReferencesToAllScenes(): Promise<void> {
 }
 
 /** `reference_character_ids` for every render request, when a selection exists. */
-const referenceCharacterBody = computed(() => referenceCharacterIds.value.length
-  ? { reference_character_ids: [...referenceCharacterIds.value] }
-  : {})
+const referenceCharacterBody = computed(() => ({
+  image_mode: sceneImageMode.value,
+  ...(sceneImageMode.value === 'img2img' && referenceCharacterIds.value.length
+    ? { reference_character_ids: [...referenceCharacterIds.value] } : {}),
+}))
 // Resolution and seed are the render request Story Studio owns beyond the
 // ratio. Resolution travels only as a published row, and a seed only when the
 // model publishes support for one.
@@ -1739,7 +1757,7 @@ async function jumpToScene(id: string, { focus = false }: { focus?: boolean } = 
 }
 const canBulkGenerate = computed(() => {
   if (!episodeId.value) return false
-  if (!form.value.model) return false
+  if (!form.value.model || imageModeUnavailable.value) return false
   if (!stats.value) return false
   if (!finishMissingInputsComplete.value) return false
   return stats.value.total_scenes > stats.value.with_image
@@ -1753,6 +1771,7 @@ const finishMissingLabel = computed(() =>
 const bulkStatus = computed(() => {
   if (!episodeId.value) return 'Pick an episode first'
   if (!form.value.model) return 'Pick a model'
+  if (imageModeUnavailable.value) return imageModeUnavailable.value
   if (!stats.value) return ''
   if (subtitleIntegrity.value && !subtitleIntegrity.value.complete) return 'Complete and re-stitch subtitles first'
   if (!missingImagePromptsComplete.value) return 'Repair missing or duplicated prompts for images still missing'
@@ -2041,6 +2060,7 @@ function duplicateBadge(sceneId: string): { label: string; title: string; tone: 
 
 // ── Actions ─────────────────────────────────────────────────────────
 async function generateOne(scene: ReviewScene): Promise<void> {
+  if (imageModeUnavailable.value) { showError(imageModeUnavailable.value); return }
   if (usesImagePool.value) return
   if (reviewJobActive.value) return
   const blocked = sceneTargetsBlockReason([scene.id])
@@ -2276,6 +2296,7 @@ async function loadContinuityFlag(): Promise<void> {
 }
 
 async function renderContinuity(opts: { sceneIds?: string[] } = {}): Promise<void> {
+  if (imageModeUnavailable.value) { showError(imageModeUnavailable.value); return }
   if (usesImagePool.value) return
   if (reviewJobActive.value) return
   if (!form.value.model) { showError('Pick a model in Render settings first'); return }
@@ -2494,6 +2515,7 @@ async function checkUncertainAgain(): Promise<void> {
 }
 
 async function replaceUncertainImages(): Promise<void> {
+  if (imageModeUnavailable.value) { showError(imageModeUnavailable.value); return }
   const source = replaceableUncertainJob.value as any
   if (!manualRedoPreferenceEnabled.value || !source || replacingUncertain.value) return
   const projectSlug = slug.value
