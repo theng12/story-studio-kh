@@ -28,6 +28,7 @@ import path from 'node:path'
 import { Router } from 'express'
 
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
+import { currentYouTubeThumbnail, previousYouTubeThumbnail } from '../services/youtube-thumbnail-state.js'
 import { withLock } from '../lib/atomic-store.js'
 import { sameInstant } from '../lib/publish-instant.js'
 import { YouTubeFoundationError } from '../contracts/youtube-upload-center.js'
@@ -977,6 +978,29 @@ router.get('/projects/:slug/youtube/library/:operation_id', async (req, res) => 
   }
 })
 
+router.get('/projects/:slug/youtube/library/:operation_id/thumbnail', async (req, res) => {
+  try {
+    const record = await assertYouTubeOperationAuthorized(req.params.slug, req.params.operation_id)
+    const { accountId } = await accountForCurrentChannel(req.params.slug)
+    const current = await currentYouTubeThumbnail(record, accountId)
+    const previous = await previousYouTubeThumbnail(record)
+    res.json({ current, previous: previous ? {
+      filename: previous.filename,
+      url: `/api/projects/${encodeURIComponent(req.params.slug)}/youtube/library/${encodeURIComponent(record.operation_id)}/thumbnail/previous`,
+    } : null })
+  } catch (error) { fail(res, error, 'Could not read the YouTube thumbnail.') }
+})
+
+router.get('/projects/:slug/youtube/library/:operation_id/thumbnail/previous', async (req, res) => {
+  try {
+    const record = await assertYouTubeOperationAuthorized(req.params.slug, req.params.operation_id)
+    const previous = await previousYouTubeThumbnail(record)
+    if (!previous) { res.status(404).json({ detail: 'No previous thumbnail has been retained.' }); return }
+    res.setHeader('Cache-Control', 'no-store')
+    res.sendFile(previous.path)
+  } catch (error) { fail(res, error, 'Could not read the previous YouTube thumbnail.') }
+})
+
 router.post('/projects/:slug/youtube/library/:operation_id/thumbnail', async (req, res) => {
   const slug = req.params.slug
   try {
@@ -1005,14 +1029,15 @@ router.post('/projects/:slug/youtube/library/:operation_id/thumbnail', async (re
     const thumbnailFilename = typeof req.body?.thumbnail_filename === 'string'
       ? req.body.thumbnail_filename.trim()
       : ''
-    const metadata = await resolveUploadMetadata({
+    const previous = await previousYouTubeThumbnail(record)
+    const thumbnailPath = previous && thumbnailFilename === previous.filename ? previous.path : (await resolveUploadMetadata({
       slug,
       episode_code: record.episode_code,
       fallback_title: title,
       platform: 'youtube',
       ...(thumbnailFilename ? { thumbnail_filename: thumbnailFilename } : {}),
-    })
-    if (!metadata.thumbnailPath) {
+    })).thumbnailPath
+    if (!thumbnailPath) {
       res.status(404).json({
         code: 'YOUTUBE_THUMBNAIL_NOT_FOUND',
         detail: `No local thumbnail is available for ${record.episode_code}. Make or pin one first.`,

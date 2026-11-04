@@ -1335,6 +1335,7 @@ export interface VideoPublicationDetails {
   description?: string
   tags?: string[]
   thumbnailEtag?: string
+  thumbnailUrl?: string
 }
 
 const COMMENTS_MODERATION_URL = 'https://www.googleapis.com/youtube/v3/comments/setModerationStatus'
@@ -1420,6 +1421,7 @@ export async function listVideoPublicationDetails(
         description: snippet.description,
         tags: Array.isArray(snippet.tags) ? snippet.tags : [],
         thumbnailEtag: snippet.thumbnails?.default?.url,
+        thumbnailUrl: (snippet.thumbnails?.maxres || snippet.thumbnails?.standard || snippet.thumbnails?.high || snippet.thumbnails?.medium || snippet.thumbnails?.default)?.url,
       }
     }
   }

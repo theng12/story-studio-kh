@@ -6,6 +6,7 @@ What's new in each release. Newest first.
 
 ## v1.4.381 — 2026-11-04
 
+- Replace a published or scheduled video's YouTube thumbnail from any local candidate after confirmation. Progress and fresh YouTube readback show the result; the previous image is retained for restoration, including a friend's titled thumbnail. Visibility, schedule and metadata stay unchanged.
 - Private final rendering asks the Gateway for a Mac that supports the video's exact encoding settings, including hardware encoding and its chosen bitrate cap. Older Gateways keep the existing compatibility check; unavailable settings keep the render local with the reason shown.
 
 ## v1.4.380 — 2026-11-04

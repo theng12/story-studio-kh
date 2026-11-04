@@ -31,6 +31,7 @@ async function loadPage(): Promise<Component> {
   const code = `${support}\n${script.content
     .replace('export default', 'const __sfc__ =')
     .replace("'~/utils/upload-bulk'", JSON.stringify(new URL('../utils/upload-bulk.ts', import.meta.url).href))
+    .replace("'~/composables/useFreshGenerationAction'", JSON.stringify(new URL('../composables/useFreshGenerationAction.ts', import.meta.url).href))
     .replace("'~/utils/publish-view'", JSON.stringify(new URL('../utils/publish-view.ts', import.meta.url).href))
     .replace("'~/utils/route-query-state'", JSON.stringify(new URL('../utils/route-query-state.ts', import.meta.url).href))
     .replace("'~/utils/thumbnail-text'", JSON.stringify(new URL('../utils/thumbnail-text.ts', import.meta.url).href))}\n${template.code}\n__sfc__.render = render\nexport default __sfc__`
@@ -106,6 +107,7 @@ test('Thumbnail test link and candidates display on upload/publish page after up
           quota: { buckets: { video_uploads: { remaining: 100 } } },
         }
       }
+      if (path.endsWith('/library/op-1/thumbnail')) return { current: { url: 'https://i.ytimg.com/vi/test_vid_xyz/hqdefault.jpg', checked_at: '2026-11-04T14:00:00Z' }, previous: { filename: `${'a'.repeat(64)}.jpg`, url: '/api/previous.jpg' } }
       if (path.endsWith('/safety-checks')) return { checks: [] }
       if (path.endsWith('/upload/plans')) return { plans: [], active: {} }
       return {}
@@ -115,6 +117,7 @@ test('Thumbnail test link and candidates display on upload/publish page after up
       if (path.endsWith('/youtube/preview')) {
         return PREVIEW_DATA
       }
+      if (path.endsWith('/library/op-1/thumbnail')) return { job_id: 'thumbnail-job' }
       return {}
     },
   }
@@ -190,6 +193,36 @@ test('Thumbnail test link and candidates display on upload/publish page after up
     // and lists; it never asks YouTube to create or run a test.
     const testCalls = calls.filter(c => /ab[_/-]?test|thumbnail[_/-]?test/i.test(c.path))
     assert.equal(testCalls.length, 0, 'No YouTube API call should be made for starting the test')
+
+    const replacements = [...dialog.querySelectorAll<HTMLButtonElement>('.youtube-thumbnail-replace')]
+    assert.equal(replacements.length, 3, 'Every candidate, including the selected one, can replace the remote thumbnail')
+    assert.ok(dialog.querySelector('img[alt="Current thumbnail read from YouTube"]'))
+    assert.ok(dialog.querySelector('img[alt="Previous YouTube thumbnail retained for restoration"]'))
+    ;(globalThis as any).__ucJobsRef.value = [{ job_id: 'older-operation-job', project_slug: 'demo-project', episode_id: 'EP0001', type: 'youtube_thumbnail_refresh', status: 'running', progress: 30 }]
+    for (let i = 0; i < 6; i++) await nextTick()
+    assert.ok(replacements.every(button => !button.disabled), 'A different operation job must not supply replacement progress')
+    assert.doesNotMatch(dialog.textContent || '', /running · 30%/)
+    let confirmation: any
+    ;(globalThis as any).__ucConfirm = async (options: any) => { confirmation = options; return false }
+    replacements[1]!.click()
+    for (let i = 0; i < 6; i++) await nextTick()
+    assert.match(confirmation.message, /friend added a titled Khmer thumbnail/)
+    assert.equal(calls.filter(call => call.path.endsWith('/library/op-1/thumbnail') && call.method === 'POST').length, 0, 'Cancelling must send nothing')
+    ;(globalThis as any).__ucConfirm = async () => true
+    replacements[1]!.click()
+    for (let i = 0; i < 6; i++) await nextTick()
+    const replace = calls.find(call => call.path.endsWith('/library/op-1/thumbnail') && call.method === 'POST')!
+    assert.deepEqual(replace.body, { confirm: true, thumbnail_filename: 'EP0001_Thumb02_v1.png' }, 'Thumbnail replacement carries no metadata, visibility or schedule')
+    ;(globalThis as any).__ucJobsRef.value = [{ job_id: 'thumbnail-job', project_slug: 'demo-project', episode_id: 'EP0001', type: 'youtube_thumbnail_refresh', status: 'running', progress: 75 }]
+    for (let i = 0; i < 6; i++) await nextTick()
+    assert.match(dialog.textContent || '', /running · 75%/)
+    assert.ok(replacements.every(button => button.disabled))
+    ;(globalThis as any).__ucJobsRef.value = [{ job_id: 'thumbnail-job', project_slug: 'demo-project', episode_id: 'EP0001', type: 'youtube_thumbnail_refresh', status: 'done', progress: 100 }]
+    for (let i = 0; i < 10; i++) await nextTick()
+    assert.ok(calls.filter(call => call.path.endsWith('/library/op-1/thumbnail') && call.method === 'GET').length >= 2, 'Completion requires fresh YouTube readback')
+    dialog.querySelector<HTMLButtonElement>('.youtube-thumbnail-restore')!.click()
+    for (let i = 0; i < 6; i++) await nextTick()
+    assert.deepEqual(calls.filter(call => call.method === 'POST' && call.path.endsWith('/library/op-1/thumbnail')).at(-1)?.body, { confirm: true, thumbnail_filename: `${'a'.repeat(64)}.jpg` })
   } finally {
     destroy()
     await nextTick()
