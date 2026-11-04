@@ -647,6 +647,9 @@
           </div>
           <p v-if="draftError" class="row-result err draft-error" role="alert">{{ draftError }}</p>
         </div>
+        <p v-else-if="['queued', 'running', 'unknown'].includes(selectedEpisode?.local?.upload?.state)" class="hint" role="status">
+          This review stays available, but it does not change the upload already queued or on YouTube.
+        </p>
         <p v-else-if="reviewIntent === 'schedule'" class="hint">
           This video is already on YouTube. Scheduling changes its publish date — not its title or description.
         </p>

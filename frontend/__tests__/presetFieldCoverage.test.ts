@@ -208,6 +208,7 @@ const CLASSIFIED: Record<string, Record<string, Classification>> = {
     'settings.loudness_lufs': { verdict: 'saved-elsewhere', reason: 'saved with the music episode document' },
     'settings.true_peak_db': { verdict: 'saved-elsewhere', reason: 'saved with the music episode document' },
     targetMinutes: { verdict: 'saved-elsewhere', reason: 'a view of the episode\'s own `target_length_s`, saved with the episode' },
+    channelTargetMinutes: { verdict: 'saved-elsewhere', reason: 'the future mix target is saved through channel-settings in config.music_episode_target_length_s; an episode preset must not change it' },
   },
   'ideas.vue': {
     'titleConfig.prefix': { verdict: 'saved-elsewhere', reason: 'a channel-wide branding setting (owner, 2026-10-03) — Metadata uses it too, so no Ideas preset may change it' },

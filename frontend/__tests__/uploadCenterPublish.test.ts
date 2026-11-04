@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { describe, test, type TestContext } from 'node:test'
+import { afterEach, describe, test, type TestContext } from 'node:test'
 import { createApp, defineComponent, h, nextTick, reactive, ref, type Component } from 'vue'
 import { parse, compileScript, compileTemplate } from '@vue/compiler-sfc'
 import { transform } from 'esbuild'
@@ -48,6 +48,8 @@ async function loadChecklist(): Promise<Component> {
 }
 
 interface Recorded { method: string; path: string; body?: any }
+
+const mountedFixtures = new Set<() => void>()
 
 async function mount(input: {
   /** Upload RECORDS. Each becomes a rendered episode carrying that record. */
@@ -209,9 +211,11 @@ async function mount(input: {
   const destroy = () => {
     if (destroyed) return
     destroyed = true
+    mountedFixtures.delete(destroy)
     app.unmount()
     el.remove()
   }
+  mountedFixtures.add(destroy)
   // A test that fails on an assertion must still give the fixture back: the
   // page arms a 5-second final-check interval and a 60-second plan clock,
   // and an unmounted page never clears them — the test file would then sit
@@ -240,6 +244,10 @@ async function uploadCountAfterSelecting(el: HTMLElement, code: string): Promise
 }
 
 describe('Upload Center Publish', () => {
+  afterEach(() => {
+    for (const destroy of mountedFixtures) destroy()
+  })
+
   test('shows YouTube’s own refusal reason rather than a generic failure', async () => {
     const mounted = await mount({
       operations: [{
