@@ -250,6 +250,11 @@ export function expansionOutputTokenCap(
   return bounded.maxTokens
 }
 
+// This estimates requested work only; it never reduces the published output allowance.
+export function expansionExpectedOutputTokens(batch: readonly OutlineEntry[], wordsPerChapter: number): number {
+  return Math.ceil(batch.reduce((words, entry) => words + effectiveWordTarget(entry, { wordsPerChapter }), 0) * OUTPUT_TOKENS_PER_WORD)
+}
+
 /**
  * The request fields one expansion request carries: the full published output
  * ceiling, and an explicit cap only when the context window is the tighter of
@@ -258,8 +263,8 @@ export function expansionOutputTokenCap(
  * Expressed as `maximum` (not `workload`) on purpose: `workload`'s
  * `minimumTokens` is also what Studio Hub sizes a job's deadline from, so
  * putting the whole ceiling there would make every chapter batch a
- * four-hour job. `maximum` states "what may be sent" and lets the Hub size the
- * deadline from the fleet's measured answers instead.
+ * four-hour job. `maximum` states "what may be sent"; the separate expected-output
+ * hint describes the chapter targets, never this ceiling.
  */
 export function expansionRequestOutputBudget(
   budget: ChunkingBudget,
@@ -1867,6 +1872,7 @@ async function expandNarrativeSequential(
     const ctx = {
       slug: job.project_slug, jobId: job.job_id, signal: params.signal,
       ...requestOutput,
+      expectedOutputTokens: expansionExpectedOutputTokens(batch, params.wordsPerChapter),
       // Only queue-level manual Retry can stamp this server-owned scope after
       // a known terminal GenStudio chat job. Normal runs and paused/resumed
       // jobs leave it absent so lost-response recovery replays the same key.
@@ -1915,6 +1921,7 @@ async function expandNarrativeSequential(
       const recoveredRepairText = await withChosenModel(job, params, (model, recovery, checkpointAccepted, checkpointPrepared) => callAiWithRetry(
         model, params.systemPrompt, repairPrompt, params.apiKeys, true, {
           ...pipelineAttemptContext(ctx, recovery, checkpointAccepted, checkpointPrepared),
+          expectedOutputTokens: expansionExpectedOutputTokens(repairBatch, params.wordsPerChapter),
           recoverByIdempotencyKey: true,
           idempotencyKey: recovery?.idempotencyKey || job.genstudio_chat_recovery_key,
           allowedRecoveryKeys: recovery ? [recovery.idempotencyKey] : job.genstudio_chat_recovery_keys,
@@ -2012,6 +2019,7 @@ async function expandNarrativeSequential(
       // chapter that needed more (job 0857b744, 2026-10-25).
       const repairCtx = {
         ...ctx,
+        expectedOutputTokens: expansionExpectedOutputTokens(repairBatch, params.wordsPerChapter),
         ...expansionRequestOutputBudget(budget, expansionPromptCharacters(params.systemPrompt, repairPrompt), expansionPromptNonAsciiCharacters(params.systemPrompt, repairPrompt)),
       }
       const repairCheckpointKey = `${chapterCheckpointKey}:repair-${repairBatch.map(entry => entry.n).join('-')}`
@@ -2234,6 +2242,7 @@ async function expandListicleParallel(
         const ctx = {
           slug: job.project_slug, jobId: job.job_id, signal: params.signal,
           ...requestOutput,
+          expectedOutputTokens: expansionExpectedOutputTokens(batch, params.wordsPerChapter),
           // See narrative expansion above: this exists only for a deliberate
           // replacement after terminal GenStudio evidence, never for resume.
           requestIdentity: freshGenerationRequestIdentity(job, `chapters-${firstN}-${lastN}`) ?? (job.genstudio_chat_retry_scope
@@ -2351,7 +2360,7 @@ async function expandListicleParallel(
  * override (v2 schema) wins over the global params target. Falls back to
  * 120 to keep the math safe for absurdly small inputs.
  */
-function effectiveWordTarget(entry: OutlineEntry, p: ChunkedNarrationParams): number {
+function effectiveWordTarget(entry: OutlineEntry, p: Pick<ChunkedNarrationParams, 'wordsPerChapter'>): number {
   const override = typeof entry.words_per_chapter === 'number' && entry.words_per_chapter > 0
     ? entry.words_per_chapter | 0
     : null

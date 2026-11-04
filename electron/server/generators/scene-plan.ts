@@ -802,35 +802,47 @@ async function scenePlanFileExists(filePath: string): Promise<boolean> {
 }
 
 export async function runScenePlanJob(job: Job): Promise<void> {
+  const controller = new AbortController()
+  const cancelWatcher = setInterval(() => {
+    if (isCancelled(job.job_id)) controller.abort()
+  }, 500)
+  try {
+    await runScenePlan(job, controller.signal)
+  } finally {
+    clearInterval(cancelWatcher)
+  }
+}
+
+async function runScenePlan(job: Job, signal: AbortSignal): Promise<void> {
   const params = job.params as ScenePlanRunParams
   const { episode_id } = params
   const scenePolicy = pipelinePolicyForJob(params, 'scene_plan')
   const sceneCheckpoint = pipelinePolicyCheckpointStore(params, () => checkpointJobState(job))
-  const scenePlanPolicyCall: typeof callAi | undefined = scenePolicy
-    ? async (...args: Parameters<typeof callAi>) => {
-      const [, system, user, apiKeys, stream = false, context = {}] = args
-      const requestIdentity = context.requestIdentity
-        || `${job.project_slug}:${episode_id || 'episode'}:scene-plan:${pipelinePolicyInputFingerprint({
-          system,
-          user,
-          outputBudget: context.outputBudget,
-          maxTokens: context.maxTokens,
-          outputContract: context.outputContract,
-          images: context.images,
-        })}`
-      return callAiWithModelPolicy(scenePolicy, system, user, apiKeys, stream, {
-        ...context,
-        slug: context.slug || job.project_slug,
-        requestIdentity,
-        pipelinePolicyCheckpoint: sceneCheckpoint,
-        pipelinePolicyCheckpointKey: requestIdentity,
-        onModelSelected: async selected => {
-          await context.onModelSelected?.(selected)
-          job.output_lines.push(`[pipeline] scene plan using Gateway product "${selected}".`)
-        },
-      })
-    }
-    : undefined
+  const scenePlanPolicyCall: typeof callAi = async (...args: Parameters<typeof callAi>) => {
+    const [selectedModel, system, user, apiKeys, stream = false, context = {}] = args
+    if (!scenePolicy) return callAi(selectedModel, system, user, apiKeys, stream, { ...context, signal })
+    const requestIdentity = context.requestIdentity
+      || `${job.project_slug}:${episode_id || 'episode'}:scene-plan:${pipelinePolicyInputFingerprint({
+        system,
+        user,
+        outputBudget: context.outputBudget,
+        maxTokens: context.maxTokens,
+        outputContract: context.outputContract,
+        images: context.images,
+      })}`
+    return callAiWithModelPolicy(scenePolicy, system, user, apiKeys, stream, {
+      ...context,
+      signal,
+      slug: context.slug || job.project_slug,
+      requestIdentity,
+      pipelinePolicyCheckpoint: sceneCheckpoint,
+      pipelinePolicyCheckpointKey: requestIdentity,
+      onModelSelected: async selected => {
+        await context.onModelSelected?.(selected)
+        job.output_lines.push(`[pipeline] scene plan using Gateway product "${selected}".`)
+      },
+    })
+  }
   let model = params.model || ''
   if (scenePolicy) model = scenePolicy.assigned_model
   if (!episode_id) throw new Error('episode_id is required')
@@ -2118,6 +2130,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
           false,
           {
             slug: job.project_slug,
+            signal,
             jobId: `${job.job_id}:${input.requestLabel}`,
             requestIdentity,
             pipelinePolicyCheckpoint: sceneCheckpoint,
@@ -2146,6 +2159,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
           false,
           {
             slug: job.project_slug,
+            signal,
             jobId: `${job.job_id}:${input.requestLabel}`,
             requestIdentity,
             ...(input.recoverByIdempotencyKey ? {
@@ -2163,6 +2177,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
             onDiagnostics: (details: TextGenerationDiagnostics) => { diagnostics = details },
           },
         ))
+        if (signal.aborted || isCancelled(job.job_id)) throw new Error('Cancelled by user')
         responseReceived = true
         results = parseDirectPackResults(raw, input.sceneIds, isMotion ? 'motion' : 'visual')
         checkpointErrors = await checkpointPackPromptResults(
@@ -2194,6 +2209,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
           )
         }
       } catch (error: any) {
+        if (signal.aborted || isCancelled(job.job_id)) throw new Error('Cancelled by user')
         if (isGenStudioPaymentRefusal(error)) throw error
         if (input.deferLostResend && isGenStudioSubmissionUncertain(error)) {
           return { results, checkpointErrors, diagnostics, requestError: '', requestUnresolved: false, responseReceived: false, lostResend: true }
@@ -2292,8 +2308,8 @@ export async function runScenePlanJob(job: Job): Promise<void> {
     let recoveryUnresolved = false
     const recoveryErrors: string[] = []
     // Two passes. First every saved key is read once, and a key the Gateway lost track of is only
-    // noted; then each lost key gets its one resend, for the scenes no other saved answer covered.
-    // Resending inside the first pass could buy new work for scenes a LATER saved key already holds.
+    // noted; then recheck unresolved keys only for scenes no later saved answer covered.
+    // An unknown outcome never permits replacement work.
     const collectSaved = async (index: number, recovery: typeof savedPromptRecoveries[number], deferLostResend: boolean) => {
       const notDurable = targets.map(({ scene }) => scene.id).filter(id => !durableTargetIds.has(id))
       const scope = recovery.scene_ids ?? notDurable

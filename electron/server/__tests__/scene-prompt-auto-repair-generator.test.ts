@@ -634,8 +634,6 @@ test('an unresolved accepted request fences every later scene and repair request
   const f = await fixture(3)
   service.queueScenario('chat', { states: ['succeeded'], outputText: promptResult('scene-0002') })
   service.queueScenario('chat', { states: ['failed'], failureCode: 'LANGUAGE_PROVIDER_SUBMISSION_UNCERTAIN' })
-  // Owner decision 2026-10-12: the lost request is resent once; that resend is lost too.
-  service.queueScenario('chat', { states: ['failed'], failureCode: 'LANGUAGE_PROVIDER_SUBMISSION_UNCERTAIN' })
   const job = directJob(f, 'uncertain-request')
 
   await assert.rejects(runScenePlanJob(job), (error: any) => {
@@ -645,7 +643,7 @@ test('an unresolved accepted request fences every later scene and repair request
     return true
   })
 
-  assert.equal(service.providerSubmissionCount('chat'), 3, 'one fresh resend, never a third request')
+  assert.equal(service.providerSubmissionCount('chat'), 2, 'the completed scene and the original unknown request only')
   assert.ok(job.output_lines.some((line: string) => /still unresolved/i.test(line)))
   const saved = JSON.parse(await fs.readFile(f.planPath, 'utf8'))
   assert.equal(saved.scenes[0].visual_prompt, f.originalPrompt)
@@ -653,20 +651,21 @@ test('an unresolved accepted request fences every later scene and repair request
   assert.ok(saved.scenes.slice(2).every((scene: any) => scene.visual_prompt === ''))
 })
 
-test('a lost prompt request is resent once with a fresh identity and the scene prompts complete', async () => {
+test('a lost prompt request retains its identity and cannot consume a queued replacement answer', async () => {
   service.reset()
   const f = await fixture(2)
   service.queueScenario('chat', { states: ['succeeded'], outputText: promptResult('scene-0002') })
   service.queueScenario('chat', { states: ['failed'], failureCode: 'LANGUAGE_PROVIDER_SUBMISSION_UNCERTAIN' })
   service.queueScenario('chat', { states: ['succeeded'], outputText: promptResult('scene-0003') })
 
-  await runScenePlanJob(directJob(f, 'lost-request-resent'))
+  const job = directJob(f, 'lost-request-held')
+  await assert.rejects(runScenePlanJob(job), /could not confirm whether an earlier prompt request was accepted/i)
 
   const keys = chatSubmissions().map(entry => entry.idempotencyKey)
-  assert.equal(keys.length, 3)
-  assert.match(keys[2]!, /^story-chat-resend-/)
+  assert.equal(keys.length, 2)
+  assert.equal(job.params.scene_prompt_recoveries[0].idempotency_key, keys[1])
   const saved = JSON.parse(await fs.readFile(f.planPath, 'utf8'))
-  assert.match(saved.scenes[2].visual_prompt, /scene-0003/)
+  assert.equal(saved.scenes[2].visual_prompt, '')
 })
 
 test('a normal Scene Plan retry reclaims an ambiguous request before any replacement work', async () => {
@@ -674,8 +673,6 @@ test('a normal Scene Plan retry reclaims an ambiguous request before any replace
   const f = await fixture(2)
   const params = { ...f.params, auto_repair_missing_prompts: false }
   service.queueScenario('chat', { states: ['succeeded'], outputText: promptResult('scene-0002') })
-  service.queueScenario('chat', { states: ['failed'], failureCode: 'LANGUAGE_PROVIDER_SUBMISSION_UNCERTAIN' })
-  // Owner decision 2026-10-12: the lost request is resent once; that resend is lost too.
   service.queueScenario('chat', { states: ['failed'], failureCode: 'LANGUAGE_PROVIDER_SUBMISSION_UNCERTAIN' })
   const original = directJob(f, 'normal-uncertain-request')
   original.params = params
@@ -691,8 +688,8 @@ test('a normal Scene Plan retry reclaims an ambiguous request before any replace
 
   await assert.rejects(runScenePlanJob(retry), /could not confirm whether an earlier prompt request was accepted/i)
 
-  // The saved identity is the resend, so the retry reclaims it and never sends a third request.
-  assert.equal(service.providerSubmissionCount('chat'), 3)
+  // Retry reads the original request and never submits replacement work.
+  assert.equal(service.providerSubmissionCount('chat'), 2)
   assert.ok(service.requests.some(entry => entry.method === 'GET' && entry.path.endsWith(`/by-idempotency-key/${recoveryKey}`)))
   const saved = JSON.parse(await fs.readFile(f.planPath, 'utf8'))
   assert.equal(saved.scenes[0].visual_prompt, f.originalPrompt)
@@ -1174,8 +1171,6 @@ test('free-fleet prompts: the queue auto-retries, recovers the stuck pack by its
     })) })
     service.queueScenario('chat', { states: ['succeeded'], outputText: pair('scene-0002', 'scene-0003') })
     service.queueScenario('chat', { states: ['failed'], failureCode: 'LANGUAGE_PROVIDER_SUBMISSION_UNCERTAIN' })
-    // Owner decision 2026-10-12: the lost pack is resent once at once; that resend is lost too.
-    service.queueScenario('chat', { states: ['failed'], failureCode: 'LANGUAGE_PROVIDER_SUBMISSION_UNCERTAIN' })
     service.queueScenario('chat', { states: ['succeeded'], outputText: pair('scene-0006', 'scene-0007') })
     jq.registerExecutor('scene_plan_run', runScenePlanJob)
     const queued = jq.enqueuePreparedForTest({
@@ -1212,8 +1207,8 @@ test('free-fleet prompts: the queue auto-retries, recovers the stuck pack by its
     assert.equal(finished.status, 'done', finished.error || finished.output_lines.join('\n'))
     assert.equal(finished.auto_retry?.attempt, 2)
     assert.ok(service.requests.some(entry => entry.method === 'GET' && entry.path.endsWith(`/by-idempotency-key/${stuckKey}`)))
-    assert.equal(service.providerSubmissionCount('chat'), 4,
-      'one POST per pack plus the lost pack\'s one resend: the stuck resend is collected by its key, never re-bought, and no empty pack is sent')
+    assert.equal(service.providerSubmissionCount('chat'), 3,
+      'one POST per pack: the original stuck request is collected by its key, never re-bought')
     const saved = JSON.parse(await fs.readFile(f.planPath, 'utf8'))
     assert.equal(saved.scenes[0].visual_prompt, f.originalPrompt)
     assert.ok(saved.scenes.slice(1).every((scene: any) => scene.visual_prompt.trim()), 'all prompts finished')

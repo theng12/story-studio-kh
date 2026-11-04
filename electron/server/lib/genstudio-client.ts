@@ -8504,15 +8504,13 @@ async function callChatViaResponses(
     return await callChatViaResponsesOnce(apiKey, request, prepared, baseUrlOverride)
   } catch (error) {
     const lost = lostChatRequest(error, request, prepared.idempotencyKey)
-    return lost ? resendLostChat(apiKey, request, prepared, lost, baseUrlOverride) : replaceFailedChat(apiKey, request, prepared, error, baseUrlOverride)
+    return lost ? reconcileLostChat(apiKey, request, prepared, baseUrlOverride) : replaceFailedChat(apiKey, request, prepared, error, baseUrlOverride)
   }
 }
 
 /**
- * Owner decision 2026-10-12: a writing request the Gateway lost track of after it was sent (a held
- * unknown outcome, or an uncertain-submission code) is resent ONCE with a fresh identity. The owner
- * accepts the small double-charge risk on a paid writing model. A capped paid replacement is never
- * resent, and images, voice, video and transcription keep their lock (this is chat-only).
+ * Unknown writing outcomes must be reconciled under their original identity before any new work.
+ * Legacy resend keys remain recoverable, but no uncertain outcome authorizes a replacement POST.
  */
 function lostChatRequest(error: unknown, request: GenStudioChatRequest, key: string): GenStudioChatTerminalFailureError | null {
   return error instanceof GenStudioChatTerminalFailureError && !error.cancelled && !key.startsWith(LOST_CHAT_RESEND_PREFIX)
@@ -8529,26 +8527,17 @@ export function lostChatResendKey(key: string, lostJobId: string): string {
   return `${LOST_CHAT_RESEND_PREFIX}${createHash('sha256').update(`${key}:lost:${lostJobId}`).digest('hex').slice(0, 40)}`
 }
 
-async function resendLostChat(
+async function reconcileLostChat(
   apiKey: string,
   request: GenStudioChatRequest,
   prepared: PreparedChatSubmission,
-  lost: GenStudioChatTerminalFailureError,
   baseUrlOverride?: string,
 ): Promise<GenStudioChatResult> {
-  // 1.4.300 — "Lost writing request": Off (the default) and Warn resend once as before; Block stops.
-  if (await currentJobSafety('lost_writing_request',
-    'The writing service lost track of a writing request after it was sent; Story sends it once more as a fresh request.', 'off') === 'block') throw lost
+  // Block still allows this read-only lookup; no mode permits a replacement POST.
+  await currentJobSafety('lost_writing_request', 'The writing request has an unknown outcome. Checking its original identity without submitting replacement work.', 'off')
   const queue = await import('../services/job-queue.js')
-  queue.noteCurrentJob('↻ The writing service lost track of the last writing request after it was sent, '
-    + 'so Story Studio sent it once more as a fresh request (it will not resend it again by itself).')
-  const resend = { ...request, recoverByIdempotencyKey: false }
-  const resent = { ...prepared, idempotencyKey: lostChatResendKey(prepared.idempotencyKey, lost.jobId) }
-  try {
-    return await callChatViaResponsesOnce(apiKey, resend, resent, baseUrlOverride)
-  } catch (error) {
-    return replaceFailedChat(apiKey, resend, resent, error, baseUrlOverride)
-  }
+  queue.noteCurrentJob('↻ Checking the original writing request before doing any new work. An unknown outcome keeps its saved identity.')
+  return recoverChatByIdempotencyKey(apiKey, prepared.idempotencyKey, request, prepared, undefined, baseUrlOverride)
 }
 
 /**
@@ -8800,8 +8789,7 @@ async function callChatViaResponsesOnce(
   await recordGenStudioEvidence('chat.response', chatJobEvidence(submitted), requestPreview)
   // Only a key Story derived from content: a caller-supplied key (exact replay,
   // paid replacement) names one specific request and must never be moved —
-  // except a free model's held failure, which the owner redoes fresh (see
-  // replayedHeldFreeChatFailure); its new key reaches the caller through onJobAccepted.
+  // including a free model's held failure: an unknown answer can still be recovered.
   const freeHeldRedo = request.replacementChargeLimit === undefined
     && replayedHeldFreeChatFailure(submitted, prepared.product.chargeable)
   const settledRedo = !request.idempotencyKey?.trim() && request.replacementChargeLimit === undefined
@@ -8813,7 +8801,10 @@ async function callChatViaResponsesOnce(
   // recovery-only reattach never reaches this block — it returns before the POST.
   const cancelledRedo = !request.idempotencyKey?.trim() && request.replacementChargeLimit === undefined
     && replayedCancelledChatFailure(submitted)
-  if ((freeHeldRedo || settledRedo || cancelledRedo) && replayHops < MAX_FAILED_CHAT_REPLAY_HOPS) {
+  if (freeHeldRedo) {
+    return recoverChatByIdempotencyKey(apiKey, prepared.idempotencyKey, request, prepared, requestPreview, baseUrl)
+  }
+  if ((settledRedo || cancelledRedo) && replayHops < MAX_FAILED_CHAT_REPLAY_HOPS) {
     // The key is derived from the request content, so a Retry of the same step
     // re-POSTs the same key and the gateway answers with the OLD failed job.
     // Without this, one failure (the gateway
@@ -9015,25 +9006,14 @@ async function callChatWithGenStudioAdmitted(
     if (request.allowedRecoveryKeys?.length && !request.allowedRecoveryKeys.includes(idempotencyKey)) {
       throw new GenStudioChatRecoveryUnresolvedError(idempotencyKey)
     }
-    try {
-      return await recoverChatByIdempotencyKey(apiKey, idempotencyKey, request, {
-        outputContract: request.outputContract
-          ?? (request.jsonObject === true ? JSON_OBJECT_OUTPUT_CONTRACT : PROSE_OUTPUT_CONTRACT),
-        // The recovered job's own ceiling is unknown here by design (the saved key
-        // outranks today's catalogue), so the usage check has nothing to compare
-        // against and stays off for a recovery — `null`, not a guess.
-        maxOutputTokens: null,
-      })
-    } catch (error) {
-      // A saved request the Gateway lost track of gets its one fresh resend here, so a saved
-      // identity can no longer block its step forever (Scene Plan HMH0003, 0/185 prompts).
-      const lost = lostChatRequest(error, request, idempotencyKey)
-      if (!lost || request.deferLostResend) throw error
-      const fresh = { ...request, recoverByIdempotencyKey: false }
-      const prepared = await prepareChatSubmission(apiKey, fresh).catch(() => { throw error })
-      if (prepared.transport !== 'responses') throw error
-      return resendLostChat(apiKey, fresh, { ...prepared, idempotencyKey }, lost)
-    }
+    return await recoverChatByIdempotencyKey(apiKey, idempotencyKey, request, {
+      outputContract: request.outputContract
+        ?? (request.jsonObject === true ? JSON_OBJECT_OUTPUT_CONTRACT : PROSE_OUTPUT_CONTRACT),
+      // The recovered job's own ceiling is unknown here by design (the saved key
+      // outranks today's catalogue), so the usage check has nothing to compare
+      // against and stays off for a recovery — `null`, not a guess.
+      maxOutputTokens: null,
+    })
   }
   // Bind the entire verified retry to one server. The catalogue shapes the
   // exact old request too, so refuse a settings switch while it is read.
@@ -9091,7 +9071,7 @@ async function callChatWithGenStudioAdmitted(
       )
     } catch (error) {
       const lost = lostChatRequest(error, request, prepared.idempotencyKey)
-      if (lost) return resendLostChat(apiKey, request, prepared, lost, uncreatedRecoveryBaseUrl)
+      if (lost) return reconcileLostChat(apiKey, request, prepared, uncreatedRecoveryBaseUrl)
       // Only a 404 is the absence proof; see `isProvenUncreatedChatRequest`.
       if (!isProvenUncreatedChatRequest(error)) throw error
     }

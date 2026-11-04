@@ -1295,6 +1295,8 @@ export async function recheckJobProviderStatus(projectSlug: string, jobId: strin
   if (!job || job.project_slug !== projectSlug) {
     throw Object.assign(new Error('Job not found'), { status: 404, expose: true })
   }
+  // A local worker still owns the episode; a check must never release its fence.
+  if (activeRunJobRecords.has(jobId) && TERMINAL_JOB_STATUSES.has(job.status)) return serializeJob(job)
   // Boot refresh publishes an intermediate `unreachable` result before its
   // persistence finishes. A manual check in that window must wait, then issue
   // its own provider read instead of returning as if it had checked.
@@ -2387,6 +2389,16 @@ function serializeJob(job: Job, view: JobView = 'full'): RendererJob {
     }
     rendererJob.controls = [hold]
     rendererJob.control = hold
+  }
+  if (activeRunJobRecords.has(job.job_id) && TERMINAL_JOB_STATUSES.has(job.status)
+    && !chainHandoffJobIds.has(job.job_id)) {
+    const settling: JobControl = {
+      action: 'recheck-provider-status', enabled: true, label: 'Check again',
+      reason: `${job.status === 'cancelled' ? 'Cancellation is saved.' : 'This job has ended.'} Story Studio is still stopping its local worker. Retry becomes available when it releases this episode. Check again safely; this sends no new generation request.`,
+      code: 'JOB_NOT_AT_SAFE_LOCAL_STOP', financial_effect: 'none',
+    }
+    rendererJob.controls = [settling]
+    rendererJob.control = settling
   }
   if (view === 'row') trimToHistoryRow(rendererJob)
   return rendererJob
@@ -6616,6 +6628,7 @@ async function runJob(type: JobType, job: Job): Promise<void> {
   } finally {
     activeRunJobIds.delete(job.job_id)
     activeRunJobRecords.delete(job.job_id)
+    if (jobs.has(job.job_id) && TERMINAL_JOB_STATUSES.has(job.status)) emitUpdate(job)
     if (!jobs.has(job.job_id)) {
       cancelled.delete(job.job_id)
       clearPaidImageWaitTimer(job.job_id)

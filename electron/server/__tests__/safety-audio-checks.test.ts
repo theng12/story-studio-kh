@@ -119,7 +119,7 @@ test('chapter_once: a chapter saved twice is read once (Off, default) or stops t
   await assert.rejects(chapterOnce(makeJob(), assembled), /Chapter 2 is saved more than once/)
 })
 
-test('lost_writing_request: Off (default) resends once; Block stops after the first send', async () => {
+test('lost_writing_request: every safety mode reconciles without another submission', async () => {
   const jq = await import('../services/job-queue.js')
   const { callChatWithGenStudio, clearGenStudioCatalogCache } = await import('../lib/genstudio-client.js')
   let posts = 0
@@ -170,15 +170,17 @@ test('lost_writing_request: Off (default) resends once; Block stops after the fi
     await setMode('lost_writing_request', 'off')
     posts = 0
     const resent = await settle()
-    assert.equal(resent.status, 'error', 'the resend is lost too in this fixture')
-    assert.equal(posts, 2, 'Off sends it once more, as 1.4.296 does')
-    assert.ok(resent.output_lines.some(line => /lost track of a writing request.*set to Off/.test(line)), resent.output_lines.join('\n'))
+    assert.equal(resent.status, 'error', 'the original request remains unknown')
+    assert.equal(posts, 1, 'Off cannot authorize duplicate work')
+    assert.ok(resent.output_lines.some(line => /Checking the original writing request/.test(line)))
 
     // 1.4.301 — Warn also lands in the job's warning list, not only the log.
     await setMode('lost_writing_request', 'warn')
     posts = 0
     const warned = await settle()
-    assert.equal(posts, 2)
+    assert.equal(posts, 1)
+    assert.equal(warned.status, 'error')
+    assert.match(warned.error || '', /lost track of this request/i)
     assert.deepEqual((warned.result as any)?.safety_warnings?.map((w: any) => w.check), ['lost_writing_request'])
   } finally {
     globalThis.fetch = original

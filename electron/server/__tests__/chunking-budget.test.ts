@@ -35,6 +35,7 @@ import {
   defaultExpansionBatchSetting,
   expansionOutputTokenCap,
   expansionRequestOutputBudget,
+  expansionExpectedOutputTokens,
   planExpansionGroups,
   shouldChunkByBudget,
   type ChunkingBudget,
@@ -139,6 +140,16 @@ test('with no published cap the run still proceeds — chunked, and saying nothi
   // `null`, which means "send no ceiling at all", never a stand-in figure.
   assert.equal(expansionOutputTokenCap(budget(null, null), 4_000), null)
   assert.deepEqual(expansionRequestOutputBudget(budget(null, null), 4_000), { outputBudget: 'maximum' })
+})
+
+test('chapter deadline work follows batch targets and repair subsets independently of the output ceiling', () => {
+  const chapters = [{ n: 1, words_per_chapter: 200 }, { n: 2 }, { n: 3, words_per_chapter: 800 }] as OutlineEntry[]
+  assert.equal(expansionExpectedOutputTokens(chapters, 500), 2_400)
+  assert.equal(expansionExpectedOutputTokens(chapters.slice(2), 500), 1_280)
+  const before = expansionRequestOutputBudget(budget(LUNA_OUTPUT_TOKENS), 4_000)
+  assert.equal(before.outputBudget, 'maximum')
+  assert.equal(before.maxTokens, LUNA_OUTPUT_TOKENS)
+  assert.ok(expansionExpectedOutputTokens(chapters, 500) < before.maxTokens!)
 })
 
 test('headroom stays proportional instead of being another fixed number', () => {

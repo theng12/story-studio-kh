@@ -4,6 +4,13 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.380 — 2026-11-04
+
+- Chapter writing requests size their deadline hints from the chapters being written, separately from the model's answer ceiling.
+- Cancelling a scene plan stops its active writing request before another pack starts.
+- Uncertain writing requests check the original provider outcome before any replacement. Finished answers are recovered; unknown outcomes keep their saved identity instead of sending duplicate work.
+- Cancelled jobs explain when their local worker is still stopping. Check again safely refreshes that state, and Retry stays blocked until the worker releases the episode.
+
 ## v1.4.379 — 2026-11-04
 
 - Thumbnail Generator and Scene Review offer Text to image or Reference to image from the selected model's live Gateway modes. Unavailable modes show the reason. Text mode leaves saved references out of new requests; reference mode shows its published limits.
