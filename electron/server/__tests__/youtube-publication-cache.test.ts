@@ -145,22 +145,22 @@ describe('legacy uploads keep what YouTube reported', () => {
     const items = codes.map((code, i) => scheduled(`legacy-${i}`, scheduleAt(i)))
     for (const [i, code] of codes.entries()) await s.legacy(code, `legacy-${i}`)
     const fake = new FakeYouTube()
+    // The channel listing is re-read by every deliberate check; it finds
+    // nothing new here, so this test is about the batching of the VIDEOS.
+    // Narrow to the listing's own call: the route also asks channels.list for
+    // the channel's eligibility, and that answer is not this one.
+    fake.respondMatching({ method: 'GET', match: /^\/youtube\/v3\/channels\?part=contentDetails/, body: { items: [{ contentDetails: { relatedPlaylists: { uploads: 'UU-cache' } } }] } })
+    fake.respondMatching({ method: 'GET', match: PLAYLIST, body: { items: [] } })
     // Two batched videos.list calls (50 + 22); each answer carries every item.
     fake.respondMatching({ method: 'GET', match: VIDEOS, body: { items } })
     fake.respondMatching({ method: 'GET', match: VIDEOS, body: { items } })
     __setYouTubeTransportForTests(fake.transport())
-    // The channel listing is already fresh, so "Check All" spends its calls on
-    // the videos: this test is about the batching.
-    await cacheService.recordYouTubePublicationObservations({
-      project_slug: s.slug, channel_id: CHANNEL,
-      listing: { attempted_at: new Date().toISOString(), outcome: 'complete', videos: items.map(item => ({ video_id: item.id })) },
-    })
 
     const sync = await request(app).post(`/api/projects/${s.slug}/youtube/sync`)
     assert.equal(sync.status, 200)
     assert.equal(sync.body.outcome, 'ok')
     assert.deepEqual(sync.body.legacy, { checked: 72, processed: 72, not_found: 0 })
-    assert.equal(fake.calls.length, 2, 'batched 50 ids per call')
+    assert.equal(fake.calls.filter(call => call.path.startsWith('/youtube/v3/videos?')).length, 2, 'batched 50 ids per call')
 
     const rows = await publishable(s.slug)
     for (const [i, code] of codes.entries()) {

@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.379 — 2026-11-04
+
+- Refreshing YouTube status now checks the channel listing every time, so schedules created in YouTube Studio appear even when the previous check was recent. A failed listing refresh keeps the last successful results and reports the failure.
+
 ## v1.4.378 — 2026-11-04
 
 - Writing requests now respect the request-size limit each AI pool publishes, alongside its context and answer limits. A limit the provider has not published is shown as unknown, never guessed. When neither your chosen allowance nor the provider sets an answer limit, requests allow up to 128,000 tokens of answer instead of a small default.

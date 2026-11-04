@@ -31,7 +31,6 @@ import { readYouTubeProjectPublishingState } from './youtube-project-publishing-
 import {
   classifyYouTubeSyncFailure,
   legacyUploadsFor,
-  listingStale,
   observedPublicationIndex,
   readYouTubePublicationCache,
   refreshStaleYouTubePublications,
@@ -83,25 +82,17 @@ export async function checkAllYouTubeUploads(input: { project_slug: string; acco
     readYouTubePublicationCache(input.project_slug).catch(() => ({} as PublicationCache)),
     listYouTubeOperations(input.project_slug),
   ])
-  // The channel LISTING is how a release Story Studio never made is found: a
-  // video scheduled in YouTube Studio rather than through this app. The
-  // per-video pass below only asks about videos already known, so with a stale
-  // listing "Check All" cannot see a new schedule — and the Publishing
-  // Overview's freshness verdict stays "stale" however often the owner presses
-  // refresh, because the verdict is about the listing.
-  //
-  // It is refreshed only when it is missing or past the TTL, so the steady
-  // state of this deliberate action costs exactly what it cost before.
+  // Explicit refresh must discover new YouTube Studio schedules even inside the listing TTL.
+  // A listing failure keeps the last good snapshot and still permits per-video checks.
   let listed: Awaited<ReturnType<typeof refreshYouTubeChannelListing>> | null = null
   let listingError: ProjectSyncResult['error_code']
-  if (listingStale(cache[channelId]?.listing, Date.now())) {
+  try {
     listed = await refreshYouTubeChannelListing({
       project_slug: input.project_slug, account_id: input.account_id, channel_id: channelId,
-    }).catch((error) => {
-      listingError = classifyYouTubeSyncFailure(error)
-      logLine('warn', `[youtube-status] channel listing not refreshed: ${listingError}`, { project_slug: input.project_slug })
-      return null
     })
+  } catch (error) {
+    listingError = classifyYouTubeSyncFailure(error)
+    logLine('warn', `[youtube-status] channel listing not refreshed: ${listingError}`, { project_slug: input.project_slug })
   }
   const asked = new Map<string, { source: ObservedPublication['source']; episode_code?: string }>()
   for (const entry of observedPublicationIndex(state, cache, records, channelId).values()) {

@@ -1,5 +1,10 @@
 # HANDOFF — Story Studio KH
 
+### Release 1.4.379 candidate — YouTube schedule refresh (2026-11-04)
+
+- Explicit Check All refreshes the channel listing even inside its TTL, discovering new schedules made in YouTube Studio. Background refresh pacing stays unchanged. Listing failures keep the last good listing and the existing per-video checks/error reporting. Focused house-runner check passed 33/33 tests across `youtube-status-sync` and `youtube-publication-cache`, actual exit 0, 2/2 files completed, no skips or cancellations. This is a partial run, not release proof. Version and What's New are 1.4.379; image mode picker work is still pending. No 379 gate, build, publication or installation yet.
+- 378 main is `1f4f3c8e1cfccd37298abc2bc2eac94f21009003`; all ten exact-source gate steps and main artifact rebuild passed. Main DMG SHA256 `61d8b170c550f774609b19755dd7018c2e90a0404575ffa791b2646c49e34eb8`. Installation remains deferred while the mini assembles videos: persistent launchd label `com.vengtheng.story378-publish-guard` retries every ten minutes, with busy exit 75 and terminal receipt protection against repeated POSTs. Last measured attempt 10 exited 75; no installation success claimed. Evidence: `_orchestra/story-lead/release-378-20261103/`. Earlier 378 candidate notes below are superseded by this gate/build status.
+
 ### Release 1.4.378 candidate — live request sizing, content-store cleanup and existing guide corrections (2026-11-03)
 
 - Based on delivered 1.4.377 `f1c317af`. The guide, catalogue, request-admission and request-side scene-pack/planner-window patches are reviewed; the final focused rerun and release checks remain pending. Guide checks passed 5/5, actual exit 0; the Channels guide opened without horizontal overflow at 1280×900. Developer explicitly waived waiting for the screenshot. No 378 publication or installation has occurred; normal prebuild and the full ten-step gate remain required.
