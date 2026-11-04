@@ -5,6 +5,7 @@ import path from 'node:path'
 import { after, before, test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { useTempDataDir } from './_helpers.js'
+import type { FinalRenderEncodeEntry } from '../lib/final-render-gateway-client.js'
 
 const GATEWAY_JOB_ID = '55555555-5555-4555-8555-555555555555'
 const HUB_JOB_ID = '77777777-7777-4777-8777-777777777777'
@@ -372,6 +373,65 @@ test('private render client accepts only the closed paired projections on its fi
   const ackBytes = new TextEncoder().encode(JSON.stringify({ expected_receipt_digest: receipt.digest }))
   assert.deepEqual(new Uint8Array(calls[9]!.init.body as Uint8Array), ackBytes)
   assert.equal(new Headers(calls[9]!.init.headers).get('Content-Length'), String(ackBytes.byteLength))
+})
+
+test('a scoped capability read asks about the exact encode and refuses a wrong echo', async () => {
+  const client = await import('../lib/final-render-gateway-client.js')
+  const requested: FinalRenderEncodeEntry = {
+    container: 'mp4', requested_codec: 'h264', requested_effort: 'hardware',
+    crf: 23, quality_cpu_preset: 'medium', bitrate_kbps: null,
+  }
+  const capped: FinalRenderEncodeEntry = { ...requested, bitrate_kbps: 8_000 }
+  const seen: string[] = []
+  const answer = (overrides: Record<string, unknown> = {}) => {
+    globalThis.fetch = async (input) => {
+      seen.push(String(input))
+      return Response.json(capabilities(overrides))
+    }
+  }
+
+  // The query carries exactly the six fields, URL-encoded, and nothing else.
+  answer({ requested_encode: requested })
+  const echoed = await client.getFinalRenderCapabilities(requested)
+  assert.equal(echoed.requested_encode?.requested_effort, 'hardware')
+  const url = new URL(seen[0]!)
+  assert.equal(url.pathname, '/v1/final-renders/capabilities')
+  assert.deepEqual(JSON.parse(url.searchParams.get('requested_encode')!), requested)
+  assert.deepEqual([...url.searchParams.keys()], ['requested_encode'], 'no other query value rides along')
+
+  // A positive cap is its own tuple and never equals no cap.
+  answer({ requested_encode: capped })
+  const cappedEcho = await client.getFinalRenderCapabilities(capped)
+  assert.equal(cappedEcho.requested_encode?.bitrate_kbps, 8_000)
+  assert.notDeepEqual(cappedEcho.requested_encode, echoed.requested_encode)
+
+  const reject = async (overrides: Record<string, unknown>, pattern: RegExp, asked = true) => {
+    answer(overrides)
+    await assert.rejects(
+      asked ? client.getFinalRenderCapabilities(requested) : client.getFinalRenderCapabilities(),
+      pattern,
+    )
+  }
+  // An echo of a different tuple is refused.
+  await reject({ requested_encode: { ...requested, crf: 18 } }, /echo|requested|encode|response|invalid/i)
+  // An unsolicited echo — one Story never asked for — is refused.
+  await reject({ requested_encode: requested }, /echo|requested|encode|response|invalid/i, false)
+  // An echoed scope that lists another tuple is refused.
+  await reject({
+    requested_encode: requested,
+    encode: { format: 'studio.render.encode-authority.v1', entries: [{ ...requested, bitrate_kbps: 8_000 }] },
+  }, /entry|encode|response|invalid/i)
+  await reject({
+    requested_encode: requested, eligible: 0, idle: 0,
+    encode: { format: 'studio.render.encode-authority.v1', entries: [requested] },
+  }, /eligible|response|invalid/i)
+  answer({
+    requested_encode: requested, eligible: 1, idle: 0,
+    encode: { format: 'studio.render.encode-authority.v1', entries: [requested] },
+  })
+  assert.equal((await client.getFinalRenderCapabilities(requested)).idle, 0)
+  // An echoed scope with an extra field is refused.
+  await reject({ requested_encode: { ...requested, extra: true } }, /field|exact|response|invalid/i)
 })
 
 test('closed client rejects wrong response bindings, digests, states, ranges, and extra fields', async () => {

@@ -1,9 +1,9 @@
 import { compileFinalRenderPacket } from './final-render-compiler.js'
-import { validateRenderPacketSyntax, type RenderPacketSyntax } from './final-render-recipe.js'
+import { validateFinalRenderEncode, validateRenderPacketSyntax, type RenderPacketSyntax } from './final-render-recipe.js'
 import { renderHash } from './render-hash-v1.js'
 
 import type { CompositionOpts } from '../generators/video.js'
-import type { FinalRenderCapabilities } from './final-render-gateway-client.js'
+import type { FinalRenderCapabilities, FinalRenderEncodeEntry } from './final-render-gateway-client.js'
 import type { VideoOverlay } from '../models/types.js'
 
 export type FinalRenderAssetRole = 'base_video' | 'premixed_audio' | 'overlay' | 'frame_background' | 'logo'
@@ -68,6 +68,43 @@ function closedColor(value: unknown): value is string {
 function source(id: string, role: FinalRenderAssetRole, sourcePath: unknown): FinalRenderSourceRequirement | null {
   if (typeof sourcePath !== 'string' || sourcePath.length === 0 || sourcePath.includes('\0')) return null
   return { logical_id: id, role, source_path: sourcePath }
+}
+
+/**
+ * The exact six-field encode tuple, built once from the composition.
+ *
+ * The packet recipe and the request-scoped capability query both read this one
+ * builder, so discovery and packet can never describe different encodes. A null
+ * cap is "no cap", never a wildcard; a positive cap stays its exact integer.
+ */
+export function finalRenderEncodeTuple(opts: Readonly<CompositionOpts>): FinalRenderEncodeEntry {
+  const container = opts.format as FinalRenderEncodeEntry['container']
+  const codec = (opts.codec ?? 'h264') as FinalRenderEncodeEntry['requested_codec']
+  const effort = (opts.encodingEffort ?? opts.quality.preset) as FinalRenderEncodeEntry['requested_effort']
+  const preset = opts.quality.preset as FinalRenderEncodeEntry['quality_cpu_preset']
+  return {
+    container,
+    requested_codec: codec,
+    requested_effort: effort,
+    crf: opts.quality.crf,
+    quality_cpu_preset: preset,
+    bitrate_kbps: opts.videoBitrateKbps ?? null,
+  }
+}
+
+/**
+ * The same tuple, but only when it is inside the closed bounds Story renders
+ * with. `null` means this composition has no requestable encode: the caller
+ * then asks the Gateway the old way and the recipe validator stays authoritative.
+ */
+export function finalRenderRequestedEncode(opts: Readonly<CompositionOpts>): FinalRenderEncodeEntry | null {
+  const tuple = finalRenderEncodeTuple(opts)
+  try {
+    validateFinalRenderEncode(tuple)
+    return tuple
+  } catch {
+    return null
+  }
 }
 
 export function isStaticImagePath(mediaPath: string): boolean {
@@ -246,14 +283,7 @@ export function describeFinalRenderExport(
     target_duration_sec: opts.targetDuration,
     effects_gate: { start_sec: startSec, end_sec: endSec },
     operations,
-    encode: {
-      container: opts.format,
-      requested_codec: opts.codec ?? 'h264',
-      requested_effort: effort,
-      crf: opts.quality.crf,
-      quality_cpu_preset: opts.quality.preset,
-      bitrate_kbps: opts.videoBitrateKbps ?? null,
-    },
+    encode: finalRenderEncodeTuple(opts),
   }
   try {
     const recipeSha256 = renderHash('recipe', recipe)

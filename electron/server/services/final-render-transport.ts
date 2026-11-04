@@ -4,7 +4,7 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import path from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
 
-import { describeFinalRenderExport, type FinalRenderExportDescription } from '../lib/final-render-export.js'
+import { describeFinalRenderExport, finalRenderRequestedEncode, type FinalRenderExportDescription } from '../lib/final-render-export.js'
 import { readInstalledStoryRenderProvenance } from '../lib/final-render-build-provenance.js'
 import { RenderProvenanceError, sameDescriptorPins } from '../lib/final-render-provenance-contract.js'
 import {
@@ -29,6 +29,7 @@ import {
   submitFinalRender,
   finalRenderDisplayLabel,
   validateSubmitBytes,
+  sameFinalRenderEncodeTuple,
   type FinalRenderBlobStatus,
   type FinalRenderCapabilities,
   type FinalRenderCancelView,
@@ -73,6 +74,13 @@ function sameRequestedEncode(entry: FinalRenderEncodeEntry, encode: Record<strin
     && entry.crf === encode.crf
     && entry.quality_cpu_preset === encode.quality_cpu_preset
     && entry.bitrate_kbps === (encode.bitrate_kbps ?? null)
+}
+
+/** The six requested fields, named plainly for the customer. No path, no secret, no credential. */
+function describeRequestedEncode(encode: Readonly<FinalRenderEncodeEntry>): string {
+  const cap = encode.bitrate_kbps === null ? 'no bitrate cap' : `${encode.bitrate_kbps} kbps bitrate cap`
+  return `container ${encode.container}, codec ${encode.requested_codec}, ${encode.requested_effort} effort, `
+    + `CRF ${encode.crf}, ${encode.quality_cpu_preset} CPU preset, ${cap}`
 }
 
 function destinationFacts(opts: PrepareOpts): {
@@ -244,10 +252,13 @@ export async function preparePrivateFinalRenderDescriptor(
   }
 
   const destination = destinationFacts(opts)
+  // The exact tuple this render asks for. The Gateway is asked about it directly when it is a
+  // well-formed requestable encode; the packet is built from the same helper, so the two agree.
+  const requested = finalRenderRequestedEncode(opts)
   let discovery: Awaited<ReturnType<typeof getFinalRenderCapabilities>>
   let access: Awaited<ReturnType<typeof readPrivateRenderAccess>>
   try {
-    discovery = await getFinalRenderCapabilities()
+    discovery = await getFinalRenderCapabilities(requested ?? undefined)
     access = await readPrivateRenderAccess()
   } catch (error) {
     if (known) throw new Error('Existing private final render lineage requires recovery before local rendering.')
@@ -278,22 +289,54 @@ export async function preparePrivateFinalRenderDescriptor(
   // an older Gateway and keeps today's behavior. Without this check the packet would be
   // staged and accepted only to fail at the render boundary, so an unqualified encode
   // stays local with the user's settings untouched.
-  if (discovery.encode !== undefined
+  //
+  // When the Gateway echoed the exact tuple Story asked about, that scoped answer is the
+  // authority. In that scope `eligible` counts the Macs that support this exact encode whatever
+  // else they are doing, `idle` the ones that could take it now. An echo is never admission on
+  // its own — the exact tuple still has to be published.
+  const echoed = discovery.requested_encode !== undefined
+  let encodeMatched = false
+  const scopedTuple = discovery.requested_encode
+  if (scopedTuple !== undefined && discovery.encode !== undefined && discovery.encode !== null) {
+    const tuple = scopedTuple
+    encodeMatched = discovery.encode.entries.some(entry => sameFinalRenderEncodeTuple(entry, tuple))
+  }
+  // A count is not admission: the exact tuple has to be there too.
+  const busy = echoed && encodeMatched && discovery.idle === 0 && discovery.eligible > 0
+  const unsupported = echoed
+    ? !encodeMatched
+    : discovery.encode !== undefined
       && (discovery.encode === null
         || !discovery.encode.entries.some(entry =>
-          sameRequestedEncode(entry, description.recipe.encode as Record<string, any>)))) {
+          sameRequestedEncode(entry, description.recipe.encode as Record<string, any>)))
+  if (busy || unsupported) {
     if (known) throw new Error('Existing private final render lineage requires recovery before local rendering.')
-    // Two unrelated causes reach this branch and the owner acts on them differently. The Gateway
-    // publishes `encode: null` when NO candidate was eligible at all (`render_service.capabilities`
-    // intersects an empty list, and `fleet.render_encode_intersection` answers None for it) as well
-    // as when the eligible Macs share no encode. Telling a customer their encode is unqualified
-    // when the truth is "no Mac was free" is a reason they will act on wrongly, so name the cause
-    // the Gateway actually published.
-    opts.job.output_lines.push(discovery.eligible === 0
-      ? 'Private final render: no other Mac was free to take this render, so this video stays on '
-        + 'this Mac. The render is otherwise unchanged.'
-      : 'Private final render: this exact encode is not qualified for remote rendering, '
-        + 'so this video stays on this Mac. The render is otherwise unchanged.')
+    // The customer needs the reason and the exact settings that caused it. Nothing about the
+    // Gateway, the fleet or the machine appears here: no path, no identifier, no secret.
+    const requestedText = requested ? ` The render asked for ${describeRequestedEncode(requested)}.` : ''
+    if (busy) {
+      opts.job.output_lines.push('Private final render: a Mac that supports this exact encode is there, '
+        + `but none is free right now, so this video stays on this Mac.${requestedText} `
+        + 'The render is otherwise unchanged.')
+    } else if (echoed && discovery.eligible === 0) {
+      opts.job.output_lines.push('Private final render: no Mac is qualified for this exact encode, '
+        + `so this video stays on this Mac.${requestedText} The render is otherwise unchanged.`)
+    } else if (echoed) {
+      opts.job.output_lines.push('Private final render: this exact encode is not qualified for remote rendering, '
+        + `so this video stays on this Mac.${requestedText} The render is otherwise unchanged.`)
+    } else {
+      // Two unrelated causes reach this branch and the owner acts on them differently. The Gateway
+      // publishes `encode: null` when NO candidate was eligible at all (`render_service.capabilities`
+      // intersects an empty list, and `fleet.render_encode_intersection` answers None for it) as well
+      // as when the eligible Macs share no encode. Telling a customer their encode is unqualified
+      // when the truth is "no Mac was free" is a reason they will act on wrongly, so name the cause
+      // the Gateway actually published.
+      opts.job.output_lines.push(discovery.eligible === 0
+        ? 'Private final render: no other Mac was free to take this render, so this video stays on '
+          + `this Mac.${requestedText} The render is otherwise unchanged.`
+        : 'Private final render: this exact encode is not qualified for remote rendering, '
+          + `so this video stays on this Mac.${requestedText} The render is otherwise unchanged.`)
+    }
     return null
   }
   if (description.composition.still_tail_from_sec !== null) {

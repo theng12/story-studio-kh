@@ -70,6 +70,8 @@ export interface FinalRenderCapabilities {
   compiler: DescriptorText
   qualification_provenance?: QualificationProvenance | null
   encode?: FinalRenderEncodeAuthority | null
+  /** The Gateway's echo of the exact tuple Story asked about. Absent when the Gateway did not answer a scoped query. */
+  requested_encode?: FinalRenderEncodeEntry
   execution_bounds?: FinalRenderExecutionBounds
 }
 
@@ -517,32 +519,32 @@ async function requestJson<T>(
   return parse(await fetchJson(access, route, init, label, expectedStatus), access)
 }
 
-function parseEncodeEntry(value: unknown): FinalRenderEncodeEntry {
+function parseEncodeEntry(value: unknown, label = 'capabilities encode entry'): FinalRenderEncodeEntry {
   const entry = exactRecord(value, [
     'container', 'requested_codec', 'requested_effort', 'crf',
     'quality_cpu_preset', 'bitrate_kbps',
-  ], 'capabilities encode entry')
+  ], label)
   const container = entry.container
   if (container !== 'mp4' && container !== 'mov' && container !== 'webm') {
-    invalid('capabilities encode container is unsupported')
+    invalid(`${label} container is unsupported`)
   }
   const codec = entry.requested_codec
   if (codec !== 'h264' && codec !== 'h265') {
-    invalid('capabilities encode codec is unsupported')
+    invalid(`${label} codec is unsupported`)
   }
   const effort = entry.requested_effort
   if (effort !== 'ultrafast' && effort !== 'medium'
       && effort !== 'slow' && effort !== 'hardware') {
-    invalid('capabilities encode effort is unsupported')
+    invalid(`${label} effort is unsupported`)
   }
   const preset = entry.quality_cpu_preset
   if (preset !== 'ultrafast' && preset !== 'medium' && preset !== 'slow') {
-    invalid('capabilities encode CPU preset is unsupported')
+    invalid(`${label} CPU preset is unsupported`)
   }
-  const crf = nonnegativeSafeInteger(entry.crf, 'capabilities encode crf')
+  const crf = nonnegativeSafeInteger(entry.crf, `${label} crf`)
   const bitrate = entry.bitrate_kbps === null
     ? null
-    : positiveSafeInteger(entry.bitrate_kbps, 'capabilities encode bitrate_kbps')
+    : positiveSafeInteger(entry.bitrate_kbps, `${label} bitrate_kbps`)
   return {
     container,
     requested_codec: codec,
@@ -553,6 +555,19 @@ function parseEncodeEntry(value: unknown): FinalRenderEncodeEntry {
   }
 }
 
+/** Two encodes are equal only when all six fields are equal. A null cap never equals a positive one. */
+export function sameFinalRenderEncodeTuple(
+  left: Readonly<FinalRenderEncodeEntry>,
+  right: Readonly<FinalRenderEncodeEntry>,
+): boolean {
+  return left.container === right.container
+    && left.requested_codec === right.requested_codec
+    && left.requested_effort === right.requested_effort
+    && left.crf === right.crf
+    && left.quality_cpu_preset === right.quality_cpu_preset
+    && left.bitrate_kbps === right.bitrate_kbps
+}
+
 function parseEncodeAuthority(value: unknown): FinalRenderEncodeAuthority {
   const authority = exactRecord(value, ['format', 'entries'], 'capabilities encode')
   const entries = authority.entries
@@ -561,16 +576,20 @@ function parseEncodeAuthority(value: unknown): FinalRenderEncodeAuthority {
   }
   return {
     format: 'studio.render.encode-authority.v1',
-    entries: entries.map(parseEncodeEntry),
+    entries: entries.map(entry => parseEncodeEntry(entry)),
   }
 }
 
-function parseCapabilities(value: unknown, connection: PrivateRenderConnection): FinalRenderCapabilities {
+function parseCapabilities(
+  value: unknown,
+  connection: PrivateRenderConnection,
+  requested?: FinalRenderEncodeEntry,
+): FinalRenderCapabilities {
   const result = closedRecord(value, [
     'format', 'private', 'chargeable', 'owner_scope', 'gateway_instance_id',
     'story_instance_id', 'eligible', 'idle', 'server_time', 'profile_descriptor_utf8',
     'profile_digest', 'tools', 'compiler',
-  ], ['qualification_provenance', 'encode'], 'capabilities response')
+  ], ['qualification_provenance', 'encode', 'requested_encode'], 'capabilities response')
   if (result.format !== 'studio.render.gateway-capabilities.v1'
       || result.private !== true || result.chargeable !== false) invalid('capabilities response literals are invalid')
   const ownerScope = uuid(result.owner_scope, 'capabilities owner_scope')
@@ -603,6 +622,28 @@ function parseCapabilities(value: unknown, connection: PrivateRenderConnection):
   }
   if (Object.hasOwn(result, 'encode') && result.encode !== null) {
     result.encode = parseEncodeAuthority(result.encode)
+  }
+  // A scoped query may be echoed with the exact tuple Story asked about, and only that tuple.
+  // An unsolicited echo, an echo of a different tuple, or an entry claiming another tuple in an
+  // echoed scope is refused: a flag or a near-match is not admission.
+  const echoed = Object.hasOwn(result, 'requested_encode')
+  if (!requested && echoed) invalid('capabilities response echoed an encode Story never requested')
+  if (echoed) {
+    const echo = parseEncodeEntry(result.requested_encode, 'capabilities requested_encode')
+    if (!requested || !sameFinalRenderEncodeTuple(echo, requested)) {
+      invalid('capabilities response echoed a different encode than the one requested')
+    }
+    if (result.encode !== null && result.encode !== undefined) {
+      const authority = result.encode as FinalRenderEncodeAuthority
+      if (authority.entries.length > 1
+        || (authority.entries.length === 1 && !sameFinalRenderEncodeTuple(authority.entries[0]!, requested))) {
+        invalid('capabilities response lists an encode entry other than the requested one')
+      }
+      if (authority.entries.length > 0 && eligible === 0) {
+        invalid('capabilities response lists supported encode with no eligible nodes')
+      }
+    }
+    result.requested_encode = echo
   }
   return result as unknown as FinalRenderCapabilities
 }
@@ -1064,13 +1105,21 @@ function byteStream(bytes: Uint8Array): ReadableStream<Uint8Array> {
  * The first valid capabilities response pins the Gateway identity. A pin for another origin means
  * the owner moved the Gateway, so this call re-pairs to the identity that answers at the configured
  * origin; a different identity at the *same* origin is refused, never re-paired.
+ *
+ * With a `requested` tuple the read is scoped: the Gateway answers about that exact encode and may
+ * echo it. The GET stays read-only and carries no input file, credential or destination origin.
  */
-export async function getFinalRenderCapabilities(): Promise<FinalRenderCapabilities> {
+export async function getFinalRenderCapabilities(
+  requested?: FinalRenderEncodeEntry,
+): Promise<FinalRenderCapabilities> {
   const connection = await readPrivateRenderConnection()
   const originChanged = connection.binding !== null && connection.binding.origin !== connection.origin
+  const route = requested
+    ? `/v1/final-renders/capabilities?requested_encode=${encodeURIComponent(JSON.stringify(requested))}`
+    : '/v1/final-renders/capabilities'
   const capabilities = parseCapabilities(await fetchJson(
-    connection, '/v1/final-renders/capabilities', { method: 'GET' }, 'Final render capabilities', 200,
-  ), originChanged ? { ...connection, binding: null } : connection)
+    connection, route, { method: 'GET' }, 'Final render capabilities', 200,
+  ), originChanged ? { ...connection, binding: null } : connection, requested)
   const answered = {
     origin: connection.origin,
     owner_scope: capabilities.owner_scope,

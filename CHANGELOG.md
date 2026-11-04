@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.381 — 2026-11-04
+
+- Private final rendering asks the Gateway for a Mac that supports the video's exact encoding settings, including hardware encoding and its chosen bitrate cap. Older Gateways keep the existing compatibility check; unavailable settings keep the render local with the reason shown.
+
 ## v1.4.380 — 2026-11-04
 
 - Chapter writing requests size their deadline hints from the chapters being written, separately from the model's answer ceiling.

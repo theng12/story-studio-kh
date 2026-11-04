@@ -211,6 +211,19 @@ function operation(value: unknown, duration: number, refs: Map<string, AssetRole
   return stage
 }
 
+export function validateFinalRenderEncode(value: unknown): void {
+  const encode = exact(value, ['container', 'requested_codec', 'requested_effort', 'crf', 'quality_cpu_preset', 'bitrate_kbps'], 'recipe.encode')
+  oneOf(encode.container, ['mp4', 'mov', 'webm'], 'recipe.encode.container')
+  oneOf(encode.requested_codec, ['h264', 'h265'], 'recipe.encode.requested_codec')
+  oneOf(encode.requested_effort, ['ultrafast', 'medium', 'slow', 'hardware'], 'recipe.encode.requested_effort')
+  const crf = integer(encode.crf, 'recipe.encode.crf')
+  const preset = oneOf(encode.quality_cpu_preset, ['ultrafast', 'medium', 'slow'], 'recipe.encode.quality_cpu_preset')
+  if (!new Set(['32/ultrafast', '28/ultrafast', '23/medium', '18/slow', '23/ultrafast']).has(`${crf}/${preset}`)) {
+    invalid('recipe.encode quality pair is unsupported')
+  }
+  if (encode.bitrate_kbps !== null) integerRange(encode.bitrate_kbps, 500, 100000, 'recipe.encode.bitrate_kbps')
+}
+
 function validate(value: unknown): RenderPacketSyntax {
   canonicalRenderValue(value)
   const packet = exact(value, ['recipe', 'manifest', 'recipe_digest', 'manifest_digest', 'packet_digest'], 'packet')
@@ -241,16 +254,7 @@ function validate(value: unknown): RenderPacketSyntax {
     seen.add(kind)
     lastStage = stage
   })
-  const encode = exact(recipe.encode, ['container', 'requested_codec', 'requested_effort', 'crf', 'quality_cpu_preset', 'bitrate_kbps'], 'recipe.encode')
-  oneOf(encode.container, ['mp4', 'mov', 'webm'], 'recipe.encode.container')
-  oneOf(encode.requested_codec, ['h264', 'h265'], 'recipe.encode.requested_codec')
-  oneOf(encode.requested_effort, ['ultrafast', 'medium', 'slow', 'hardware'], 'recipe.encode.requested_effort')
-  const crf = integer(encode.crf, 'recipe.encode.crf')
-  const preset = oneOf(encode.quality_cpu_preset, ['ultrafast', 'medium', 'slow'], 'recipe.encode.quality_cpu_preset')
-  if (!new Set(['32/ultrafast', '28/ultrafast', '23/medium', '18/slow', '23/ultrafast']).has(`${crf}/${preset}`)) {
-    invalid('recipe.encode quality pair is unsupported')
-  }
-  if (encode.bitrate_kbps !== null) integerRange(encode.bitrate_kbps, 500, 100000, 'recipe.encode.bitrate_kbps')
+  validateFinalRenderEncode(recipe.encode)
 
   if (!Array.isArray(packet.manifest)) invalid('manifest must be an array')
   const ids = new Set<string>()

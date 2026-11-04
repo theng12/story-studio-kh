@@ -11,6 +11,7 @@ import type { FinalRenderCapabilities } from '../lib/final-render-gateway-client
 import {
   describeFinalRenderExport,
   finalizeFinalRenderPacket,
+  finalRenderRequestedEncode,
   type FinalRenderVerifiedAsset,
 } from '../lib/final-render-export.js'
 import { canonicalRenderValue, renderHash } from '../lib/render-hash-v1.js'
@@ -310,6 +311,34 @@ test('resolved effort, codec, container, bitrate, and quality pairs pass through
   for (const item of cases) {
     assert.deepEqual(exportable(describeFinalRenderExport(item.input, discovery)).recipe.encode, item.expected)
   }
+})
+
+test('the requested encode and the packet encode are one and the same tuple', () => {
+  const hardware = opts({
+    encodingEffort: 'hardware', codec: 'h264',
+    quality: { crf: 23, preset: 'medium', fps: 24 },
+  })
+  const capped = opts({
+    encodingEffort: 'hardware', codec: 'h264', videoBitrateKbps: 8_000,
+    quality: { crf: 23, preset: 'medium', fps: 24 },
+  })
+  const hardwareTuple = {
+    container: 'mp4', requested_codec: 'h264', requested_effort: 'hardware',
+    crf: 23, quality_cpu_preset: 'medium', bitrate_kbps: null,
+  }
+  const cappedTuple = { ...hardwareTuple, bitrate_kbps: 8_000 }
+
+  assert.deepEqual(finalRenderRequestedEncode(hardware), hardwareTuple)
+  assert.deepEqual(finalRenderRequestedEncode(capped), cappedTuple)
+  assert.deepEqual(exportable(describeFinalRenderExport(hardware, discovery)).recipe.encode, hardwareTuple)
+  assert.deepEqual(exportable(describeFinalRenderExport(capped, discovery)).recipe.encode, cappedTuple)
+  // No cap and a positive cap are different tuples, never the same answer.
+  assert.notDeepEqual(finalRenderRequestedEncode(hardware), finalRenderRequestedEncode(capped))
+
+  // An encode Story cannot packet is not offered to the Gateway as a requestable one.
+  assert.equal(finalRenderRequestedEncode(opts({ codec: 'unsupported' as CompositionOpts['codec'] })), null)
+  assert.equal(finalRenderRequestedEncode(opts({ videoBitrateKbps: 100 })), null)
+  assert.equal(finalRenderRequestedEncode(opts({ quality: { crf: 20, preset: 'medium', fps: 24 } })), null)
 })
 
 test('active unsupported creative choices and ambiguous classic values stay local before commitment', () => {
