@@ -218,13 +218,16 @@ export async function channelStartingSettings(slug: string): Promise<{ settings:
     musicFormat?: { episodeDefaults?: { scene_themes?: unknown }; registers?: Record<string, { label?: string }>; sceneSettings?: unknown }
   } | null
   const format = niche?.musicFormat
+  const defaults = format?.episodeDefaults ? settingsFromEpisodeDefaults(format.episodeDefaults) : { ...STARTING_EPISODE_SETTINGS }
+  const config = await pm.getConfig(slug)
+  const settings = normalizeEpisodeSettings({ target_length_s: config?.music_episode_target_length_s ?? defaults.target_length_s }, defaults)
   // Theme suggestions: the formula's scene themes, then its registers (SPEC §5).
   const themes = [
     ...(Array.isArray(format?.episodeDefaults?.scene_themes) ? format!.episodeDefaults!.scene_themes as unknown[] : []),
     ...Object.values(format?.registers || {}).map(register => register?.label),
   ].filter((t): t is string => typeof t === 'string' && !!t.trim())
   return {
-    settings: format?.episodeDefaults ? settingsFromEpisodeDefaults(format.episodeDefaults) : { ...STARTING_EPISODE_SETTINGS },
+    settings,
     music_channel: !!format,
     themes: [...new Set(themes)],
     scene_settings: Array.isArray(format?.sceneSettings)

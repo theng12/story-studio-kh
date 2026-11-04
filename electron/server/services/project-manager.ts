@@ -1576,6 +1576,7 @@ export async function getSafeConfig(slug: string): Promise<any | null> {
     // an entry the saved range would be invisible on the next read and the
     // Script page would re-render the Formula's default. Undefined means "never
     // set", which resolves to the live Formula's range (lib/episode-length.ts).
+    music_episode_target_length_s: config.music_episode_target_length_s,
     episode_length: (() => {
       const raw = (config as any).episode_length
       if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined

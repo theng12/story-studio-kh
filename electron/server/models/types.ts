@@ -2287,6 +2287,8 @@ export interface EpisodeLengthSetting {
 }
 
 export interface ProjectConfig {
+  /** Starting mix length for future music episodes; saved episode settings win. */
+  music_episode_target_length_s?: number
   /**
    * 1.4.369 — this channel's episode length, as a STARTING value for each NEW
    * episode. A Quote Shorts Formula asks for 10–60 s per Short, drawn once
@@ -2647,6 +2649,7 @@ export interface UpdateApiKeysRequest {
 }
 
 export interface UpdateConfigRequest {
+  music_episode_target_length_s?: number
   /** 1.4.369 — the channel's per-episode starting length (Quote Shorts). */
   episode_length?: EpisodeLengthSetting
   /** 1.4.300 — per-channel Off / Warn / Block for each safety check. */
