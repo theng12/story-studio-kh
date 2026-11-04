@@ -127,24 +127,30 @@ describe('Publishing: one schedule, shown by its plan name', () => {
 describe('Folder pickers', () => {
   test('Library and finished-videos folders use the shared FolderField and ask before changing', () => {
     // The shared component (designSystemControls.test.ts pins its behaviour) only
-    // emits the picked path; Settings binds no v-model here, so the field shows
+    // emits the picked path; the panel binds no v-model here, so the field shows
     // the old folder until the confirm in moveLibraryTo / chooseExportsFolder
-    // succeeds and the Library is re-read.
-    const settings = read('../pages/projects/[slug]/settings.vue')
-    assert.match(settings, /<FolderField\s+:model-value="library\?\.path \|\| ''"[\s\S]{0,500}@change="moveLibraryTo"/)
-    // 2026-10-07 — unless a separate folder is chosen, finals go to the channel's own Exports folder.
-    assert.match(settings, /<FolderField\s+:model-value="library\?\.exports_custom \? library\.exports_dir : channelExportsDir"[\s\S]{0,800}@change="chooseExportsFolder"/)
-    assert.match(settings, /async function moveLibraryTo\(picked: string\) \{[\s\S]{0,200}await ask\(/)
-    assert.match(settings, /async function chooseExportsFolder\(picked: string\) \{[\s\S]{0,300}await ask\(/)
+    // succeeds and the Library is re-read. Both folders live in the app-level
+    // <AppFilesSettings>; the channel page keeps only its per-channel media root.
+    const appFiles = read('../components/AppFilesSettings.vue')
+    assert.match(appFiles, /<FolderField\s+:model-value="library\?\.path \|\| ''"[\s\S]{0,500}@change="moveLibraryTo"/)
+    // App-wide: an empty binding reads as the Library's own Exports folder.
+    assert.match(appFiles, /<FolderField\s+:model-value="library\?\.exports_custom \? library\.exports_dir : ''"[\s\S]{0,800}@change="chooseExportsFolder"/)
+    assert.match(appFiles, /async function moveLibraryTo\(picked: string\) \{[\s\S]{0,200}await ask\(/)
+    assert.match(appFiles, /async function chooseExportsFolder\(picked: string\) \{[\s\S]{0,300}await ask\(/)
     assert.equal(read('../components/FolderField.vue').match(/NOTE FOR MERGE/), null, 'one FolderField, not a local copy')
   })
 
   test('Settings has no typed path fields for folders', () => {
-    const settings = read('../pages/projects/[slug]/settings.vue')
-    const template = settings.slice(0, settings.indexOf('<script setup')).replace(/<!--[\s\S]*?-->/g, '')
-    assert.doesNotMatch(template, /v-model="archiveSource" class="input"|v-model="archiveDest" class="input"/)
-    assert.doesNotMatch(template, /aria-label="Browse archive (source|destination) folder"/)
-    assert.equal(template.match(/<FolderField/g)?.length, 5, 'Library, finished videos, both archive folders, and the media root use FolderField')
+    const appFiles = read('../components/AppFilesSettings.vue')
+    const channelSettings = read('../pages/projects/[slug]/settings.vue')
+    const appFilesTemplate = appFiles.slice(0, appFiles.indexOf('<script setup')).replace(/<!--[\s\S]*?-->/g, '')
+    const channelTemplate = channelSettings.slice(0, channelSettings.indexOf('<script setup')).replace(/<!--[\s\S]*?-->/g, '')
+    assert.doesNotMatch(appFilesTemplate, /v-model="archiveSource" class="input"|v-model="archiveDest" class="input"/)
+    assert.doesNotMatch(appFilesTemplate, /aria-label="Browse archive (source|destination) folder"/)
+    // Library, finished videos, both archive folders — the media-root field is
+    // per-channel and stays in the channel settings.
+    assert.equal(appFilesTemplate.match(/<FolderField/g)?.length, 4, 'library, finished videos and both archive folders use FolderField')
+    assert.doesNotMatch(channelTemplate, /v-model="archiveSource" class="input"|v-model="archiveDest" class="input"/)
   })
 })
 
@@ -153,9 +159,10 @@ describe('Layout fixes', () => {
     // The hidden alert-event checkboxes were `position: absolute` with no
     // positioned ancestor, so they were placed against the page and stretched
     // the window (measured: document 1773 px tall in a 900 px window).
-    const settings = read('../pages/projects/[slug]/settings.vue')
-    assert.match(settings, /\.notification-event-card\s*\{ position: relative; \}/)
-    assert.match(settings, /\.settings-workspace\s*\{[^}]*position: relative;/)
+    // The notifications card moved into <AppNotificationSettings>; the channel
+    // page keeps its positioned workspace wrapper.
+    assert.match(read('../components/AppNotificationSettings.vue'), /\.notification-event-card\s*\{ position: relative; \}/)
+    assert.match(read('../pages/projects/[slug]/settings.vue'), /\.settings-workspace\s*\{[^}]*position: relative;/)
   })
 
   test('collapsible cards draw their chevron inside the card', () => {
