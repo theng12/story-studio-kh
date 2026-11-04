@@ -19,7 +19,9 @@ const videoAssemblySource = readFileSync(
 describe('Scene Review image preview', () => {
   test('render controls expose one Gateway image model and no invented step control', () => {
     assert.match(sceneReviewSource, /class="sr-model-grid is-single"[\s\S]*Image model/)
-    assert.match(sceneReviewSource, /image-mode="text2img"/)
+    assert.match(sceneReviewSource, /v-model:image-mode="sceneImageMode"/)
+    assert.match(sceneReviewSource, /allow-mode-selection/)
+    assert.match(sceneReviewSource, /image_modes\?\.find\(mode => mode\.id === id\)/)
     assert.doesNotMatch(sceneReviewSource, /Rewrite LLM|Rewrite with AI|<ModelSelector/)
     assert.match(sceneReviewSource, /\.sr-model-grid\.is-single\s*{\s*grid-template-columns:\s*minmax\(0, 1fr\)/)
     // GenStudio publishes no step contract and accepts no `steps` field, so

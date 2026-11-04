@@ -161,10 +161,12 @@ describe('shared model menus', () => {
   test('thumbnail generator enables reference guidance only for qualified Gateway models', () => {
     assert.doesNotMatch(imageGenerator, /Reference-image generation is coming soon\./)
     assert.doesNotMatch(imageGenerator, /:disabled="tab\.comingSoon"/)
-    assert.match(imageGenerator, /thumbnailReferenceActive \? 'img2img' : 'text2img'/)
+    assert.match(imageGenerator, /v-model:image-mode="thumbnailImageMode"/)
+    assert.match(imageGenerator, /allow-mode-selection/)
     assert.match(imageGenerator, /thumbnail_reference_asset/)
-    assert.match(imagePicker, /supports_reference_images/)
-    assert.match(imagePicker, /max_reference_images/)
+    assert.match(imagePicker, /publishedImageModes\(selectedModel\.value\?\.image_modes\)/)
+    assert.match(imagePicker, /references\?\.max/)
+    assert.match(imageGenerator, /image_modes\?\.some\(mode => mode\.id === modeId && mode\.available\)/)
     // Capability, not price: a free model on the owner's Macs (`chargeable: false`) takes references too.
     assert.doesNotMatch(imagePicker, /\.chargeable\b/)
   })

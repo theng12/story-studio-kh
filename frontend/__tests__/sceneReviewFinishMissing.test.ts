@@ -143,7 +143,10 @@ async function mount(jobs: JobFixture[], options: {
   const replaceResponses = [...(options.replaceResponses || [])]
   ;(globalThis as any).__sceneReviewRoute = route
   ;(globalThis as any).__sceneReviewJobs = jobState
-  ;(globalThis as any).__sceneReviewModels = ref([])
+  ;(globalThis as any).__sceneReviewModels = ref([{
+    id: 'published-image-model', display_name: 'Published image model', available: true,
+    image_modes: [{ id: 'txt2img', label: 'Text to image', available: true }],
+  }])
   ;(globalThis as any).__sceneReviewErrors = []
   ;(globalThis as any).__sceneReviewConfirm = {
     ask: (confirmationOptions: any) => new Promise<boolean>(resolve => {
@@ -231,6 +234,7 @@ test('a listed-but-rowless remembered ratio is repaired to a renderable row and 
       id: 'row-model',
       display_name: 'Row Model',
       available: true,
+      image_modes: [{ id: 'txt2img', label: 'Text to image', available: true }],
       qualification_only: false,
       chargeable: true,
       credits_per_image: 3,
@@ -350,6 +354,7 @@ test('enabled replacement opens the duplicate-charge dialog and project or episo
     ], { settings: [{ enabled: true }] })
     try {
       assert.equal(mounted.host.querySelectorAll('#replace-anyway').length, 1)
+      mounted.state.form.value.model = 'published-image-model'
       const pending = mounted.state.replaceUncertainImages()
       await nextTick()
       assert.equal(mounted.confirmations.length, 1, 'the enabled control must open the real confirmation path')

@@ -246,6 +246,11 @@ const CLASSIFIED: Record<string, Record<string, Classification>> = {
     'activeForm.seed': { verdict: 'saved-by-preset', reason: '`activeForm` is a computed alias of `form.thumbnail`', via: 'form.thumbnail' },
     outputOption: { verdict: 'saved-by-preset', reason: 'the published `(resolution, aspect_ratio)` row — a reusable render choice with its own price', via: 'output_option' },
     extraDetails: { verdict: 'episode', reason: 'render-time guidance for one episode; deliberately outside `form` so no preset can capture it' },
+    // v1.4.379 — the Gateway publishes the image modes a model offers, and the
+    // customer picks one for THIS run. It is not in the preset snapshot: the
+    // thumbnail preset carries the model, the ratio and the output row, and the
+    // mode is chosen at the moment of the render.
+    thumbnailImageMode: { verdict: 'run-only', reason: 'the Gateway-published image mode picked for THIS thumbnail run — a per-run selection, never restored by a preset' },
     lightboxOpen: { verdict: 'transient', reason: 'the preview lightbox\'s open flag' },
     lightboxIndex: { verdict: 'transient', reason: 'which thumbnail the lightbox is showing' },
   },
@@ -295,6 +300,12 @@ const CLASSIFIED: Record<string, Record<string, Classification>> = {
   'scene-review.vue': {
     editPrompt: { verdict: 'episode', reason: 'the prompt being edited for one scene of this episode' },
     outputOption: { verdict: 'saved-by-preset', reason: 'the published `(resolution, aspect_ratio)` row — a reusable render choice with its own price', via: 'output_option' },
+    // v1.4.379 — the Gateway publishes the image modes a model offers, and the
+    // customer picks one for THIS render. The scene preset carries the model,
+    // the ratio, the output row and the seed; the mode is a per-run selection
+    // and is never restored by a preset. It is also cleared on every episode
+    // change (§4), so it cannot travel with one either.
+    sceneImageMode: { verdict: 'run-only', reason: 'the Gateway-published image mode picked for THIS scene render — a per-run selection, never restored by a preset' },
   },
   'scripts.vue': {
     byoMode: { verdict: 'transient', reason: 'the bring-your-own dialog\'s mode' },
