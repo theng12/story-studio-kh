@@ -10,10 +10,19 @@ import { researchBeforeWritingEnabled } from '../lib/research-before-writing.js'
 import { normalizeResearchMode, providerForResearchMode } from './research/index.js'
 import { normalizeDomainList } from './research/web-capability.js'
 
-export async function runResearchBeforeWriting(job: Job, {
+import { withLock } from '../lib/atomic-store.js'
+
+type ResearchDependencies = { run?: typeof runResearchJob; checkpoint?: typeof checkpointJobState }
+
+export async function runResearchBeforeWriting(job: Job, dependencies: ResearchDependencies = {}): Promise<void> {
+  return withLock(`research-before-writing:${JSON.stringify([job.project_slug, job.episode_id])}`, () =>
+    runLockedResearchBeforeWriting(job, dependencies))
+}
+
+async function runLockedResearchBeforeWriting(job: Job, {
   run = runResearchJob,
   checkpoint = checkpointJobState,
-}: { run?: typeof runResearchJob; checkpoint?: typeof checkpointJobState } = {}): Promise<void> {
+}: ResearchDependencies): Promise<void> {
   const skip = (reason: string) => job.output_lines.push(`Research before writing skipped: ${reason} Writing continues.`)
   let checkpointPending = false
   try {
@@ -24,7 +33,13 @@ export async function runResearchBeforeWriting(job: Job, {
     let evidence: unknown
     try { evidence = JSON.parse(await fs.readFile(jsonPath, 'utf8')) } catch { /* absent or malformed is not evidence */ }
     if (hasResearchEvidence(evidence)) {
-      job.output_lines.push('Research before writing: using existing evidence and keeping its claim decisions.')
+      if (job.params.pipeline_batch_id) {
+        const { autoCompleteResearchReviewForPipeline } = await import('../routes/pipeline.js')
+        if (await autoCompleteResearchReviewForPipeline(job.project_slug, job.episode_id)) {
+          job.output_lines.push('Research claims auto-completed by Pipeline (pipeline-auto); no human read them.')
+        }
+      }
+      job.output_lines.push('Research before writing: using existing evidence and preserving completed claim decisions.')
       return
     }
     const previous = job.params.research_before_writing_run || (await findJobs(job.project_slug, candidate =>

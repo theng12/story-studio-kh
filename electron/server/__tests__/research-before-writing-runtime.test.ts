@@ -72,6 +72,26 @@ test('optional research runs before manual/automatic writing and never repeats a
   await runResearchBeforeWriting(writing(), { checkpoint, run: async () => { calls++ } })
   assert.equal(calls, 2, 'existing evidence, including an all-ignored human review, is never regenerated')
   assert.equal(await fs.readFile(research.jsonPath, 'utf8'), original)
+  await runResearchBeforeWriting(writing({ pipeline_batch_id: 'human-review-preserved' }), { checkpoint, run: async () => { calls++ } })
+  assert.equal(await fs.readFile(research.jsonPath, 'utf8'), original, 'Pipeline preserves completed human ignore-all decisions')
+
+  await fs.writeFile(research.jsonPath, JSON.stringify({ summary: 'Evidence', claims: [{ text: 'Pending claim', status: 'unreviewed' }, { text: 'Already ignored', status: 'ignored' }] }))
+  await runResearchBeforeWriting(writing({ pipeline_batch_id: 'pending-review' }), { checkpoint, run: async () => { calls++ } })
+  const reviewed = JSON.parse(await fs.readFile(research.jsonPath, 'utf8'))
+  assert.equal(reviewed.review.completed_by, 'pipeline-auto')
+  assert.deepEqual(reviewed.claims.map((claim: { status: string }) => claim.status), ['verified', 'ignored'])
+  assert.equal(calls, 2)
+
+  await fs.writeFile(research.jsonPath, '{}')
+  let concurrentCalls = 0
+  await Promise.all([writing(), writing()].map(job => runResearchBeforeWriting(job, {
+    checkpoint,
+    run: async () => {
+      concurrentCalls++
+      await fs.writeFile(research.jsonPath, JSON.stringify({ summary: 'Concurrent evidence', claims: [] }))
+    },
+  })))
+  assert.equal(concurrentCalls, 1, 'concurrent writers must share one optional research submission')
 
   const express = (await import('express')).default
   const request = (await import('supertest')).default
