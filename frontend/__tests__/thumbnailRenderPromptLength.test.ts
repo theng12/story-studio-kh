@@ -160,8 +160,9 @@ describe('it is recomputed on every live change', () => {
 
 describe('an over-limit prompt is refused before anything is queued', () => {
   test('the refusal happens before the render is posted', () => {
-    const refusal = images.indexOf('showError(overCapRefusalText(overCap))')
-    const post = images.indexOf('await post(`/projects/${slug.value}/generate/images`, params)')
+    const queue = images.slice(images.indexOf('async function queueGeneration'), images.indexOf('async function submit'))
+    const refusal = queue.indexOf('showError(overCapRefusalText(overCap))')
+    const post = queue.search(/await post(?:<[^>]+>)?\(`\/projects\/\$\{slug\.value\}\/generate\/images`, params\)/)
     assert.ok(refusal > 0, 'the page refuses an over-limit prompt')
     assert.ok(post > 0, 'the page posts the render')
     assert.ok(refusal < post, 'the refusal comes before the render is queued')
