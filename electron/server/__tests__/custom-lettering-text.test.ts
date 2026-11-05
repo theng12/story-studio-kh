@@ -163,9 +163,10 @@ describe('the single-row regeneration carries the workspace lettering', () => {
     // clause is built from — the same options the character ceiling is
     // reserved against, so the clause the row receives and the clause that
     // was measured cannot disagree.
+    const optionsStart = routeSource.indexOf('const elementOptions = {')
     const optionsBlock = routeSource.slice(
-      routeSource.indexOf('const elementOptions = {'),
-      routeSource.indexOf('const elementOptions = {') + 1200,
+      optionsStart,
+      routeSource.indexOf('\n      }', optionsStart),
     )
     assert.match(optionsBlock, /fontStyle: typeof req\.body\.thumb_font_style === 'string'/)
     assert.match(optionsBlock, /textStyle: typeof req\.body\.thumb_text_style === 'string'/)
