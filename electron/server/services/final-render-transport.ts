@@ -4,7 +4,8 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import path from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
 
-import { describeFinalRenderExport, finalRenderRequestedEncode, type FinalRenderExportDescription } from '../lib/final-render-export.js'
+import { describeFinalRenderExport, finalRenderRequestedEncode, type FinalRenderExportDescription, type PreparedLogoAsset } from '../lib/final-render-export.js'
+import { logoCornerRadiusPct, logoShapeOf, writeShapedLogo } from '../lib/logo-shape.js'
 import { readInstalledStoryRenderProvenance } from '../lib/final-render-build-provenance.js'
 import { RenderProvenanceError, sameDescriptorPins } from '../lib/final-render-provenance-contract.js'
 import {
@@ -276,7 +277,28 @@ export async function preparePrivateFinalRenderDescriptor(
       + 'so this video stays on this Mac. The render is otherwise unchanged.')
     return null
   }
-  const description = describeFinalRenderExport(opts, discovery)
+  // A shaped logo is cut ONCE into the run's scratch root at the exact width the
+  // recipe's scale resolves to, so the remote graph overlays a normal still PNG.
+  // If the cut cannot be made the composition stays local (`logo_shape`) rather
+  // than sending the unshaped logo; the local lane then shows the logo as it is.
+  let logoAsset: PreparedLogoAsset | undefined
+  const logo = opts.logo
+  const logoShape = logoShapeOf(logo?.shape)
+  if (logo?.enabled && logo.image_path && logoShape !== 'none' && logo.position !== 'custom') {
+    const shapedPath = path.join(path.dirname(opts.videoInputPath), `logo-${logoShape}.png`)
+    try {
+      await fs.mkdir(path.dirname(shapedPath), { recursive: true })
+      const size = await writeShapedLogo(
+        logo.image_path, shapedPath, Math.round(opts.w * (logo.scale || 0.1)), logoShape, logo.corner_radius_pct,
+      )
+      logoAsset = { path: shapedPath }
+      opts.job.output_lines.push(`Logo shape: ${logoShape === 'circle' ? 'circle' : `rounded corners (${logoCornerRadiusPct(logo.corner_radius_pct)}%)`} · ${size.width}x${size.height}`)
+    } catch (error) {
+      opts.job.output_lines.push(`Logo shape: ${logoShape} could not be made (${(error as Error)?.message || error}) — `
+        + 'so this video stays on this Mac. The render is otherwise unchanged.')
+    }
+  }
+  const description = describeFinalRenderExport(opts, discovery, logoAsset)
   if (description.kind !== 'exportable') {
     if (known) throw new Error('Existing private final render lineage requires recovery before local rendering.')
     opts.job.output_lines.push(`Private final render: this video stays on this Mac — the composition is not `

@@ -6,6 +6,7 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { after, before, test } from 'node:test'
+import sharp from 'sharp'
 import ts from 'typescript'
 
 import type { CompositionOpts } from '../generators/video.js'
@@ -335,6 +336,54 @@ test('zero-capacity paired capability GET stages immutable copies and exact cano
   await fs.writeFile(value.composition.videoInputPath, 'later live source mutation\n')
   assert.deepEqual(await fs.readFile(path.join(path.dirname(manifestPath), 'base.mp4')), BASE_BYTES,
     'the staged copy is immutable with respect to later live-source changes')
+})
+
+test('a shaped logo is cut before staging so the remote recipe carries only the masked PNG', async () => {
+  fetchCalls = []
+  await setPrivateFinalRenderSetting({ enabled: true })
+  const value = await prepareCase('logo-rounded')
+  const logoPath = path.join(value.sourceDir, 'logo.png')
+  await sharp({ create: { width: 400, height: 200, channels: 3, background: '#ff0000' } }).png().toFile(logoPath)
+  value.composition.logo = {
+    enabled: true, image_path: logoPath, position: 'top-left', opacity: 1, scale: 0.5,
+    margin: 20, hide_during_intro: false, shape: 'rounded', corner_radius_pct: 20,
+  }
+  assert.deepEqual(await prepare(value), { kind: 'video-assembly-remote-wait' })
+
+  const canonical = await queue.loadAuthoritativeJob(value.job.project_slug, value.job.job_id)
+  const receipt = canonical?.final_render_remote_wait as any
+  const intentDir = path.join(retainedRoot, 'private-render', 'intents', receipt.intent_id)
+  const manifest = JSON.parse(await fs.readFile(path.join(intentDir, 'manifest.json'), 'utf8'))
+  assert.equal(manifest.sources.find((source: any) => source.role === 'logo').safe_name, 'logo.png')
+  const staged = path.join(intentDir, 'logo.png')
+  assert.notDeepEqual(await fs.readFile(staged), await fs.readFile(logoPath),
+    'the staged logo is the cut still, not the original file')
+  const { data, info } = await sharp(staged).ensureAlpha().raw().toBuffer({ resolveWithObject: true })
+  assert.equal(data[3], 0, 'a corner is cut away')
+  assert.equal(data[((Math.floor(info.height / 2) * info.width) + Math.floor(info.width / 2)) * info.channels + 3], 255,
+    'the middle is kept')
+  assert.deepEqual(manifest.packet.recipe.operations.find((operation: any) => operation.kind === 'logo'), {
+    kind: 'logo', asset: { type: 'asset_ref', logical_id: 'logo' }, opacity: 1,
+    scale: 0.5, anchor: 'top-left', margin_px: 20, gate: 'always',
+  })
+  assert.match(value.job.output_lines.join('\n'), /Logo shape: rounded corners \(20%\) · 64x32/)
+})
+
+test('a shape that cannot be cut keeps the render local and says so', async () => {
+  fetchCalls = []
+  await setPrivateFinalRenderSetting({ enabled: true })
+  const value = await prepareCase('logo-broken')
+  const logoPath = path.join(value.sourceDir, 'logo.png')
+  await fs.writeFile(logoPath, 'not an image')
+  value.composition.logo = {
+    enabled: true, image_path: logoPath, position: 'top-left', opacity: 1, scale: 0.1,
+    margin: 20, hide_during_intro: false, shape: 'circle',
+  }
+  assert.equal(await prepare(value), null)
+  assert.equal(value.job.final_render_remote_wait, undefined)
+  const lines = value.job.output_lines.join('\n')
+  assert.match(lines, /Logo shape: circle could not be made .*stays on this Mac/)
+  assert.match(lines, /not representable remotely \(logo shape\)/)
 })
 
 test('shared final composition holds before local encoding and both real callers pass authoritative destination facts', async () => {

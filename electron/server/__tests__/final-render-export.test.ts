@@ -341,6 +341,30 @@ test('the requested encode and the packet encode are one and the same tuple', ()
   assert.equal(finalRenderRequestedEncode(opts({ quality: { crf: 20, preset: 'medium', fps: 24 } })), null)
 })
 
+test('a prepared shaped logo exports the shaped asset and never the unshaped original', () => {
+  const logo: NonNullable<CompositionOpts['logo']> = {
+    enabled: true, image_path: '/schema/assets/logo.jpg', position: 'top-left',
+    opacity: 0.8, scale: 0.2, margin: 4, hide_during_intro: false,
+    shape: 'rounded', corner_radius_pct: 25,
+  }
+  assert.deepEqual(
+    describeFinalRenderExport(opts({ logo }), discovery),
+    { kind: 'local-only', reason: 'logo_shape' },
+    'without the cut asset the composition stays local, never unshaped',
+  )
+
+  const description = exportable(describeFinalRenderExport(
+    opts({ logo }), discovery, { path: '/schema/assets/logo-rounded.png' },
+  ))
+  assert.deepEqual(description.source_requirements.filter(item => item.role === 'logo'), [
+    { logical_id: 'logo', role: 'logo', source_path: '/schema/assets/logo-rounded.png' },
+  ])
+  assert.deepEqual(description.recipe.operations.find((operation: any) => operation.kind === 'logo'), {
+    kind: 'logo', asset: { type: 'asset_ref', logical_id: 'logo' }, opacity: 0.8,
+    scale: 0.2, anchor: 'top-left', margin_px: 4, gate: 'always',
+  })
+})
+
 test('active unsupported creative choices and ambiguous classic values stay local before commitment', () => {
   const cases: Array<[string, Partial<CompositionOpts>, string]> = [
     ['subtitles', { subtitles: { enabled: true, source: 'upload', srt_path: '/schema/captions.srt', style: {} as any } }, 'subtitles'],

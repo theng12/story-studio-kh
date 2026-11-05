@@ -122,6 +122,11 @@ function exactOriginPlacement(layer: VideoOverlay): boolean {
   return !layer.position || (layer.position.x === '0' && layer.position.y === '0')
 }
 
+/** The logo already cut to its chosen shape at its rendered width (lib/logo-shape.ts). */
+export interface PreparedLogoAsset {
+  path: string
+}
+
 /**
  * Purely describes an already-resolved local composition. Compatibility is not
  * execution authority: the caller still owns profile eligibility and dispatch.
@@ -129,6 +134,7 @@ function exactOriginPlacement(layer: VideoOverlay): boolean {
 export function describeFinalRenderExport(
   opts: Readonly<CompositionOpts>,
   discovery: Readonly<FinalRenderCapabilities>,
+  logoAsset?: Readonly<PreparedLogoAsset>,
 ): FinalRenderExportResult {
   if (opts.subtitles?.enabled) return local('subtitles')
   if ((opts.contextualCues?.length ?? 0) > 0) return local('contextual_cues')
@@ -256,14 +262,19 @@ export function describeFinalRenderExport(
 
   if (opts.logo?.enabled) {
     const logo = opts.logo
-    if (!logo.image_path) return local('logo_source')
     if (logo.position === 'custom') return local('logo_custom_position')
-    if ((logo.shape ?? 'none') !== 'none') return local('logo_shape')
     if (logo.margin === 0) return local('logo_margin_default')
     if (!LOGO_ANCHORS.has(logo.position) || !finite(logo.opacity) || !finite(logo.scale)
       || !Number.isSafeInteger(logo.margin)) return local('logo_settings')
-    const requirement = source('logo', 'logo', logo.image_path)
-    if (!requirement) return local('logo_source')
+    const original = source('logo', 'logo', logo.image_path)
+    if (!original) return local('logo_source')
+    // A chosen shape was cut into a still PNG before this call; the recipe has
+    // no shape field, so the mask must already be in the asset. Without it the
+    // composition stays local rather than sending the unshaped logo.
+    const requirement = (logo.shape ?? 'none') !== 'none'
+      ? logoAsset && source('logo', 'logo', logoAsset.path)
+      : original
+    if (!requirement) return local('logo_shape')
     sources.push(requirement)
     operations.push({
       kind: 'logo', asset: { type: 'asset_ref', logical_id: 'logo' }, opacity: logo.opacity ?? 1,
