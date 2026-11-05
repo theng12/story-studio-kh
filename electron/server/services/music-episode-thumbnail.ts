@@ -24,7 +24,7 @@ import { writePromptCompletionManifest } from './prompt-completion.js'
 import { writeSelectedThumbnail } from './upload-overrides.js'
 import { episodeDirFor, isMusicEpisodeDir, readEpisodeDoc, untitledScenePrompts } from './music-episode-store.js'
 import type { ScenePlan } from '../models/types.js'
-import { THUMBNAIL_COUNT_MAX, thumbnailCount } from '../contracts/thumbnail-counts.js'
+import { thumbnailCount } from '../contracts/thumbnail-counts.js'
 
 /** YouTube's thumbnail size. Scene pictures are 1280x720 already; anything else is cover-cropped to it. */
 export const THUMBNAIL_W = 1280
@@ -132,7 +132,7 @@ export async function writeMusicThumbnailPrompts(
   // `count` in the answer is what was really written, and the caller says so.
   const wanted = opts.sceneIds?.length
     ? opts.sceneIds.map(id => scenes.find(s => s.id === id)).filter((s): s is MusicThumbnailScene => !!s)
-    : scenes.slice(0, Math.min(THUMBNAIL_COUNT_MAX, requested))
+    : scenes.slice(0, requested)
   if (!wanted.length) throw Object.assign(new Error('None of those scenes are in this episode any more. Reload the page.'), { statusCode: 404 })
   const { enforceThumbnailPromptElements } = await import('../generators/image-prompts.js')
   const { resolveStyleBible } = await import('../lib/style-bible.js')

@@ -49,14 +49,6 @@ export const DEFAULT_THUMBNAIL_COUNT = 3
 export const THUMBNAIL_COUNT_MIN = 1
 
 /**
- * The highest count the pages offer. A UI bound, not a published model limit:
- * `thumbnailCount()` never trims a caller's number to it. (A music episode's
- * candidates come from distinct scenes, and that surface has always taken at
- * most this many — unchanged here.)
- */
-export const THUMBNAIL_COUNT_MAX = 6
-
-/**
  * The count a run should make.
  *
  * An explicit, whole, positive count is returned as given. Anything else —

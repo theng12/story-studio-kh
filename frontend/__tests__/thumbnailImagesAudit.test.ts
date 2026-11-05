@@ -274,7 +274,8 @@ test('thumbnail counts come from the ONE shared rule: three options by default, 
   // The page's default and bounds come from the shared contract, not a second copy.
   assert.match(page, /thumb_count: DEFAULT_THUMBNAIL_COUNT,/)
   assert.match(page, /:min="THUMBNAIL_COUNT_MIN"/)
-  assert.match(page, /:max="THUMBNAIL_COUNT_MAX"/)
+  assert.doesNotMatch(page, /THUMBNAIL_COUNT_MAX/)
+  assert.doesNotMatch(contract, /THUMBNAIL_COUNT_MAX/)
   assert.match(page, /from '@shared\/thumbnail-counts'/)
   assert.equal((page.match(/thumb_count: 3\b/g) || []).length, 0, 'the default is not typed a second time')
 
