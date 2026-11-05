@@ -25,6 +25,7 @@ import { parseSrt } from '../lib/subtitle-builder.js'
 import { stampFromCues } from '../lib/scene-plan-timeline.js'
 
 let cacheMod: typeof import('../services/episode-status-cache.js')
+let watcherMod: typeof import('../services/episode-folder-watcher.js')
 let pm: typeof import('../services/project-manager.js')
 let tmp: { dir: string; cleanup: () => Promise<void> }
 
@@ -103,6 +104,7 @@ describe('episode-status-cache', () => {
   before(async () => {
     tmp = await useTempDataDir()
     cacheMod = await import('../services/episode-status-cache.js')
+    watcherMod = await import('../services/episode-folder-watcher.js')
     pm = await import('../services/project-manager.js')
     // Ensure PROJECTS_ROOT (resolved at module load) matches our temp dir.
     assert.equal(pm.projectsRoot(), path.join(tmp.dir, 'projects'),
@@ -110,11 +112,24 @@ describe('episode-status-cache', () => {
   })
 
   after(async () => {
+    // Restore the real wiring episode-status-cache.ts binds at import, so this
+    // file's neutralized invalidator cannot leak into anything loaded later.
+    watcherMod.bindInvalidator((slug, code) => cacheMod.episodeStatusCache.invalidate(slug, code))
+    watcherMod.stopAllWatchers()
     await tmp.cleanup()
   })
 
   beforeEach(() => {
     cacheMod.episodeStatusCache.clear()
+    // clear() drops cache state but not the watcher's coalesced (250ms trailing)
+    // invalidation timers, which outlive the test that armed them with its own
+    // fixture writes. One landing between a later hydrate's set() and the read
+    // turns that fresh hydrate into a silent recompute — the R3 "served from
+    // hydrated entry" failure (status correct, hits unchanged). These cases all
+    // exercise the cache's own mtime rules, so no watcher may arm and none may
+    // deliver: stop them and neutralize the bound hook for the test's duration.
+    watcherMod.stopAllWatchers()
+    watcherMod.bindInvalidator(() => {})
   })
 
   test('MISS: empty cache computes and stores', async () => {
@@ -450,6 +465,62 @@ describe('episode-status-cache', () => {
     // After hydrate, the entry exists. The current get is a HIT (mtimes
     // unchanged since persist).
     assert.ok(after.hits > before.hits, 'served from hydrated entry')
+  })
+
+  test('an invalidation delivered inside the hydrate window recomputes silently; this suite admits no such delivery', async () => {
+    await makeProject()
+    const cache = cacheMod.episodeStatusCache
+
+    // Isolation receipt (revert-sensitive): earlier tests' fixture writes arm
+    // the project watcher through their own hydrates, and only this file's
+    // beforeEach stops it. With the isolation reverted, the watcher from the
+    // previous test is still live here.
+    assert.equal(watcherMod.watcherTrustedSince(SLUG), null,
+      'no watcher may survive from an earlier test’s fixture writes')
+
+    await cache.get(SLUG, CODE)
+    await cache.flushProjectNow(SLUG)
+
+    // Part 1 — the R3 window, under the module's real wiring: clear() restores
+    // a normal process's state (real bound invalidator), and hydrate's
+    // legacy-cleanup rm is held open so the delivery lands between hydrate's
+    // set() and its return. One delivery, like one coalesced callback.
+    cache.clear()
+    watcherMod.bindInvalidator((slug, code) => cache.invalidate(slug, code))
+    const realRm = fs.rm
+    let deliver = true
+    ;(fs as any).rm = async (...args: Parameters<typeof fs.rm>) => {
+      if (deliver && String(args[0]).includes(`${path.sep}.cache${path.sep}`)) {
+        deliver = false
+        cache.invalidate(SLUG, CODE)
+      }
+      return realRm(...args)
+    }
+    try {
+      const before = cache.getStats()
+      const status = await cache.get(SLUG, CODE)
+      const after = cache.getStats()
+      assert.equal(after.diskHydrates - before.diskHydrates, 1, 'the hydrate ran inside the gated window')
+      assert.equal(after.invalidations - before.invalidations, 1, 'the forced delivery landed inside the hydrate window')
+      assert.equal(status.script, true, 'the recomputed status is still correct')
+      assert.equal(after.hits - before.hits, 0,
+        'a delivery in that window silently turns the fresh hydrate into a recompute — the R3 signature')
+
+      // Part 2 — what this file's isolation guarantees: with the hook
+      // neutralized (as beforeEach leaves it) there is no delivery to make, so
+      // the same gated window serves the hydrated entry as a HIT.
+      cache.clear()
+      watcherMod.bindInvalidator(() => {})
+      const beforeIsolated = cache.getStats()
+      const hydrated = await cache.get(SLUG, CODE)
+      const afterIsolated = cache.getStats()
+      assert.equal(afterIsolated.diskHydrates - beforeIsolated.diskHydrates, 1, 'fresh hydrate')
+      assert.equal(afterIsolated.invalidations - beforeIsolated.invalidations, 0, 'no delivery reaches the cache')
+      assert.ok(afterIsolated.hits > beforeIsolated.hits, 'served from hydrated entry')
+      assert.equal(hydrated.script, true, 'status correctly hydrated')
+    } finally {
+      ;(fs as any).rm = realRm
+    }
   })
 
   test('persistence: schema version mismatch on disk is ignored', async () => {
