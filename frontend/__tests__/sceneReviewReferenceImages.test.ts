@@ -193,9 +193,10 @@ describe('the page wiring', () => {
   })
 
   test('a second reference model is read from ITS row, not from a known one', () => {
-    // Owner 2026-10-26: Qwen Image 2.1 Turbo edit joins Klein as a reference
-    // model. Nothing about either may be hardcoded — the block follows whatever
-    // window each row publishes (here: one slot, no floor, no pixel ceiling).
+    // Owner 2026-10-26: Qwen Image 2.1 Turbo edit is another reference model
+    // in the live catalogue. Nothing about either may be hardcoded — the block
+    // follows whatever window each row publishes (here: one slot, no floor, no
+    // pixel ceiling).
     const qwen = {
       display_name: 'Qwen Image 2.1 Turbo edit',
       supports_reference_images: true,

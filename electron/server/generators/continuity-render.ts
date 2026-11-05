@@ -202,8 +202,8 @@ export interface EpisodeReferencePlan {
  * a feature that is broken.
  *
  * @param availablePaths existing reference files, already in preference order.
- * @param maxReferences the model's PUBLISHED `max_reference_images`. FLUX.2
- *   Klein publishes 0 and must degrade to a text-only render, not fail.
+ * @param maxReferences the model's PUBLISHED `max_reference_images`; zero
+ *   means degrade to a text-only render, not fail.
  */
 export function planEpisodeReference(input: {
   enabled: boolean
@@ -409,9 +409,9 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
   // never inferred from the model's name, and never a hardcoded count. The
   // owner's decision for this step is ONE reference, so the published
   // `max_reference_images` is used as a can/cannot gate here rather than as a
-  // budget: FLUX.2 Klein publishes 0 and must degrade to a text-only render
-  // with the reason said out loud, not fail the batch and not silently
-  // pretend the switch did something.
+  // budget: a published zero degrades to a text-only render with the reason
+  // said out loud, not fail the batch and not silently pretend the switch did
+  // something.
   const supportsReferences = modelConfig.supports_reference_images === true
   const maxReferences = modelConfig.max_reference_images ?? (supportsReferences ? 1 : 0)
   const referenceDir = path.join(paths.episode_dir, EPISODE_REFERENCE_DIRNAME)
