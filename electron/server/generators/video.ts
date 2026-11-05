@@ -1178,6 +1178,8 @@ export { buildLetterboxFilter, computeVignetteAngle } from '../lib/video-effects
 export function resolveAssetPathsInPlace(req: GenerateVideoRequest, outputRoot: string, job: Job): void {
   const tryResolve = (p: string | undefined, label: string): string | undefined => {
     if (!p || !isPortablePath(p)) return p
+    // A chosen app background must resolve; never render a missing choice as None.
+    if (p.startsWith('${BACKGROUND}')) return resolveAssetPath(p, outputRoot)
     try {
       return resolveAssetPath(p, outputRoot)
     } catch (e: any) {

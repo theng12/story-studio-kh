@@ -354,7 +354,7 @@ test('a prepared shaped logo exports the shaped asset and never the unshaped ori
   )
 
   const description = exportable(describeFinalRenderExport(
-    opts({ logo }), discovery, { path: '/schema/assets/logo-rounded.png' },
+    opts({ logo }), discovery, undefined, undefined, { path: '/schema/assets/logo-rounded.png' },
   ))
   assert.deepEqual(description.source_requirements.filter(item => item.role === 'logo'), [
     { logical_id: 'logo', role: 'logo', source_path: '/schema/assets/logo-rounded.png' },
@@ -367,12 +367,12 @@ test('a prepared shaped logo exports the shaped asset and never the unshaped ori
 
 test('active unsupported creative choices and ambiguous classic values stay local before commitment', () => {
   const cases: Array<[string, Partial<CompositionOpts>, string]> = [
-    ['subtitles', { subtitles: { enabled: true, source: 'upload', srt_path: '/schema/captions.srt', style: {} as any } }, 'subtitles'],
+    ['subtitles', { subtitles: { enabled: true, source: 'upload', srt_path: '/schema/captions.srt', style: {} as any } }, 'subtitles_capability_unavailable'],
     ['contextual cues', { contextualCues: [{ id: 'cue', text: 'cue', start_sec: 1, end_sec: 2 } as any] }, 'contextual_cues'],
     ['scene effects', { sceneEffects: { enabled: true, overlays: [{ id: 'film', enabled: true }] } as any }, 'scene_effects'],
     ['episode stack', { episodeStack: { entries: [{}] } as any }, 'episode_stack'],
     ['custom logo placement', { logo: { enabled: true, image_path: '/schema/logo.png', position: 'custom', custom_x: 4, custom_y: 5, opacity: 1, scale: 0.1, margin: 20, hide_during_intro: false } }, 'logo_custom_position'],
-    ['shaped logo', { logo: { enabled: true, image_path: '/schema/logo.png', position: 'top-left', opacity: 1, scale: 0.1, margin: 20, hide_during_intro: false, shape: 'circle' } }, 'logo_shape'],
+    ['unprepared shaped logo', { logo: { enabled: true, image_path: '/schema/logo.png', position: 'top-left', opacity: 1, scale: 0.1, margin: 20, hide_during_intro: false, shape: 'circle' } }, 'logo_shape'],
     ['literal zero logo margin', { logo: { enabled: true, image_path: '/schema/logo.png', position: 'top-left', opacity: 1, scale: 0.1, margin: 0, hide_during_intro: false } }, 'logo_margin_default'],
     ['custom overlay expression', { overlays: { enabled: true, layers: [{ id: 'custom', enabled: true, source_path: '/schema/overlay.png', position: { x: 'W-w-7', y: 'H-h-9' } }] } }, 'overlay_custom_position'],
     ['out-of-range overlay scale', { overlays: { enabled: true, layers: [{ id: 'wide', enabled: true, source_path: '/schema/overlay.png', scale_pct: 1.2 }] } }, 'overlay_scale'],

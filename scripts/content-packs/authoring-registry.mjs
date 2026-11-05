@@ -58,6 +58,10 @@ const KIND_NAMESPACES = {
   // Metadata formulas sell the same way lettering does — six creative documents
   // to a pack — so their identity is an exact set of item ids too.
   'metadata-formula': { pack: `${PUBLISHER_ID}.pack.metadata-formula.`, item: `${PUBLISHER_ID}.metadata-formula.`, proposal: 'metadata-formula' },
+  // One caption look per pack (owner-approved 2026-11-05 conversion of the
+  // twenty-four built-in subtitle styles into portable packs), so its identity
+  // is a single item id like the visual-style kinds, not an item set.
+  'subtitle-style': { pack: `${PUBLISHER_ID}.pack.subtitle-style.`, item: `${PUBLISHER_ID}.subtitle-style.`, proposal: 'subtitle-style' },
 }
 /** Kinds whose pack holds many creative documents rather than exactly one. */
 const MULTI_ITEM_KINDS = new Set(['lettering-style', 'metadata-formula'])

@@ -1,0 +1,12 @@
+{
+ "kind": "lettering-style",
+ "schema_version": 1,
+ "id": "com.storystudio.lettering.text-metallic",
+ "name": "Metallic",
+ "description": "3D metallic, dramatically lit, rich glow",
+ "axis": "text",
+ "phrase": "3D metallic, dramatically lit, rich glow",
+ "preview_assets": [
+  "assets/text-metallic.webp"
+ ]
+}

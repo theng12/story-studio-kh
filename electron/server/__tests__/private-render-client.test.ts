@@ -76,6 +76,24 @@ const PROFILE_UTF8 = canonicalJson({
   production_eligible: false,
 })
 const PROFILE_DIGEST = digestUtf8(PROFILE_UTF8)
+const LATE_LABEL_MOTIONS = ['none', 'pop', 'slide', 'float', 'pulse', 'wipe', 'line-draw'] as const
+const LATE_COMPILER_UTF8 = canonicalJson({
+  format: 'studio.render.compiler.v1', implementation: 'hub-final-render-late-label-v3',
+  python_runtime_sha256: '8'.repeat(64), render_hash_sha256: '9'.repeat(64),
+  render_contract_sha256: 'b'.repeat(64), final_render_compiler_sha256: 'c'.repeat(64),
+})
+const LATE_COMPILER_DIGEST = digestUtf8(LATE_COMPILER_UTF8)
+const LATE_PROFILE_UTF8 = canonicalJson({
+  ...JSON.parse(PROFILE_UTF8),
+  format: 'studio.render.profile.v3', implementation: 'story-classic-late-label-v3',
+  combination_set: 'retained-classic-late-label-candidate-v3',
+  compiler_artifact_sha256: LATE_COMPILER_DIGEST,
+})
+const LATE_PROFILE_DIGEST = digestUtf8(LATE_PROFILE_UTF8)
+const LATE_CAPABILITIES = {
+  format: 'studio.render.late-label.v3',
+  motions: [...LATE_LABEL_MOTIONS],
+}
 /** The same paired profile under the v2 canvas rule: a version and a range, in place of the pairs. */
 const BOUNDS_V2 = {
   bounds_version: 2, canvas_range: { max_edge: 3840, max_pixels: 8_294_400 },
@@ -432,6 +450,156 @@ test('a scoped capability read asks about the exact encode and refuses a wrong e
   assert.equal((await client.getFinalRenderCapabilities(requested)).idle, 0)
   // An echoed scope with an extra field is refused.
   await reject({ requested_encode: { ...requested, extra: true } }, /field|exact|response|invalid/i)
+})
+
+test('a late-label-scoped read requests the exact contract and accepts only its paired response', async () => {
+  const client = await import('../lib/final-render-gateway-client.js')
+  const requested: FinalRenderEncodeEntry = {
+    container: 'mp4', requested_codec: 'h264', requested_effort: 'hardware',
+    crf: 23, quality_cpu_preset: 'medium', bitrate_kbps: null,
+  }
+  const seen: string[] = []
+  const answer = (overrides: Record<string, unknown> = {}) => {
+    globalThis.fetch = async (input) => {
+      seen.push(String(input))
+      return Response.json(capabilities(overrides))
+    }
+  }
+  const lateOverrides = (overrides: Record<string, unknown> = {}) => ({
+    profile_descriptor_utf8: LATE_PROFILE_UTF8,
+    profile_digest: LATE_PROFILE_DIGEST,
+    compiler: { descriptor_utf8: LATE_COMPILER_UTF8, digest: LATE_COMPILER_DIGEST },
+    late_labels: LATE_CAPABILITIES,
+    ...overrides,
+  })
+
+  // The contract query rides after the exact encode tuple when both are asked for.
+  answer(lateOverrides({ requested_encode: requested }))
+  const scoped = await client.getFinalRenderCapabilities(requested, { requestedLateLabels: true })
+  assert.deepEqual(scoped.late_labels, LATE_CAPABILITIES)
+  const url = new URL(seen[0]!)
+  assert.equal(url.pathname, '/v1/final-renders/capabilities')
+  assert.equal(url.searchParams.get('requested_encode'), JSON.stringify(requested))
+  assert.equal(url.searchParams.get('requested_contract'), 'studio.render.late-label.v3')
+  assert.deepEqual([...url.searchParams.keys()], ['requested_encode', 'requested_contract'])
+
+  // A cue composition can ask without an encode scope; the contract remains exact.
+  answer(lateOverrides())
+  const cueOnly = await client.getFinalRenderCapabilities(undefined, { requestedLateLabels: true })
+  assert.equal(cueOnly.late_labels?.format, 'studio.render.late-label.v3')
+  assert.equal(seen[1]!.includes('requested_encode='), false)
+
+  // A Gateway that ignores the query answers with the existing v1 pair and no late-label field.
+  answer()
+  const oldGateway = await client.getFinalRenderCapabilities(requested, { requestedLateLabels: true })
+  assert.equal(oldGateway.late_labels, undefined)
+  assert.equal(oldGateway.profile_descriptor_utf8, PROFILE_UTF8)
+  assert.equal(oldGateway.compiler.descriptor_utf8, COMPILER_UTF8)
+
+  const reject = async (overrides: Record<string, unknown>, pattern: RegExp) => {
+    answer(lateOverrides(overrides))
+    await assert.rejects(
+      client.getFinalRenderCapabilities(undefined, { requestedLateLabels: true }),
+      pattern,
+    )
+  }
+  await reject({ late_labels: { format: 'studio.render.late-label.v1', motions: ['none'] } },
+    /late_labels|unsupported|response|invalid/i)
+  await reject({ late_labels: { format: 'studio.render.late-label.v3', motions: ['none', 'float'] } },
+    /complete supported set|response|invalid/i)
+  await reject({ late_labels: { format: 'studio.render.late-label.v3', motions: ['none', 'none'] } },
+    /motions|duplicated|response|invalid/i)
+  await reject({ late_labels: { format: 'studio.render.late-label.v3', motions: ['none', 'float', 'float'] } },
+    /motions|unsupported|response|invalid/i)
+  await reject({ late_labels: { format: 'studio.render.late-label.v3', motions: ['none', 'float'], extra: true } },
+    /field|exact|response|invalid/i)
+  await reject({ late_labels: LATE_CAPABILITIES, compiler: { descriptor_utf8: COMPILER_UTF8, digest: COMPILER_DIGEST } },
+    /compiler|unsupported|response|invalid/i)
+  await reject({ late_labels: LATE_CAPABILITIES, profile_descriptor_utf8: PROFILE_UTF8, profile_digest: PROFILE_DIGEST },
+    /profile|unsupported|response|invalid/i)
+
+  // An unsolicited late-label field in a normal read fails closed.
+  answer({ late_labels: LATE_CAPABILITIES })
+  await assert.rejects(
+    client.getFinalRenderCapabilities(),
+    /late labels|requested|response|invalid/i,
+  )
+})
+
+test('a subtitle-scoped read requests the exact contract and fails closed until descriptor pins freeze', async () => {
+  const client = await import('../lib/final-render-gateway-client.js')
+  const requested: FinalRenderEncodeEntry = {
+    container: 'mp4', requested_codec: 'h264', requested_effort: 'hardware',
+    crf: 23, quality_cpu_preset: 'medium', bitrate_kbps: null,
+  }
+  const seen: string[] = []
+  const answer = (overrides: Record<string, unknown> = {}) => {
+    globalThis.fetch = async (input) => {
+      seen.push(String(input))
+      return Response.json(capabilities(overrides))
+    }
+  }
+
+  // The subtitle contract takes the single requested_contract slot, alone.
+  answer()
+  const scoped = await client.getFinalRenderCapabilities(undefined, { requestedSubtitles: true })
+  assert.equal(scoped.subtitles, undefined)
+  const url = new URL(seen[0]!)
+  assert.equal(url.pathname, '/v1/final-renders/capabilities')
+  assert.equal(url.searchParams.get('requested_contract'), 'studio.render.subtitle.v1')
+  assert.deepEqual([...url.searchParams.keys()], ['requested_contract'])
+
+  // An encode-scoped subtitle read carries both values and nothing else.
+  answer({ requested_encode: requested })
+  await client.getFinalRenderCapabilities(requested, { requestedSubtitles: true })
+  const both = new URL(seen[1]!)
+  assert.equal(both.searchParams.get('requested_contract'), 'studio.render.subtitle.v1')
+  assert.deepEqual(JSON.parse(both.searchParams.get('requested_encode')!), requested)
+  assert.deepEqual([...both.searchParams.keys()], ['requested_encode', 'requested_contract'])
+
+  // An old Gateway answers the v1 pair with no subtitle field: accepted, no authority.
+  answer()
+  const oldGateway = await client.getFinalRenderCapabilities(undefined, { requestedSubtitles: true })
+  assert.equal(oldGateway.subtitles, undefined)
+
+  // Combined cue+subtitle scope still asks the subtitle contract in the slot; a
+  // late-label envelope answering it keeps late-label authority and grants none.
+  answer({
+    profile_descriptor_utf8: LATE_PROFILE_UTF8,
+    profile_digest: LATE_PROFILE_DIGEST,
+    compiler: { descriptor_utf8: LATE_COMPILER_UTF8, digest: LATE_COMPILER_DIGEST },
+    late_labels: LATE_CAPABILITIES,
+  })
+  const combined = await client.getFinalRenderCapabilities(undefined, { requestedLateLabels: true, requestedSubtitles: true })
+  assert.equal(combined.late_labels?.format, 'studio.render.late-label.v3')
+  assert.equal(combined.subtitles, undefined)
+  assert.equal(new URL(seen[3]!).searchParams.get('requested_contract'), 'studio.render.subtitle.v1')
+
+  // A well-formed subtitle record is refused until this build carries the
+  // frozen descriptor pins — no assumed v4 literals admit it today.
+  answer({ subtitles: { format: 'studio.render.subtitle.v1' } })
+  await assert.rejects(
+    client.getFinalRenderCapabilities(undefined, { requestedSubtitles: true }),
+    /pins|frozen|subtitle/i,
+  )
+  // The record shape itself is still exact.
+  answer({ subtitles: { format: 'studio.render.subtitle.v9' } })
+  await assert.rejects(
+    client.getFinalRenderCapabilities(undefined, { requestedSubtitles: true }),
+    /format|unsupported|response|invalid/i,
+  )
+  // Unsolicited subtitle authority in a normal read fails closed.
+  answer({ subtitles: { format: 'studio.render.subtitle.v1' } })
+  await assert.rejects(
+    client.getFinalRenderCapabilities(),
+    /subtitles|requested|response|invalid/i,
+  )
+  // A subtitle-scoped answer may not smuggle in a late-label envelope.
+  answer({ late_labels: LATE_CAPABILITIES })
+  await assert.rejects(
+    client.getFinalRenderCapabilities(undefined, { requestedSubtitles: true }),
+    /field|exact|response|invalid/i,
+  )
 })
 
 test('closed client rejects wrong response bindings, digests, states, ranges, and extra fields', async () => {

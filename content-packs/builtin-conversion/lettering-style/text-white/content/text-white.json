@@ -1,0 +1,12 @@
+{
+ "kind": "lettering-style",
+ "schema_version": 1,
+ "id": "com.storystudio.lettering.text-white",
+ "name": "White",
+ "description": "clean crisp white, subtle shadow",
+ "axis": "text",
+ "phrase": "clean crisp white, subtle shadow",
+ "preview_assets": [
+  "assets/text-white.webp"
+ ]
+}

@@ -1,0 +1,12 @@
+{
+ "kind": "lettering-style",
+ "schema_version": 1,
+ "id": "com.storystudio.lettering.font-display",
+ "name": "Display",
+ "description": "large display headline font, tight tracking",
+ "axis": "font",
+ "phrase": "large display headline font, tight tracking",
+ "preview_assets": [
+  "assets/font-display.webp"
+ ]
+}

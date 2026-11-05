@@ -1,0 +1,12 @@
+{
+ "kind": "lettering-style",
+ "schema_version": 1,
+ "id": "com.storystudio.lettering.text-chrome",
+ "name": "Chrome",
+ "description": "chrome silver metallic, mirror reflections, hard specular highlights",
+ "axis": "text",
+ "phrase": "chrome silver metallic, mirror reflections, hard specular highlights",
+ "preview_assets": [
+  "assets/text-chrome.webp"
+ ]
+}

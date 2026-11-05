@@ -1,0 +1,127 @@
+{
+  "schemaVersion": 1,
+  "scope": "App-owned built-in Backgrounds catalog. All twelve exports are bundled; only approval:'approved' entries are offered \u2014 presence is availability, never a selection or a default (default is None).",
+  "review_sheet": "twelve-backgrounds.jpg (authoritative review sheet, not shipped)",
+  "assets": [
+    {
+      "id": "white-crumpled-paper",
+      "name": "White crumpled paper",
+      "file": "white-crumpled-paper.webp",
+      "sha256": "95f8b634a10fae793e276a935bd3c1827d90625db3cb1d495a48fb73e4e98139",
+      "bytes": 71662,
+      "width": 1672,
+      "height": 941,
+      "approval": "approved"
+    },
+    {
+      "id": "cream-crumpled-paper",
+      "name": "Cream crumpled paper",
+      "file": "cream-crumpled-paper.webp",
+      "sha256": "0dfcfbdc2b65a8236e62f043f6ed6735da3cabfe43cb9edf227b508078ac80c5",
+      "bytes": 219764,
+      "width": 1672,
+      "height": 941,
+      "approval": "approved"
+    },
+    {
+      "id": "ruled-notebook-paper",
+      "name": "Ruled notebook paper",
+      "file": "ruled-notebook-paper.webp",
+      "sha256": "e0cdf1f1d25002469980b44a1426bcb31769a24b405b4da2ca4bf1fa1f5aa967",
+      "bytes": 72992,
+      "width": 1672,
+      "height": 941,
+      "approval": "approved"
+    },
+    {
+      "id": "brown-kraft-paper",
+      "name": "Brown kraft paper",
+      "file": "brown-kraft-paper.webp",
+      "sha256": "634bbd6a7891166f009d9f255cef73ed7236ad6c6d29aa9ba3648b3656410270",
+      "bytes": 420372,
+      "width": 1672,
+      "height": 941,
+      "approval": "approved"
+    },
+    {
+      "id": "smooth-ivory-paper",
+      "name": "Smooth ivory paper",
+      "file": "smooth-ivory-paper.webp",
+      "sha256": "f9074b52563ad833cde8bbc8b5e34d0140ec9292c7f5a1a05df3498c77697ba1",
+      "bytes": 12904,
+      "width": 1024,
+      "height": 576,
+      "approval": "approved"
+    },
+    {
+      "id": "pale-grey-recycled-paper",
+      "name": "Pale grey recycled paper",
+      "file": "pale-grey-recycled-paper.webp",
+      "sha256": "67760019701a9a2a927f1b8957245ec05dfb53e938ddf161ad08d14e5d6f3ab7",
+      "bytes": 65072,
+      "width": 1024,
+      "height": 576,
+      "approval": "approved"
+    },
+    {
+      "id": "white-watercolor-paper",
+      "name": "White watercolor paper",
+      "file": "white-watercolor-paper.webp",
+      "sha256": "090a05a2d09e84ef1c568edf95f1c1b957bc155569189d66889c56378bc04fb0",
+      "bytes": 29750,
+      "width": 1024,
+      "height": 576,
+      "approval": "approved"
+    },
+    {
+      "id": "dark-slate-chalkboard",
+      "name": "Dark slate / chalkboard",
+      "file": "dark-slate-chalkboard.webp",
+      "sha256": "aad59da6d50d72df0d1b146c1faeab332e747343af04cf5d78ad475eda69c9e7",
+      "bytes": 6812,
+      "width": 1024,
+      "height": 576,
+      "approval": "approved"
+    },
+    {
+      "id": "deep-navy-paper",
+      "name": "Deep navy paper",
+      "file": "deep-navy-paper.webp",
+      "sha256": "6554979a3fb14eb908e49657e86cbef8b2a775feb67214fe04cd46e58a958b44",
+      "bytes": 13000,
+      "width": 1024,
+      "height": 576,
+      "approval": "approved"
+    },
+    {
+      "id": "natural-linen",
+      "name": "Natural linen",
+      "file": "natural-linen.webp",
+      "sha256": "e88c7ae9155342ec83a847a037c3b124e4cb0305caa203625505d1a834c95f6e",
+      "bytes": 211414,
+      "width": 1024,
+      "height": 576,
+      "approval": "approved"
+    },
+    {
+      "id": "subtle-graph-paper",
+      "name": "Subtle graph paper",
+      "file": "subtle-graph-paper.webp",
+      "sha256": "ba8008d72e1240b5b739fb89ae88465a034dea702e8841993d2cd604e55f7d5d",
+      "bytes": 11266,
+      "width": 1024,
+      "height": 576,
+      "approval": "approved"
+    },
+    {
+      "id": "pale-wood-grain",
+      "name": "Pale wood grain",
+      "file": "pale-wood-grain.webp",
+      "sha256": "e1c310a3b77c3a5fe925b2f19086e92c12ae3cfc5810ea35e7f27c2eca63eb1a",
+      "bytes": 47076,
+      "width": 1024,
+      "height": 576,
+      "approval": "approved"
+    }
+  ]
+}

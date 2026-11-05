@@ -1,0 +1,71 @@
+{
+  "kind": "metadata-formula",
+  "schema_version": 1,
+  "id": "com.storystudio.metadata-formula.classic-curiosity-gap",
+  "name": "Curiosity Gap",
+  "description": "Opens on a question the episode answers and refuses to answer it in the description. A one-line hook, three withheld promises, then a short orientation paragraph, then the ask. Built for a browse-page click rather than a subscriber who already trusts the channel.",
+  "architecture": "A withheld question up front, three teasers, orientation, then the ask.",
+  "description_plan": {
+    "max_chars": 1400,
+    "separator": "blank-line",
+    "sections": [
+      {
+        "id": "question",
+        "instruction": "Write a single sentence posing the central question this episode answers. It must be a real question the episode genuinely resolves. Do not answer it and do not hint at the answer.",
+        "header": {
+          "render": false
+        },
+        "target_chars": 110
+      },
+      {
+        "id": "teasers",
+        "instruction": "Write exactly three lines, each beginning with an arrow character and a space. Each line names something the episode reveals without revealing it. Each line is a fragment, not a full sentence, and under twelve words.",
+        "header": {
+          "render": false
+        },
+        "target_chars": 200
+      },
+      {
+        "id": "orientation",
+        "instruction": "One short paragraph saying plainly what the episode covers and roughly how it is structured, so a viewer knows what they are committing to. This is the only place where a straight answer is allowed, and even here it stays at the level of subject rather than conclusion.",
+        "header": {
+          "render": false
+        },
+        "target_chars": 280
+      },
+      {
+        "id": "ask",
+        "instruction": "One sentence inviting the viewer to comment with their own guess at the answer before they watch. Then a second sentence asking them to subscribe. Keep both short and unforced.",
+        "header": {
+          "render": false
+        },
+        "target_chars": 160
+      },
+      {
+        "id": "hashtags",
+        "instruction": "Emit only hashtags, on a single line, separated by spaces. No sentence, no heading, no commentary.",
+        "header": {
+          "render": false
+        },
+        "target_chars": 90
+      }
+    ]
+  },
+  "title_plan": {
+    "mode": "paraphrase",
+    "count": 5,
+    "max_length": 70,
+    "guidance": "Front-load the unanswered question. Short, specific and concrete. Never promise a result the episode does not deliver, and never use the words shocking, insane, or you won't believe."
+  },
+  "tag_plan": {
+    "count": 20,
+    "guidance": "for this question-led explainer episode, weighted toward the phrases somebody would type when they already want this answer"
+  },
+  "tone": {
+    "constraints": [
+      "Never state the episode's conclusion in the description.",
+      "No clickbait superlatives: nothing is shocking, insane, or unbelievable.",
+      "Every promise made here must be one the episode actually keeps."
+    ]
+  }
+}

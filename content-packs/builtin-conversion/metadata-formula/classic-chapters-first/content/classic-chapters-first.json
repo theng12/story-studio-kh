@@ -1,0 +1,73 @@
+{
+  "kind": "metadata-formula",
+  "schema_version": 1,
+  "id": "com.storystudio.metadata-formula.classic-chapters-first",
+  "name": "Chapters First",
+  "description": "Navigation before prose. The timestamped chapter list sits at the very top where a returning viewer can jump straight to what they want, and the summary is demoted beneath it. The inverse of a story-first description.",
+  "architecture": "Timestamped chapters at the top, summary demoted below, sources last.",
+  "description_plan": {
+    "max_chars": 3000,
+    "separator": "rule",
+    "sections": [
+      {
+        "id": "chapters",
+        "instruction": "List the episode's chapters, one per line, each as a timestamp followed by a space and the chapter title. Use the approved chapter titles as given rather than rewriting them. The first chapter always starts at zero. Nothing else goes in this section.",
+        "header": {
+          "render": true,
+          "text": "Chapters"
+        },
+        "target_chars": 420
+      },
+      {
+        "id": "summary",
+        "instruction": "Two short paragraphs describing what the episode covers and who it is for. Written for somebody deciding whether to spend the time, not for somebody already watching.",
+        "header": {
+          "render": false
+        },
+        "target_chars": 560
+      },
+      {
+        "id": "takeaways",
+        "instruction": "Three to five bullet lines, each beginning with a hyphen and a space, naming a concrete thing the viewer will come away knowing. Fragments, not sentences.",
+        "header": {
+          "render": true,
+          "text": "What you'll take away"
+        },
+        "target_chars": 320
+      },
+      {
+        "id": "sources",
+        "instruction": "Leave this section empty. The sources block is assembled from the episode's own approved research and appended by the app, so write nothing here.",
+        "header": {
+          "render": true,
+          "text": "Sources"
+        }
+      },
+      {
+        "id": "hashtags",
+        "instruction": "Emit only hashtags, on a single line, separated by spaces. No sentence, no heading, no commentary.",
+        "header": {
+          "render": false
+        },
+        "target_chars": 90
+      }
+    ]
+  },
+  "title_plan": {
+    "mode": "paraphrase",
+    "count": 3,
+    "max_length": 80,
+    "guidance": "Name the subject and the scope, in that order. Reads like a reference title somebody would search for months later, not like a moment."
+  },
+  "tag_plan": {
+    "count": 25,
+    "guidance": "for this structured reference explainer, favouring durable search phrases over topical ones"
+  },
+  "tone": {
+    "constraints": [
+      "Chapters are navigation, never teasers — a chapter title says what is there.",
+      "No first-person channel voice in the summary.",
+      "Never invent a timestamp or a source."
+    ]
+  }
+}

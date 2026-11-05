@@ -4,7 +4,7 @@
  * prefixes.
  *
  * Two shapes we round-trip:
- *   portable      — "${CHANNEL}/assets/logo.png", "${PROJECT}/Season 001/…" or "${ASSET}/logo.png"
+ *   portable      — "${CHANNEL}/assets/logo.png", "${PROJECT}/Season 001/…" or "${BACKGROUND}/white-crumpled"
  *   absolute      — "/Users/alice/.../logo.png"  (whatever the OS sees)
  *
  * All resolvers are pure string ops — no filesystem calls — so they stay
@@ -23,6 +23,7 @@ import { existsSync } from 'fs'
 import path from 'path'
 import { projectsRoot } from './project-manager.js'
 import { ASSETS_DIR_NAME } from './library.js'
+import { backgroundReferenceForPath, resolveBackground } from './background-catalog.js'
 
 /**
  * A channel's own assets folder, `<channel>/assets` (2026-10-07). Lowercase like
@@ -66,6 +67,12 @@ export function assetsRoot(): string {
  *                  to another Mac moves everything it references.
  *   `${ASSET}`   — the Library's shared `_Project Assets` folder (legacy:
  *                  still resolved, no longer where new picks go).
+ *
+ * plus `${BACKGROUND}` — a built-in Backgrounds catalog entry, expanded to
+ * the file shipped inside the app (services/background-catalog.ts). It is
+ * app-owned, so it needs no folder context and never copies into a channel;
+ * an unknown id or a missing / tampered asset throws rather than letting a
+ * render show a missing choice as None.
  *
  * v1.4.3 removed arbitrary `${NAME}` tokens backed by a per-machine map. They
  * were the fourth location concept, and the one that made a project
@@ -111,6 +118,13 @@ export function resolveAssetPath(p: string, projectOutputRoot?: string): string 
       const own = path.join(path.dirname(projectOutputRoot), CHANNEL_ASSETS_DIR, rel)
       if (existsSync(own)) return own
     }
+  } else if (name === 'BACKGROUND') {
+    // App-owned catalog: one allowlisted id, integrity-checked inside the
+    // catalog, so no folder context and no existsSync fallback here.
+    if (rel === undefined || rel === '') {
+      throw new Error(`Cannot resolve ${p}: \${BACKGROUND} names one catalog entry, e.g. \${BACKGROUND}/white-crumpled.`)
+    }
+    return resolveBackground(rel)
   } else {
     throw new Error(
       `Cannot resolve ${p}: "${name}" is not a folder Story Studio knows about. `
@@ -126,10 +140,15 @@ export function resolveAssetPath(p: string, projectOutputRoot?: string): string 
  * Collapse an absolute path to a portable form when possible.
  *
  * Preference order (most specific wins):
- *   1. If the path is inside projectOutputRoot → `${PROJECT}/rel`
- *   2. If it's inside the channel folder        → `${CHANNEL}/rel`
- *   3. If it's inside the Library's assets folder → `${ASSET}/rel`
- *   4. Otherwise                                 → return absolute unchanged
+ *   1. If it IS a bundled Backgrounds catalog file   → `${BACKGROUND}/<id>`
+ *   2. If the path is inside projectOutputRoot       → `${PROJECT}/rel`
+ *   3. If it's inside the channel folder             → `${CHANNEL}/rel`
+ *   4. If it's inside the Library's assets folder    → `${ASSET}/rel`
+ *   5. Otherwise                                     → return absolute unchanged
+ *
+ * The catalog match is an equality test on the exact shipped file, so it
+ * cannot swallow a channel path; collapsing one back to its reference is what
+ * stops the bytes being duplicated into every channel that picks it.
  *
  * Comparison is done on normalised absolute paths with a trailing
  * separator so `/Users/a/foo` doesn't falsely match `/Users/a/foobar`.
@@ -140,6 +159,9 @@ export function toPortablePath(abs: string, projectOutputRoot?: string): string 
   if (!path.isAbsolute(abs)) return abs
 
   const normAbs = path.normalize(abs)
+
+  const background = backgroundReferenceForPath(normAbs)
+  if (background !== null) return background
 
   if (projectOutputRoot && path.isAbsolute(projectOutputRoot)) {
     const rel = relativeIfInside(normAbs, path.normalize(projectOutputRoot))

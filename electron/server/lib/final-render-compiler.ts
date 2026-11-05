@@ -1,3 +1,4 @@
+import path from 'node:path'
 import type {
   VideoAgedArchiveFilm,
   VideoColorGrading,
@@ -8,6 +9,11 @@ import type {
   VideoOverlay,
   VideoVignetteConfig,
 } from '../models/types.js'
+import {
+  buildLabelOverlayFilters,
+  labelMotionExprs,
+  type LabelOverlayGeometry,
+} from './contextual-cue-filters.js'
 import {
   buildFinalArchiveFilters,
   buildFinalEncodeTiers,
@@ -20,6 +26,7 @@ import {
   type EncodeTier,
   type FinalInputMode,
 } from './final-render-core.js'
+import { escapeFilterArgValue, escapeFilterPath } from './ffmpeg-filter-escape.js'
 import { validateRenderPacketSyntax } from './final-render-recipe.js'
 import { buildVideoFrameFilter } from './video-frame-filter.js'
 import {
@@ -65,7 +72,28 @@ type LogoOperation = {
   margin_px: number
   gate: 'effects_gate' | 'after_10_seconds' | 'always'
 }
-type Operation = OverlayOperation | GradeOperation | VignetteOperation | GrainOperation | ArchiveOperation | LetterboxOperation | FrameOperation | LogoOperation
+type LateLabelMotion = 'none' | 'pop' | 'slide' | 'float' | 'pulse' | 'wipe' | 'line-draw'
+type LateLabelReveal = { duration_sec: number; frames: { asset: AssetRef; progress: number }[] }
+type LateLabelOperation = {
+  kind: 'late_label_stage'
+  contract: string
+  cue_id: string
+  enable: { start_sec: number; end_sec: number }
+  placement: { x_px: number; y_px: number }
+  motion: { kind: LateLabelMotion; entrance_sec: number }
+  label: { asset: AssetRef } | null
+  reveal: LateLabelReveal | null
+  line: { asset: AssetRef } | null
+  line_reveal: LateLabelReveal | null
+}
+type SubtitleOperation = {
+  kind: 'subtitle_stage'
+  contract: string
+  /** The bare asset_ref the contract takes here — not `{asset}` — for the ASS document. */
+  ass: AssetRef
+  fonts: Array<{ asset: AssetRef; family: string; sha256: string }>
+}
+type Operation = OverlayOperation | GradeOperation | VignetteOperation | GrainOperation | ArchiveOperation | LetterboxOperation | FrameOperation | LogoOperation | LateLabelOperation | SubtitleOperation
 type Recipe = {
   base_video: AssetRef
   premixed_audio: AssetRef
@@ -95,6 +123,37 @@ export class UnsupportedFinalRenderCombination extends Error {
     super(`Unsupported final render combination: ${reason}`)
     this.name = 'UnsupportedFinalRenderCombination'
   }
+}
+
+/**
+ * Motion expressions for one late-label operation — the frozen formulas,
+ * produced by the same local helper the draw lane uses so the two cannot
+ * drift. `slide` is the one shape the helper cannot carry: its formula needs
+ * the label's pixel width, which the closed recipe does not contain and this
+ * pure compiler never reads from disk, so the expression uses the overlay
+ * filter's own `w` (the label input's width) — the same number resolved at
+ * build time locally.
+ */
+function lateLabelMotionExprs(kind: LateLabelMotion, start: number): { scale?: string; x_offset?: string; y_offset?: string } | undefined {
+  if (kind === 'none') return undefined
+  if (kind === 'slide') {
+    const tStart = start.toFixed(3)
+    const tEnd = (start + 0.3).toFixed(3)
+    return { x_offset: `if(lt(t,${tEnd}),-w*(1-(t-${tStart})/0.3),0)` }
+  }
+  return labelMotionExprs(kind, start, start + 0.3, 0, 0, 0, 0)
+}
+
+/**
+ * The image2 pattern for one reveal sequence, derived only from the output
+ * path and the operation's own index in `recipe.operations` — never from a
+ * packet string. The receiver materialises the explicitly ordered validated
+ * PNG refs (whose safe names already are `cue_<c>_<purpose><i>.png`) into
+ * this private directory beside the output, so the generated filenames match
+ * this pattern; the sender never puts a pattern or path on the wire.
+ */
+function cueSequencePattern(cueSequenceDir: string, operationIndex: number, purpose: 'r' | 'lr'): string {
+  return path.join(cueSequenceDir, `cue_${String(operationIndex).padStart(4, '0')}_${purpose}%04d.png`)
 }
 
 export function compileFinalRenderPacket(
@@ -167,8 +226,9 @@ export function compileFinalRenderPacket(
   const gateEnable = buildGateEnable(recipe.effects_gate.start_sec ?? 0, recipe.effects_gate.end_sec ?? 0)
   const overlayLayers: VideoOverlay[] = []
   let overlayInputCursor = 0
+  const cueSequenceDir = path.join(path.dirname(outputPath), '.cue-sequences')
 
-  for (const operation of recipe.operations) {
+  for (const [operationIndex, operation] of recipe.operations.entries()) {
     if (operation.kind === 'overlay_layer') {
       const layer: VideoOverlay = {
         id: operation.asset.logical_id,
@@ -238,6 +298,83 @@ export function compileFinalRenderPacket(
         config,
       }))
       vLabel = output
+    } else if (operation.kind === 'subtitle_stage') {
+      // The same libass burn the local lane uses (`video.ts` §6b): the staged
+      // ASS document plus the staged font workspace as `fontsdir`. No `enable`
+      // gate — FFmpeg's libass filters reject timeline enable outright, and a
+      // gate would drop the whole graph to the recovery tier. The font files
+      // sit beside the ASS in the intent, so one dirname is the workspace.
+      const assPath = localAssets.get(operation.ass.logical_id)!
+      const fontDir = operation.fonts.length
+        ? path.dirname(localAssets.get(operation.fonts[0]!.asset.logical_id)!)
+        : ''
+      const output = allocLabel()
+      filterParts.push(`${vLabel}ass=filename=${escapeFilterPath(assPath)}`
+        + (fontDir ? `:fontsdir=${escapeFilterPath(fontDir)}` : '') + output)
+      vLabel = output
+    } else if (operation.kind === 'late_label_stage') {
+      const start = operation.enable.start_sec
+      const enableText = `between(t,${start.toFixed(3)},${operation.enable.end_sec.toFixed(3)})`
+      const enable = escapeFilterArgValue(enableText)
+      const fps = recipe.canvas.working_fps
+      // Cue inputs are allocated here, in filter order, because their -i
+      // arguments (loop/framerate flags, or the derived sequence pattern) are
+      // only known alongside the filters that consume them; every -i still
+      // lands before -filter_complex below.
+      const addCueInput = (inputArgs: string[], target: string, logicalIds: readonly string[]): number => {
+        const index = nextInputIndex++
+        args.push(...inputArgs, '-i', target)
+        for (const logicalId of logicalIds) inputUses.push({ logicalId, index })
+        return index
+      }
+      const overlayCue = (secondary: string, x: string, y: string): void => {
+        const output = allocLabel()
+        filterParts.push(`${vLabel}${secondary}overlay=x=${x}:y=${y}:eof_action=repeat:enable=${enable}${output}`)
+        vLabel = output
+      }
+      // The leader line composites before the label, matching the local lane's
+      // order; at most one of line / line_reveal is present (recipe invariant).
+      if (operation.line) {
+        const lineId = operation.line.asset.logical_id
+        overlayCue(`[${addCueInput([], localAssets.get(lineId)!, [lineId])}:v]`, '0', '0')
+      }
+      if (operation.line_reveal) {
+        const pattern = cueSequencePattern(cueSequenceDir, operationIndex, 'lr')
+        const index = addCueInput(
+          ['-framerate', String(fps)], pattern,
+          operation.line_reveal.frames.map(frame => frame.asset.logical_id),
+        )
+        const shifted = allocLabel()
+        filterParts.push(`[${index}:v]setpts=PTS+${start.toFixed(3)}/TB${shifted}`)
+        overlayCue(shifted, '0', '0')
+      }
+      if (operation.label !== null || operation.reveal !== null) {
+        const motion = operation.motion.kind
+        const geometry: LabelOverlayGeometry = {
+          x: operation.placement.x_px,
+          y: operation.placement.y_px,
+          enable: enableText,
+          anchor: { x: 0, y: 0 },
+          motion_exprs: lateLabelMotionExprs(motion, start),
+          ...(motion === 'wipe' ? { reveal_start: start } : {}),
+        }
+        const labelIndex = nextInputIndex++
+        const plan = buildLabelOverlayFilters(geometry, {
+          base: vLabel, labelInputIdx: labelIndex, fps, allocLabel,
+        })
+        if (operation.reveal !== null) {
+          // Wipe: the ordered reveal frames are one finite image2 sequence —
+          // never shortest=1, so its EOF cannot truncate the primary video.
+          args.push(...plan.input_args, '-i', cueSequencePattern(cueSequenceDir, operationIndex, 'r'))
+          for (const frame of operation.reveal.frames) inputUses.push({ logicalId: frame.asset.logical_id, index: labelIndex })
+        } else {
+          const labelId = operation.label!.asset.logical_id
+          args.push(...plan.input_args, '-i', localAssets.get(labelId)!)
+          inputUses.push({ logicalId: labelId, index: labelIndex })
+        }
+        filterParts.push(...plan.filters)
+        vLabel = plan.output
+      }
     } else {
       const logo: VideoLogoConfig = {
         enabled: true,
@@ -257,6 +394,8 @@ export function compileFinalRenderPacket(
 
   filterParts.push(`${vLabel}null[vout]`)
   args.push('-filter_complex', filterParts.join(';\n'), '-map', '[vout]', '-map', `${audioInputIndex}:a`)
+  const lateLabelCount = recipe.operations.reduce(
+    (count, operation) => count + (operation.kind === 'late_label_stage' ? 1 : 0), 0)
   const requestedBurnIns = describeFinalBurnIns({
     colorGrading: recipe.operations.some(operation => operation.kind === 'classic_color_grade'),
     vignette: recipe.operations.some(operation => operation.kind === 'classic_vignette'),
@@ -266,8 +405,8 @@ export function compileFinalRenderPacket(
     frame: Boolean(frameOperation),
     overlayLayers,
     hasLogo: Boolean(logoOperation),
-    subtitles: false,
-    contextualCueCount: 0,
+    subtitles: recipe.operations.some(operation => operation.kind === 'subtitle_stage'),
+    contextualCueCount: lateLabelCount,
     stackEntryCount: 0,
   })
   const tiers = buildFinalEncodeTiers({

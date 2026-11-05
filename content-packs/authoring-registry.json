@@ -1,5 +1,5 @@
 {
-  "revision": 369,
+  "revision": 425,
   "batches": [
     {
       "revision": 2,
@@ -7386,6 +7386,1392 @@
           }
         ]
       }
+    },
+    {
+      "revision": 370,
+      "receipt_ref": "authoring:6090eba1087eb040a1e3418209405690974b8a6203878032e4d2ced177587417",
+      "request": {
+        "expected_revision": 369,
+        "coordinator": {
+          "task": "383 clean-cut built-in metadata formulas to packs",
+          "branch": "release/1.4.383"
+        },
+        "proposal_ref": "Owner 2026-11-05 via Developer: exact match or normalized text similarity at least 0.90 uses existing pack; different and no existing workable pack creates new pack from built-in. Five metadata formulas have no qualifying match.",
+        "records": [
+          {
+            "pack_id": "com.storystudio.pack.metadata-formula.classic-chapters-first",
+            "item_ids": [
+              "com.storystudio.metadata-formula.classic-chapters-first"
+            ],
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "metadata-formula",
+            "source_path": "content-packs/builtin-conversion/metadata-formula/classic-chapters-first",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.metadata-formula.classic-chapters-first",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.metadata-formula.classic-chapters-first",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.metadata-formula.classic-community-first",
+            "item_ids": [
+              "com.storystudio.metadata-formula.classic-community-first"
+            ],
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "metadata-formula",
+            "source_path": "content-packs/builtin-conversion/metadata-formula/classic-community-first",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.metadata-formula.classic-community-first",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.metadata-formula.classic-community-first",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.metadata-formula.classic-curiosity-gap",
+            "item_ids": [
+              "com.storystudio.metadata-formula.classic-curiosity-gap"
+            ],
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "metadata-formula",
+            "source_path": "content-packs/builtin-conversion/metadata-formula/classic-curiosity-gap",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.metadata-formula.classic-curiosity-gap",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.metadata-formula.classic-curiosity-gap",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.metadata-formula.classic-minimal",
+            "item_ids": [
+              "com.storystudio.metadata-formula.classic-minimal"
+            ],
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "metadata-formula",
+            "source_path": "content-packs/builtin-conversion/metadata-formula/classic-minimal",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.metadata-formula.classic-minimal",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.metadata-formula.classic-minimal",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.metadata-formula.classic-story-first-calm",
+            "item_ids": [
+              "com.storystudio.metadata-formula.classic-story-first-calm"
+            ],
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "metadata-formula",
+            "source_path": "content-packs/builtin-conversion/metadata-formula/classic-story-first-calm",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.metadata-formula.classic-story-first-calm",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.metadata-formula.classic-story-first-calm",
+                "status": "proposed"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "revision": 371,
+      "receipt_ref": "authoring:48e132b147ff58579dd142e9216c0b1874d433e70cc8252268f00f291a5f7518",
+      "request": {
+        "expected_revision": 370,
+        "coordinator": {
+          "task": "subtitle-style-pack-conversion",
+          "branch": "release-383"
+        },
+        "proposal_ref": "owner-approved 2026-11-05: convert the 24 built-in subtitle styles into portable packs unchanged",
+        "records": [
+          {
+            "pack_id": "com.storystudio.pack.subtitle-style.clean-broadcast",
+            "item_id": "com.storystudio.subtitle-style.clean-broadcast",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "subtitle-style",
+            "source_path": "content-packs/builtin-conversion/subtitle-style/clean-broadcast",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.subtitle-style.clean-broadcast",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.subtitle-style.clean-broadcast",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.subtitle-style.documentary-serif",
+            "item_id": "com.storystudio.subtitle-style.documentary-serif",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "subtitle-style",
+            "source_path": "content-packs/builtin-conversion/subtitle-style/documentary-serif",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.subtitle-style.documentary-serif",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.subtitle-style.documentary-serif",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.subtitle-style.sleep-soft",
+            "item_id": "com.storystudio.subtitle-style.sleep-soft",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "subtitle-style",
+            "source_path": "content-packs/builtin-conversion/subtitle-style/sleep-soft",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.subtitle-style.sleep-soft",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.subtitle-style.sleep-soft",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.subtitle-style.bold-impact",
+            "item_id": "com.storystudio.subtitle-style.bold-impact",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "subtitle-style",
+            "source_path": "content-packs/builtin-conversion/subtitle-style/bold-impact",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.subtitle-style.bold-impact",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.subtitle-style.bold-impact",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.subtitle-style.karaoke-highlight",
+            "item_id": "com.storystudio.subtitle-style.karaoke-highlight",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "subtitle-style",
+            "source_path": "content-packs/builtin-conversion/subtitle-style/karaoke-highlight",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.subtitle-style.karaoke-highlight",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.subtitle-style.karaoke-highlight",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.subtitle-style.karaoke-pop",
+            "item_id": "com.storystudio.subtitle-style.karaoke-pop",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "subtitle-style",
+            "source_path": "content-packs/builtin-conversion/subtitle-style/karaoke-pop",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.subtitle-style.karaoke-pop",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.subtitle-style.karaoke-pop",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.subtitle-style.word-reveal",
+            "item_id": "com.storystudio.subtitle-style.word-reveal",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "subtitle-style",
+            "source_path": "content-packs/builtin-conversion/subtitle-style/word-reveal",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.subtitle-style.word-reveal",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.subtitle-style.word-reveal",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.subtitle-style.single-word-focus",
+            "item_id": "com.storystudio.subtitle-style.single-word-focus",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "subtitle-style",
+            "source_path": "content-packs/builtin-conversion/subtitle-style/single-word-focus",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.subtitle-style.single-word-focus",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.subtitle-style.single-word-focus",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.subtitle-style.neon-glow",
+            "item_id": "com.storystudio.subtitle-style.neon-glow",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "subtitle-style",
+            "source_path": "content-packs/builtin-conversion/subtitle-style/neon-glow",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.subtitle-style.neon-glow",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.subtitle-style.neon-glow",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.subtitle-style.yellow-highlighter",
+            "item_id": "com.storystudio.subtitle-style.yellow-highlighter",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "subtitle-style",
+            "source_path": "content-packs/builtin-conversion/subtitle-style/yellow-highlighter",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.subtitle-style.yellow-highlighter",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.subtitle-style.yellow-highlighter",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.subtitle-style.boxed-caption",
+            "item_id": "com.storystudio.subtitle-style.boxed-caption",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "subtitle-style",
+            "source_path": "content-packs/builtin-conversion/subtitle-style/boxed-caption",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.subtitle-style.boxed-caption",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.subtitle-style.boxed-caption",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.subtitle-style.typewriter",
+            "item_id": "com.storystudio.subtitle-style.typewriter",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "subtitle-style",
+            "source_path": "content-packs/builtin-conversion/subtitle-style/typewriter",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.subtitle-style.typewriter",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.subtitle-style.typewriter",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.subtitle-style.slide-up",
+            "item_id": "com.storystudio.subtitle-style.slide-up",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "subtitle-style",
+            "source_path": "content-packs/builtin-conversion/subtitle-style/slide-up",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.subtitle-style.slide-up",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.subtitle-style.slide-up",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.subtitle-style.gentle-fade",
+            "item_id": "com.storystudio.subtitle-style.gentle-fade",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "subtitle-style",
+            "source_path": "content-packs/builtin-conversion/subtitle-style/gentle-fade",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.subtitle-style.gentle-fade",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.subtitle-style.gentle-fade",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.subtitle-style.explainer-accent",
+            "item_id": "com.storystudio.subtitle-style.explainer-accent",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "subtitle-style",
+            "source_path": "content-packs/builtin-conversion/subtitle-style/explainer-accent",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.subtitle-style.explainer-accent",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.subtitle-style.explainer-accent",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.subtitle-style.minimal-lower-third",
+            "item_id": "com.storystudio.subtitle-style.minimal-lower-third",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "subtitle-style",
+            "source_path": "content-packs/builtin-conversion/subtitle-style/minimal-lower-third",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.subtitle-style.minimal-lower-third",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.subtitle-style.minimal-lower-third",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.subtitle-style.shorts-vertical",
+            "item_id": "com.storystudio.subtitle-style.shorts-vertical",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "subtitle-style",
+            "source_path": "content-packs/builtin-conversion/subtitle-style/shorts-vertical",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.subtitle-style.shorts-vertical",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.subtitle-style.shorts-vertical",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.subtitle-style.shorts-vertical-word-pop",
+            "item_id": "com.storystudio.subtitle-style.shorts-vertical-word-pop",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "subtitle-style",
+            "source_path": "content-packs/builtin-conversion/subtitle-style/shorts-vertical-word-pop",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.subtitle-style.shorts-vertical-word-pop",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.subtitle-style.shorts-vertical-word-pop",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.subtitle-style.shorts-vertical-bounce",
+            "item_id": "com.storystudio.subtitle-style.shorts-vertical-bounce",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "subtitle-style",
+            "source_path": "content-packs/builtin-conversion/subtitle-style/shorts-vertical-bounce",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.subtitle-style.shorts-vertical-bounce",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.subtitle-style.shorts-vertical-bounce",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.subtitle-style.shorts-vertical-electric",
+            "item_id": "com.storystudio.subtitle-style.shorts-vertical-electric",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "subtitle-style",
+            "source_path": "content-packs/builtin-conversion/subtitle-style/shorts-vertical-electric",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.subtitle-style.shorts-vertical-electric",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.subtitle-style.shorts-vertical-electric",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.subtitle-style.shorts-vertical-moul",
+            "item_id": "com.storystudio.subtitle-style.shorts-vertical-moul",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "subtitle-style",
+            "source_path": "content-packs/builtin-conversion/subtitle-style/shorts-vertical-moul",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.subtitle-style.shorts-vertical-moul",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.subtitle-style.shorts-vertical-moul",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.subtitle-style.shorts-vertical-battambang",
+            "item_id": "com.storystudio.subtitle-style.shorts-vertical-battambang",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "subtitle-style",
+            "source_path": "content-packs/builtin-conversion/subtitle-style/shorts-vertical-battambang",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.subtitle-style.shorts-vertical-battambang",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.subtitle-style.shorts-vertical-battambang",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.subtitle-style.shorts-vertical-hand-lettered",
+            "item_id": "com.storystudio.subtitle-style.shorts-vertical-hand-lettered",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "subtitle-style",
+            "source_path": "content-packs/builtin-conversion/subtitle-style/shorts-vertical-hand-lettered",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.subtitle-style.shorts-vertical-hand-lettered",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.subtitle-style.shorts-vertical-hand-lettered",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.subtitle-style.shorts-vertical-hand-lettered-highlight",
+            "item_id": "com.storystudio.subtitle-style.shorts-vertical-hand-lettered-highlight",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "subtitle-style",
+            "source_path": "content-packs/builtin-conversion/subtitle-style/shorts-vertical-hand-lettered-highlight",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.subtitle-style.shorts-vertical-hand-lettered-highlight",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.subtitle-style.shorts-vertical-hand-lettered-highlight",
+                "status": "proposed"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "revision": 396,
+      "receipt_ref": "authoring:5170c0564b75679b21329d85eef0f76e892d6ed2ce67d29a7fe48a77929e4d0a",
+      "request": {
+        "expected_revision": 395,
+        "coordinator": {
+          "task": "lettering-style-pack-conversion",
+          "branch": "release-383"
+        },
+        "proposal_ref": "Owner 2026-11-05 via Developer: 29 exact built-in lettering conversions become portable packs; six built-ins reuse existing packs (lettering-eye-decisions-20261105.json); phrases and swatch bytes unchanged; colour injection rejected on two font-axis reuse phrases.",
+        "records": [
+          {
+            "pack_id": "com.storystudio.pack.lettering.font-bold",
+            "item_ids": [
+              "com.storystudio.lettering.font-bold"
+            ],
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "lettering-style",
+            "source_path": "content-packs/builtin-conversion/lettering-style/font-bold",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.lettering.font-bold",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.lettering.font-bold",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.lettering.font-brush",
+            "item_ids": [
+              "com.storystudio.lettering.font-brush"
+            ],
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "lettering-style",
+            "source_path": "content-packs/builtin-conversion/lettering-style/font-brush",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.lettering.font-brush",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.lettering.font-brush",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.lettering.font-condensed",
+            "item_ids": [
+              "com.storystudio.lettering.font-condensed"
+            ],
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "lettering-style",
+            "source_path": "content-packs/builtin-conversion/lettering-style/font-condensed",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.lettering.font-condensed",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.lettering.font-condensed",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.lettering.font-display",
+            "item_ids": [
+              "com.storystudio.lettering.font-display"
+            ],
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "lettering-style",
+            "source_path": "content-packs/builtin-conversion/lettering-style/font-display",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.lettering.font-display",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.lettering.font-display",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.lettering.font-fantasy",
+            "item_ids": [
+              "com.storystudio.lettering.font-fantasy"
+            ],
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "lettering-style",
+            "source_path": "content-packs/builtin-conversion/lettering-style/font-fantasy",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.lettering.font-fantasy",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.lettering.font-fantasy",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.lettering.font-gothic",
+            "item_ids": [
+              "com.storystudio.lettering.font-gothic"
+            ],
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "lettering-style",
+            "source_path": "content-packs/builtin-conversion/lettering-style/font-gothic",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.lettering.font-gothic",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.lettering.font-gothic",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.lettering.font-playful",
+            "item_ids": [
+              "com.storystudio.lettering.font-playful"
+            ],
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "lettering-style",
+            "source_path": "content-packs/builtin-conversion/lettering-style/font-playful",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.lettering.font-playful",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.lettering.font-playful",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.lettering.font-retro-chrome",
+            "item_ids": [
+              "com.storystudio.lettering.font-retro-chrome"
+            ],
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "lettering-style",
+            "source_path": "content-packs/builtin-conversion/lettering-style/font-retro-chrome",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.lettering.font-retro-chrome",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.lettering.font-retro-chrome",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.lettering.font-script",
+            "item_ids": [
+              "com.storystudio.lettering.font-script"
+            ],
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "lettering-style",
+            "source_path": "content-packs/builtin-conversion/lettering-style/font-script",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.lettering.font-script",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.lettering.font-script",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.lettering.font-serif",
+            "item_ids": [
+              "com.storystudio.lettering.font-serif"
+            ],
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "lettering-style",
+            "source_path": "content-packs/builtin-conversion/lettering-style/font-serif",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.lettering.font-serif",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.lettering.font-serif",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.lettering.font-stencil",
+            "item_ids": [
+              "com.storystudio.lettering.font-stencil"
+            ],
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "lettering-style",
+            "source_path": "content-packs/builtin-conversion/lettering-style/font-stencil",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.lettering.font-stencil",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.lettering.font-stencil",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.lettering.font-typewriter",
+            "item_ids": [
+              "com.storystudio.lettering.font-typewriter"
+            ],
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "lettering-style",
+            "source_path": "content-packs/builtin-conversion/lettering-style/font-typewriter",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.lettering.font-typewriter",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.lettering.font-typewriter",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.lettering.text-chrome",
+            "item_ids": [
+              "com.storystudio.lettering.text-chrome"
+            ],
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "lettering-style",
+            "source_path": "content-packs/builtin-conversion/lettering-style/text-chrome",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.lettering.text-chrome",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.lettering.text-chrome",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.lettering.text-comic",
+            "item_ids": [
+              "com.storystudio.lettering.text-comic"
+            ],
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "lettering-style",
+            "source_path": "content-packs/builtin-conversion/lettering-style/text-comic",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.lettering.text-comic",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.lettering.text-comic",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.lettering.text-embossed",
+            "item_ids": [
+              "com.storystudio.lettering.text-embossed"
+            ],
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "lettering-style",
+            "source_path": "content-packs/builtin-conversion/lettering-style/text-embossed",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.lettering.text-embossed",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.lettering.text-embossed",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.lettering.text-fire",
+            "item_ids": [
+              "com.storystudio.lettering.text-fire"
+            ],
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "lettering-style",
+            "source_path": "content-packs/builtin-conversion/lettering-style/text-fire",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.lettering.text-fire",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.lettering.text-fire",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.lettering.text-glitch",
+            "item_ids": [
+              "com.storystudio.lettering.text-glitch"
+            ],
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "lettering-style",
+            "source_path": "content-packs/builtin-conversion/lettering-style/text-glitch",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.lettering.text-glitch",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.lettering.text-glitch",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.lettering.text-gold",
+            "item_ids": [
+              "com.storystudio.lettering.text-gold"
+            ],
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "lettering-style",
+            "source_path": "content-packs/builtin-conversion/lettering-style/text-gold",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.lettering.text-gold",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.lettering.text-gold",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.lettering.text-gradient-ocean",
+            "item_ids": [
+              "com.storystudio.lettering.text-gradient-ocean"
+            ],
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "lettering-style",
+            "source_path": "content-packs/builtin-conversion/lettering-style/text-gradient-ocean",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.lettering.text-gradient-ocean",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.lettering.text-gradient-ocean",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.lettering.text-gradient-sunset",
+            "item_ids": [
+              "com.storystudio.lettering.text-gradient-sunset"
+            ],
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "lettering-style",
+            "source_path": "content-packs/builtin-conversion/lettering-style/text-gradient-sunset",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.lettering.text-gradient-sunset",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.lettering.text-gradient-sunset",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.lettering.text-handwritten",
+            "item_ids": [
+              "com.storystudio.lettering.text-handwritten"
+            ],
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "lettering-style",
+            "source_path": "content-packs/builtin-conversion/lettering-style/text-handwritten",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.lettering.text-handwritten",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.lettering.text-handwritten",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.lettering.text-horror",
+            "item_ids": [
+              "com.storystudio.lettering.text-horror"
+            ],
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "lettering-style",
+            "source_path": "content-packs/builtin-conversion/lettering-style/text-horror",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.lettering.text-horror",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.lettering.text-horror",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.lettering.text-ice",
+            "item_ids": [
+              "com.storystudio.lettering.text-ice"
+            ],
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "lettering-style",
+            "source_path": "content-packs/builtin-conversion/lettering-style/text-ice",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.lettering.text-ice",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.lettering.text-ice",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.lettering.text-metallic",
+            "item_ids": [
+              "com.storystudio.lettering.text-metallic"
+            ],
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "lettering-style",
+            "source_path": "content-packs/builtin-conversion/lettering-style/text-metallic",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.lettering.text-metallic",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.lettering.text-metallic",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.lettering.text-neon",
+            "item_ids": [
+              "com.storystudio.lettering.text-neon"
+            ],
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "lettering-style",
+            "source_path": "content-packs/builtin-conversion/lettering-style/text-neon",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.lettering.text-neon",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.lettering.text-neon",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.lettering.text-pastel",
+            "item_ids": [
+              "com.storystudio.lettering.text-pastel"
+            ],
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "lettering-style",
+            "source_path": "content-packs/builtin-conversion/lettering-style/text-pastel",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.lettering.text-pastel",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.lettering.text-pastel",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.lettering.text-shadow",
+            "item_ids": [
+              "com.storystudio.lettering.text-shadow"
+            ],
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "lettering-style",
+            "source_path": "content-packs/builtin-conversion/lettering-style/text-shadow",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.lettering.text-shadow",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.lettering.text-shadow",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.lettering.text-vintage",
+            "item_ids": [
+              "com.storystudio.lettering.text-vintage"
+            ],
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "lettering-style",
+            "source_path": "content-packs/builtin-conversion/lettering-style/text-vintage",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.lettering.text-vintage",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.lettering.text-vintage",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.lettering.text-white",
+            "item_ids": [
+              "com.storystudio.lettering.text-white"
+            ],
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "lettering-style",
+            "source_path": "content-packs/builtin-conversion/lettering-style/text-white",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.lettering.text-white",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.lettering.text-white",
+                "status": "proposed"
+              }
+            }
+          }
+        ]
+      }
     }
   ],
   "transitions": [
@@ -12616,6 +14002,907 @@
         "receipt_ref": "authoring:f10aa5eb19ecb5915b70ff670b54ff03728004f422c0917706539613887a00a5",
         "pack_id": "com.storystudio.pack.style.bold-illustrated-history",
         "version": "1.0.2",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 372,
+      "transition_ref": "lifecycle:899a8f136e712d2d3b511aaea80deba5af63d8523b6776248f0d58c2b999075d",
+      "request": {
+        "expected_revision": 371,
+        "coordinator": {
+          "task": "subtitle-style-pack-conversion",
+          "branch": "release-383"
+        },
+        "receipt_ref": "authoring:48e132b147ff58579dd142e9216c0b1874d433e70cc8252268f00f291a5f7518",
+        "pack_id": "com.storystudio.pack.subtitle-style.clean-broadcast",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 373,
+      "transition_ref": "lifecycle:b8a1ba60e59c205e99b4d299bb7cb90dcd3522f6dc5ba88e933699f6d8dfebbb",
+      "request": {
+        "expected_revision": 372,
+        "coordinator": {
+          "task": "subtitle-style-pack-conversion",
+          "branch": "release-383"
+        },
+        "receipt_ref": "authoring:48e132b147ff58579dd142e9216c0b1874d433e70cc8252268f00f291a5f7518",
+        "pack_id": "com.storystudio.pack.subtitle-style.documentary-serif",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 374,
+      "transition_ref": "lifecycle:7e36c4de1bf923fa5aa72180ad9ccf9f322bfa13ebdec8bd72de8ebda6d21c11",
+      "request": {
+        "expected_revision": 373,
+        "coordinator": {
+          "task": "subtitle-style-pack-conversion",
+          "branch": "release-383"
+        },
+        "receipt_ref": "authoring:48e132b147ff58579dd142e9216c0b1874d433e70cc8252268f00f291a5f7518",
+        "pack_id": "com.storystudio.pack.subtitle-style.sleep-soft",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 375,
+      "transition_ref": "lifecycle:e48c757e99a902174502df870bf43093a7b394702204dc476ffc4eb4a46c4314",
+      "request": {
+        "expected_revision": 374,
+        "coordinator": {
+          "task": "subtitle-style-pack-conversion",
+          "branch": "release-383"
+        },
+        "receipt_ref": "authoring:48e132b147ff58579dd142e9216c0b1874d433e70cc8252268f00f291a5f7518",
+        "pack_id": "com.storystudio.pack.subtitle-style.bold-impact",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 376,
+      "transition_ref": "lifecycle:575883cbf9233a757e4a9db40cda8c145956ad1abc59659410c50528fcea2aad",
+      "request": {
+        "expected_revision": 375,
+        "coordinator": {
+          "task": "subtitle-style-pack-conversion",
+          "branch": "release-383"
+        },
+        "receipt_ref": "authoring:48e132b147ff58579dd142e9216c0b1874d433e70cc8252268f00f291a5f7518",
+        "pack_id": "com.storystudio.pack.subtitle-style.karaoke-highlight",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 377,
+      "transition_ref": "lifecycle:90ae0ecf9dfa42d31dee41cb5bfa65991890ef3996dc399d05389c6a131692d8",
+      "request": {
+        "expected_revision": 376,
+        "coordinator": {
+          "task": "subtitle-style-pack-conversion",
+          "branch": "release-383"
+        },
+        "receipt_ref": "authoring:48e132b147ff58579dd142e9216c0b1874d433e70cc8252268f00f291a5f7518",
+        "pack_id": "com.storystudio.pack.subtitle-style.karaoke-pop",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 378,
+      "transition_ref": "lifecycle:a653e6f1caa51552e9559abfb52b01944da1aeb5dbe81d68523665ed5f08612b",
+      "request": {
+        "expected_revision": 377,
+        "coordinator": {
+          "task": "subtitle-style-pack-conversion",
+          "branch": "release-383"
+        },
+        "receipt_ref": "authoring:48e132b147ff58579dd142e9216c0b1874d433e70cc8252268f00f291a5f7518",
+        "pack_id": "com.storystudio.pack.subtitle-style.word-reveal",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 379,
+      "transition_ref": "lifecycle:90e4f75efa679b49618ab7c94aed4b7cd37b7ecb75399f11e2c6aa14b0756c6d",
+      "request": {
+        "expected_revision": 378,
+        "coordinator": {
+          "task": "subtitle-style-pack-conversion",
+          "branch": "release-383"
+        },
+        "receipt_ref": "authoring:48e132b147ff58579dd142e9216c0b1874d433e70cc8252268f00f291a5f7518",
+        "pack_id": "com.storystudio.pack.subtitle-style.single-word-focus",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 380,
+      "transition_ref": "lifecycle:592d4ee41eb220140162d23190fa0ef94174305f8a337395d951ce787d22b08c",
+      "request": {
+        "expected_revision": 379,
+        "coordinator": {
+          "task": "subtitle-style-pack-conversion",
+          "branch": "release-383"
+        },
+        "receipt_ref": "authoring:48e132b147ff58579dd142e9216c0b1874d433e70cc8252268f00f291a5f7518",
+        "pack_id": "com.storystudio.pack.subtitle-style.neon-glow",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 381,
+      "transition_ref": "lifecycle:6fb7af2c248279316da26eb438699a301dd29f29a66d57afdfaf847fe491a5a3",
+      "request": {
+        "expected_revision": 380,
+        "coordinator": {
+          "task": "subtitle-style-pack-conversion",
+          "branch": "release-383"
+        },
+        "receipt_ref": "authoring:48e132b147ff58579dd142e9216c0b1874d433e70cc8252268f00f291a5f7518",
+        "pack_id": "com.storystudio.pack.subtitle-style.yellow-highlighter",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 382,
+      "transition_ref": "lifecycle:aebdbe2232adba8b7638f672c8878108f8f873dab6d29b9d59d906634abdd475",
+      "request": {
+        "expected_revision": 381,
+        "coordinator": {
+          "task": "subtitle-style-pack-conversion",
+          "branch": "release-383"
+        },
+        "receipt_ref": "authoring:48e132b147ff58579dd142e9216c0b1874d433e70cc8252268f00f291a5f7518",
+        "pack_id": "com.storystudio.pack.subtitle-style.boxed-caption",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 383,
+      "transition_ref": "lifecycle:9a5887c6206b6982849082d397d9c939f9eae2b409c07eee6de563a2438e47ee",
+      "request": {
+        "expected_revision": 382,
+        "coordinator": {
+          "task": "subtitle-style-pack-conversion",
+          "branch": "release-383"
+        },
+        "receipt_ref": "authoring:48e132b147ff58579dd142e9216c0b1874d433e70cc8252268f00f291a5f7518",
+        "pack_id": "com.storystudio.pack.subtitle-style.typewriter",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 384,
+      "transition_ref": "lifecycle:1527297ecd017816632c9c081d376b1b717c05960e05bd79f6377d8cc42ccec6",
+      "request": {
+        "expected_revision": 383,
+        "coordinator": {
+          "task": "subtitle-style-pack-conversion",
+          "branch": "release-383"
+        },
+        "receipt_ref": "authoring:48e132b147ff58579dd142e9216c0b1874d433e70cc8252268f00f291a5f7518",
+        "pack_id": "com.storystudio.pack.subtitle-style.slide-up",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 385,
+      "transition_ref": "lifecycle:6080aa753f8ba319550bed34831091edca24df19c26fec035fbcc714ccf8aa26",
+      "request": {
+        "expected_revision": 384,
+        "coordinator": {
+          "task": "subtitle-style-pack-conversion",
+          "branch": "release-383"
+        },
+        "receipt_ref": "authoring:48e132b147ff58579dd142e9216c0b1874d433e70cc8252268f00f291a5f7518",
+        "pack_id": "com.storystudio.pack.subtitle-style.gentle-fade",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 386,
+      "transition_ref": "lifecycle:39f39c108be8021d941a47b206de85b0891ec451731285052016bde346e2563e",
+      "request": {
+        "expected_revision": 385,
+        "coordinator": {
+          "task": "subtitle-style-pack-conversion",
+          "branch": "release-383"
+        },
+        "receipt_ref": "authoring:48e132b147ff58579dd142e9216c0b1874d433e70cc8252268f00f291a5f7518",
+        "pack_id": "com.storystudio.pack.subtitle-style.explainer-accent",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 387,
+      "transition_ref": "lifecycle:7cc3a4001cdd86c5491cfa8fbdce3867e00496d3d5fbf62d4f19b8e64ea2344b",
+      "request": {
+        "expected_revision": 386,
+        "coordinator": {
+          "task": "subtitle-style-pack-conversion",
+          "branch": "release-383"
+        },
+        "receipt_ref": "authoring:48e132b147ff58579dd142e9216c0b1874d433e70cc8252268f00f291a5f7518",
+        "pack_id": "com.storystudio.pack.subtitle-style.minimal-lower-third",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 388,
+      "transition_ref": "lifecycle:e3317b475b07117a336afd465ef5707a421a61878170366e0f754d249d6d7645",
+      "request": {
+        "expected_revision": 387,
+        "coordinator": {
+          "task": "subtitle-style-pack-conversion",
+          "branch": "release-383"
+        },
+        "receipt_ref": "authoring:48e132b147ff58579dd142e9216c0b1874d433e70cc8252268f00f291a5f7518",
+        "pack_id": "com.storystudio.pack.subtitle-style.shorts-vertical",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 389,
+      "transition_ref": "lifecycle:e299bcb8488ed4db8a8b373a8223151d6dc6ed69293461965ae3531afb5a436e",
+      "request": {
+        "expected_revision": 388,
+        "coordinator": {
+          "task": "subtitle-style-pack-conversion",
+          "branch": "release-383"
+        },
+        "receipt_ref": "authoring:48e132b147ff58579dd142e9216c0b1874d433e70cc8252268f00f291a5f7518",
+        "pack_id": "com.storystudio.pack.subtitle-style.shorts-vertical-word-pop",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 390,
+      "transition_ref": "lifecycle:bff02d3a9790c754c5fa500a964d24a865d20444ae5f447b46dc5fefbd187d7c",
+      "request": {
+        "expected_revision": 389,
+        "coordinator": {
+          "task": "subtitle-style-pack-conversion",
+          "branch": "release-383"
+        },
+        "receipt_ref": "authoring:48e132b147ff58579dd142e9216c0b1874d433e70cc8252268f00f291a5f7518",
+        "pack_id": "com.storystudio.pack.subtitle-style.shorts-vertical-bounce",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 391,
+      "transition_ref": "lifecycle:b4b3b80264c3e2b4eee315a41461ce134aeb5e946ff0dd782a3e721c29e8d31c",
+      "request": {
+        "expected_revision": 390,
+        "coordinator": {
+          "task": "subtitle-style-pack-conversion",
+          "branch": "release-383"
+        },
+        "receipt_ref": "authoring:48e132b147ff58579dd142e9216c0b1874d433e70cc8252268f00f291a5f7518",
+        "pack_id": "com.storystudio.pack.subtitle-style.shorts-vertical-electric",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 392,
+      "transition_ref": "lifecycle:8e663d31239cc8bd392c8df15e15def575f9f50ba5c2c83ab73bc1b1f4cd8398",
+      "request": {
+        "expected_revision": 391,
+        "coordinator": {
+          "task": "subtitle-style-pack-conversion",
+          "branch": "release-383"
+        },
+        "receipt_ref": "authoring:48e132b147ff58579dd142e9216c0b1874d433e70cc8252268f00f291a5f7518",
+        "pack_id": "com.storystudio.pack.subtitle-style.shorts-vertical-moul",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 393,
+      "transition_ref": "lifecycle:7c1a7d45c218e02f80ff98da7fc57c4a1ae7f1037878da45d6fdb3ffc92df992",
+      "request": {
+        "expected_revision": 392,
+        "coordinator": {
+          "task": "subtitle-style-pack-conversion",
+          "branch": "release-383"
+        },
+        "receipt_ref": "authoring:48e132b147ff58579dd142e9216c0b1874d433e70cc8252268f00f291a5f7518",
+        "pack_id": "com.storystudio.pack.subtitle-style.shorts-vertical-battambang",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 394,
+      "transition_ref": "lifecycle:4ab97b73db3bf35a03ff87e891d634c330cf9004b8f82fb41c7d399b025b3271",
+      "request": {
+        "expected_revision": 393,
+        "coordinator": {
+          "task": "subtitle-style-pack-conversion",
+          "branch": "release-383"
+        },
+        "receipt_ref": "authoring:48e132b147ff58579dd142e9216c0b1874d433e70cc8252268f00f291a5f7518",
+        "pack_id": "com.storystudio.pack.subtitle-style.shorts-vertical-hand-lettered",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 395,
+      "transition_ref": "lifecycle:b9d908cc46def66b71069273792ba4228c6c53c3088530139f41686d078bd62f",
+      "request": {
+        "expected_revision": 394,
+        "coordinator": {
+          "task": "subtitle-style-pack-conversion",
+          "branch": "release-383"
+        },
+        "receipt_ref": "authoring:48e132b147ff58579dd142e9216c0b1874d433e70cc8252268f00f291a5f7518",
+        "pack_id": "com.storystudio.pack.subtitle-style.shorts-vertical-hand-lettered-highlight",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 397,
+      "transition_ref": "lifecycle:7b4ecb4860ee672ecc3d11b7e1197388c57be789cfc5b3c92681314eca4e11e8",
+      "request": {
+        "expected_revision": 396,
+        "coordinator": {
+          "task": "lettering-style-pack-conversion",
+          "branch": "release-383"
+        },
+        "receipt_ref": "authoring:5170c0564b75679b21329d85eef0f76e892d6ed2ce67d29a7fe48a77929e4d0a",
+        "pack_id": "com.storystudio.pack.lettering.font-bold",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 398,
+      "transition_ref": "lifecycle:3970e8005ccd57875472bc4ff0a4201a95f093f920f68c7b35392c305ff57a28",
+      "request": {
+        "expected_revision": 397,
+        "coordinator": {
+          "task": "lettering-style-pack-conversion",
+          "branch": "release-383"
+        },
+        "receipt_ref": "authoring:5170c0564b75679b21329d85eef0f76e892d6ed2ce67d29a7fe48a77929e4d0a",
+        "pack_id": "com.storystudio.pack.lettering.font-brush",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 399,
+      "transition_ref": "lifecycle:7e4be4d426274e1965ab0efad3db61567b4f0856730e5b353587011d89ca74d6",
+      "request": {
+        "expected_revision": 398,
+        "coordinator": {
+          "task": "lettering-style-pack-conversion",
+          "branch": "release-383"
+        },
+        "receipt_ref": "authoring:5170c0564b75679b21329d85eef0f76e892d6ed2ce67d29a7fe48a77929e4d0a",
+        "pack_id": "com.storystudio.pack.lettering.font-condensed",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 400,
+      "transition_ref": "lifecycle:c1c4972957682146b96b613bb1b3d01b16e2b34ba053a4ef8ef34800026ce96c",
+      "request": {
+        "expected_revision": 399,
+        "coordinator": {
+          "task": "lettering-style-pack-conversion",
+          "branch": "release-383"
+        },
+        "receipt_ref": "authoring:5170c0564b75679b21329d85eef0f76e892d6ed2ce67d29a7fe48a77929e4d0a",
+        "pack_id": "com.storystudio.pack.lettering.font-display",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 401,
+      "transition_ref": "lifecycle:51497880a68a5481f82c46bec93539f8d19f87fa505742da8667b581a55bf764",
+      "request": {
+        "expected_revision": 400,
+        "coordinator": {
+          "task": "lettering-style-pack-conversion",
+          "branch": "release-383"
+        },
+        "receipt_ref": "authoring:5170c0564b75679b21329d85eef0f76e892d6ed2ce67d29a7fe48a77929e4d0a",
+        "pack_id": "com.storystudio.pack.lettering.font-fantasy",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 402,
+      "transition_ref": "lifecycle:cddce3b0a31c7c2fc3cd37980ad26cf56c5ad52fff62ee5957460e28c586954e",
+      "request": {
+        "expected_revision": 401,
+        "coordinator": {
+          "task": "lettering-style-pack-conversion",
+          "branch": "release-383"
+        },
+        "receipt_ref": "authoring:5170c0564b75679b21329d85eef0f76e892d6ed2ce67d29a7fe48a77929e4d0a",
+        "pack_id": "com.storystudio.pack.lettering.font-gothic",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 403,
+      "transition_ref": "lifecycle:f2ad5a97cbd1e9da9b6f81acb2dd55b9c4524b58da573cfa3824692f9e497f65",
+      "request": {
+        "expected_revision": 402,
+        "coordinator": {
+          "task": "lettering-style-pack-conversion",
+          "branch": "release-383"
+        },
+        "receipt_ref": "authoring:5170c0564b75679b21329d85eef0f76e892d6ed2ce67d29a7fe48a77929e4d0a",
+        "pack_id": "com.storystudio.pack.lettering.font-playful",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 404,
+      "transition_ref": "lifecycle:a735970d4517e81274fd68e6710b8cf4c0af044be6fd94e09b3be3e95c49ede4",
+      "request": {
+        "expected_revision": 403,
+        "coordinator": {
+          "task": "lettering-style-pack-conversion",
+          "branch": "release-383"
+        },
+        "receipt_ref": "authoring:5170c0564b75679b21329d85eef0f76e892d6ed2ce67d29a7fe48a77929e4d0a",
+        "pack_id": "com.storystudio.pack.lettering.font-retro-chrome",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 405,
+      "transition_ref": "lifecycle:abcffcd493256d60445f35e05f882d995b6c62db02e67965080d1e42b0b273fb",
+      "request": {
+        "expected_revision": 404,
+        "coordinator": {
+          "task": "lettering-style-pack-conversion",
+          "branch": "release-383"
+        },
+        "receipt_ref": "authoring:5170c0564b75679b21329d85eef0f76e892d6ed2ce67d29a7fe48a77929e4d0a",
+        "pack_id": "com.storystudio.pack.lettering.font-script",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 406,
+      "transition_ref": "lifecycle:ca11a8d56018acca7ebedfa6d43ec4c7262bc057e00f02e08b515c2c2ab76b71",
+      "request": {
+        "expected_revision": 405,
+        "coordinator": {
+          "task": "lettering-style-pack-conversion",
+          "branch": "release-383"
+        },
+        "receipt_ref": "authoring:5170c0564b75679b21329d85eef0f76e892d6ed2ce67d29a7fe48a77929e4d0a",
+        "pack_id": "com.storystudio.pack.lettering.font-serif",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 407,
+      "transition_ref": "lifecycle:73d9d1f780937cb420df100330854092d690525ad9e4fd73047827a8fa2c8e8c",
+      "request": {
+        "expected_revision": 406,
+        "coordinator": {
+          "task": "lettering-style-pack-conversion",
+          "branch": "release-383"
+        },
+        "receipt_ref": "authoring:5170c0564b75679b21329d85eef0f76e892d6ed2ce67d29a7fe48a77929e4d0a",
+        "pack_id": "com.storystudio.pack.lettering.font-stencil",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 408,
+      "transition_ref": "lifecycle:0d3ec32b0803b1340edc1688dad52a421301c521f6b6f6e854c8aa95a95a1ce9",
+      "request": {
+        "expected_revision": 407,
+        "coordinator": {
+          "task": "lettering-style-pack-conversion",
+          "branch": "release-383"
+        },
+        "receipt_ref": "authoring:5170c0564b75679b21329d85eef0f76e892d6ed2ce67d29a7fe48a77929e4d0a",
+        "pack_id": "com.storystudio.pack.lettering.font-typewriter",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 409,
+      "transition_ref": "lifecycle:757988268bca9d5dcd55fde26bd2a84f5a45120fde0a5c69c2dc6679e36bd4fa",
+      "request": {
+        "expected_revision": 408,
+        "coordinator": {
+          "task": "lettering-style-pack-conversion",
+          "branch": "release-383"
+        },
+        "receipt_ref": "authoring:5170c0564b75679b21329d85eef0f76e892d6ed2ce67d29a7fe48a77929e4d0a",
+        "pack_id": "com.storystudio.pack.lettering.text-chrome",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 410,
+      "transition_ref": "lifecycle:ba7a88bc8e4dd3d1e1950b9686e7957eb52383b297cb1d2ac029e8b6309f8791",
+      "request": {
+        "expected_revision": 409,
+        "coordinator": {
+          "task": "lettering-style-pack-conversion",
+          "branch": "release-383"
+        },
+        "receipt_ref": "authoring:5170c0564b75679b21329d85eef0f76e892d6ed2ce67d29a7fe48a77929e4d0a",
+        "pack_id": "com.storystudio.pack.lettering.text-comic",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 411,
+      "transition_ref": "lifecycle:252395c3ce59c75d062994c79fb98e9621489b0ec4924e744343574593d24ff9",
+      "request": {
+        "expected_revision": 410,
+        "coordinator": {
+          "task": "lettering-style-pack-conversion",
+          "branch": "release-383"
+        },
+        "receipt_ref": "authoring:5170c0564b75679b21329d85eef0f76e892d6ed2ce67d29a7fe48a77929e4d0a",
+        "pack_id": "com.storystudio.pack.lettering.text-embossed",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 412,
+      "transition_ref": "lifecycle:b39bf69fb291ecca937c0b02de5e7256bbc6fded106bada63a99f934f43c3e76",
+      "request": {
+        "expected_revision": 411,
+        "coordinator": {
+          "task": "lettering-style-pack-conversion",
+          "branch": "release-383"
+        },
+        "receipt_ref": "authoring:5170c0564b75679b21329d85eef0f76e892d6ed2ce67d29a7fe48a77929e4d0a",
+        "pack_id": "com.storystudio.pack.lettering.text-fire",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 413,
+      "transition_ref": "lifecycle:10dd2981fda0ef3760b7205b66a1aad446d73ac0e1c19e92eb1b8cfbf4b04247",
+      "request": {
+        "expected_revision": 412,
+        "coordinator": {
+          "task": "lettering-style-pack-conversion",
+          "branch": "release-383"
+        },
+        "receipt_ref": "authoring:5170c0564b75679b21329d85eef0f76e892d6ed2ce67d29a7fe48a77929e4d0a",
+        "pack_id": "com.storystudio.pack.lettering.text-glitch",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 414,
+      "transition_ref": "lifecycle:4dc7e7d801c2a4440d505d5ff770d8bfe70aa379b55bb07825d21135b96dd7b2",
+      "request": {
+        "expected_revision": 413,
+        "coordinator": {
+          "task": "lettering-style-pack-conversion",
+          "branch": "release-383"
+        },
+        "receipt_ref": "authoring:5170c0564b75679b21329d85eef0f76e892d6ed2ce67d29a7fe48a77929e4d0a",
+        "pack_id": "com.storystudio.pack.lettering.text-gold",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 415,
+      "transition_ref": "lifecycle:439068481fff7c9af95fa6159e6fea589ddbd0cd3f769dfaffd2d9c58d672cf4",
+      "request": {
+        "expected_revision": 414,
+        "coordinator": {
+          "task": "lettering-style-pack-conversion",
+          "branch": "release-383"
+        },
+        "receipt_ref": "authoring:5170c0564b75679b21329d85eef0f76e892d6ed2ce67d29a7fe48a77929e4d0a",
+        "pack_id": "com.storystudio.pack.lettering.text-gradient-ocean",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 416,
+      "transition_ref": "lifecycle:2069498da837644cacfa74230bb7f9e4a4871d3b6332f78a25520919af610c0b",
+      "request": {
+        "expected_revision": 415,
+        "coordinator": {
+          "task": "lettering-style-pack-conversion",
+          "branch": "release-383"
+        },
+        "receipt_ref": "authoring:5170c0564b75679b21329d85eef0f76e892d6ed2ce67d29a7fe48a77929e4d0a",
+        "pack_id": "com.storystudio.pack.lettering.text-gradient-sunset",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 417,
+      "transition_ref": "lifecycle:9f46eab1741e8d298b12a02662a3bc1dc1c7992588b027dae14c6179b5ea8b4d",
+      "request": {
+        "expected_revision": 416,
+        "coordinator": {
+          "task": "lettering-style-pack-conversion",
+          "branch": "release-383"
+        },
+        "receipt_ref": "authoring:5170c0564b75679b21329d85eef0f76e892d6ed2ce67d29a7fe48a77929e4d0a",
+        "pack_id": "com.storystudio.pack.lettering.text-handwritten",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 418,
+      "transition_ref": "lifecycle:58c3c0d5869305b461b396bc1bcafe8cdd7979b5411f4a4af347ef15206b6c5d",
+      "request": {
+        "expected_revision": 417,
+        "coordinator": {
+          "task": "lettering-style-pack-conversion",
+          "branch": "release-383"
+        },
+        "receipt_ref": "authoring:5170c0564b75679b21329d85eef0f76e892d6ed2ce67d29a7fe48a77929e4d0a",
+        "pack_id": "com.storystudio.pack.lettering.text-horror",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 419,
+      "transition_ref": "lifecycle:357f7f8982f04f8a7d3e5486a96727a0ded5e20e8dc2d71c7013cdcbd4aabb86",
+      "request": {
+        "expected_revision": 418,
+        "coordinator": {
+          "task": "lettering-style-pack-conversion",
+          "branch": "release-383"
+        },
+        "receipt_ref": "authoring:5170c0564b75679b21329d85eef0f76e892d6ed2ce67d29a7fe48a77929e4d0a",
+        "pack_id": "com.storystudio.pack.lettering.text-ice",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 420,
+      "transition_ref": "lifecycle:1c30829d888d1d277f8ff1401c385456ee466f6cd2be65ce2993959599045665",
+      "request": {
+        "expected_revision": 419,
+        "coordinator": {
+          "task": "lettering-style-pack-conversion",
+          "branch": "release-383"
+        },
+        "receipt_ref": "authoring:5170c0564b75679b21329d85eef0f76e892d6ed2ce67d29a7fe48a77929e4d0a",
+        "pack_id": "com.storystudio.pack.lettering.text-metallic",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 421,
+      "transition_ref": "lifecycle:8861036579945067d9987422d1b5db724351364666d9f0278f8dee4a8ca53021",
+      "request": {
+        "expected_revision": 420,
+        "coordinator": {
+          "task": "lettering-style-pack-conversion",
+          "branch": "release-383"
+        },
+        "receipt_ref": "authoring:5170c0564b75679b21329d85eef0f76e892d6ed2ce67d29a7fe48a77929e4d0a",
+        "pack_id": "com.storystudio.pack.lettering.text-neon",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 422,
+      "transition_ref": "lifecycle:434dbdc181ed69fbf8713b100dbaf19b97b493872422e847a22ce9e877fba8c0",
+      "request": {
+        "expected_revision": 421,
+        "coordinator": {
+          "task": "lettering-style-pack-conversion",
+          "branch": "release-383"
+        },
+        "receipt_ref": "authoring:5170c0564b75679b21329d85eef0f76e892d6ed2ce67d29a7fe48a77929e4d0a",
+        "pack_id": "com.storystudio.pack.lettering.text-pastel",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 423,
+      "transition_ref": "lifecycle:60bf714465a146234c5a17b60b0af0993ddc6c9b72cc3bd23ff882e20de061a8",
+      "request": {
+        "expected_revision": 422,
+        "coordinator": {
+          "task": "lettering-style-pack-conversion",
+          "branch": "release-383"
+        },
+        "receipt_ref": "authoring:5170c0564b75679b21329d85eef0f76e892d6ed2ce67d29a7fe48a77929e4d0a",
+        "pack_id": "com.storystudio.pack.lettering.text-shadow",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 424,
+      "transition_ref": "lifecycle:a6008f17c8d5922775da8f4b648e14b20fb98727f747996a2f8c5e3f8f698b31",
+      "request": {
+        "expected_revision": 423,
+        "coordinator": {
+          "task": "lettering-style-pack-conversion",
+          "branch": "release-383"
+        },
+        "receipt_ref": "authoring:5170c0564b75679b21329d85eef0f76e892d6ed2ce67d29a7fe48a77929e4d0a",
+        "pack_id": "com.storystudio.pack.lettering.text-vintage",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 425,
+      "transition_ref": "lifecycle:616ea0d2104c4bc332d22d8305768bf587e6b30b9748c099dce3e3b3badf6899",
+      "request": {
+        "expected_revision": 424,
+        "coordinator": {
+          "task": "lettering-style-pack-conversion",
+          "branch": "release-383"
+        },
+        "receipt_ref": "authoring:5170c0564b75679b21329d85eef0f76e892d6ed2ce67d29a7fe48a77929e4d0a",
+        "pack_id": "com.storystudio.pack.lettering.text-white",
+        "version": "1.0.0",
         "changes": {
           "status": "authored"
         }
@@ -20935,6 +23222,1408 @@
         },
         "sku": {
           "id": "com.storystudio.sku.style.bold-illustrated-history",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:6090eba1087eb040a1e3418209405690974b8a6203878032e4d2ced177587417",
+      "pack_id": "com.storystudio.pack.metadata-formula.classic-chapters-first",
+      "item_ids": [
+        "com.storystudio.metadata-formula.classic-chapters-first"
+      ],
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "metadata-formula",
+      "source_path": "content-packs/builtin-conversion/metadata-formula/classic-chapters-first",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.metadata-formula.classic-chapters-first",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.metadata-formula.classic-chapters-first",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:6090eba1087eb040a1e3418209405690974b8a6203878032e4d2ced177587417",
+      "pack_id": "com.storystudio.pack.metadata-formula.classic-community-first",
+      "item_ids": [
+        "com.storystudio.metadata-formula.classic-community-first"
+      ],
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "metadata-formula",
+      "source_path": "content-packs/builtin-conversion/metadata-formula/classic-community-first",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.metadata-formula.classic-community-first",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.metadata-formula.classic-community-first",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:6090eba1087eb040a1e3418209405690974b8a6203878032e4d2ced177587417",
+      "pack_id": "com.storystudio.pack.metadata-formula.classic-curiosity-gap",
+      "item_ids": [
+        "com.storystudio.metadata-formula.classic-curiosity-gap"
+      ],
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "metadata-formula",
+      "source_path": "content-packs/builtin-conversion/metadata-formula/classic-curiosity-gap",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.metadata-formula.classic-curiosity-gap",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.metadata-formula.classic-curiosity-gap",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:6090eba1087eb040a1e3418209405690974b8a6203878032e4d2ced177587417",
+      "pack_id": "com.storystudio.pack.metadata-formula.classic-minimal",
+      "item_ids": [
+        "com.storystudio.metadata-formula.classic-minimal"
+      ],
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "metadata-formula",
+      "source_path": "content-packs/builtin-conversion/metadata-formula/classic-minimal",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.metadata-formula.classic-minimal",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.metadata-formula.classic-minimal",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:6090eba1087eb040a1e3418209405690974b8a6203878032e4d2ced177587417",
+      "pack_id": "com.storystudio.pack.metadata-formula.classic-story-first-calm",
+      "item_ids": [
+        "com.storystudio.metadata-formula.classic-story-first-calm"
+      ],
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "metadata-formula",
+      "source_path": "content-packs/builtin-conversion/metadata-formula/classic-story-first-calm",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.metadata-formula.classic-story-first-calm",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.metadata-formula.classic-story-first-calm",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:48e132b147ff58579dd142e9216c0b1874d433e70cc8252268f00f291a5f7518",
+      "pack_id": "com.storystudio.pack.subtitle-style.clean-broadcast",
+      "item_id": "com.storystudio.subtitle-style.clean-broadcast",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "subtitle-style",
+      "source_path": "content-packs/builtin-conversion/subtitle-style/clean-broadcast",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.subtitle-style.clean-broadcast",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.subtitle-style.clean-broadcast",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:48e132b147ff58579dd142e9216c0b1874d433e70cc8252268f00f291a5f7518",
+      "pack_id": "com.storystudio.pack.subtitle-style.documentary-serif",
+      "item_id": "com.storystudio.subtitle-style.documentary-serif",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "subtitle-style",
+      "source_path": "content-packs/builtin-conversion/subtitle-style/documentary-serif",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.subtitle-style.documentary-serif",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.subtitle-style.documentary-serif",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:48e132b147ff58579dd142e9216c0b1874d433e70cc8252268f00f291a5f7518",
+      "pack_id": "com.storystudio.pack.subtitle-style.sleep-soft",
+      "item_id": "com.storystudio.subtitle-style.sleep-soft",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "subtitle-style",
+      "source_path": "content-packs/builtin-conversion/subtitle-style/sleep-soft",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.subtitle-style.sleep-soft",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.subtitle-style.sleep-soft",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:48e132b147ff58579dd142e9216c0b1874d433e70cc8252268f00f291a5f7518",
+      "pack_id": "com.storystudio.pack.subtitle-style.bold-impact",
+      "item_id": "com.storystudio.subtitle-style.bold-impact",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "subtitle-style",
+      "source_path": "content-packs/builtin-conversion/subtitle-style/bold-impact",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.subtitle-style.bold-impact",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.subtitle-style.bold-impact",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:48e132b147ff58579dd142e9216c0b1874d433e70cc8252268f00f291a5f7518",
+      "pack_id": "com.storystudio.pack.subtitle-style.karaoke-highlight",
+      "item_id": "com.storystudio.subtitle-style.karaoke-highlight",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "subtitle-style",
+      "source_path": "content-packs/builtin-conversion/subtitle-style/karaoke-highlight",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.subtitle-style.karaoke-highlight",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.subtitle-style.karaoke-highlight",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:48e132b147ff58579dd142e9216c0b1874d433e70cc8252268f00f291a5f7518",
+      "pack_id": "com.storystudio.pack.subtitle-style.karaoke-pop",
+      "item_id": "com.storystudio.subtitle-style.karaoke-pop",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "subtitle-style",
+      "source_path": "content-packs/builtin-conversion/subtitle-style/karaoke-pop",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.subtitle-style.karaoke-pop",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.subtitle-style.karaoke-pop",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:48e132b147ff58579dd142e9216c0b1874d433e70cc8252268f00f291a5f7518",
+      "pack_id": "com.storystudio.pack.subtitle-style.word-reveal",
+      "item_id": "com.storystudio.subtitle-style.word-reveal",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "subtitle-style",
+      "source_path": "content-packs/builtin-conversion/subtitle-style/word-reveal",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.subtitle-style.word-reveal",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.subtitle-style.word-reveal",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:48e132b147ff58579dd142e9216c0b1874d433e70cc8252268f00f291a5f7518",
+      "pack_id": "com.storystudio.pack.subtitle-style.single-word-focus",
+      "item_id": "com.storystudio.subtitle-style.single-word-focus",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "subtitle-style",
+      "source_path": "content-packs/builtin-conversion/subtitle-style/single-word-focus",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.subtitle-style.single-word-focus",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.subtitle-style.single-word-focus",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:48e132b147ff58579dd142e9216c0b1874d433e70cc8252268f00f291a5f7518",
+      "pack_id": "com.storystudio.pack.subtitle-style.neon-glow",
+      "item_id": "com.storystudio.subtitle-style.neon-glow",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "subtitle-style",
+      "source_path": "content-packs/builtin-conversion/subtitle-style/neon-glow",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.subtitle-style.neon-glow",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.subtitle-style.neon-glow",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:48e132b147ff58579dd142e9216c0b1874d433e70cc8252268f00f291a5f7518",
+      "pack_id": "com.storystudio.pack.subtitle-style.yellow-highlighter",
+      "item_id": "com.storystudio.subtitle-style.yellow-highlighter",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "subtitle-style",
+      "source_path": "content-packs/builtin-conversion/subtitle-style/yellow-highlighter",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.subtitle-style.yellow-highlighter",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.subtitle-style.yellow-highlighter",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:48e132b147ff58579dd142e9216c0b1874d433e70cc8252268f00f291a5f7518",
+      "pack_id": "com.storystudio.pack.subtitle-style.boxed-caption",
+      "item_id": "com.storystudio.subtitle-style.boxed-caption",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "subtitle-style",
+      "source_path": "content-packs/builtin-conversion/subtitle-style/boxed-caption",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.subtitle-style.boxed-caption",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.subtitle-style.boxed-caption",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:48e132b147ff58579dd142e9216c0b1874d433e70cc8252268f00f291a5f7518",
+      "pack_id": "com.storystudio.pack.subtitle-style.typewriter",
+      "item_id": "com.storystudio.subtitle-style.typewriter",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "subtitle-style",
+      "source_path": "content-packs/builtin-conversion/subtitle-style/typewriter",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.subtitle-style.typewriter",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.subtitle-style.typewriter",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:48e132b147ff58579dd142e9216c0b1874d433e70cc8252268f00f291a5f7518",
+      "pack_id": "com.storystudio.pack.subtitle-style.slide-up",
+      "item_id": "com.storystudio.subtitle-style.slide-up",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "subtitle-style",
+      "source_path": "content-packs/builtin-conversion/subtitle-style/slide-up",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.subtitle-style.slide-up",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.subtitle-style.slide-up",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:48e132b147ff58579dd142e9216c0b1874d433e70cc8252268f00f291a5f7518",
+      "pack_id": "com.storystudio.pack.subtitle-style.gentle-fade",
+      "item_id": "com.storystudio.subtitle-style.gentle-fade",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "subtitle-style",
+      "source_path": "content-packs/builtin-conversion/subtitle-style/gentle-fade",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.subtitle-style.gentle-fade",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.subtitle-style.gentle-fade",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:48e132b147ff58579dd142e9216c0b1874d433e70cc8252268f00f291a5f7518",
+      "pack_id": "com.storystudio.pack.subtitle-style.explainer-accent",
+      "item_id": "com.storystudio.subtitle-style.explainer-accent",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "subtitle-style",
+      "source_path": "content-packs/builtin-conversion/subtitle-style/explainer-accent",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.subtitle-style.explainer-accent",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.subtitle-style.explainer-accent",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:48e132b147ff58579dd142e9216c0b1874d433e70cc8252268f00f291a5f7518",
+      "pack_id": "com.storystudio.pack.subtitle-style.minimal-lower-third",
+      "item_id": "com.storystudio.subtitle-style.minimal-lower-third",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "subtitle-style",
+      "source_path": "content-packs/builtin-conversion/subtitle-style/minimal-lower-third",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.subtitle-style.minimal-lower-third",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.subtitle-style.minimal-lower-third",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:48e132b147ff58579dd142e9216c0b1874d433e70cc8252268f00f291a5f7518",
+      "pack_id": "com.storystudio.pack.subtitle-style.shorts-vertical",
+      "item_id": "com.storystudio.subtitle-style.shorts-vertical",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "subtitle-style",
+      "source_path": "content-packs/builtin-conversion/subtitle-style/shorts-vertical",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.subtitle-style.shorts-vertical",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.subtitle-style.shorts-vertical",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:48e132b147ff58579dd142e9216c0b1874d433e70cc8252268f00f291a5f7518",
+      "pack_id": "com.storystudio.pack.subtitle-style.shorts-vertical-word-pop",
+      "item_id": "com.storystudio.subtitle-style.shorts-vertical-word-pop",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "subtitle-style",
+      "source_path": "content-packs/builtin-conversion/subtitle-style/shorts-vertical-word-pop",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.subtitle-style.shorts-vertical-word-pop",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.subtitle-style.shorts-vertical-word-pop",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:48e132b147ff58579dd142e9216c0b1874d433e70cc8252268f00f291a5f7518",
+      "pack_id": "com.storystudio.pack.subtitle-style.shorts-vertical-bounce",
+      "item_id": "com.storystudio.subtitle-style.shorts-vertical-bounce",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "subtitle-style",
+      "source_path": "content-packs/builtin-conversion/subtitle-style/shorts-vertical-bounce",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.subtitle-style.shorts-vertical-bounce",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.subtitle-style.shorts-vertical-bounce",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:48e132b147ff58579dd142e9216c0b1874d433e70cc8252268f00f291a5f7518",
+      "pack_id": "com.storystudio.pack.subtitle-style.shorts-vertical-electric",
+      "item_id": "com.storystudio.subtitle-style.shorts-vertical-electric",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "subtitle-style",
+      "source_path": "content-packs/builtin-conversion/subtitle-style/shorts-vertical-electric",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.subtitle-style.shorts-vertical-electric",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.subtitle-style.shorts-vertical-electric",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:48e132b147ff58579dd142e9216c0b1874d433e70cc8252268f00f291a5f7518",
+      "pack_id": "com.storystudio.pack.subtitle-style.shorts-vertical-moul",
+      "item_id": "com.storystudio.subtitle-style.shorts-vertical-moul",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "subtitle-style",
+      "source_path": "content-packs/builtin-conversion/subtitle-style/shorts-vertical-moul",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.subtitle-style.shorts-vertical-moul",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.subtitle-style.shorts-vertical-moul",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:48e132b147ff58579dd142e9216c0b1874d433e70cc8252268f00f291a5f7518",
+      "pack_id": "com.storystudio.pack.subtitle-style.shorts-vertical-battambang",
+      "item_id": "com.storystudio.subtitle-style.shorts-vertical-battambang",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "subtitle-style",
+      "source_path": "content-packs/builtin-conversion/subtitle-style/shorts-vertical-battambang",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.subtitle-style.shorts-vertical-battambang",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.subtitle-style.shorts-vertical-battambang",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:48e132b147ff58579dd142e9216c0b1874d433e70cc8252268f00f291a5f7518",
+      "pack_id": "com.storystudio.pack.subtitle-style.shorts-vertical-hand-lettered",
+      "item_id": "com.storystudio.subtitle-style.shorts-vertical-hand-lettered",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "subtitle-style",
+      "source_path": "content-packs/builtin-conversion/subtitle-style/shorts-vertical-hand-lettered",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.subtitle-style.shorts-vertical-hand-lettered",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.subtitle-style.shorts-vertical-hand-lettered",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:48e132b147ff58579dd142e9216c0b1874d433e70cc8252268f00f291a5f7518",
+      "pack_id": "com.storystudio.pack.subtitle-style.shorts-vertical-hand-lettered-highlight",
+      "item_id": "com.storystudio.subtitle-style.shorts-vertical-hand-lettered-highlight",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "subtitle-style",
+      "source_path": "content-packs/builtin-conversion/subtitle-style/shorts-vertical-hand-lettered-highlight",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.subtitle-style.shorts-vertical-hand-lettered-highlight",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.subtitle-style.shorts-vertical-hand-lettered-highlight",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:5170c0564b75679b21329d85eef0f76e892d6ed2ce67d29a7fe48a77929e4d0a",
+      "pack_id": "com.storystudio.pack.lettering.font-bold",
+      "item_ids": [
+        "com.storystudio.lettering.font-bold"
+      ],
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "lettering-style",
+      "source_path": "content-packs/builtin-conversion/lettering-style/font-bold",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.lettering.font-bold",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.lettering.font-bold",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:5170c0564b75679b21329d85eef0f76e892d6ed2ce67d29a7fe48a77929e4d0a",
+      "pack_id": "com.storystudio.pack.lettering.font-brush",
+      "item_ids": [
+        "com.storystudio.lettering.font-brush"
+      ],
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "lettering-style",
+      "source_path": "content-packs/builtin-conversion/lettering-style/font-brush",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.lettering.font-brush",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.lettering.font-brush",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:5170c0564b75679b21329d85eef0f76e892d6ed2ce67d29a7fe48a77929e4d0a",
+      "pack_id": "com.storystudio.pack.lettering.font-condensed",
+      "item_ids": [
+        "com.storystudio.lettering.font-condensed"
+      ],
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "lettering-style",
+      "source_path": "content-packs/builtin-conversion/lettering-style/font-condensed",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.lettering.font-condensed",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.lettering.font-condensed",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:5170c0564b75679b21329d85eef0f76e892d6ed2ce67d29a7fe48a77929e4d0a",
+      "pack_id": "com.storystudio.pack.lettering.font-display",
+      "item_ids": [
+        "com.storystudio.lettering.font-display"
+      ],
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "lettering-style",
+      "source_path": "content-packs/builtin-conversion/lettering-style/font-display",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.lettering.font-display",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.lettering.font-display",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:5170c0564b75679b21329d85eef0f76e892d6ed2ce67d29a7fe48a77929e4d0a",
+      "pack_id": "com.storystudio.pack.lettering.font-fantasy",
+      "item_ids": [
+        "com.storystudio.lettering.font-fantasy"
+      ],
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "lettering-style",
+      "source_path": "content-packs/builtin-conversion/lettering-style/font-fantasy",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.lettering.font-fantasy",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.lettering.font-fantasy",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:5170c0564b75679b21329d85eef0f76e892d6ed2ce67d29a7fe48a77929e4d0a",
+      "pack_id": "com.storystudio.pack.lettering.font-gothic",
+      "item_ids": [
+        "com.storystudio.lettering.font-gothic"
+      ],
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "lettering-style",
+      "source_path": "content-packs/builtin-conversion/lettering-style/font-gothic",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.lettering.font-gothic",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.lettering.font-gothic",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:5170c0564b75679b21329d85eef0f76e892d6ed2ce67d29a7fe48a77929e4d0a",
+      "pack_id": "com.storystudio.pack.lettering.font-playful",
+      "item_ids": [
+        "com.storystudio.lettering.font-playful"
+      ],
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "lettering-style",
+      "source_path": "content-packs/builtin-conversion/lettering-style/font-playful",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.lettering.font-playful",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.lettering.font-playful",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:5170c0564b75679b21329d85eef0f76e892d6ed2ce67d29a7fe48a77929e4d0a",
+      "pack_id": "com.storystudio.pack.lettering.font-retro-chrome",
+      "item_ids": [
+        "com.storystudio.lettering.font-retro-chrome"
+      ],
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "lettering-style",
+      "source_path": "content-packs/builtin-conversion/lettering-style/font-retro-chrome",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.lettering.font-retro-chrome",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.lettering.font-retro-chrome",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:5170c0564b75679b21329d85eef0f76e892d6ed2ce67d29a7fe48a77929e4d0a",
+      "pack_id": "com.storystudio.pack.lettering.font-script",
+      "item_ids": [
+        "com.storystudio.lettering.font-script"
+      ],
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "lettering-style",
+      "source_path": "content-packs/builtin-conversion/lettering-style/font-script",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.lettering.font-script",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.lettering.font-script",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:5170c0564b75679b21329d85eef0f76e892d6ed2ce67d29a7fe48a77929e4d0a",
+      "pack_id": "com.storystudio.pack.lettering.font-serif",
+      "item_ids": [
+        "com.storystudio.lettering.font-serif"
+      ],
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "lettering-style",
+      "source_path": "content-packs/builtin-conversion/lettering-style/font-serif",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.lettering.font-serif",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.lettering.font-serif",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:5170c0564b75679b21329d85eef0f76e892d6ed2ce67d29a7fe48a77929e4d0a",
+      "pack_id": "com.storystudio.pack.lettering.font-stencil",
+      "item_ids": [
+        "com.storystudio.lettering.font-stencil"
+      ],
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "lettering-style",
+      "source_path": "content-packs/builtin-conversion/lettering-style/font-stencil",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.lettering.font-stencil",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.lettering.font-stencil",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:5170c0564b75679b21329d85eef0f76e892d6ed2ce67d29a7fe48a77929e4d0a",
+      "pack_id": "com.storystudio.pack.lettering.font-typewriter",
+      "item_ids": [
+        "com.storystudio.lettering.font-typewriter"
+      ],
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "lettering-style",
+      "source_path": "content-packs/builtin-conversion/lettering-style/font-typewriter",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.lettering.font-typewriter",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.lettering.font-typewriter",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:5170c0564b75679b21329d85eef0f76e892d6ed2ce67d29a7fe48a77929e4d0a",
+      "pack_id": "com.storystudio.pack.lettering.text-chrome",
+      "item_ids": [
+        "com.storystudio.lettering.text-chrome"
+      ],
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "lettering-style",
+      "source_path": "content-packs/builtin-conversion/lettering-style/text-chrome",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.lettering.text-chrome",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.lettering.text-chrome",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:5170c0564b75679b21329d85eef0f76e892d6ed2ce67d29a7fe48a77929e4d0a",
+      "pack_id": "com.storystudio.pack.lettering.text-comic",
+      "item_ids": [
+        "com.storystudio.lettering.text-comic"
+      ],
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "lettering-style",
+      "source_path": "content-packs/builtin-conversion/lettering-style/text-comic",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.lettering.text-comic",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.lettering.text-comic",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:5170c0564b75679b21329d85eef0f76e892d6ed2ce67d29a7fe48a77929e4d0a",
+      "pack_id": "com.storystudio.pack.lettering.text-embossed",
+      "item_ids": [
+        "com.storystudio.lettering.text-embossed"
+      ],
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "lettering-style",
+      "source_path": "content-packs/builtin-conversion/lettering-style/text-embossed",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.lettering.text-embossed",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.lettering.text-embossed",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:5170c0564b75679b21329d85eef0f76e892d6ed2ce67d29a7fe48a77929e4d0a",
+      "pack_id": "com.storystudio.pack.lettering.text-fire",
+      "item_ids": [
+        "com.storystudio.lettering.text-fire"
+      ],
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "lettering-style",
+      "source_path": "content-packs/builtin-conversion/lettering-style/text-fire",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.lettering.text-fire",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.lettering.text-fire",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:5170c0564b75679b21329d85eef0f76e892d6ed2ce67d29a7fe48a77929e4d0a",
+      "pack_id": "com.storystudio.pack.lettering.text-glitch",
+      "item_ids": [
+        "com.storystudio.lettering.text-glitch"
+      ],
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "lettering-style",
+      "source_path": "content-packs/builtin-conversion/lettering-style/text-glitch",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.lettering.text-glitch",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.lettering.text-glitch",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:5170c0564b75679b21329d85eef0f76e892d6ed2ce67d29a7fe48a77929e4d0a",
+      "pack_id": "com.storystudio.pack.lettering.text-gold",
+      "item_ids": [
+        "com.storystudio.lettering.text-gold"
+      ],
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "lettering-style",
+      "source_path": "content-packs/builtin-conversion/lettering-style/text-gold",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.lettering.text-gold",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.lettering.text-gold",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:5170c0564b75679b21329d85eef0f76e892d6ed2ce67d29a7fe48a77929e4d0a",
+      "pack_id": "com.storystudio.pack.lettering.text-gradient-ocean",
+      "item_ids": [
+        "com.storystudio.lettering.text-gradient-ocean"
+      ],
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "lettering-style",
+      "source_path": "content-packs/builtin-conversion/lettering-style/text-gradient-ocean",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.lettering.text-gradient-ocean",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.lettering.text-gradient-ocean",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:5170c0564b75679b21329d85eef0f76e892d6ed2ce67d29a7fe48a77929e4d0a",
+      "pack_id": "com.storystudio.pack.lettering.text-gradient-sunset",
+      "item_ids": [
+        "com.storystudio.lettering.text-gradient-sunset"
+      ],
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "lettering-style",
+      "source_path": "content-packs/builtin-conversion/lettering-style/text-gradient-sunset",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.lettering.text-gradient-sunset",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.lettering.text-gradient-sunset",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:5170c0564b75679b21329d85eef0f76e892d6ed2ce67d29a7fe48a77929e4d0a",
+      "pack_id": "com.storystudio.pack.lettering.text-handwritten",
+      "item_ids": [
+        "com.storystudio.lettering.text-handwritten"
+      ],
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "lettering-style",
+      "source_path": "content-packs/builtin-conversion/lettering-style/text-handwritten",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.lettering.text-handwritten",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.lettering.text-handwritten",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:5170c0564b75679b21329d85eef0f76e892d6ed2ce67d29a7fe48a77929e4d0a",
+      "pack_id": "com.storystudio.pack.lettering.text-horror",
+      "item_ids": [
+        "com.storystudio.lettering.text-horror"
+      ],
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "lettering-style",
+      "source_path": "content-packs/builtin-conversion/lettering-style/text-horror",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.lettering.text-horror",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.lettering.text-horror",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:5170c0564b75679b21329d85eef0f76e892d6ed2ce67d29a7fe48a77929e4d0a",
+      "pack_id": "com.storystudio.pack.lettering.text-ice",
+      "item_ids": [
+        "com.storystudio.lettering.text-ice"
+      ],
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "lettering-style",
+      "source_path": "content-packs/builtin-conversion/lettering-style/text-ice",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.lettering.text-ice",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.lettering.text-ice",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:5170c0564b75679b21329d85eef0f76e892d6ed2ce67d29a7fe48a77929e4d0a",
+      "pack_id": "com.storystudio.pack.lettering.text-metallic",
+      "item_ids": [
+        "com.storystudio.lettering.text-metallic"
+      ],
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "lettering-style",
+      "source_path": "content-packs/builtin-conversion/lettering-style/text-metallic",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.lettering.text-metallic",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.lettering.text-metallic",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:5170c0564b75679b21329d85eef0f76e892d6ed2ce67d29a7fe48a77929e4d0a",
+      "pack_id": "com.storystudio.pack.lettering.text-neon",
+      "item_ids": [
+        "com.storystudio.lettering.text-neon"
+      ],
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "lettering-style",
+      "source_path": "content-packs/builtin-conversion/lettering-style/text-neon",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.lettering.text-neon",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.lettering.text-neon",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:5170c0564b75679b21329d85eef0f76e892d6ed2ce67d29a7fe48a77929e4d0a",
+      "pack_id": "com.storystudio.pack.lettering.text-pastel",
+      "item_ids": [
+        "com.storystudio.lettering.text-pastel"
+      ],
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "lettering-style",
+      "source_path": "content-packs/builtin-conversion/lettering-style/text-pastel",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.lettering.text-pastel",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.lettering.text-pastel",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:5170c0564b75679b21329d85eef0f76e892d6ed2ce67d29a7fe48a77929e4d0a",
+      "pack_id": "com.storystudio.pack.lettering.text-shadow",
+      "item_ids": [
+        "com.storystudio.lettering.text-shadow"
+      ],
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "lettering-style",
+      "source_path": "content-packs/builtin-conversion/lettering-style/text-shadow",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.lettering.text-shadow",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.lettering.text-shadow",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:5170c0564b75679b21329d85eef0f76e892d6ed2ce67d29a7fe48a77929e4d0a",
+      "pack_id": "com.storystudio.pack.lettering.text-vintage",
+      "item_ids": [
+        "com.storystudio.lettering.text-vintage"
+      ],
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "lettering-style",
+      "source_path": "content-packs/builtin-conversion/lettering-style/text-vintage",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.lettering.text-vintage",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.lettering.text-vintage",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:5170c0564b75679b21329d85eef0f76e892d6ed2ce67d29a7fe48a77929e4d0a",
+      "pack_id": "com.storystudio.pack.lettering.text-white",
+      "item_ids": [
+        "com.storystudio.lettering.text-white"
+      ],
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "lettering-style",
+      "source_path": "content-packs/builtin-conversion/lettering-style/text-white",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.lettering.text-white",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.lettering.text-white",
           "status": "proposed"
         }
       }
