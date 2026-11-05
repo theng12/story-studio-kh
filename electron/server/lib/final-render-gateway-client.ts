@@ -75,6 +75,18 @@ export interface FinalRenderCapabilities {
   execution_bounds?: FinalRenderExecutionBounds
 }
 
+/**
+ * Revision-4 output-settings negotiation (`studio.render.output-settings-capabilities.v1`).
+ * `supported` is protocol support only — never workload admission, and never by itself a
+ * reason to offer Best.
+ */
+export interface FinalRenderOutputSettingsCapabilities {
+  supported: boolean
+  reason: string | null
+  profile_descriptor_utf8: string | null
+  profile_digest: string | null
+}
+
 export interface FinalRenderOutputReceipt {
   format: 'studio.render.gateway-output-receipt.v1'
   owner_scope: string
@@ -1128,6 +1140,124 @@ export async function getFinalRenderCapabilities(
   if (originChanged) await repairGatewayBinding(answered)
   else await pinGatewayBinding(answered)
   return capabilities
+}
+
+const OUTPUT_SETTINGS_FORMAT = 'studio.render.output-settings-capabilities.v1'
+
+/**
+ * The v2 profile travels alone in this response — no tools/compiler link to cross-check — so it is
+ * validated against the revision-4 literals only. An unknown profile format fails admission.
+ */
+function parseOutputSettingsProfile(raw: string): void {
+  const profile = exactRecord(parseJsonText(raw, 'output-settings profile descriptor'), [
+    'format', 'implementation', 'recipe_namespace', 'compiler_artifact_sha256',
+    'tools_artifact_sha256', 'combination_set', 'tier_policy', 'output_policy',
+    'execution_bounds', 'hardware_qualification_record_sha256',
+    'fidelity_record_sha256', 'production_eligible',
+  ], 'output-settings profile descriptor')
+  const literals: Record<string, string> = {
+    format: 'studio.render.profile.v2',
+    implementation: 'story-classic-no-font-v2',
+    recipe_namespace: 'studio.render.final.v2',
+    combination_set: 'retained-classic-no-font-candidate-v1',
+    tier_policy: 'story-final-chain-v1',
+    output_policy: 'story-final-output-v2',
+  }
+  for (const [key, expected] of Object.entries(literals)) {
+    if (profile[key] !== expected) invalid(`output-settings profile descriptor.${key} is unsupported`)
+  }
+  for (const key of ['compiler_artifact_sha256', 'tools_artifact_sha256']) {
+    sha256(profile[key], `output-settings profile descriptor.${key}`)
+  }
+  for (const key of ['hardware_qualification_record_sha256', 'fidelity_record_sha256']) {
+    if (profile[key] !== null) sha256(profile[key], `output-settings profile descriptor.${key}`)
+  }
+  if (profile.production_eligible !== false) invalid('output-settings profile descriptor.production_eligible is unsupported')
+  parseExecutionBounds(profile.execution_bounds)
+}
+
+function parseOutputSettingsCapabilities(
+  value: unknown,
+  connection: Pick<PrivateRenderConnection, 'story_instance_id' | 'binding'>,
+): FinalRenderOutputSettingsCapabilities {
+  const shape = record(value, 'output-settings capabilities response')
+  if (typeof shape.format !== 'string') invalid('output-settings capabilities response format is invalid')
+  // A version this build does not implement is "not offered", never support and never a crash.
+  if (shape.format !== OUTPUT_SETTINGS_FORMAT) {
+    return {
+      supported: false,
+      reason: `This Gateway answers with "${shape.format}", which this Story build does not implement.`,
+      profile_descriptor_utf8: null,
+      profile_digest: null,
+    }
+  }
+  const result = closedRecord(shape, [
+    'format', 'private', 'chargeable', 'owner_scope', 'gateway_instance_id',
+    'story_instance_id', 'server_time', 'supported', 'reason',
+    'profile_descriptor_utf8', 'profile_digest',
+  ], [], 'output-settings capabilities response')
+  if (result.private !== true || result.chargeable !== false) {
+    invalid('output-settings capabilities response literals are invalid')
+  }
+  const ownerScope = uuid(result.owner_scope, 'output-settings capabilities owner_scope')
+  const gatewayInstanceId = uuid(result.gateway_instance_id, 'output-settings capabilities gateway_instance_id')
+  if (uuid(result.story_instance_id, 'output-settings capabilities story_instance_id') !== connection.story_instance_id
+      || (connection.binding && (ownerScope !== connection.binding.owner_scope
+        || gatewayInstanceId !== connection.binding.gateway_instance_id))) {
+    invalid('output-settings capabilities response Gateway binding does not match')
+  }
+  const serverTime = positiveSafeInteger(result.server_time, 'output-settings capabilities server_time')
+  const now = Math.floor(Date.now() / 1000)
+  if (serverTime < now - 120 || serverTime > now + 30) {
+    invalid('output-settings capabilities response freshness is outside the allowed window')
+  }
+  if (typeof result.supported !== 'boolean') invalid('output-settings capabilities response supported is invalid')
+  const reason = result.reason
+  if (reason !== null && (typeof reason !== 'string' || !reason || reason !== reason.trim() || reason.length > 256)) {
+    invalid('output-settings capabilities response reason is invalid')
+  }
+  const descriptor = result.profile_descriptor_utf8
+  if (result.supported) {
+    if (reason !== null) invalid('output-settings capabilities response reason must be null when supported')
+    if (typeof descriptor !== 'string') invalid('output-settings capabilities response profile is missing while supported')
+    const profileDigest = sha256(result.profile_digest, 'output-settings capabilities profile_digest')
+    if (digestBytes(descriptor) !== profileDigest) invalid('output-settings capabilities profile byte digest does not match')
+    parseOutputSettingsProfile(descriptor)
+    return { supported: true, reason: null, profile_descriptor_utf8: descriptor, profile_digest: profileDigest }
+  }
+  if (reason === null) invalid('output-settings capabilities response reason is required when unsupported')
+  if (descriptor !== null || result.profile_digest !== null) {
+    invalid('output-settings capabilities response profile must be null when unsupported')
+  }
+  return { supported: false, reason, profile_descriptor_utf8: null, profile_digest: null }
+}
+
+/**
+ * Revision-4 output-settings negotiation on the paired Gateway origin, with the same authentication
+ * and owner/Story identity checks as the v1 capabilities read (but no pinning: v1 still owns pairing).
+ * A 404/405 is "this Gateway does not offer it"; a version it does not implement is unavailable with
+ * a reason. Malformed output or a mismatched identity is a validation error, never support.
+ */
+export async function getFinalRenderOutputSettingsCapabilities(): Promise<FinalRenderOutputSettingsCapabilities> {
+  const connection = await readPrivateRenderConnection()
+  let body: unknown
+  try {
+    body = await fetchJson(
+      connection, '/v2/final-renders/capabilities', { method: 'GET' },
+      'Output settings capabilities', 200,
+    )
+  } catch (error) {
+    if (error instanceof FinalRenderHttpError && (error.status === 404 || error.status === 405)) {
+      return {
+        supported: false,
+        reason: `This Gateway does not offer output-settings capabilities (HTTP ${error.status}).`,
+        profile_descriptor_utf8: null,
+        profile_digest: null,
+      }
+    }
+    throw error
+  }
+  return parseOutputSettingsCapabilities(body, connection)
 }
 
 export function getFinalRenderBlobStatus(sha: string, sizeBytes: number): Promise<FinalRenderBlobStatus> {

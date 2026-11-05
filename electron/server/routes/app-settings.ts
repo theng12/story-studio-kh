@@ -38,6 +38,7 @@ import {
   setAppSetting,
 } from '../services/app-settings.js'
 import { getGatewayBindingStatus } from '../services/private-render-identity.js'
+import { getFinalRenderOutputSettingsCapabilities } from '../lib/final-render-gateway-client.js'
 import { getGlobalCompression, setGlobalCompression, COMPRESSION_DEFAULTS } from '../services/generation-compression.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 import {
@@ -93,6 +94,51 @@ router.get('/app-settings/private-final-render/binding', async (_req, res) => {
     res.json(await getGatewayBindingStatus())
   } catch (e: any) {
     res.status(e?.statusCode || 500).json(humanizeBackendError(e, 'Failed to load private render Gateway binding'))
+  }
+})
+
+/**
+ * Best is unavailable until Hub publishes qualified quality/policy evidence contracts: a supported
+ * protocol alone is never workload admission, and a failed or skipped check is never a pass.
+ * Private rendering off means no Gateway call at all.
+ */
+async function readBestRenderStatus(): Promise<{ private_render_enabled: boolean; best_available: false; reason: string }> {
+  const { enabled } = await getPrivateFinalRenderSetting()
+  if (!enabled) {
+    return {
+      private_render_enabled: false,
+      best_available: false,
+      reason: 'Private final rendering is off, so Best has not been checked.',
+    }
+  }
+  try {
+    const negotiation = await getFinalRenderOutputSettingsCapabilities()
+    if (!negotiation.supported) {
+      return {
+        private_render_enabled: true,
+        best_available: false,
+        reason: negotiation.reason ?? 'This Gateway does not offer Best rendering.',
+      }
+    }
+    return {
+      private_render_enabled: true,
+      best_available: false,
+      reason: 'This Gateway offers Best, but the qualified quality and policy evidence Best needs has not been published yet.',
+    }
+  } catch (error: any) {
+    return {
+      private_render_enabled: true,
+      best_available: false,
+      reason: `Best availability could not be checked (${error?.message || 'unknown error'}).`,
+    }
+  }
+}
+
+router.get('/app-settings/private-final-render/output-settings', async (_req, res) => {
+  try {
+    res.json(await readBestRenderStatus())
+  } catch (e: any) {
+    res.status(e?.statusCode || 500).json(humanizeBackendError(e, 'Failed to load Best rendering availability'))
   }
 })
 

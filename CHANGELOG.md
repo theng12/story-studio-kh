@@ -7,6 +7,11 @@ What's new in each release. Newest first.
 ## v1.4.382 — 2026-11-05
 
 - Research before writing is a channel switch on Research, also shown in Pipeline. It starts on for writing channels and off for music channels. Missing presets or failed research show why they were skipped while writing continues; retries do not submit uncertain research again.
+- Each thumbnail prompt keeps its own recipe, art style, lettering and text placement. Review and approve prompts individually, deliberately enable automatic approval for an episode, or duplicate an option with its settings. Three options remain the default, with no fixed six-option ceiling.
+- Compare generated thumbnails side by side and pin the one to upload. Incomplete scoring preserves a valid earlier scored choice; missing images are reported as unmeasured. When every image fails the image checks, Regenerate once and score starts one confirmed generation and one rescore, then stops for your next choice.
+
+- Audio Assembly presets keep each live ambient clip in its current order while applying reusable mix settings. The duration estimate includes a selected music lead-in and the gap after a selected intro, and names the intro clip length and closing tail it has not counted.
+- Settings explains why Best rendering is unavailable and refreshes that reason after you save the private-render switch. Gateway protocol support alone cannot enable Best; qualified rendering evidence is still required.
 
 ## v1.4.381 — 2026-11-05
 

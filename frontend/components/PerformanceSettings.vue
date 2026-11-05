@@ -100,6 +100,15 @@
         {{ privateFleetBinding.configured_origin }}. The pairing re-pairs itself the next time Story
         checks that Gateway.
       </p>
+      <!-- Display only: Best never gets a toggle here until qualified evidence admits it. -->
+      <p
+        v-if="bestStatus"
+        class="perf-binding-note"
+        data-best="unavailable"
+        role="status"
+      >
+        Best rendering: unavailable — {{ bestStatus.reason }}
+      </p>
     </section>
 
     <section class="perf-card paid-replacement" data-setting="paid-replacement" aria-labelledby="perf-paid-title">
@@ -197,6 +206,12 @@ interface PaidRow {
   baseline: string
   error: string
 }
+/** The server never reports Best available; `reason` always says why it is not. */
+interface BestRenderStatus {
+  private_render_enabled: boolean
+  best_available: false
+  reason: string
+}
 
 const { get, put } = useApi()
 
@@ -275,6 +290,7 @@ const privateFleetError = ref('')
 const privateFleetEnabled = ref(false)
 const privateFleetBaseline = ref(false)
 const privateFleetBinding = ref<PrivateFleetBinding | null>(null)
+const bestStatus = ref<BestRenderStatus | null>(null)
 
 const paidRows = reactive<PaidRow[]>([
   { kind: 'image', label: 'Images', path: '/app-settings/paid-image-replacement' },
@@ -389,6 +405,19 @@ async function load(): Promise<void> {
     // The pairing note is informative: a read that fails only leaves it out.
     privateFleetBinding.value = null
   }
+  await loadBestStatus()
+}
+
+async function loadBestStatus(): Promise<void> {
+  try {
+    const status = await get<BestRenderStatus>('/app-settings/private-final-render/output-settings')
+    bestStatus.value = status && status.best_available === false && typeof status.reason === 'string' && status.reason.trim()
+      ? status
+      : { private_render_enabled: privateFleetEnabled.value, best_available: false, reason: 'Best availability came back in an unexpected shape, so it was not checked.' }
+  } catch {
+    // A failed read is shown as not checked, never as available.
+    bestStatus.value = { private_render_enabled: privateFleetEnabled.value, best_available: false, reason: 'Best availability could not be checked.' }
+  }
 }
 
 async function save(): Promise<void> {
@@ -446,6 +475,7 @@ async function save(): Promise<void> {
       if (typeof saved?.enabled !== 'boolean') throw new Error('The saved private fleet setting came back invalid.')
       privateFleetEnabled.value = saved.enabled
       privateFleetBaseline.value = saved.enabled
+      await loadBestStatus()
       done.push('private fleet rendering')
     }
     for (const row of paidDirtyRows.value) {
