@@ -3274,6 +3274,10 @@ const unifiedTimingProblems = computed<string[]>(() => {
   const t = scannedAssets.value?.scene_plan_timing
   if (!t || t.complete === true) return []
   const out: string[] = []
+  if (t.coverage_measured === false) {
+    out.push('Narration coverage was not measured — this Scene Plan has no usable narration duration. '
+      + 'Rebuild the Scene Plan timeline on the Scene Plan page, then rescan this episode.')
+  }
   const cov = scannedAssets.value?.scene_plan_coverage
   if (cov && cov.total > 0 && cov.ready !== cov.total) {
     // These are ARRAYS of `{ id, scene_index }` (see the backend's
@@ -3300,17 +3304,17 @@ const unifiedTimingProblems = computed<string[]>(() => {
     if (bits.length === 0) bits.push('some scenes need attention in Scene Review')
     out.push(`${cov.ready}/${cov.total} scenes are render-ready — ${bits.join(', ')}.`)
   }
-  if (t.head_gap_sec > 0) {
+  if (t.head_gap_sec != null && t.head_gap_sec > 0) {
     out.push(
       `The first ${fmtGap(t.head_gap_sec)} of narration has no scene — Scene Plan starts its first scene at `
       + `${fmtGap(t.head_gap_sec)}. Fix it on the Scene Plan page ("Cover the opening"), or add an opening clip `
       + `that long in Step 2.`,
     )
   }
-  if (t.gap_count > 0) {
+  if (t.gap_count != null && t.gap_count > 0) {
     out.push(`${t.gap_count} gap(s) between scenes have no image. Fix them on the Scene Plan page ("Repair coverage").`)
   }
-  if (t.tail_gap_sec > 0) {
+  if (t.tail_gap_sec != null && t.tail_gap_sec > 0) {
     out.push(
       `The last ${fmtGap(t.tail_gap_sec)} of narration has no scene. Fix it on the Scene Plan page `
       + `("Repair coverage").`,

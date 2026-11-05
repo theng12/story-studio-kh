@@ -113,12 +113,25 @@ function sha256(text: string): string {
   return createHash('sha256').update(text).digest('hex')
 }
 
-/** Rehydrate and verify the server-approved payload carried by a queued upload. */
+/**
+ * Rehydrate the server-approved payload carried by a queued upload. A blank
+ * title or description is refused HERE, on the bytes that would be sent, so
+ * every frozen or recovered path is covered. The live metadata is never
+ * consulted: a valid approval stays valid even if the sidecar has changed.
+ */
 export function metadataPackageFromFinalPayload(
   finalPayload: YouTubeMetadataPackage['final_payload'],
+  episodeCode: string,
 ): YouTubeMetadataPackage {
   const snippet = JSON.parse(finalPayload.snippet_json) as VideoSnippet
   const status = JSON.parse(finalPayload.status_json) as VideoStatus
+  const blank = (['title', 'description'] as const).filter(field => !snippet[field]?.trim())
+  if (blank.length) {
+    throw new Error(
+      `${episodeCode} has a blank ${blank.join(' and ')} in the approved upload details. `
+      + 'Review and confirm the exact video and YouTube details again; nothing was uploaded.',
+    )
+  }
   return {
     package_revision: sha256(canonical({ snippet, status })),
     source_sha256: finalPayload.source_sha256,

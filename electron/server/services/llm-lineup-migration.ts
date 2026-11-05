@@ -4,7 +4,7 @@
  * back across several models is a Gateway pool's job.
  *
  * A project saved by an older build may still carry an enabled lineup that some
- * steps relied on. Once, on load, the steps whose saved preset has no writing
+ * steps relied on. Once, on an explicit settings save, steps whose saved preset has no writing
  * model of its own get the lineup's choice kept for them: the Gateway pool whose
  * members are exactly the lineup's models in the same order, otherwise the
  * lineup's FIRST model. The saved lineup is never deleted or read again.
@@ -30,7 +30,7 @@ const STEP_MODEL_FIELD: Array<{ step: string; label: string; field: (data: Recor
 
 /**
  * The pools this Gateway publishes, with their members. `null` means the Gateway
- * could not be reached — try again on the next load rather than guess. Any
+ * could not be reached — try again on the next save rather than guess. Any
  * refusal means no pools are visible to Story Studio.
  */
 export async function listGatewayPools(): Promise<GatewayPool[] | null> {

@@ -3,13 +3,16 @@
     <div class="timing-head">
       <div>
         <h4>Scene Plan timing</h4>
-        <p>
+        <p v-if="timing.coverage_measured">
           {{ timing.scenes.length }} exact windows across {{ formatTime(timing.audio_duration_sec) }}.
           Applied automatically during local assembly.
         </p>
+        <p v-else>
+          {{ timing.scenes.length }} exact windows. Narration coverage was not measured.
+        </p>
       </div>
-      <span class="timing-state" :class="timing.complete ? 'ready' : 'blocked'">
-        {{ timing.complete ? 'Ready to render' : 'Needs repair' }}
+      <span class="timing-state" :class="timing.coverage_measured && timing.complete ? 'ready' : 'blocked'">
+        {{ timing.coverage_measured && timing.complete ? 'Ready to render' : (timing.coverage_measured ? 'Needs repair' : 'Coverage not measured') }}
       </span>
     </div>
 
@@ -17,9 +20,15 @@
       <span>{{ timing.approved }}/{{ timing.scenes.length }} approved</span>
       <span>{{ timing.stills_ready }}/{{ timing.scenes.length }} images</span>
       <span>{{ timing.motion_ready }} motion clips</span>
-      <span :class="{ issue: timing.uncovered_sec > 0.25 }">{{ timing.uncovered_sec.toFixed(1) }}s uncovered</span>
+      <span v-if="timing.coverage_measured" :class="{ issue: (timing.uncovered_sec ?? 0) > 0.25 }">
+        {{ (timing.uncovered_sec ?? 0).toFixed(1) }}s uncovered
+      </span>
+      <span v-else class="issue">Coverage not measured</span>
       <span :class="{ issue: timing.overlap_count > 0 }">{{ timing.overlap_count }} overlaps</span>
     </div>
+    <p v-if="!timing.coverage_measured" class="timing-recovery">
+      Rebuild the Scene Plan timeline on the Scene Plan page, then rescan this episode.
+    </p>
 
     <div class="timing-ruler" aria-label="Scene timing ruler">
       <div
@@ -94,7 +103,9 @@ interface SceneTiming {
   approved: number
   stills_ready: number
   motion_ready: number
-  uncovered_sec: number
+  uncovered_sec: number | null
+  /** False when no narration duration was available, so the gaps are null. */
+  coverage_measured: boolean
   overlap_count: number
   complete: boolean
   scenes: TimingScene[]
@@ -139,6 +150,7 @@ function sceneStatus(scene: TimingScene): string {
 .timing-metrics { display: flex; flex-wrap: wrap; gap: 7px; margin: 12px 0 9px; }
 .timing-metrics span { padding: 4px 7px; border: 1px solid var(--border); border-radius: 7px; color: var(--text-muted); font-size: var(--font-xs); }
 .timing-metrics .issue { color: #ff897f; border-color: rgba(255, 92, 82, .42); }
+.timing-recovery { margin: 0 0 9px; color: #ff897f; font-size: var(--font-xs); }
 .timing-ruler { display: flex; width: 100%; height: 28px; overflow: hidden; gap: 1px; border-radius: 7px; background: var(--bg-input); }
 .timing-segment { min-width: 1px; background: #c8a15a; }
 .timing-segment.motion { background: #55a8b4; }

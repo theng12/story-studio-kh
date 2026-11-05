@@ -74,13 +74,14 @@ describe('the policy, and the switch that governs it', () => {
 })
 
 describe('his own emoji are his', () => {
-  test('one emoji anywhere in the source text and nothing is cleaned', async () => {
+  test('only the exact emoji supplied by the owner survives', async () => {
     const generated = `Ten Quiet Places ${BRAIN}`
     assert.equal(
       await policy.applyEmojiPolicy(generated, [`My script ${BRAIN} as I wrote it`]),
       generated,
     )
     assert.equal(await policy.applyEmojiPolicy(generated, ['My script as I wrote it']), 'Ten Quiet Places')
+    assert.equal(await policy.applyEmojiPolicy(`${generated} 🔥`, [`My script ${BRAIN}`]), generated)
   })
 
   test('the prayer channel’s deliberate 🙏 survives', async () => {
@@ -122,14 +123,10 @@ describe('the surfaces that publish his text consult the policy', () => {
     })
   }
 
-  test('every generated string is cleaned with the prompt that produced it', async () => {
-    // The prompt is the right source because it CONTAINS everything of his
-    // that fed the generation — his story context, his title, his custom
-    // section labels and the niche's own voice rules. Enumerating those by
-    // hand is what would eventually miss one.
+  test('descriptions cannot inherit a source emoji exemption; title behavior stays unchanged', async () => {
     const src = await read('generators/metadata.ts')
-    assert.match(src, /applyEmojiPolicy\(descRaw\.trim\(\), \[descPrompt\]\)/)
-    assert.match(src, /applyEmojiPolicyToAll\(rawTitles, \[titlePromptWithAvoidance\]\)/)
+    assert.match(src, /applyEmojiPolicy\(descRaw\.trim\(\)\)/)
+    assert.match(src, /containsEmoji\(titlePromptWithAvoidance\)\s*\? rawTitles\s*:\s*await applyEmojiPolicyToAll\(rawTitles\)/)
   })
 
   test('an image prompt is told not to carry an emoji into the picture', async () => {

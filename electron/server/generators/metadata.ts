@@ -35,6 +35,8 @@ import {
 import { stripInternalSectionLabels } from '../lib/metadata-label-leak.js'
 import { isScaffoldTitleLine, stripMarkdownScaffold, stripTitleScaffold } from '../lib/metadata-scaffold.js'
 import { applyEmojiPolicy, applyEmojiPolicyToAll, noEmojiDirective } from '../lib/emoji-policy.js'
+import { aiDisclosureText, hasCompletedAiMedia, LEGACY_NEUTRAL_AI_DISCLOSURE, type EpisodeAiProcesses } from '../lib/ai-disclosure.js'
+import { activeAudioChapters } from '../services/audio-quality.js'
 import { metadataPlaceholderOutputContract } from '../lib/story-output-contracts.js'
 import { sourcesSectionEnabled } from '../lib/research-sources.js'
 import { getEffectiveFormat } from '../services/format-loader.js'
@@ -47,7 +49,7 @@ import {
   inspectYouTubeFinalizationStatus,
   refreshManagedBlock,
 } from '../services/youtube-metadata-finalizer.js'
-import { truncateChars } from '../lib/well-formed-text.js'
+import { containsEmoji, truncateChars } from '../lib/well-formed-text.js'
 import { CHAPTERS_BEGIN, CHAPTERS_END, fitYouTubeDescription, YOUTUBE_DESCRIPTION_MAX_BYTES } from '../lib/youtube-description-limit.js'
 import { safetyGate, safetyMode } from '../services/safety-checks.js'
 import { pipelinePolicyCheckpointStore, pipelinePolicyForJob, pipelinePolicyInputFingerprint } from '../lib/pipeline-model-policy.js'
@@ -151,7 +153,8 @@ function metadataSectionsForProfile(ids: string[] | undefined, tagCount: number)
     hook: { characters: 220, starting_format: '' },
     sources: {},
     cta: { custom_lines: [] },
-    'ai-disclosure': { text: 'Created with the help of AI tools and reviewed before publishing.' },
+    // Empty on purpose: the text is decided per episode from its own records (episodeAiDisclosureSections).
+    'ai-disclosure': { text: '' },
     hashtags: { count: tagCount },
   }
   const labels: Record<string, string> = {
@@ -213,6 +216,42 @@ async function resolveMetadataDir(slug: string, episode_id: string, title: strin
   const dir = await resolveSubfolder(episodeDir, names.metadata)
   if (!dir) throw new Error(`Metadata folder not found: ${names.metadata}`)
   return dir
+}
+
+/** The processes this episode's own records prove. A read that fails throws; nothing is guessed. */
+async function episodeAiProcesses(slug: string, episode_id: string, title: string, music: boolean): Promise<EpisodeAiProcesses> {
+  const episodeDir = path.dirname(await resolveMetadataDir(slug, episode_id, title))
+  const names = await resolveSubfolderNames(slug, episode_id)
+  const imagesDir = await resolveSubfolder(episodeDir, names.images)
+  const audioDir = music ? null : await resolveSubfolder(episodeDir, names.audio)
+  const activeFiles = music ? [] : (await activeAudioChapters(episodeDir)).flatMap(chapter => chapter.source_files)
+  return {
+    narration_voiced_by_ai: !music && await hasCompletedAiMedia(audioDir, 'tts', activeFiles),
+    images_generated_by_ai: await hasCompletedAiMedia(imagesDir, 'image'),
+  }
+}
+
+/**
+ * Replace the legacy or empty default AI disclosure with what this episode
+ * proves. Owner-edited text stays. With nothing proven the section is dropped:
+ * its builder would otherwise fall back to the old "reviewed" sentence.
+ */
+async function episodeAiDisclosureSections(job: Job, slug: string, episode_id: string, title: string, sections: Array<any>, music: boolean): Promise<Array<any>> {
+  const isDefault = (s: any) => s?.id === 'ai-disclosure' && (!s.config?.text || s.config.text === LEGACY_NEUTRAL_AI_DISCLOSURE)
+  if (!sections.some(isDefault)) return sections
+  let processes: EpisodeAiProcesses = { narration_voiced_by_ai: false, images_generated_by_ai: false }
+  try {
+    processes = await episodeAiProcesses(slug, episode_id, title, music)
+  } catch (err) {
+    job.output_lines.push(`AI disclosure left out: this episode's records could not be read (${(err as Error).message}).`)
+  }
+  const text = aiDisclosureText(processes, (await getContentLanguage(slug)) ?? '')
+  if (!text) {
+    job.output_lines.push('AI disclosure left out: no AI step is recorded for this episode.')
+    return sections.filter(s => !isDefault(s))
+  }
+  job.output_lines.push(`AI disclosure: ${text}`)
+  return sections.map(s => (isDefault(s) ? { ...s, config: { ...s.config, text } } : s))
 }
 
 export async function generateMetadata(job: Job): Promise<void> {
@@ -303,11 +342,12 @@ export async function generateMetadata(job: Job): Promise<void> {
   const title_max_length = req.title_max_length ?? formula?.titleMaxLength ?? profile?.titleMaxLength ?? fmtMeta?.defaultTitleMaxLength ?? 100
   const title_platform_preset = req.title_platform_preset || 'Universal'
   const tag_count = req.tag_count ?? formula?.tagCount ?? profile?.tagCount ?? fmtMeta?.defaultTagCount ?? 15
-  const sections = Array.isArray(req.sections) && req.sections.length
+  const requestedSections = Array.isArray(req.sections) && req.sections.length
     ? req.sections
     : formula
       ? formula.sections
       : metadataSectionsForProfile(profile?.descriptionSectionIds, tag_count)
+  const sections = await episodeAiDisclosureSections(job, project_slug, episode_id, title, requestedSections, musicStitch.music)
   // The formula's tone rides in on the Format's own descriptionShape channel,
   // which buildDescriptionPrompt already surfaces at the top of the prompt as
   // rules the model must follow. Reusing it means the shared prompt builder
@@ -449,7 +489,7 @@ export async function generateMetadata(job: Job): Promise<void> {
       // headings the description is SUPPOSED to have. YouTube renders neither
       // — it prints the hash and the asterisks at the viewer as typed.
       description = stripMarkdownScaffold(
-        stripInternalSectionLabels(await applyEmojiPolicy(descRaw.trim(), [descPrompt])),
+        stripInternalSectionLabels(await applyEmojiPolicy(descRaw.trim())),
       )
       // The model's own chapter list, and the sentences that match the
       // narration exactly, are removed before the finalizer writes the
@@ -648,7 +688,10 @@ Requirements:
       // benefits from channel consistency the same way fixed modes do.
       // The prompt itself doesn't include the prefix (LLM doesn't need to
       // re-derive it), so we only apply it here once at the join step.
-      const cleanTitles = await applyEmojiPolicyToAll(rawTitles, [titlePromptWithAvoidance])
+      // Preserve title behavior; the stricter metadata policy applies to descriptions and tags.
+      const cleanTitles = containsEmoji(titlePromptWithAvoidance)
+        ? rawTitles
+        : await applyEmojiPolicyToAll(rawTitles)
       titles = (title_prefix || title_suffix)
         ? cleanTitles.map(wrapTitle)
         : cleanTitles
@@ -687,7 +730,7 @@ Requirements:
           .map(l => l.trim().replace(/^[\-\d\.\)]+\s*/, '').replace(/^#/, '').replace(/^["']|["']$/g, '').trim())
           .filter(Boolean)
           .slice(0, tag_count),
-        [tagPrompt],
+        [],
       )
       job.output_lines.push(`  → ${tags.length} tag(s)`)
     }

@@ -17,6 +17,7 @@ import { describe, test } from 'node:test'
 import { resolveStepParams } from '../routes/pipeline.js'
 import { composeChannelTitle } from '../lib/title-wrapping.js'
 import { assertUploadMetadataComplete } from '../lib/upload-metadata.js'
+import { metadataPackageFromFinalPayload } from '../services/youtube-metadata-package.js'
 
 describe('A: Pipeline forwards the preset title strategy', () => {
   test('count, max length, platform, mode, prefix, suffix and manual title all reach the generator', () => {
@@ -161,14 +162,62 @@ describe('C: an upload refuses an empty description instead of publishing a shel
     assert.doesNotThrow(() => assertUploadMetadataComplete({ title: 'A title', description: 'Real prose.' }, 'EP0010'))
   })
 
-  test('the upload generator calls the guard before spending any quota', async () => {
+  test('the upload generator validates the package it will send before any durable record or provider call', async () => {
     const generator = await fs.readFile(path.join(import.meta.dirname, '..', 'generators', 'youtube-upload.ts'), 'utf-8')
-    const resolveAt = generator.indexOf('const meta = await resolveUploadMetadata({')
-    const guardAt = generator.indexOf('assertUploadMetadataComplete(meta, episodeId)')
-    assert.ok(resolveAt >= 0, 'the generator resolves metadata')
-    assert.ok(guardAt > resolveAt, 'the guard runs after resolution')
-    // It must be a THROW, not a safety gate that can be warned away — Pipeline
-    // and one-click runs have to fail loudly (§8).
-    assert.doesNotMatch(generator.slice(guardAt, guardAt + 200), /stopOrCarryOn|safetyGate/)
+    const frozenAt = generator.indexOf('metadataPackageFromFinalPayload(params.approved_final_payload, episodeId)')
+    const recoveredAt = generator.indexOf('metadataPackageFromFinalPayload(record.final_payload!, episodeId)')
+    const freshBuildAt = generator.indexOf('metadataPackage = await buildYouTubeMetadataPackage({')
+    const freshAt = generator.indexOf('assertUploadMetadataComplete({')
+    const durableAt = generator.indexOf('operationHandle = await beginYouTubeOperation({')
+    const markAt = generator.indexOf('await markYouTubeOperationUploading({')
+    const providerAt = generator.indexOf('uploaded = await uploadVideo({')
+    assert.ok(frozenAt > 0 && recoveredAt > 0 && freshBuildAt > 0 && freshAt > 0, 'all three paths validate')
+    // The live check is gone from the top of the generator, so an approved
+    // payload is judged by its own bytes, not by today's metadata.
+    assert.doesNotMatch(generator, /assertUploadMetadataComplete\(meta, episodeId\)/)
+    // Recovered and frozen payloads are checked where they are rehydrated, which
+    // precedes the durable write; the fresh package is checked after it is built.
+    assert.ok(recoveredAt < markAt, 'recovered payload is checked before the durable write')
+    assert.ok(frozenAt < durableAt, 'frozen payload is checked before the durable record')
+    assert.ok(freshBuildAt < freshAt && freshAt < durableAt, 'fresh package is checked before the durable record')
+    assert.ok(Math.max(frozenAt, recoveredAt, freshAt) < providerAt, 'every path is checked before the provider call')
+    // The helper that picks the resume target does not swallow the refusal.
+    const helperAt = generator.indexOf('async function hasExactResumableRecovery')
+    const helperEnd = generator.indexOf('export async function generateYoutubeUpload')
+    assert.doesNotMatch(generator.slice(helperAt, helperEnd), /catch/)
+    // It must be a THROW, not a safety gate that can be warned away (§8).
+    assert.doesNotMatch(generator.slice(freshAt, freshAt + 200), /stopOrCarryOn|safetyGate/)
+  })
+
+  test('a frozen approval with a blank or missing title or description is refused by episode, asking for review again', () => {
+    const payload = (snippet: object) => ({
+      snippet_json: JSON.stringify(snippet),
+      status_json: JSON.stringify({ privacyStatus: 'private', containsSyntheticMedia: false }),
+      source_sha256: 'x',
+    })
+    const cases: Array<[object, RegExp]> = [
+      [{ title: '  ', description: 'Real prose.' }, /EP0012 has a blank title in the approved upload details/],
+      [{ title: 'A title' }, /EP0012 has a blank description in the approved upload details/],
+      [{ title: '', description: '' }, /EP0012 has a blank title and description/],
+    ]
+    for (const [snippet, message] of cases) {
+      assert.throws(() => metadataPackageFromFinalPayload(payload(snippet), 'EP0012'), (error: any) => {
+        assert.match(error.message, message)
+        assert.match(error.message, /Review and confirm the exact video and YouTube details again/)
+        assert.match(error.message, /nothing was uploaded/)
+        return true
+      })
+    }
+  })
+
+  test('a complete frozen approval is rehydrated as approved', () => {
+    // The rehydrator takes only the frozen bytes, so a live blank cannot refuse it.
+    const pkg = metadataPackageFromFinalPayload({
+      snippet_json: JSON.stringify({ title: 'A title', description: 'Real prose.' }),
+      status_json: JSON.stringify({ privacyStatus: 'private', containsSyntheticMedia: false }),
+      source_sha256: 'x',
+    }, 'EP0013')
+    assert.equal(pkg.snippet.description, 'Real prose.')
+    assert.equal(pkg.final_payload.source_sha256, 'x')
   })
 })

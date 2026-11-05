@@ -44,6 +44,7 @@ type ImportProbe = {
 }
 type MediaObservation = {
   durationSec: number
+  videoDurationSec: number | null
   hasVideo: boolean
   hasAudio: boolean
   videoCodec: string
@@ -416,7 +417,7 @@ function requireImporter(): ImporterModule {
 
 function mediaObservation(overrides: Partial<MediaObservation> = {}): MediaObservation {
   return {
-    durationSec: 2, hasVideo: true, hasAudio: true, videoCodec: 'h264', audioCodec: 'aac',
+    durationSec: 2, videoDurationSec: 2, hasVideo: true, hasAudio: true, videoCodec: 'h264', audioCodec: 'aac',
     width: 128, height: 96, frameRate: 5,
     containerNames: ['mov', 'mp4', 'm4a', '3gp', '3g2', 'mj2'], containerBrand: 'isom', container: 'mp4',
     loudness: { lufs: -14, true_peak_db: -1 }, ...overrides,
@@ -1614,6 +1615,19 @@ test('strict output lineage and normalized media facts fence publication and ACK
     (error as NodeJS.ErrnoException).code === 'ENOENT'
   ))
   assert.equal(ackPosts(badMedia).length, 0)
+
+  // A full-length container must not carry a picture that stopped early: the local encode guard
+  // refuses this shape, so the remote import must refuse it too.
+  const shortPicture = await prepareOutputReady('short-picture')
+  installHooks(t, { inspectMedia: async () => mediaObservation({ videoDurationSec: 1.5 }) })
+  await assert.rejects(
+    requireImporter().recoverFinalRenderImport(shortPicture.job.project_slug, shortPicture.job.job_id),
+    /picture/i,
+  )
+  await assert.rejects(fs.stat(shortPicture.destination), (error: unknown) => (
+    (error as NodeJS.ErrnoException).code === 'ENOENT'
+  ))
+  assert.equal(ackPosts(shortPicture).length, 0)
 })
 
 test('destination writer conflict preserves both files and sends no ACK', async t => {
@@ -2204,8 +2218,24 @@ test('pure import evidence binds media, target, candidate, destination, recovery
   )
   const input = await evidenceInput(prepared)
   evidence.validateFinalRenderTransportEvidence(input)
+  const legacy = forgedEvidence(input, records => {
+    delete records.find(item => item.event === 'output_validation_observed')!.payload.media.videoDurationSec
+  })
+  assert.doesNotThrow(() => evidence.validateFinalRenderTransportEvidence(legacy), 'existing v3 history remains readable')
   const unrelated = path.join(retainedRoot, 'unrelated-final.mp4')
   const cases: Array<{ name: string; mutate: (records: RevisionValue[]) => void }> = [
+    {
+      name: 'short picture behind full audio', mutate: records => {
+        const media = records.find(item => item.event === 'output_validation_observed')!.payload.media
+        const recipe = (prepared.manifest.packet as Record<string, any>).recipe
+        media.videoDurationSec = Number(recipe.target_duration_sec) - 0.5
+      },
+    },
+    {
+      name: 'unmeasurable picture', mutate: records => {
+        records.find(item => item.event === 'output_validation_observed')!.payload.media.videoDurationSec = null
+      },
+    },
     {
       name: 'media facts', mutate: records => {
         const value = records.find(item => item.event === 'output_validation_observed')!

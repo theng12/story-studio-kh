@@ -221,6 +221,36 @@ describe('an old merge (no closing tail) asked for a 25 s closing with music', (
     }
   })
 
+  test('a partial recorded opening is measured like a missing one; a complete one keeps its own lead-in', async () => {
+    const openings: Array<(lead: number) => unknown> = [
+      () => ({}),
+      () => ({ intro: null }),
+      () => ({ lead_in_sec: null, music_lead_in_sec: null, intro: null }),
+      () => ({ lead_in_sec: 'unknown', music_lead_in_sec: 'unknown', intro: null }),
+      lead => ({ lead_in_sec: lead, intro: null }),
+      lead => ({ lead_in_sec: lead, intro: null, music_lead_in_sec: lead }),
+    ]
+    for (const leadInSec of [0, LEAD_IN_SEC]) {
+      const ep = await oldMergeEpisode({ leadInSec })
+      const recordPath = path.join(ep.mergedDir, 'EP001_merged_audio.completion.json')
+      const record = JSON.parse(await fs.readFile(recordPath, 'utf-8'))
+      await pm.updateConfig(ep.slug, {
+        audio_merge_presets: [{
+          id: 'merge-1', name: 'Mix',
+          data: { music: { enabled: true, source: 'manual', files: [ep.musicPath], volume: 50, post_narration_volume: 60, fade_in: 0, fade_out: 0, lead_in_enabled: true, lead_in_seconds: 6 }, gap_duration: 0, normalize_volume: false },
+        }],
+      } as any)
+      for (const opening of openings) {
+        record.opening = opening(leadInSec)
+        await fs.writeFile(recordPath, JSON.stringify(record, null, 2))
+        const verdict: any = await planClosingTailRemix({ slug: ep.slug, code: 'EP001', postAudio: POST_AUDIO })
+        assert.equal(verdict.action, 'remix', JSON.stringify(record.opening))
+        assert.equal(verdict.params.music.lead_in_seconds, leadInSec, `${JSON.stringify(record.opening)}: the current preset's 6 s must not leak in`)
+        assert.equal(verdict.track.leadInSec, leadInSec, `${JSON.stringify(record.opening)}: the strict guard uses the real lead-in`)
+      }
+    }
+  })
+
   test('a merge that already carries the tail is left alone', async () => {
     const ep = await oldMergeEpisode()
     // Re-merge under the closing preset (already 25 s by now): the tail is baked.
@@ -660,6 +690,57 @@ describe('a re-mix keeps what the original merge recorded', () => {
     const assets = await scanEpisodeAssets(ep.slug, 'EP001', { preferredMergedFilename: 'EP001_merged_audio.mp3' })
     const after = await guardClosingTail(ep.slug, 'EP001', postAudioReq(ep.original), assets, ep.job)
     near(after.merged_audio[0]!.closing_tail_sec, TAIL_SEC, 0.3)
+  })
+})
+
+describe('a re-mix record that omits evidence cannot prove itself complete', () => {
+  /** Die after the merge, then make the new track's record omit one field the completion check reads. */
+  async function interruptedWithTamperedRecord(
+    ep: Awaited<ReturnType<typeof oldMergeEpisode>>,
+    tamper: (record: any) => void,
+  ) {
+    const verdict: any = await planClosingTailRemix({ slug: ep.slug, code: 'EP001', postAudio: POST_AUDIO })
+    assert.equal(verdict.action, 'remix')
+    await beginClosingTailRemix(verdict)
+    const recordPath = path.join(ep.mergedDir, 'EP001_merged_audio.completion.json')
+    const base = JSON.parse(await fs.readFile(recordPath, 'utf-8'))
+    const track = path.join(ep.mergedDir, 'EP001_merged_audio_v2.mp3')
+    await fs.writeFile(track, 'fake-v2')
+    await fs.writeFile(path.join(ep.mergedDir, 'EP001_master_fake.mp3'), 'master')
+    const record = {
+      ...base, output_filename: 'EP001_merged_audio_v2.mp3', master_filename: 'EP001_master_fake.mp3',
+      bytes: (await fs.stat(track)).size, closing_tail_sec: TAIL_SEC, duration_sec: Number(base.duration_sec) + TAIL_SEC,
+    }
+    tamper(record)
+    await fs.writeFile(recordPath, JSON.stringify(record, null, 2))
+  }
+
+  const finish = async (ep: Awaited<ReturnType<typeof oldMergeEpisode>>) => {
+    const assets = await scanEpisodeAssets(ep.slug, 'EP001', { preferredMergedFilename: 'EP001_merged_audio.mp3' })
+    return guardClosingTail(ep.slug, 'EP001', postAudioReq(ep.original), assets, ep.job)
+  }
+
+  for (const invalidLead of [undefined, null, '']) {
+    test(`a ${String(invalidLead)} lead-in is missing evidence even for an original zero lead-in`, async () => {
+      const ep = await oldMergeEpisode({ leadInSec: 0 })
+      await interruptedWithTamperedRecord(ep, record => { record.opening = { lead_in_sec: invalidLead } })
+      const after = await finish(ep)
+      assert.equal(after.merged_audio[0]!.filename, 'EP001_merged_audio_v2.mp3')
+      assert.equal(await readSelectedMergedAudio(ep.mergedDir), 'EP001_merged_audio_v2.mp3')
+      const record = JSON.parse(await fs.readFile(path.join(ep.mergedDir, 'EP001_merged_audio.completion.json'), 'utf-8'))
+      assert.ok(Number.isFinite(record.opening?.lead_in_sec), 'the kept track is a real re-mix that recorded its opening')
+      assert.ok(!(await fs.readdir(ep.mergedDir)).includes('EP001_master_fake.mp3'), 'the incomplete track was rolled back, not adopted')
+    })
+  }
+
+  test('a missing narration length is reported too', async () => {
+    const ep = await oldMergeEpisode()
+    await interruptedWithTamperedRecord(ep, record => { delete record.duration_sec })
+    const after = await finish(ep)
+    assert.equal(after.merged_audio[0]!.filename, 'EP001_merged_audio_v2.mp3')
+    const record = JSON.parse(await fs.readFile(path.join(ep.mergedDir, 'EP001_merged_audio.completion.json'), 'utf-8'))
+    assert.ok(Number.isFinite(record.duration_sec), 'the kept track is a real re-mix that recorded its narration length')
+    assert.ok(!(await fs.readdir(ep.mergedDir)).includes('EP001_master_fake.mp3'), 'the incomplete track was rolled back, not adopted')
   })
 })
 

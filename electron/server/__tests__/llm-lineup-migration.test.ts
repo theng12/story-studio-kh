@@ -1,5 +1,5 @@
 /**
- * The retired LLM lineup (owner, 2026-10-03): once, on load, every step whose saved
+ * The retired LLM lineup (owner, 2026-10-03): once, on settings save, every step whose saved
  * preset has no writing model of its own gets the lineup's choice — the Gateway pool
  * with the same members in the same order, otherwise the lineup's FIRST model. The
  * saved lineup itself is never deleted, and a project without one is left alone.
@@ -97,16 +97,32 @@ test('it runs once: the record is kept, and an unreachable Gateway is retried la
   assert.deepEqual(second, first)
 })
 
-test('opening the project runs the migration, and closing the notice keeps it closed', async () => {
+test('settings GET preserves config bytes and mtime; explicit save migrates, then readback stays pure', async () => {
   process.env.STORY_STUDIO_DISABLE_LISTEN = '1'
   const app = (await import('../app.js')).app
   // No Gateway API Key in this sandbox, so no pools are visible: the first model is kept.
   const slug = await projectWith('Opened', { enabled: true, models: ['gemini-a', 'gemini-b'], prefer_savings: true })
+  const configFile = path.join(tempDir, 'projects', slug, 'config.json')
+  const baseline = await fs.readFile(configFile)
+  const baselineStat = await fs.stat(configFile, { bigint: true })
   const opened = await request(app).get(`/api/projects/${slug}/settings/config`)
   assert.equal(opened.status, 200)
   assert.equal(opened.body.llm_lineup, undefined, 'the lineup is never served again')
-  assert.equal(opened.body.llm_lineup_migration.model, 'gemini-a')
-  assert.equal(opened.body.llm_lineup_migration.notice_dismissed_at, undefined)
+  assert.equal(opened.body.llm_lineup_migration, undefined)
+  assert.deepEqual(await fs.readFile(configFile), baseline)
+  assert.equal((await fs.stat(configFile, { bigint: true })).mtimeNs, baselineStat.mtimeNs)
+
+  const saved = await request(app).put(`/api/projects/${slug}/settings/config`).send({ metadata_last_preset: 'm1' })
+  assert.equal(saved.status, 200)
+  const written = await fs.readFile(configFile)
+  const writtenStat = await fs.stat(configFile, { bigint: true })
+  const readback = await request(app).get(`/api/projects/${slug}/settings/config`)
+  assert.equal(readback.status, 200)
+  assert.equal(readback.body.llm_lineup_migration.model, 'gemini-a')
+  assert.equal(readback.body.llm_lineup_migration.notice_dismissed_at, undefined)
+  assert.equal(readback.body.metadata_last_preset, 'm1')
+  assert.deepEqual(await fs.readFile(configFile), written)
+  assert.equal((await fs.stat(configFile, { bigint: true })).mtimeNs, writtenStat.mtimeNs)
 
   // An older client cannot write the lineup or the record back.
   await request(app).put(`/api/projects/${slug}/settings/config`).send({ llm_lineup: { enabled: true, models: ['x'] }, llm_lineup_migration: null })

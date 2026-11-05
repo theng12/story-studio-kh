@@ -39,9 +39,21 @@ export async function generateThumbnailScores(job: Job): Promise<void> {
   const title = (await im.getIdeas(slug, 'accepted').catch(() => []))
     .find(idea => (idea.episode_code || '').toUpperCase() === episodeCode.toUpperCase())?.title || ''
 
-  const options = await listUploadThumbnails({
-    slug, episode_code: episodeCode, fallback_title: title, platform: 'youtube',
-  }).catch(() => [])
+  let options: Awaited<ReturnType<typeof listUploadThumbnails>>
+  try {
+    options = await listUploadThumbnails({
+      slug, episode_code: episodeCode, fallback_title: title, platform: 'youtube',
+    })
+  } catch (error) {
+    // A failed read is not "no artwork" (AGENTS §6); the job still ends done and blocks nothing.
+    const reason = error instanceof Error ? error.message : String(error)
+    job.output_lines.push(
+      `Thumbnails were not scored: the thumbnail list could not be read (${reason}). `
+      + 'Nothing was scored and nothing is blocked — Retry reads the list again.',
+    )
+    job.result = { ...(job.result || {}), not_scored: true, not_scored_reason: reason }
+    return
+  }
   if (!options.length) {
     job.output_lines.push('Thumbnails were not scored: this episode has no thumbnail artwork.')
     return

@@ -234,12 +234,9 @@ async function hasExactResumableRecovery(input: {
       && record.resumable.source_bytes === sourceBytes
     )))
   if (open.length !== 1 || matches.length !== 1) return false
-  try {
-    metadataPackageFromFinalPayload(matches[0]!.final_payload!)
-    return true
-  } catch {
-    return false
-  }
+  // Not caught: a blank approved payload must name the episode, not read as "no receipt".
+  metadataPackageFromFinalPayload(matches[0]!.final_payload!, input.episodeId)
+  return true
 }
 
 export async function generateYoutubeUpload(job: Job): Promise<void> {
@@ -389,11 +386,6 @@ export async function generateYoutubeUpload(job: Job): Promise<void> {
     // to it. Skipping them would send a Short whose title began as `# …`.
     meta.title_from_override = false
   }
-  // Refuse BEFORE any quota is spent: a video with no description is the
-  // "title-only fallback" upload that went out publicly and silent. The job
-  // fails loudly, so Pipeline and one-click runs show it too (§8), rather
-  // than upload a shell of a video.
-  assertUploadMetadataComplete(meta, episodeId)
   // The thumbnail is REQUIRED (owner decision 2026-10-07). Refuse before any
   // quota is spent rather than publish a video with YouTube's frame grab.
   // 1.4.300: the "thumbnail present" safety check — Off/Warn upload without one.
@@ -459,7 +451,7 @@ export async function generateYoutubeUpload(job: Job): Promise<void> {
         }
         const record = matches[0]!
         operationHandle = { operation_id: record.operation_id, channel_id: record.channel_id, revision: record.revision }
-        metadataPackage = metadataPackageFromFinalPayload(record.final_payload!)
+        metadataPackage = metadataPackageFromFinalPayload(record.final_payload!, episodeId)
         // Re-checked here, not only at admission: a job can sit in the queue
         // for hours, and the date that was safe when it was admitted can have
         // passed by the time the bytes are sent. A past publishAt does not
@@ -514,7 +506,7 @@ export async function generateYoutubeUpload(job: Job): Promise<void> {
         if (params.approved_upload_mode !== 'apply-plan' && params.approved_upload_mode !== 'private') {
           throw new Error('The approved YouTube upload mode is missing. Preview and confirm the upload again; nothing was uploaded.')
         }
-        metadataPackage = metadataPackageFromFinalPayload(params.approved_final_payload)
+        metadataPackage = metadataPackageFromFinalPayload(params.approved_final_payload, episodeId)
         if (metadataPackage.package_revision !== params.expected_package_revision) {
           throw new Error('The approved YouTube upload details are invalid. Preview and confirm the upload again; nothing was uploaded.')
         }
@@ -542,6 +534,13 @@ export async function generateYoutubeUpload(job: Job): Promise<void> {
           fallback_title: idea.title || '',
           ...(params.thumbnail_filename !== undefined ? { thumbnail_filename: params.thumbnail_filename } : {}),
         })
+        // Fresh-path only, on the package that will be sent. Refuse BEFORE any
+        // durable record or quota: a description-less upload went out publicly
+        // and silent once before (§8).
+        assertUploadMetadataComplete({
+          title: metadataPackage.snippet.title ?? '',
+          description: metadataPackage.snippet.description ?? '',
+        }, episodeId)
       }
       // Same check, before ANY durable record is opened: a refused date must
       // leave nothing behind that later reads as an upload in flight. Legacy
