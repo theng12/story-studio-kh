@@ -33,6 +33,8 @@ export const ThumbnailOptionStoredSchema = z.object({
   thumb_text_style: z.string().max(200),
   /** Selected text placement. */
   thumb_text_position: z.string().max(50),
+  /** The source option when this option was duplicated inside the episode. */
+  duplicate_of: z.number().int().safe().min(1),
   /** SHA-256 of the prompt text the option was approved against. */
   approved_prompt_sha256: z.string().regex(/^[0-9a-f]{64}$/),
 }).partial()

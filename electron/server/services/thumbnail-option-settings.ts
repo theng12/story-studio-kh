@@ -124,6 +124,32 @@ export function thumbnailOptionApproved(
   return stored.approved_prompt_sha256 === currentPromptSha
 }
 
+export async function initializeThumbnailOptions(
+  slug: string,
+  episodeId: string,
+  numbers: number[],
+  defaults: Omit<ThumbnailOptionStored, 'approved_prompt_sha256'> = {},
+): Promise<void> {
+  await updateThumbnailOptionSettings(slug, episodeId, settings => {
+    for (const number of numbers) {
+      if (!settings.options[String(number)]) settings = mergeThumbnailOption(settings, number, defaults)
+    }
+    return settings
+  })
+}
+
+/** Legacy episodes without metadata retain their existing render workflow. */
+export async function assertThumbnailOptionsApproved(
+  slug: string,
+  episodeId: string,
+  prompts: Array<{ number: number; prompt: string }>,
+): Promise<void> {
+  if (!existsSync(path.join(await episodeDir(slug, episodeId), THUMBNAIL_OPTIONS_FILENAME))) return
+  const settings = await readThumbnailOptionSettings(slug, episodeId)
+  const pending = prompts.filter(item => !thumbnailOptionApproved(settings, item.number, thumbnailPromptSha256(item.prompt.trim())))
+  if (pending.length) throw new Error(`Approve thumbnail prompt(s) ${pending.map(item => item.number).join(', ')} in Thumbnail Prompts before rendering, or deliberately turn on automatic prompt approval for this episode. No image request was submitted.`)
+}
+
 /** Merge ONE option into the stored settings, leaving every sibling option untouched. */
 export function mergeThumbnailOption(
   settings: ThumbnailOptionSettings,

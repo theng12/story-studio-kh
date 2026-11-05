@@ -993,6 +993,16 @@ export async function generateImagePrompts(job: Job): Promise<void> {
       output += `## Thumbnail ${item.number}: ${item.title || `Variation ${item.number}`}\n\n${item.prompt}\n\n`
     }
     const outputPath = path.join(thumbDir, `${episodeId}_Thumbnail_Prompts.md`)
+    if (targetNumbers.length) {
+      const { initializeThumbnailOptions } = await import('../services/thumbnail-option-settings.js')
+      await initializeThumbnailOptions(projectSlug, episodeId, thumbnails.map(item => Number(item.number)), {
+        thumbnail_template_id: req.thumbnail_template_id || '',
+        style_tag: req.style_tag || '',
+        thumb_font_style: req.thumb_font_style || 'auto',
+        thumb_text_style: textFree ? 'none' : req.thumb_text_style || 'auto',
+        thumb_text_position: req.thumb_text_position || 'auto',
+      })
+    }
     await buildImagePromptsDocx(output, episodeId, title, outputPath)
     job.output_lines.push(`Saved thumbnails → ${path.basename(outputPath)}`)
   }

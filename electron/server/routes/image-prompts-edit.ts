@@ -26,7 +26,7 @@ import { resolveEpisodePaths } from '../services/utils.js'
 import { resolveReadPath, toMdPath } from '../lib/episode-artifacts.js'
 import { parseImagePromptsDocx, _clearImagePromptsParseCache } from '../lib/docx-parser.js'
 import { buildImagePromptsDocx } from '../lib/docx-builder.js'
-import { enforceThumbnailPromptElements, thumbnailSaveOverhead, episodeCast } from '../generators/image-prompts.js'
+import { buildThumbnailDirective, enforceThumbnailPromptElements, thumbnailSaveOverhead, episodeCast } from '../generators/image-prompts.js'
 import { HEADLINE_MODE_IDS, headlineInvents } from '../models/thumbnail-headlines.js'
 import {
   addAssemblyOverhead,
@@ -82,7 +82,7 @@ interface PromptRegenerationActions {
 const RegenerateSchema = z.object({
   operation_id: z.string().uuid(),
   kind: z.literal('thumbnail'),
-  number: z.number().int().min(1).max(999),
+  number: z.number().int().safe().min(1),
   /** LLM model. Defaults to gpt-4o (matches the bulk generator's default). */
   model: z.string().optional(),
   /** Optional style override. When omitted, we recover the style from the
@@ -108,6 +108,8 @@ const RegenerateSchema = z.object({
    */
   thumb_font_style: z.string().max(200).optional(),
   thumb_text_style: z.string().max(200).optional(),
+  thumb_text_position: z.string().max(50).optional(),
+  thumbnail_template_id: z.string().max(200).optional(),
   thumb_font_style_custom: z.string().max(240).optional(),
   thumb_text_style_custom: z.string().max(240).optional(),
   /** The character CEILING SELECTION the rewrite is written under.
@@ -139,7 +141,7 @@ const RegenerateSchema = z.object({
 
 const UpdatePromptSchema = z.object({
   kind: z.literal('thumbnail'),
-  number: z.number().int().min(1).max(999),
+  number: z.number().int().safe().min(1),
   title: z.string().trim().min(1).max(300),
   prompt: z.string().trim().min(10).max(12000),
 })
@@ -229,7 +231,27 @@ router.post(
       const target = list[targetIdx]!
       const currentTitle = ((req.body.current_title as string | undefined)?.trim()) || target.title
       const currentPrompt = ((req.body.current_prompt as string | undefined)?.trim()) || target.prompt
-      const notes = ((req.body.notes as string | undefined)?.trim()) || ''
+      const option = (await readThumbnailOptionSettings(slug, episodeId)).options[String(number)]
+      for (const field of ['thumbnail_template_id', 'style_tag', 'thumb_font_style', 'thumb_text_style', 'thumb_text_position'] as const) {
+        if (option?.[field] !== undefined) req.body[field] = option[field]
+      }
+      const textFree = project.content_language === 'km' || req.body.thumb_text_style === 'none'
+      if (textFree) req.body.thumb_text_style = 'none'
+      let recipeGuidance = ''
+      if (req.body.thumbnail_template_id) {
+        const { loadTemplate } = await import('../services/thumbnail-template-loader.js')
+        const template = await loadTemplate(req.body.thumbnail_template_id)
+        if (!template) return res.status(400).json({ detail: 'This option’s Thumbnail Recipe is unavailable. Choose an available recipe before regenerating.' })
+        recipeGuidance = buildThumbnailDirective({ thumbs: 1, title: currentTitle, fmt: template.recipe,
+          textStyle: req.body.thumb_text_style || 'auto', fontStyle: req.body.thumb_font_style || 'auto',
+          textPosition: req.body.thumb_text_position || 'auto' })
+        if (template.recipe?.headlineMode) req.body.headline_mode = template.recipe.headlineMode
+      }
+      if (textFree) {
+        req.body.headline_mode = 'none'
+        req.body.thumb_text_style_custom = undefined
+      }
+      const notes = [((req.body.notes as string | undefined)?.trim()) || '', recipeGuidance].filter(Boolean).join('\n\n')
 
       // Recover the style tag from the existing prompt's tail. The bulk
       // generator appends `<style_tag>` to every prompt, so the LAST
@@ -278,6 +300,7 @@ router.post(
         // below, once the answer is in.
         title: headlineInvents(req.body.headline_mode) ? currentTitle : (titleParam || currentTitle),
         headlineMode: req.body.headline_mode as string | undefined,
+        textPosition: typeof req.body.thumb_text_position === 'string' ? req.body.thumb_text_position : undefined,
         fontStyle: typeof req.body.thumb_font_style === 'string' ? req.body.thumb_font_style : undefined,
         textStyle: typeof req.body.thumb_text_style === 'string' ? req.body.thumb_text_style : undefined,
         // The catalogue's phrases, so the clause this row receives is the
@@ -355,6 +378,7 @@ router.post(
         headline_mode: req.body.headline_mode,
         prompt_char_cap: req.body.prompt_char_cap,
         reword: req.body.reword === true,
+        option,
       })
       const sourceFingerprint = promptRowFingerprint(target.title, target.prompt)
       const action = await beginPromptRegenerationAction(actionPath, operationId, actionFingerprint, sourceFingerprint)
@@ -565,7 +589,9 @@ router.put(
         })
       }
       const writePath = toMdPath(promptsConstant)
-      const parsed = await parseImagePromptsDocx(readPath)
+      return await withLock(writePath, async () => {
+      _clearImagePromptsParseCache()
+      const parsed = await parseImagePromptsDocx(resolveReadPath(promptsConstant))
       const list = parsed.thumbnails
       const targetIdx = list.findIndex(p => p.number === number)
       if (targetIdx < 0) {
@@ -582,7 +608,8 @@ router.put(
       await buildImagePromptsDocx(serialised, episodeId, project.name || episodeId, writePath)
       _clearImagePromptsParseCache()
 
-      res.json({ number, title, prompt })
+      return res.json({ number, title, prompt })
+      })
     } catch (e: any) {
       res.status(500).json({ detail: e?.message || 'Failed to save prompt edits' })
     }
@@ -696,6 +723,49 @@ router.put(
     }
   },
 )
+
+router.post('/projects/:slug/episodes/:episodeId/image-prompts/options/duplicate',
+  validateBody(z.object({ number: z.number().int().safe().min(1), operation_id: z.string().uuid() })),
+  async (req, res) => {
+    const { slug, episodeId } = req.params
+    try {
+      const project = await pm.getProject(slug)
+      if (!project) return res.status(404).json({ detail: 'Project not found' })
+      const readPath = await findThumbPromptsFile(slug, episodeId)
+      const writePath = toMdPath(readPath)
+      return await withLock(writePath, async () => {
+        _clearImagePromptsParseCache()
+        const list = (await parseImagePromptsDocx(resolveReadPath(writePath))).thumbnails
+        const source = list.find(item => item.number === req.body.number)
+        if (!source) return res.status(404).json({ detail: 'That thumbnail option is no longer in this episode.' })
+        const ledgerPath = path.join(path.dirname(writePath), '.prompt-duplication-actions.json')
+        const fingerprint = freshActionFingerprint({ slug, episodeId, number: source.number, action: 'duplicate' })
+        const action = await beginPromptRegenerationAction(ledgerPath, req.body.operation_id, fingerprint,
+          promptRowFingerprint(source.title, source.prompt))
+        if (typeof action === 'string') return res.status(409).json({ detail: 'This duplication request changed. Reload the options before trying again.' })
+        const result = action.result || { ...source, number: Math.max(...list.map(item => item.number)) + 1 }
+        if (!Number.isSafeInteger(result.number)) throw new Error('No additional thumbnail option number is available.')
+        if (!action.result) await completePromptRegenerationAction(ledgerPath, req.body.operation_id, fingerprint, result)
+        const existing = list.find(item => item.number === result.number)
+        if (existing && promptRowFingerprint(existing.title, existing.prompt) !== promptRowFingerprint(result.title, result.prompt)) {
+          return res.status(409).json({ detail: 'The duplicated option has since been edited. Its saved edit was kept.' })
+        }
+        await updateThumbnailOptionSettings(slug, episodeId, settings => {
+          if (settings.options[String(result.number)]) return settings
+          const { approved_prompt_sha256: _approval, ...choices } = settings.options[String(source.number)] || {}
+          return { ...settings, options: { ...settings.options, [result.number]: { ...choices, duplicate_of: source.number } } }
+        })
+        const updated = existing ? list : [...list, result]
+        await buildImagePromptsDocx(serialiseList(updated), episodeId, project.name || episodeId, writePath)
+        _clearImagePromptsParseCache()
+        const { writePromptCompletionManifest } = await import('../services/prompt-completion.js')
+        await writePromptCompletionManifest(path.dirname(writePath), episodeId, 'thumbnail', Math.max(...updated.map(item => item.number)))
+        return res.json(result)
+      })
+    } catch (error: any) {
+      return res.status(500).json({ detail: error?.message || 'Could not duplicate this thumbnail option.' })
+    }
+  })
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 

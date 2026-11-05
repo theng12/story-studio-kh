@@ -668,6 +668,12 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
     throw new Error(`Thumbnail prompt ${req.thumb_number} was not found. Refresh the thumbnail list and choose an available prompt.`)
   }
 
+  if (mode === 'thumbs') {
+    const { assertThumbnailOptionsApproved } = await import('../services/thumbnail-option-settings.js')
+    await assertThumbnailOptionsApproved(project_slug, episode_id,
+      thumbnails.filter(item => req.thumb_number == null || item.number === req.thumb_number))
+  }
+
   // Phase 8 — load this episode's character cast once for reference-image
   // wiring. Auto-detect: scan each scene's prompt text for character names
   // and forward matching characters' reference images to the provider.

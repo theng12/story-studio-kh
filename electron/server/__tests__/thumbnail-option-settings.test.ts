@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { randomUUID } from 'node:crypto'
 import { after, before, test } from 'node:test'
 import express from 'express'
 import fs from 'node:fs/promises'
@@ -179,6 +180,44 @@ test('malformed stored option fields are reported rather than silently reset', a
   } finally {
     await fs.writeFile(sidecarFile(), original)
   }
+})
+
+test('render approval checks current prompts and preserves legacy behavior', async () => {
+  const { assertThumbnailOptionsApproved, thumbnailOptionApproved, emptyThumbnailOptionSettings } = await import('../services/thumbnail-option-settings.js')
+  const { parseImagePromptsDocx } = await import('../lib/docx-parser.js')
+  const prompts = (await parseImagePromptsDocx(promptsPath)).thumbnails
+  await assert.rejects(assertThumbnailOptionsApproved(slug, code, prompts), /Approve thumbnail prompt/)
+  assert.equal((await request(app).put(optionsEndpoint(code)).send({ number: 1, approve: true })).status, 200)
+  await assertThumbnailOptionsApproved(slug, code, [prompts[0]!])
+  await assert.rejects(assertThumbnailOptionsApproved(slug, code, [prompts[1]!]), /2/)
+  assert.equal((await request(app).put(optionsEndpoint(code)).send({ number: 1, auto_approve: true })).status, 200)
+  await assertThumbnailOptionsApproved(slug, code, prompts)
+  assert.equal(thumbnailOptionApproved({ ...emptyThumbnailOptionSettings(), auto_approve: true }, 1, null), false)
+  await request(app).put(optionsEndpoint(code)).send({ number: 1, auto_approve: false })
+  await assertThumbnailOptionsApproved(slug, legacyCode, [{ number: 1, prompt: PROMPT_1 }])
+})
+
+test('duplication is independent, unapproved and idempotent', async () => {
+  const { parseImagePromptsDocx } = await import('../lib/docx-parser.js')
+  const source = (await parseImagePromptsDocx(promptsPath)).thumbnails[0]!
+  const body = { number: source.number, operation_id: randomUUID() }
+  const endpoint = optionsEndpoint(code) + '/duplicate'
+  const first = await request(app).post(endpoint).send(body)
+  assert.equal(first.status, 200, JSON.stringify(first.body))
+  assert.equal(first.body.number, 3)
+  const replay = await request(app).post(endpoint).send(body)
+  assert.equal(replay.status, 200)
+  assert.equal(replay.body.number, 3)
+  assert.equal((await parseImagePromptsDocx(promptsPath)).thumbnails.length, 3)
+  const settings = await readDisk(sidecarFile())
+  assert.equal(settings.options['3'].duplicate_of, 1)
+  assert.equal(settings.options['3'].style_tag, settings.options['1'].style_tag)
+  assert.equal(settings.options['3'].approved_prompt_sha256, undefined)
+  const edited = await request(app).put(`/api/projects/${slug}/episodes/${code}/image-prompts/item`).send({
+    kind: 'thumbnail', number: 3, title: 'Independent copy', prompt: 'A different image for only the duplicated option.',
+  })
+  assert.equal(edited.status, 200)
+  assert.deepEqual((await parseImagePromptsDocx(promptsPath)).thumbnails[0], source)
 })
 
 test('legacy episode: reads empty defaults and never gets written', async () => {

@@ -149,6 +149,8 @@ export async function writeMusicThumbnailPrompts(
     markdown += `## Thumbnail ${i + 1}: ${title}\n\n${prompt}\n\n`
   })
   await fs.mkdir(path.dirname(target), { recursive: true })
+  const { initializeThumbnailOptions } = await import('./thumbnail-option-settings.js')
+  await initializeThumbnailOptions(slug, upper, wanted.map((_, i) => i + 1), { thumb_text_style: textFree ? 'none' : 'auto' })
   await buildImagePromptsDocx(markdown, upper, title, target)
   await writePromptCompletionManifest(path.dirname(target), upper, 'thumbnail', wanted.length)
   return { path: target, written: true, count: wanted.length, requested }
