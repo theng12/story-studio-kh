@@ -8,6 +8,31 @@
       "identity": "com.storystudio.pack.style.academic-classical-oil-v2@1.0.1",
       "receipt_ref": "authoring:30d40f27b363f2dc21e24af7c4d3729623453814cd41a4c393aaf88ee42138c8",
       "source_path": "content-packs/rebuilt/style/academic-classical-oil-v2-v1.0.1"
+    },
+    {
+      "identity": "com.storystudio.pack.metadata-formula.classic-chapters-first@1.0.0",
+      "receipt_ref": "authoring:6090eba1087eb040a1e3418209405690974b8a6203878032e4d2ced177587417",
+      "source_path": "content-packs/builtin-conversion/metadata-formula/classic-chapters-first"
+    },
+    {
+      "identity": "com.storystudio.pack.metadata-formula.classic-community-first@1.0.0",
+      "receipt_ref": "authoring:6090eba1087eb040a1e3418209405690974b8a6203878032e4d2ced177587417",
+      "source_path": "content-packs/builtin-conversion/metadata-formula/classic-community-first"
+    },
+    {
+      "identity": "com.storystudio.pack.metadata-formula.classic-curiosity-gap@1.0.0",
+      "receipt_ref": "authoring:6090eba1087eb040a1e3418209405690974b8a6203878032e4d2ced177587417",
+      "source_path": "content-packs/builtin-conversion/metadata-formula/classic-curiosity-gap"
+    },
+    {
+      "identity": "com.storystudio.pack.metadata-formula.classic-minimal@1.0.0",
+      "receipt_ref": "authoring:6090eba1087eb040a1e3418209405690974b8a6203878032e4d2ced177587417",
+      "source_path": "content-packs/builtin-conversion/metadata-formula/classic-minimal"
+    },
+    {
+      "identity": "com.storystudio.pack.metadata-formula.classic-story-first-calm@1.0.0",
+      "receipt_ref": "authoring:6090eba1087eb040a1e3418209405690974b8a6203878032e4d2ced177587417",
+      "source_path": "content-packs/builtin-conversion/metadata-formula/classic-story-first-calm"
     }
   ],
   "dispositions": [
