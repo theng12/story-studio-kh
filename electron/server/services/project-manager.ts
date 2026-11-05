@@ -1623,6 +1623,7 @@ export async function getSafeConfig(slug: string): Promise<any | null> {
     // an entry the saved value would be invisible on the next read and the
     // page would re-render its default. Undefined means "never set", which
     // resolves to OFF (lib/research-verification.ts).
+    research_before_writing: await (await import('../lib/research-before-writing.js')).researchBeforeWritingEnabled(slug, config),
     research_auto_approve_claims: typeof (config as any).research_auto_approve_claims === 'boolean'
       ? (config as any).research_auto_approve_claims
       : undefined,

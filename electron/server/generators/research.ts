@@ -66,8 +66,8 @@ interface ResearchRunParams {
   blocked_domains?: string[]
 }
 
-export async function runResearchJob(job: Job): Promise<void> {
-  const params = job.params as ResearchRunParams
+export async function runResearchJob(job: Job, researchParams = job.params): Promise<void> {
+  const params = researchParams as ResearchRunParams
   const { episode_id, source_provider, topic } = params
   if (!episode_id) throw new Error('episode_id is required')
   if (!source_provider) throw new Error('source_provider is required')
@@ -106,9 +106,9 @@ export async function runResearchJob(job: Job): Promise<void> {
     max_sources: params.max_sources,
     model: params.model,
     mode,
-    request_identity: freshGenerationRequestIdentity(job, 'research'),
-    pipeline_model_policy: pipelinePolicyForJob(job.params, 'research') || undefined,
-    pipeline_policy_checkpoint: pipelinePolicyCheckpointStore(job.params, () => jq.checkpointJobState(job)),
+    request_identity: freshGenerationRequestIdentity({ ...job, params: researchParams }, 'research'),
+    pipeline_model_policy: pipelinePolicyForJob(researchParams, 'research') || undefined,
+    pipeline_policy_checkpoint: pipelinePolicyCheckpointStore(researchParams, () => jq.checkpointJobState(job)),
     pipeline_policy_checkpoint_key: `${job.project_slug}:${params.episode_id}:research`,
     ...(mode === 'web-search'
       ? {

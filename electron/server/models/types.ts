@@ -2287,6 +2287,7 @@ export interface EpisodeLengthSetting {
 }
 
 export interface ProjectConfig {
+  research_before_writing?: boolean
   /** Starting mix length for future music episodes; saved episode settings win. */
   music_episode_target_length_s?: number
   /**
@@ -2701,6 +2702,7 @@ export interface UpdateConfigRequest {
    * provenance never reads as a person. Absent = off; the default lives in
    * `lib/research-verification.ts` (researchAutoApproveEnabled), not here.
    */
+  research_before_writing?: boolean
   research_auto_approve_claims?: boolean
   /**
    * E2–E4 (1.4.288) — scene analysis for this channel (Effects Library). Off unless set. `depth`

@@ -489,6 +489,7 @@ export interface AccountSummaryResponse {
 // templates, custom_* autocomplete pools). Keep the schema permissive so
 // we reject obviously-wrong shapes without maintaining a growing denylist.
 export const UpdateConfigSchema = z.object({
+  research_before_writing: z.boolean().optional(),
   image_models: z.record(z.string(), z.any()).optional(),
   voice_presets: z.array(z.any()).optional(),
   contextual_cues_presets: z.array(z.object({
@@ -649,6 +650,7 @@ export interface ChannelDefaultSummary {
  * serving; never add a `*_api_key` field here.
  */
 export interface SafeProjectConfigResponse {
+  research_before_writing?: boolean
   llm_lineup_migration?: import('../models/types.js').LlmLineupMigration
   has_genstudio_key: boolean
   /**

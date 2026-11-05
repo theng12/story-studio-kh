@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.382 — 2026-11-05
+
+- Research before writing is a channel switch on Research, also shown in Pipeline. It starts on for writing channels and off for music channels. Missing presets or failed research show why they were skipped while writing continues; retries do not submit uncertain research again.
+
 ## v1.4.381 — 2026-11-05
 
 - Adding closing music to older narration preserves its original opening timing, so a newly selected music lead-in cannot shift the narration away from its scene plan and subtitles.
