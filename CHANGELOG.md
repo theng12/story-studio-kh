@@ -4,6 +4,19 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.383 — 2026-11-06
+
+- An approved or resumed YouTube upload rechecks the exact frozen title and description before any provider or quota work. A blank field fails loudly with the episode named and asks you to review and confirm again; the live metadata is never substituted.
+- Final renders now hold the independently measured picture length to the plan, not just the container duration. A picture that cannot be measured is refused, and a remote import must pass the same check as a local render.
+- Closing-tail remixes treat missing or partial opening timing as unmeasured: they measure the original audio instead of reading a missing value as zero or borrowing the current preset's lead-in.
+- Unknown scene coverage stays unknown. Gaps are reported as not measured with a reason, completion stays false, and video assembly refuses with the missing narration coverage named.
+- Thumbnail scoring stays optional. A failed thumbnail-list read is reported as "not scored" with its reason, not as "no artwork"; an incomplete run keeps a valid earlier scored pick, and nothing is blocked.
+- Rounded and circular logos are cut to their exact shape at the render width and staged for remote final renders. If the shape cannot be prepared, the video stays local with the reason instead of sending the unshaped logo.
+- Built-in lettering and subtitle looks are now also authored as portable Content Packs: 29 lettering looks and 24 subtitle styles. Every existing built-in and alias stays available; removal waits for measured usage proof in a later release.
+- New read-only GETs expose saved preset pointers and each episode's lettering and subtitle selections for settings export. They run no migration and write nothing, and missing, corrupt and unreadable values stay distinct.
+- Video Assembly's background picker lists the app's shared backgrounds with previews. An episode's existing custom background choice stays in place and keeps rendering until you pick a replacement.
+- Remote final renders ask only for the exact optional late-label and subtitle capabilities. A Gateway that does not advertise them, or returns an incomplete contract, keeps the video local with a reason; older Gateways keep the existing v1 path.
+
 ## v1.4.382 — 2026-11-05
 
 - Research before writing is a channel switch on Research, also shown in Pipeline. It starts on for writing channels and off for music channels. Missing presets or failed research show why they were skipped while writing continues; retries do not submit uncertain research again.
