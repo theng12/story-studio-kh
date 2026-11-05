@@ -266,10 +266,15 @@
         </p>
         <p v-if="thumbnailScoreNotice" class="text-muted text-xs">{{ thumbnailScoreNotice }}</p>
       </div>
+      <button v-if="thumbnailsAllRejected" type="button" class="btn btn-secondary"
+        :disabled="thumbnailScoring || submitting || imageJobActiveForEpisode || !!thumbnailRecovery"
+        @click="recoverRejectedThumbnails">
+        Regenerate once and score
+      </button>
       <button
         type="button"
         class="btn btn-secondary"
-        :disabled="thumbnailScoring"
+        :disabled="thumbnailScoring || !!thumbnailRecovery"
         @click="scoreThumbnailsNow"
       >
         {{ thumbnailScoring ? 'Scoring…' : 'Score thumbnails now' }}
@@ -1113,32 +1118,67 @@ async function toggleThumbnailPin(filename: string) {
 // anything: the button reports what happened and the board still works.
 const thumbnailScoring = ref(false)
 const thumbnailScoreNotice = ref('')
+const thumbnailsAllRejected = ref(false)
+const thumbnailRecovery = ref<{ project: string; episode: string; jobId: string } | null>(null)
 const hasAnyScore = computed(() => Object.keys(thumbnailScores.value).length > 0)
 
 async function scoreThumbnailsNow() {
   const code = form.episode_id
+  const project = slug.value
+  const current = () => code === form.episode_id && project === slug.value
   if (!code || thumbnailScoring.value) return
   thumbnailScoring.value = true
   thumbnailScoreNotice.value = ''
   try {
-    const r = await post<{ picked: string; summary: string; not_scored: boolean }>(
-      `/projects/${slug.value}/episodes/${code}/thumbnail-scores`,
+    const r = await post<{ picked: string; summary: string; not_scored: boolean; all_bad: boolean }>(
+      `/projects/${project}/episodes/${code}/thumbnail-scores`,
       {},
     )
-    thumbnailScoreNotice.value = r.summary || ''
-    if (r.not_scored) {
+    if (!current()) return
+    thumbnailsAllRejected.value = r.all_bad === true
+    thumbnailScoreNotice.value = r.all_bad
+      ? 'Every thumbnail was rejected by the image checks. Regenerate once and score again, or edit the prompts. Further regeneration always needs your choice.'
+      : r.summary || ''
+    if (r.all_bad) {
+      showError(thumbnailScoreNotice.value)
+    } else if (r.not_scored) {
       showInfo(r.summary || 'The thumbnails were not scored.')
     } else {
       success(r.summary || 'Thumbnails scored.')
     }
     await loadThumbnailPinState()
   } catch (e: any) {
+    if (!current()) return
     thumbnailScoreNotice.value = e?.data?.detail || e?.message || 'The thumbnails could not be scored.'
     showError(thumbnailScoreNotice.value)
   } finally {
-    thumbnailScoring.value = false
+    if (current()) thumbnailScoring.value = false
   }
 }
+
+async function recoverRejectedThumbnails() {
+  if (!thumbnailsAllRejected.value || thumbnailRecovery.value) return
+  const project = slug.value
+  const episode = form.episode_id
+  const job = await queueGeneration(true, 'One thumbnail regeneration queued; scoring follows when it finishes.')
+  if (!job || project !== slug.value || episode !== form.episode_id) return
+  thumbnailRecovery.value = { project, episode, jobId: job.job_id }
+  thumbnailScoreNotice.value = 'Regenerating once. The result will be scored; no further render starts automatically.'
+}
+
+watch(() => jobs.value.find(job => job.job_id === thumbnailRecovery.value?.jobId)?.status, async status => {
+  if (!['done', 'error', 'cancelled'].includes(status || '')) return
+  const recovery = thumbnailRecovery.value
+  thumbnailRecovery.value = null
+  if (!recovery || recovery.project !== slug.value || recovery.episode !== form.episode_id) return
+  if (status === 'done') {
+    onPanelRefresh()
+    await scoreThumbnailsNow()
+  } else {
+    thumbnailScoreNotice.value = 'Thumbnail regeneration stopped. Review the job in Jobs before retrying; no further render was started.'
+    showError(thumbnailScoreNotice.value)
+  }
+})
 
 async function onLightboxPinToggle(payload: { filename: string; pin: boolean }) {
   await setThumbnailPin(payload.pin ? payload.filename : null)
@@ -1153,6 +1193,10 @@ watch([slug, () => form.episode_id], ([, v], old) => {
     showInfo('Cleared "Extra details for this render" — they were written for the previous episode.')
   }
   lastRepairJobId.value = ''
+  thumbnailRecovery.value = null
+  thumbnailScoring.value = false
+  thumbnailsAllRejected.value = false
+  thumbnailScoreNotice.value = ''
   repairStatus.thumb = null
   // v1.4.196 — blank on the CHANGE, not only when the episode becomes empty.
   // `refreshImageStatus` and `loadEditScan` replace their results only on a
@@ -1514,6 +1558,7 @@ const regenerateAllAction = computed(() => activeModelPaid.value
  * button shows (rows render a single image and skip it).
  */
 async function prepareGeneration(forceOverride?: boolean, ask = true): Promise<any | null> {
+  const project = slug.value
   const modeId = thumbnailImageMode.value === 'img2img' ? 'edit' : 'txt2img'
   if (!activeGenStudioModel.value?.image_modes?.some(mode => mode.id === modeId && mode.available)) {
     showError('This image mode is unavailable. Refresh the Gateway model list or choose another mode.')
@@ -1541,7 +1586,8 @@ async function prepareGeneration(forceOverride?: boolean, ask = true): Promise<a
   // Never replace a confirmed choice with a new model/ratio behind the dialog.
   // The ratio check is rows-authoritative, exactly like the backend: a ratio
   // published only by an output row is valid even when `aspect_ratios` omits it.
-  if (activeForm.value.model !== params.model
+  if (slug.value !== project || form.episode_id !== params.episode_id
+    || activeForm.value.model !== params.model
     || activeForm.value.aspect_ratio !== params.aspect_ratio
     || !isPublishedAspectRatio(activeGenStudioModel.value, params.aspect_ratio)
     || params.image_mode !== thumbnailImageMode.value) {
@@ -1573,9 +1619,10 @@ async function queueGeneration(forceOverride?: boolean, queuedMessage = 'Image g
   thumbImageGenerating.value = true
 
   try {
-    await post(`/projects/${slug.value}/generate/images`, params)
+    const job = await post<{ job_id: string }>(`/projects/${slug.value}/generate/images`, params)
     if (operationId) freshImagesAction.complete(operationId)
     success(queuedMessage)
+    return job
   } catch (e: any) {
     showError(e.data?.detail || 'Failed to queue image generation')
     thumbImageGenerating.value = false

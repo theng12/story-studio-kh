@@ -13,6 +13,24 @@
       <span class="text-muted text-xs">
         Expand any row to inspect the full prompt, edit it, save it back to disk, or reprompt that one row with feedback.
       </span>
+      <!-- Episode-level gate, off unless deliberately turned on here (AGENTS §5:
+           a choice the customer makes, never a default the app decides). The
+           disabled state when no prompt exists says so rather than looking
+           enabled and doing nothing. -->
+      <label
+        class="prp-auto"
+        :title="thumbnails.length
+          ? 'When on, every prompt for this episode reads as approved without a per-prompt check. Off by default: a new prompt needs approval.'
+          : 'No prompts on this episode yet — generate them first.'"
+      >
+        <input
+          type="checkbox"
+          :checked="autoApprove"
+          :disabled="saving.has('auto-approve') || !thumbnails.length"
+          @change="setAutoApprove($event)"
+        />
+        Approve prompts automatically
+      </label>
     </div>
 
     <div v-if="loading" class="text-muted text-md prp-status">
@@ -22,6 +40,11 @@
       {{ error }}
     </div>
     <template v-else>
+      <!-- Option settings failed to load while the prompts themselves are
+           fine: say so plainly. Never reads as "nothing is stored". -->
+      <div v-if="optionsError" class="text-muted text-md prp-status prp-options-error">
+        ⚠ {{ optionsError }}
+      </div>
       <ul v-if="thumbnails.length" class="prp-list" role="list">
         <li class="prp-section">Thumbnails</li>
         <li v-for="row in thumbnails" :key="`t-${row.number}`" class="prp-row">
@@ -36,6 +59,40 @@
             @save="saveOne(row.number, $event)"
             @regenerate="regenerateOne(row.number, $event)"
           />
+          <!-- This thumbnail's own metadata (recipe, style, lettering,
+               placement), its approval verdict and Duplicate. Collapsed by
+               default: the catalogues mount only for a row the customer
+               actually opens, and the verdict stays readable in the summary. -->
+          <details
+            class="prp-options"
+            @toggle="toggleOptionEditor(row.number, $event)"
+          >
+            <summary class="prp-options-summary">
+              <span
+                class="prp-approval"
+                :class="approvedFor(row.number) ? 'is-approved' : 'is-pending'"
+              >
+                {{ approvedFor(row.number) ? (autoApprove ? '✓ Approved · automatic' : '✓ Approved') : '○ Not approved' }}
+              </span>
+              <span class="text-muted text-xs">Option settings — recipe, style, lettering, placement</span>
+            </summary>
+            <PromptReviewOptionEditor
+              v-if="openEditors.has(row.number)"
+              :number="row.number"
+              :entry="options[String(row.number)] || null"
+              :project-slug="projectSlug"
+              :page-font-style="thumbnailFontStyle || ''"
+              :page-text-style="thumbnailTextStyle || ''"
+              :auto-approve="autoApprove"
+              :approved="approvedFor(row.number)"
+              :saving="saving.has(`option-${row.number}`)"
+              :duplicating="duplicating.has(`dup-${row.number}`)"
+              :error="errors[`option-${row.number}`] || null"
+              @save="saveOptionFields(row.number, $event)"
+              @approve="setApproval(row.number, $event)"
+              @duplicate="duplicateOption(row.number)"
+            />
+          </details>
         </li>
       </ul>
       <div v-else class="text-muted text-md prp-status">
@@ -48,9 +105,24 @@
 <script setup lang="ts">
 import { ref, watch, computed } from 'vue'
 import PromptRow from './PromptReviewPanelRow.vue'
+import PromptReviewOptionEditor from './PromptReviewOptionEditor.vue'
 import type { PromptCharCapSetting } from '~/utils/prompt-char-cap'
 
 interface PromptRowData { number: number; title: string; prompt: string }
+/** One option's metadata as GET/PUT /image-prompts/options presents it. */
+interface OptionEntry {
+  thumbnail_template_id?: string
+  style_tag?: string
+  thumb_font_style?: string
+  thumb_text_style?: string
+  thumb_text_position?: string
+  approved?: boolean
+}
+interface OptionSettings {
+  schema?: number
+  auto_approve?: boolean
+  options?: Record<string, OptionEntry>
+}
 
 const props = defineProps<{
   projectSlug: string
@@ -112,6 +184,18 @@ const busy = ref<Set<string>>(new Set())
 const saving = ref<Set<string>>(new Set())
 const errors = ref<Record<string, string>>({})
 
+// Per-option metadata (recipe/style/font/text/placement + approval) beside the
+// prompts file. Server state only: a load replaces it wholesale, an episode
+// change blanks it first (AGENTS §4), and a read never writes — a legacy
+// episode with no sidecar stays exactly as empty as it reads (no backfill).
+const options = ref<Record<string, OptionEntry>>({})
+const autoApprove = ref(false)
+const optionsError = ref<string | null>(null)
+/** Rows whose option editor is open — the editor mounts only then. */
+const openEditors = ref<Set<number>>(new Set())
+const duplicating = ref<Set<string>>(new Set())
+let optionsSequence = 0
+
 // Card visibility: only when we have an episode_id selected. Empty list
 // renders the "click Generate" hint; full lists render the rows.
 const show = computed(() => !!props.episodeId)
@@ -159,6 +243,12 @@ async function regenerateOne(
   const episodeId = props.episodeId
   busy.value = new Set([...busy.value, key])
   errors.value = { ...errors.value, [key]: '' }
+  // THIS option's saved choices win over the page-level ones, so a row that
+  // was tuned on its own regenerates under its own recipe/style/lettering/
+  // placement. Anything not saved falls back exactly as it did before.
+  const saved = options.value[String(number)] || {}
+  const fontOverride = saved.thumb_font_style || ''
+  const textOverride = saved.thumb_text_style || ''
   const request = {
     kind, number,
     title: props.title,
@@ -167,12 +257,19 @@ async function regenerateOne(
     current_prompt: payload.prompt,
     notes: payload.notes,
     headline_mode: props.thumbnailHeadlineMode,
-    // NEW-10 — a regenerated thumbnail row keeps the workspace's lettering, so
-    // the enforced clause names the chosen style instead of a generic one.
-    thumb_font_style: props.thumbnailFontStyle,
-    thumb_text_style: props.thumbnailTextStyle,
-    thumb_font_style_custom: props.thumbnailFontStyleCustom,
-    thumb_text_style_custom: props.thumbnailTextStyleCustom,
+    // The five saved per-option fields (the backend honors all five). Absent
+    // values stay absent: nothing is invented for an option that never chose.
+    ...(saved.thumbnail_template_id ? { thumbnail_template_id: saved.thumbnail_template_id } : {}),
+    ...(saved.style_tag ? { style_tag: saved.style_tag } : {}),
+    ...(saved.thumb_text_position ? { thumb_text_position: saved.thumb_text_position } : {}),
+    // NEW-10 — a regenerated thumbnail row keeps its own lettering when it has
+    // one, else the workspace's, so the enforced clause names a real choice.
+    thumb_font_style: fontOverride || props.thumbnailFontStyle,
+    thumb_text_style: textOverride || props.thumbnailTextStyle,
+    // The page's custom lettering text belongs to the page's choice — it is
+    // not sent once this option has picked a font/text style of its own.
+    ...(fontOverride ? {} : { thumb_font_style_custom: props.thumbnailFontStyleCustom }),
+    ...(textOverride ? {} : { thumb_text_style_custom: props.thumbnailTextStyleCustom }),
     // The SELECTION and the model it is written for — never a number resolved
     // here. The backend resolves the ceiling against the live catalogue, so a
     // rewrite is written under the limit the SELECTED model actually publishes
@@ -208,6 +305,7 @@ async function regenerateOne(
         ...thumbnails.value.slice(idx + 1),
       ]
     }
+    markPromptChanged(number)
     success(`Thumbnail ${number} ${payload.reword ? 'reworded — same idea, different angle' : 'regenerated'}`)
   } catch (e: any) {
     if (episodeId !== props.episodeId) return
@@ -253,6 +351,7 @@ async function saveOne(
         ...thumbnails.value.slice(idx + 1),
       ]
     }
+    markPromptChanged(number)
   } catch (e: any) {
     if (episodeId !== props.episodeId) {
       showError(`Could not save thumbnail ${number} for ${episodeId}: ${e?.data?.detail || e?.message || 'Save failed'}`)
@@ -268,14 +367,163 @@ async function saveOne(
   }
 }
 
-watch(() => [props.episodeId, props.title, props.refreshKey], (next, prev) => {
+// ── Per-option metadata (…/image-prompts/options) ─────────────────────────
+
+/** Apply one settings response (GET or PUT return the same whole map — so a
+ *  save refreshes this option AND every sibling, which is what it stored). */
+function applySettings(data: OptionSettings | null | undefined): void {
+  if (!data || typeof data !== 'object') return
+  autoApprove.value = data.auto_approve === true
+  options.value = data.options && typeof data.options === 'object' ? data.options : {}
+}
+
+/** Read-only load. A read NEVER writes: no sidecar stays an empty answer,
+ *  never a backfilled one. Fails soft but loud — optionsError explains, and
+ *  nothing pretends the settings were checked. */
+async function loadOptions(): Promise<void> {
+  if (!props.episodeId || !props.projectSlug) return
+  const sequence = ++optionsSequence
+  const episodeId = props.episodeId
+  const project = props.projectSlug
+  optionsError.value = null
+  try {
+    const data = await get<OptionSettings>(
+      `/projects/${props.projectSlug}/episodes/${episodeId}/image-prompts/options`,
+    )
+    if (sequence !== optionsSequence || episodeId !== props.episodeId || project !== props.projectSlug) return
+    applySettings(data)
+  } catch (e: any) {
+    if (sequence !== optionsSequence || episodeId !== props.episodeId || project !== props.projectSlug) return
+    options.value = {}
+    autoApprove.value = false
+    optionsError.value = `Option settings could not be loaded: ${e?.data?.detail || e?.message || 'no answer from the server'}. This episode's saved selections were NOT checked.`
+  }
+}
+
+/** The honest verdict for one prompt as it stands: automatic approval makes
+ *  every prompt approved; otherwise it is the stored hash match the server
+ *  computed against the current prompt text. */
+function approvedFor(number: number): boolean {
+  if (autoApprove.value) return true
+  return options.value[String(number)]?.approved === true
+}
+
+/** The prompt text changed, so any approval given to the OLD text is stale —
+ *  the UI drops to exactly what the server would answer now. */
+function markPromptChanged(number: number): void {
+  const entry = options.value[String(number)]
+  if (!entry) return
+  options.value = {
+    ...options.value,
+    [String(number)]: { ...entry, approved: autoApprove.value },
+  }
+}
+
+function toggleOptionEditor(number: number, event: Event): void {
+  const open = (event.currentTarget as HTMLDetailsElement).open
+  const next = new Set(openEditors.value)
+  if (open) next.add(number)
+  else next.delete(number)
+  openEditors.value = next
+}
+
+/** One PUT for one option. The episode is captured at click time, the answer
+ *  is dropped if the picker has moved on, and failures land in this row's own
+ *  error slot — the saved state only changes when the server confirms it. */
+async function putOption(number: number, body: Record<string, unknown>, key: string): Promise<void> {
+  if (saving.value.has(key)) return
+  const episodeId = props.episodeId
+  const project = props.projectSlug
+  saving.value = new Set([...saving.value, key])
+  errors.value = { ...errors.value, [key]: '' }
+  try {
+    const data = await put<OptionSettings>(
+      `/projects/${props.projectSlug}/episodes/${episodeId}/image-prompts/options`,
+      { number, ...body },
+    )
+    if (episodeId !== props.episodeId || project !== props.projectSlug) return
+    applySettings(data)
+    success(`Thumbnail ${number} settings saved for ${episodeId}`)
+  } catch (e: any) {
+    if (episodeId !== props.episodeId) return
+    const msg = e?.data?.detail || e?.message || 'Could not save this thumbnail’s option settings'
+    errors.value = { ...errors.value, [key]: msg }
+    showError(msg)
+  } finally {
+    const next = new Set(saving.value)
+    next.delete(key)
+    saving.value = next
+  }
+}
+
+function saveOptionFields(number: number, fields: Record<string, string>): void {
+  void putOption(number, fields, `option-${number}`)
+}
+
+function setApproval(number: number, approve: boolean): void {
+  void putOption(number, { approve }, `option-${number}`)
+}
+
+/** Episode-level switch. The contract edits ONE option per PUT, so it rides
+ *  on the first prompt's number; an episode with no prompt has nothing to
+ *  approve and the toggle stays disabled rather than pretending to save. */
+function setAutoApprove(event: Event): void {
+  const first = thumbnails.value[0]?.number
+  if (first == null) return
+  void putOption(first, { auto_approve: (event.target as HTMLInputElement).checked }, 'auto-approve')
+}
+
+/** Duplicate this option. The backend answers with the NEW option (its number,
+ *  title and prompt), so the list is refreshed from disk — siblings come back
+ *  from the server untouched, never rebuilt from stale local state. */
+async function duplicateOption(number: number): Promise<void> {
+  const key = `dup-${number}`
+  if (duplicating.value.has(key)) return
+  const episodeId = props.episodeId
+  const project = props.projectSlug
+  const operationId = freshPromptAction.begin({ project, episodeId, number, action: 'duplicate' }, key)
+  duplicating.value = new Set([...duplicating.value, key])
+  errors.value = { ...errors.value, [`option-${number}`]: '' }
+  try {
+    const data = await post<{ number: number; title?: string; prompt?: string }>(
+      `/projects/${project}/episodes/${episodeId}/image-prompts/options/duplicate`,
+      { number, operation_id: operationId },
+    )
+    freshPromptAction.complete(operationId)
+    if (episodeId !== props.episodeId || project !== props.projectSlug) return
+    success(`Thumbnail ${number} duplicated as thumbnail ${data?.number}`)
+    await loadPrompts()
+    await loadOptions()
+  } catch (e: any) {
+    if (episodeId !== props.episodeId) return
+    const msg = e?.data?.detail || e?.message || 'Could not duplicate this thumbnail option'
+    errors.value = { ...errors.value, [`option-${number}`]: msg }
+    showError(msg)
+  } finally {
+    const next = new Set(duplicating.value)
+    next.delete(key)
+    duplicating.value = next
+  }
+}
+
+watch(() => [props.episodeId, props.title, props.refreshKey, props.projectSlug], (next, prev) => {
   // Row spinners and errors belong to one episode.
-  if (!prev || next[0] !== prev[0]) {
+  if (!prev || next[0] !== prev[0] || next[3] !== prev[3]) {
     busy.value = new Set()
     saving.value = new Set()
     errors.value = {}
+    // AGENTS §4: another episode's option metadata must not stand for a
+    // moment on this one — blanked first, then replaced by its own load.
+    options.value = {}
+    autoApprove.value = false
+    optionsError.value = null
+    openEditors.value = new Set()
+    duplicating.value = new Set()
   }
-  if (props.episodeId) void loadPrompts()
+  if (props.episodeId) {
+    void loadPrompts()
+    void loadOptions()
+  }
 }, { immediate: true })
 </script>
 
@@ -285,6 +533,14 @@ watch(() => [props.episodeId, props.title, props.refreshKey], (next, prev) => {
   display: flex; align-items: baseline; justify-content: space-between;
   gap: 8px; flex-wrap: wrap;
 }
+.prp-auto {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: var(--font-xs); color: var(--text-secondary);
+  cursor: pointer; white-space: nowrap;
+}
+.prp-auto input { cursor: pointer; margin: 0; }
+.prp-auto:has(input:disabled) { cursor: not-allowed; opacity: 0.7; }
+.prp-options-error { color: var(--text-secondary); }
 .prp-title {
   margin: 0;
   font-size: 14px; font-weight: 600;
@@ -300,4 +556,26 @@ watch(() => [props.episodeId, props.title, props.refreshKey], (next, prev) => {
 }
 .prp-section:first-of-type { margin-top: 0; }
 .prp-row { padding: 0; }
+.prp-options { margin-top: 4px; }
+.prp-options-summary {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 4px 2px;
+  cursor: pointer;
+  font-size: var(--font-xs);
+}
+.prp-options-summary:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.prp-approval {
+  padding: 2px 8px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  font-weight: 600;
+}
+.prp-approval.is-approved {
+  background: rgba(34,197,94,0.10); color: rgb(21,128,61);
+  border-color: rgba(34,197,94,0.30);
+}
+.prp-approval.is-pending {
+  background: var(--bg-tertiary); color: var(--text-muted);
+  border-color: var(--border);
+}
 </style>
