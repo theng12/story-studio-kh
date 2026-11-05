@@ -1,7 +1,7 @@
 /**
  * The Sketch Draw line weight in Motion Review.
  *
- * The weight follows the reveal's path exactly: a plain select beside the reveal setting, this
+ * The weight follows the reveal's path exactly: tabs beside the reveal setting, this
  * episode's own value beside its pen and hold and reveal, absent meaning NORMAL. It is saved by
  * the Motion Review preset, because it is a reusable look (AGENTS.md §5).
  *
@@ -72,15 +72,42 @@ describe('the line weight control', () => {
     assert.equal(lineWeightFromDraft('').ok, false, 'nothing chosen is not a weight')
   })
 
-  test('the select sits beside the reveal setting and edits THIS episode', () => {
+  test('the weight tabs sit beside the reveal setting and edit THIS episode', () => {
     assert.match(page, /<span>Line weight for \{\{ episodeId \}\}<\/span>/)
-    assert.match(page, /<option value="channel">Channel default \(\{\{ lineWeightLabel\(channelLineWeight\) \}\}\)<\/option>/)
-    assert.match(page, /<option v-for="weight in LINE_WEIGHTS" :key="weight" :value="weight">\{\{ lineWeightLabel\(weight\) \}\}<\/option>/)
-    assert.match(page, /v-model="lineWeightChoice"[^>]*@change="onLineWeightChoice"/)
-    assert.match(page, /aria-label="Sketch Draw line weight for this episode"/)
+    assert.match(page, /role="group" aria-label="Sketch Draw line weight for this episode"/)
+    assert.match(page, /v-for="weight in LINE_WEIGHTS"[^>]*:aria-pressed="activeLineWeight === weight"/)
+    assert.match(page, /:class="\{ 'is-active': activeLineWeight === weight \}"/)
+    assert.match(page, /:disabled="!lineWeightLoaded \|\| lineWeightSaving"/)
+    assert.doesNotMatch(page, /<select v-model="lineWeightChoice"/)
+    assert.match(page, /function chooseLineWeight\(weight: SketchLineWeight\)/)
+    assert.match(page, /click="chooseLineWeight\(weight\)"/)
     // It says whose weight is in force, in both directions.
     assert.match(page, /\{\{ episodeId \}\} uses its own weight: \{\{ lineWeightLabel\(episodeLineWeight\) \}\}\. Other episodes are not affected\./)
     assert.match(page, /\{\{ episodeId \}\} follows the channel default weight: \{\{ lineWeightLabel\(channelLineWeight\) \}\}/)
+  })
+
+  test('an inherited weight selects its tab, and the episode can go back to following the channel', () => {
+    // The tab in force: the channel's weight while following it, this episode's own once it has one.
+    const active = page.slice(page.indexOf('const activeLineWeight = computed'))
+    assert.match(active, /if \(!lineWeightLoaded\.value\) return null/)
+    assert.match(active, /choice === 'channel'\) return channelLineWeight\.value/)
+    assert.match(active, /return choice \|\| null/)
+    // Clicking the weight already in force changes nothing, so inheriting never stores a duplicate.
+    const chooseStart = page.indexOf('function chooseLineWeight(')
+    const choose = page.slice(chooseStart, page.indexOf('\n}', chooseStart))
+    assert.match(choose, /if \(lineWeightChoice\.value === weight\) return/)
+    assert.match(choose, /if \(lineWeightChoice\.value === 'channel' && channelLineWeight\.value === weight\) return/)
+    // The quiet "Channel default (...)" action clears this episode's own weight via the
+    // existing handler — and it is a button in the weight field, not a fourth tab.
+    assert.match(page, /<button v-if="isSketchDraw && lineWeightLoaded && episodeLineWeight"[^>]*@click="followChannelLineWeight"[^>]*>Channel default \(\{\{ lineWeightLabel\(channelLineWeight\) \}\}\)<\/button>/)
+    const followStart = page.indexOf('function followChannelLineWeight(')
+    const follow = page.slice(followStart, page.indexOf('\n}', followStart))
+    assert.match(follow, /lineWeightChoice\.value = 'channel'/)
+    assert.match(follow, /onLineWeightChoice\(\)/)
+    const group = page.slice(page.indexOf('role="group" aria-label="Sketch Draw line weight for this episode"'))
+    const tabs = group.slice(0, group.indexOf('</div>'))
+    assert.doesNotMatch(tabs, /channel/, 'the group holds only the three weights')
+    assert.equal([...tabs.matchAll(/weight-tab/g)].length, 1, 'one v-for produces all three tabs')
   })
 
   test('the save goes to THIS episode, and a late answer never lands on the next one', () => {
@@ -113,7 +140,7 @@ describe('the line weight control', () => {
   })
 
   test('the channel default moves only on purpose, and only when the episode differs from it', () => {
-    assert.match(page, /Make this the channel default weight/)
+    assert.match(page, /<button v-if="isSketchDraw && lineWeightLoaded && episodeLineWeight && episodeLineWeight !== channelLineWeight"[^>]*>Set as channel default</)
     assert.match(page, /v-if="isSketchDraw && lineWeightLoaded && episodeLineWeight && episodeLineWeight !== channelLineWeight"/)
     const setDefault = page.slice(page.indexOf('async function setChannelLineWeightDefault('))
     assert.match(setDefault, /if \(!await ask\(\{/, 'it asks first')
@@ -121,7 +148,7 @@ describe('the line weight control', () => {
     assert.match(setDefault, /motion-presentation`, \{ renderer: clipRenderer\.value, line_weight: weight \}/)
   })
 
-  test('a popup picker with samples is NOT built here: this is a plain select', () => {
+  test('a popup picker with samples is NOT built here: the weights are tabs', () => {
     assert.doesNotMatch(page, /line-weight-picker|lineWeightPicker/)
     assert.doesNotMatch(page, /<dialog[^>]*line.weight/i)
   })
