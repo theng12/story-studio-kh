@@ -271,14 +271,16 @@ export async function smokeLaunch(appPath, { timeoutMs = 120_000, log = () => {}
   try {
     outcome = await launchAndProve()
   } finally {
+    const shutdownStarted = Date.now()
     const settled = await stopChild(child, { exited: () => exited !== null })
+    log(`  shutdown: ${settled ? 'exited' : 'still running'} after ${Date.now() - shutdownStarted}ms; exit=${JSON.stringify(exited)}`)
     finalizeLaunchSandbox(sandbox, { settled })
     if (!settled) {
       outcome = {
         ok: false,
         errors: [
           ...(outcome?.errors ?? []),
-          `the packaged app did not exit after SIGTERM within ${TERM_GRACE_MS}ms; it was left running and no SIGKILL was sent (sandbox retained at ${sandbox})`,
+          `the packaged app did not exit after SIGTERM within ${TERM_GRACE_MS}ms; it was left running and no SIGKILL was sent (sandbox retained at ${sandbox}). Output:\n${tail()}`,
         ],
       }
     }

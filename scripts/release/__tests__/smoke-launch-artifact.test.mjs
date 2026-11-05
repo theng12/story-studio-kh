@@ -55,6 +55,31 @@ describe('smoke launch TERM-only stop', () => {
     assert.equal(slept, 5, 'the wait is bounded by counted polls (500ms / 100ms), not wall clock')
   })
 
+  test('a sent signal is not exit evidence, including on the final poll', async () => {
+    const child = { killed: false, kill() { this.killed = true } }
+    let exited = false
+    let polls = 0
+    const settled = await stopChild(child, {
+      exited: () => exited,
+      graceMs: 200,
+      pollMs: 100,
+      sleep: async () => {
+        assert.equal(child.killed, true)
+        assert.equal(exited, false)
+        if (++polls === 2) exited = true
+      },
+    })
+    assert.equal(settled, true)
+    assert.equal(polls, 2)
+  })
+
+  test('shutdown timeout diagnostics retain the captured app output', () => {
+    const source = fs.readFileSync(new URL('../smoke-launch-artifact.mjs', import.meta.url), 'utf8')
+    const failure = source.slice(source.indexOf('if (!settled) {', source.indexOf('outcome = await launchAndProve()')))
+    assert.match(failure, /sandbox retained at \$\{sandbox\}\)\. Output:\\n\$\{tail\(\)\}/)
+    assert.match(source, /shutdown:.*JSON\.stringify\(exited\)/)
+  })
+
   test('does not signal a child that has already exited', async () => {
     const kills = []
     const child = { kill: (signal) => { kills.push(signal); return true } }
