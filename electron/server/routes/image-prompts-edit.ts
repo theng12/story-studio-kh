@@ -49,6 +49,14 @@ import { imagePromptGuidanceBlock } from '../lib/image-content-guidance.js'
 import { freshActionFingerprint, readOperationId } from '../lib/fresh-generation-action.js'
 import { withLock, writeJsonAtomic } from '../lib/atomic-store.js'
 import { singleImagePromptOutputContract } from '../lib/story-output-contracts.js'
+import { ThumbnailOptionUpdateSchema, type ThumbnailOptionSettings } from '../contracts/thumbnail-options.js'
+import {
+  mergeThumbnailOption,
+  readThumbnailOptionSettings,
+  thumbnailOptionApproved,
+  thumbnailPromptSha256,
+  updateThumbnailOptionSettings,
+} from '../services/thumbnail-option-settings.js'
 
 export const router = Router()
 
@@ -577,6 +585,114 @@ router.put(
       res.json({ number, title, prompt })
     } catch (e: any) {
       res.status(500).json({ detail: e?.message || 'Failed to save prompt edits' })
+    }
+  },
+)
+
+// ── Thumbnail option metadata (sidecar: <episode>/thumbnail_options.json) ────
+//
+// The numbered Markdown file stays authoritative for what each prompt SAYS;
+// these two routes read and write only the per-option selections (recipe,
+// style, font, text, placement) and the approval, which is a SHA-256 of the
+// prompt text taken at approval time — editing the prompt later makes the
+// stored hash stale and the option reads as not approved. A GET never writes
+// (a legacy episode with no sidecar stays untouched), and an update names ONE
+// option by number, merges it, and leaves every sibling option alone.
+
+/** Current prompt-text hashes for THIS episode, keyed by option number. Empty when no prompts file exists. */
+async function currentThumbnailPromptHashes(
+  slug: string,
+  episodeId: string,
+): Promise<Record<string, string>> {
+  try {
+    const parsed = await parseImagePromptsDocx(await findThumbPromptsFile(slug, episodeId))
+    const hashes: Record<string, string> = {}
+    for (const item of parsed.thumbnails || []) {
+      const prompt = typeof item?.prompt === 'string' ? item.prompt.trim() : ''
+      if (prompt && item?.number != null) hashes[String(item.number)] = thumbnailPromptSha256(prompt)
+    }
+    return hashes
+  } catch {
+    return {}
+  }
+}
+
+/** Wire shape: stored fields per option plus `approved`, computed fresh against the current prompt hash. */
+function presentThumbnailOptions(
+  settings: ThumbnailOptionSettings,
+  promptHashes: Record<string, string>,
+): {
+  schema: number
+  auto_approve: boolean
+  options: Record<string, Record<string, unknown>>
+} {
+  const options: Record<string, Record<string, unknown>> = {}
+  for (const [key, stored] of Object.entries(settings.options)) {
+    const { approved_prompt_sha256: _approval, ...fields } = stored ?? {}
+    options[key] = {
+      ...fields,
+      approved: thumbnailOptionApproved(settings, Number(key), promptHashes[key] ?? null),
+    }
+  }
+  return { schema: settings.schema, auto_approve: settings.auto_approve, options }
+}
+
+router.get(
+  '/projects/:slug/episodes/:episodeId/image-prompts/options',
+  async (req, res) => {
+    const { slug, episodeId } = req.params
+    try {
+      const project = await pm.getProject(slug)
+      if (!project) return res.status(404).json({ detail: 'Project not found' })
+      const settings = await readThumbnailOptionSettings(slug, episodeId)
+      const hashes = await currentThumbnailPromptHashes(slug, episodeId)
+      res.json(presentThumbnailOptions(settings, hashes))
+    } catch (e: any) {
+      res.status(500).json({ detail: e?.message || 'Failed to read thumbnail option settings' })
+    }
+  },
+)
+
+router.put(
+  '/projects/:slug/episodes/:episodeId/image-prompts/options',
+  validateBody(ThumbnailOptionUpdateSchema),
+  async (req, res) => {
+    const { slug, episodeId } = req.params
+    const { number, approve, auto_approve, ...fields } = req.body as z.infer<typeof ThumbnailOptionUpdateSchema>
+    try {
+      const project = await pm.getProject(slug)
+      if (!project) return res.status(404).json({ detail: 'Project not found' })
+
+      // The option's number must name a REAL prompt in THIS episode's own
+      // prompts file — metadata can never point at another episode's prompt or
+      // at a prompt that does not exist.
+      let parsed: Awaited<ReturnType<typeof parseImagePromptsDocx>>
+      try {
+        parsed = await parseImagePromptsDocx(await findThumbPromptsFile(slug, episodeId))
+      } catch {
+        return res.status(404).json({
+          detail: `No thumbnail prompts for ${episodeId.toUpperCase()} were found on disk. Generate them on the Image Prompts page first.`,
+        })
+      }
+      const target = (parsed.thumbnails || []).find(item => Number(item?.number) === number)
+      if (!target) {
+        return res.status(404).json({ detail: `Thumbnail ${number} not found in this episode's prompts file` })
+      }
+
+      const currentSha = thumbnailPromptSha256(String(target.prompt).trim())
+      const next = await updateThumbnailOptionSettings(slug, episodeId, settings => {
+        const merged = mergeThumbnailOption(settings, number, {
+          ...fields,
+          approved_prompt_sha256: approve === true ? currentSha : approve === false ? null : undefined,
+        })
+        if (auto_approve !== undefined) merged.auto_approve = auto_approve
+        return merged
+      })
+
+      const hashes = await currentThumbnailPromptHashes(slug, episodeId)
+      res.json(presentThumbnailOptions(next, hashes))
+    } catch (e: any) {
+      res.status(500).json({ detail: e?.message || 'Failed to save thumbnail option settings' })
     }
   },
 )
