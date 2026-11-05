@@ -261,6 +261,9 @@ test('the pick is: a human pin, then the highest score, then the newest version'
 
   assert.equal(chooseThumbnailPick({ pinned: 'EP0001_Thumb01_v1.png', scored, all })?.filename, 'EP0001_Thumb01_v1.png')
   assert.equal(chooseThumbnailPick({ pinned: 'EP0001_Thumb01_v1.png', scored, all })?.basis, 'manual_pin')
+  // The pin wins even when scoring produced NOTHING to compare it with —
+  // an unmeasured run must never un-pick the owner's pin.
+  assert.equal(chooseThumbnailPick({ pinned: 'EP0001_Thumb01_v1.png', scored: [], all })?.basis, 'manual_pin')
   assert.equal(chooseThumbnailPick({ scored, all })?.filename, 'high.png')
   assert.equal(chooseThumbnailPick({ scored, all })?.basis, 'score')
   // The newest version wins the fallback, and the caller's array order does
@@ -344,6 +347,7 @@ test('an empty run records nothing and picks nothing', async (t) => {
   assert.deepEqual(run.record.candidates, {})
   assert.equal(run.pick, '', 'scoring chose nothing')
   assert.equal(run.resolved, '', 'and there is nothing to resolve to')
+  assert.equal(run.allBad, false, 'no candidates at all is not "all bad" — nothing was rejected')
 })
 
 test('a malformed model answer is not scored, never a zero', async (t) => {
@@ -468,6 +472,117 @@ test('a human pin always wins and is never overwritten', async (t) => {
     'the reason says what actually chose it, not the score')
 })
 
+test('a run that cannot measure keeps the previous valid pick, with the reason', async (t) => {
+  const f = await fixture(t)
+  // Scores that make the WINNER a file the newest-version rule would NOT
+  // take, so "kept" and "fell back" are distinguishable.
+  const byPath: Record<string, number> = {
+    [f.candidates[0]!.path]: 40,
+    [f.candidates[1]!.path]: 90,
+    [f.candidates[2]!.path]: 60,
+  }
+  useSeams(t, [visionRow()], async input => answer(byPath[input.imagePath] ?? 50))
+  const first = await runThumbnailScoring({
+    slug: f.slug,
+    episodeCode: 'EP0001',
+    fallbackTitle: '',
+    candidates: f.candidates,
+    title: 'The title',
+    config: config(),
+  })
+  const winner = first.record.pick!.filename
+  assert.equal(first.record.pick?.basis, 'score')
+  assert.notEqual(winner, f.candidates[0]!.filename, 'the winner is not the newest version')
+
+  // Every provider call fails: this run measures NOTHING.
+  useSeams(t, [visionRow()], async () => { throw new Error('the provider is down') })
+  const second = await runThumbnailScoring({
+    slug: f.slug,
+    episodeCode: 'EP0001',
+    fallbackTitle: '',
+    candidates: f.candidates,
+    title: 'The title',
+    config: config(),
+  })
+  assert.equal(second.notScored, true, 'this run measured nothing, and says so')
+  assert.equal(second.record.pick?.filename, winner, 'the previous valid pick is kept, not swapped for the newest version')
+  assert.equal(second.record.pick?.basis, 'score')
+  assert.match(second.record.pick!.reason, /previous scored pick is kept/, 'the reason says the pick was KEPT and why')
+  assert.equal(second.resolved, winner, 'the upload still takes the kept pick')
+  assert.equal(second.pick, winner, 'the record and the run agree a score chose it')
+  assert.equal(second.record.candidates[winner]!.state, 'scored',
+    'the measurement of the same bytes stands; not_scored never replaces it')
+  assert.equal(second.allBad, false)
+
+  useSeams(t, [visionRow()], async input => {
+    if (input.imagePath === f.candidates[0]!.path) throw new Error('one provider result unavailable')
+    return answer(input.imagePath === f.candidates[2]!.path ? 99 : 45)
+  })
+  const partial = await runThumbnailScoring({ slug: f.slug, episodeCode: 'EP0001', fallbackTitle: '',
+    candidates: f.candidates, title: 'The title', config: config() })
+  assert.equal(partial.record.pick?.filename, winner, 'partial scoring must not replace the existing valid selection')
+  assert.match(partial.record.pick!.reason, /Scoring is incomplete/)
+})
+
+test('missing candidates are not measured and never count as all bad', async t => {
+  const f = await fixture(t)
+  useSeams(t, [visionRow()], async () => answer(70))
+  const run = await runThumbnailScoring({ slug: f.slug, episodeCode: 'EP0001', fallbackTitle: '',
+    candidates: [{ ...f.candidates[0]!, path: path.join(f.episodeDir, 'missing.png') }],
+    title: 'The title', config: config() })
+  assert.equal(run.allBad, false)
+  assert.equal(Object.values(run.record.candidates)[0]?.state, 'not_scored')
+})
+
+test('"all bad" means every candidate was explicitly rejected — never not_scored or a 0', async (t) => {
+  // (a) Every candidate set aside by a local rule: that IS all-bad.
+  const all = await fixture(t, ['A', 'B'])
+  for (const candidate of all.candidates) await blankImage(candidate.path)
+  useSeams(t, [visionRow()], async () => answer(70))
+  const rejected = await runThumbnailScoring({
+    slug: all.slug,
+    episodeCode: 'EP0001',
+    fallbackTitle: '',
+    candidates: all.candidates,
+    title: 'The title',
+    config: config(),
+  })
+  assert.equal(rejected.allBad, true, 'every candidate was explicitly rejected')
+  assert.equal(rejected.pick, '', 'no score chose anything')
+
+  // (b) One rejection plus candidates that were merely NOT MEASURED:
+  // unmeasured is not a rejection, so this is not all-bad.
+  const mixed = await fixture(t, ['A', 'B', 'C'])
+  await blankImage(mixed.candidates[0]!.path)
+  useSeams(t, [visionRow()], async () => { throw new Error('the provider is down') })
+  const partial = await runThumbnailScoring({
+    slug: mixed.slug,
+    episodeCode: 'EP0001',
+    fallbackTitle: '',
+    candidates: mixed.candidates,
+    title: 'The title',
+    config: config(),
+  })
+  const entries = Object.values(partial.record.candidates)
+  assert.ok(entries.some(c => c.state === 'rejected_by_rule'))
+  assert.ok(entries.some(c => c.state === 'not_scored'))
+  assert.equal(partial.allBad, false, 'not_scored is never a rejection')
+
+  // (c) A real score of 0 is a measurement, not all-bad.
+  const zero = await fixture(t)
+  useSeams(t, [visionRow()], async () => answer(0))
+  const zeroed = await runThumbnailScoring({
+    slug: zero.slug,
+    episodeCode: 'EP0001',
+    fallbackTitle: '',
+    candidates: zero.candidates,
+    title: 'The title',
+    config: config(),
+  })
+  assert.equal(zeroed.allBad, false)
+  assert.equal(zeroed.notScored, false, 'a 0 is a score')
+})
+
 test('a pinned file that was never measured carries no score, and a missing score is not a 0', async (t) => {
   const f = await fixture(t)
   // The model call fails, so nothing is measured — including the pinned file.
@@ -518,7 +633,9 @@ test('the switch off keeps today\'s behaviour — nothing is scored', async (t) 
     candidates: f.candidates,
     title: 'The title',
     config: config({ enabled: false }),
+    pinned: f.candidates[2]!.filename,
   })
+  assert.equal(run.resolved, f.candidates[2]!.filename, 'switching scoring off still honors the human pin')
   assert.equal(called, false, 'no model call happens when the switch is off')
   assert.equal(run.notScored, true)
   assert.equal(run.pick, '', 'scoring chose nothing')
