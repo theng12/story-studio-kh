@@ -6,10 +6,17 @@ What's new in each release. Newest first.
 
 ## v1.4.384 — 2026-11-06
 
-- Video Assembly keeps intro, title and motion, appearance, episode effects, subtitles and outro editing together. Editors hold changes until Apply; Cancel keeps the current episode unchanged. Old Effects Library links open the matching episode and scene here.
-- Choose channel-owned intro music explicitly in the Intro editor. Apply rebuilds that episode's audio with its saved Audio Assembly preset and selects the completed new track. Episodes without a selection keep their existing audio path.
+- Video Assembly keeps intro, title/chapter styling, transitions, appearance, episode effects, subtitles and outro editing together. Motion Review and Sketch Draw stay separate pages. Editors hold changes until Apply; Cancel keeps the current episode unchanged. Old Effects Library links open the matching episode and scene here.
+- Choose channel intro music explicitly in the Intro editor. Apply rebuilds that episode's audio with its saved Audio Assembly preset and selects the completed new track. Episodes without a selection keep their existing audio path, and no default or preset is rewritten.
 - Chapter titles can use an explicitly selected channel font, with fitting and wrapping for English and Khmer. Approximate previews say so; existing title rendering stays unchanged when no font is selected.
-- Character Sheet shows the full channel roster without requiring an episode. Edit shared character records, references and channel voice profiles there; the episode cast stays separate. Old Channel Characters links lead to the matching channel.
+- Character Sheet shows a channel's full character roster without requiring an episode. Each character record belongs to that one channel, with its own channel voice profile and references; there are no shared cross-channel profiles, and the episode cast stays separate. Old Channel Characters links lead to the matching channel.
+- Character migration copies one verified snapshot of each channel's same identities, channel voice and references. Legacy records remain an untouched fallback; there is no custom undo engine.
+- Removing a job from the list now hides it instead of deleting it, and hidden job history can be restored.
+- Sound and label cue timing is checked independently: a label cue that landed outside its scene can be repaired, and sounds are rechecked against their own plan stamp instead of the label's.
+- Sketch Draw scenes that start black are now recognised by the final video check.
+- Cancelling an effects edit no longer leaves its draft in the shared read cache.
+- Style descriptions were corrected for 50 authoring-only styles without changing their preview images; two live style descriptions were also corrected at source only.
+- These changes apply to new videos, including newer videos for channels already past December. Finished videos are not re-rendered, and saved choices are not backfilled.
 - Assembly popups keep space around their content and controls on desktop and small screens. The effects toolbar wraps inside the dialog instead of clipping its search and category buttons.
 
 ## v1.4.383 — 2026-11-06
