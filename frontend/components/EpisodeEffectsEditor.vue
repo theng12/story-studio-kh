@@ -921,7 +921,10 @@ async function load(): Promise<void> {
     loadedOutlines.value = [...(data.outlines || [])]
     hasScenePlan.value = !!data.has_scene_plan
     readError.value = data.read_error || ''
-    Object.assign(file, emptyEffectsFile(), data.file || {})
+    // Deep-clone the read: the API's SWR cache keeps the response object, and
+    // a draft edit pushes into these arrays — sharing them would make Cancel
+    // write the draft into the cache, so the next open shows it as saved.
+    Object.assign(file, cloneEffectsFile(Object.assign(emptyEffectsFile(), data.file || {})))
     baseline.value = cloneEffectsFile(file)
     fileEpisode.value = episode
     const wanted = (props.sceneId && scenes.value.some(s => s.id === props.sceneId))
@@ -1310,7 +1313,9 @@ async function apply(): Promise<{ ok: boolean; error?: string }> {
 /** The host's Cancel: back to the loaded file, side-writes dropped. */
 function cancel(): void {
   if (applying.value) return
-  Object.assign(file, emptyEffectsFile(), baseline.value)
+  // Clone too: assigning baseline's nested arrays into the draft would let a
+  // later edit mutate the baseline and read as clean.
+  Object.assign(file, cloneEffectsFile(baseline.value))
   ops.value = []
   outlines.value = [...loadedOutlines.value]
   pendingOutlineLabels.value = {}

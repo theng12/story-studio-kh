@@ -158,11 +158,13 @@ interface HarnessOptions {
   failRemoveOnce?: boolean
   /** Reject the first PUT to this path, then behave normally — a retry succeeds. */
   failPutOnce?: string
+  /** Serve this exact object as ep1's file on every GET — the SWR cache's shared object. */
+  sharedEpisodeFile?: any
 }
 
 /** The episode's own read, answered the same way whichever channel asks — the tests switch channels. */
-function episodeAnswer(path: string): any | null {
-  if (path.endsWith('/effects-library/ep1')) return { overlays: library, scenes, outlines: [], has_scene_plan: true, read_error: '', file: fileEp1() }
+function episodeAnswer(path: string, sharedEpisodeFile?: any): any | null {
+  if (path.endsWith('/effects-library/ep1')) return { overlays: library, scenes, outlines: [], has_scene_plan: true, read_error: '', file: sharedEpisodeFile ?? fileEp1() }
   if (path.endsWith('/effects-library/ep2')) return { overlays: library, scenes, outlines: [], has_scene_plan: true, read_error: '', file: fileEp2() }
   return null
 }
@@ -204,7 +206,7 @@ async function mountEditor(options: HarnessOptions = {}) {
       calls.push({ method: 'GET', path })
       const heldAnswer = holdFor('GET', path)
       if (heldAnswer) return heldAnswer
-      const episode = episodeAnswer(path)
+      const episode = episodeAnswer(path, options.sharedEpisodeFile)
       if (episode) return episode
       if (path.endsWith('/video-editor/effects/catalog')) return { overlays: library, scene_motions: [], motion_families: [] }
       if (path.endsWith('/effects-library-in-use')) return { overlays: [], motions: [], source: null }
@@ -408,6 +410,54 @@ describe('the panel drafts until apply', () => {
       assert.ok(!stackText(mounted.host).includes(FIRST_NAME), 'the added effect is gone from the stack')
     } finally {
       mounted.unmount()
+    }
+  })
+
+  test('cancel then reopen never leaks the draft through the shared read cache; Apply survives a reopen', async () => {
+    // The SWR read cache answers every GET with the same object; the draft must not mutate it.
+    const shared = fileEp2()
+    const first = await mountEditor({ sharedEpisodeFile: shared })
+    try {
+      targetSelect(first.host).value = 'episode'
+      targetSelect(first.host).dispatchEvent(new Event('change'))
+      await flush()
+      await addSelectedEffect(first.host)
+      assert.equal(first.dirtyEvents.at(-1), true)
+
+      first.panel.value.cancel()
+      await flush()
+      assert.deepEqual(first.writes(), [], 'cancel writes nothing')
+      assert.ok(!stackText(first.host).includes(FIRST_NAME), 'the cancelled addition leaves the draft')
+      assert.ok(!JSON.stringify(shared).includes(FIRST_ID), 'the draft never mutates the shared read cache')
+    } finally {
+      first.unmount()
+    }
+
+    // Reopen against the same cached response: the cancelled addition is gone and the panel is clean.
+    const second = await mountEditor({ sharedEpisodeFile: shared })
+    try {
+      assert.ok(!stackText(second.host).includes(FIRST_NAME), 'the cancelled addition is gone on reopen')
+      assert.equal(second.dirtyEvents.at(-1), false, 'reopen is clean')
+      assert.deepEqual(second.writes(), [], 'reopening writes nothing')
+
+      // Apply, then reopen against what the PUT saved: an applied addition stays.
+      targetSelect(second.host).value = 'episode'
+      targetSelect(second.host).dispatchEvent(new Event('change'))
+      await flush()
+      await addSelectedEffect(second.host)
+      assert.deepEqual(await second.panel.value.apply(), { ok: true })
+      const put = second.writes().find(c => c.method === 'PUT')!
+      Object.assign(shared, put.body)
+    } finally {
+      second.unmount()
+    }
+
+    const third = await mountEditor({ sharedEpisodeFile: shared })
+    try {
+      assert.ok(stackText(third.host).includes(FIRST_NAME), 'an applied addition survives reopen')
+      assert.equal(third.dirtyEvents.at(-1), false, 'the saved file reads clean')
+    } finally {
+      third.unmount()
     }
   })
 
