@@ -27,8 +27,12 @@ import {
   freezeShape, freshStoredExpectation, isIntroAssetBlack, measureIntroAssetBlack, measureOpeningBlack,
   plannedSecFromSectionGaps, readFrozenShape, readPlannedSectionGaps, readStoredFinalCheck,
   unplannedDurationIssue,
-  type FinalCheckExpectation, type FrozenFinalCheckShape, type OwnerFreezeDecision,
+  type FinalCheckExpectation, type FinalCheckSceneBlankStart, type FrozenFinalCheckShape, type OwnerFreezeDecision,
 } from '../lib/final-video-check.js'
+import {
+  resolveSketchRevealPlan, sketchRevealForSingleScene, sketchRevealNeedsScenes,
+  type SketchRevealSetting,
+} from '../lib/sketch-reveal.js'
 import {
   resolveEpisodeRenderShape, resolveIntroSlot, resolveTimelineSlot, shapeFromVideoAssemblySettings,
 } from './opening-assets.js'
@@ -332,6 +336,130 @@ export function videoAssemblySettingsFromRenderRequest(params: Record<string, un
       },
     }],
     video_bundle_last_preset: RENDER_REQUEST_BUNDLE_ID,
+  }
+}
+
+/** The scene fields the blank-start resolver reads: the episode's own plan timing and clip receipt. */
+export interface SketchScenePlanEntry {
+  id: string
+  start_sec: number
+  end_sec: number
+  clip_renderer?: string
+  motion_choice?: string
+  clip_sketch?: {
+    fps?: unknown
+    frames?: unknown
+    hold_frames?: unknown
+    reveal_type?: unknown
+  }
+}
+
+/** How far the scenes' summed timing may sit past the recorded speech end and still be the body. */
+const SCENE_TIMING_TOLERANCE_SEC = 1
+
+/**
+ * The expected blank start of every Sketch Draw scene, from the episode's ACTUAL scene timing.
+ *
+ * A Sketch Draw clip opens on the renderer's bare canvas and draws the picture over the clip's
+ * reveal window, so a dark stretch that begins at a scene's own start and ends inside that window
+ * is the canvas (owner-confirmed on MineePod EP0029, 2026-11-06). Two recorded facts bound it:
+ *
+ *  - the scene's place in the file, counted BACK from `speech_end_sec` with the plan's own scene
+ *    lengths, so an opening or narration lead-in before the first scene cancels out — the same
+ *    reasoning `sectionGapWindows` uses (a plan's raw `start_sec` is on the narration's clock, not
+ *    the finished file's); and
+ *  - the reveal window itself, which the clip's own receipt records as its drawing frames
+ *    (`frames - hold_frames`, at its own `fps`).
+ *
+ * `reveal` is the episode's own setting (or its channel's), resolved through the one Sketch Draw
+ * contract: a Mix needs the episode's ordered scenes (`sketchRevealNeedsScenes`), a single style or
+ * a pin does not. The receipt's own `reveal_type` wins for the label, because it is what actually
+ * rendered.
+ *
+ * Never invents a window: no recorded speech end, a scene with no usable timing, or a clip whose
+ * receipt has no `hold_frames` (helper v2) contributes nothing, and that scene is judged exactly as
+ * before (AGENTS.md §6).
+ */
+export function sketchSceneBlankStarts(input: {
+  episode_id: string
+  scenes: readonly SketchScenePlanEntry[]
+  reveal: SketchRevealSetting | null | undefined
+  speech_end_sec: number | null | undefined
+}): FinalCheckSceneBlankStart[] {
+  const speechEnd = Number(input.speech_end_sec)
+  if (!(speechEnd > 0)) return []
+  const timed: Array<{ scene: SketchScenePlanEntry; duration: number }> = []
+  for (const scene of input.scenes ?? []) {
+    const start = Number(scene?.start_sec)
+    const end = Number(scene?.end_sec)
+    if (!scene?.id || !Number.isFinite(start) || !Number.isFinite(end) || !(end > start)) return []
+    timed.push({ scene, duration: end - start })
+  }
+  if (!timed.length) return []
+  const total = timed.reduce((sum, entry) => sum + entry.duration, 0)
+  let cursor = speechEnd - total
+  if (!(cursor >= -SCENE_TIMING_TOLERANCE_SEC)) return []
+
+  const reveal = input.reveal ?? null
+  const plan = reveal && sketchRevealNeedsScenes(reveal)
+    ? resolveSketchRevealPlan(input.episode_id, timed.map(entry => entry.scene.id), reveal)
+    : null
+
+  const starts: FinalCheckSceneBlankStart[] = []
+  for (const { scene, duration } of timed) {
+    const start = Math.max(0, cursor)
+    cursor += duration
+    // The final uses a scene's clip only when the plan chose it; a scene kept as a still has no
+    // canvas in the file, whatever receipt it once had.
+    if (scene.motion_choice === 'still') continue
+    if (scene.clip_renderer !== 'sketch_draw' && !scene.clip_sketch) continue
+    const receipt = scene.clip_sketch
+    const fps = Number(receipt?.fps)
+    const frames = Number(receipt?.frames)
+    const hold = Number(receipt?.hold_frames)
+    if (!(fps > 0) || !(frames > 0) || !Number.isInteger(hold) || hold < 0 || hold >= frames) continue
+    const revealSec = Math.min(duration, (frames - hold) / fps)
+    if (!(revealSec > 0)) continue
+    const receiptType = typeof receipt?.reveal_type === 'string' ? receipt.reveal_type : null
+    const resolvedType = plan
+      ? plan.get(scene.id)
+      : reveal ? sketchRevealForSingleScene(reveal, scene.id) : null
+    starts.push({
+      scene_id: scene.id,
+      start_sec: Math.round(start * 1000) / 1000,
+      end_sec: Math.round((start + revealSec) * 1000) / 1000,
+      ...(receiptType || resolvedType ? { reveal: receiptType ?? resolvedType! } : {}),
+    })
+  }
+  return starts
+}
+
+/**
+ * The same windows, read from one episode's own Scene Plan and sketch reveal setting.
+ *
+ * Read fresh — an episode artifact, not a channel preset — so a check can place the scenes of a
+ * final that carries no plan of its own. Never throws: an episode whose plan or setting cannot be
+ * read gets no windows, and its black is judged exactly as before.
+ */
+export async function sketchSceneBlankStartsForEpisode(
+  slug: string,
+  code: string,
+  episodeDir: string,
+  speechEndSec: number | null | undefined,
+): Promise<FinalCheckSceneBlankStart[]> {
+  try {
+    if (!(Number(speechEndSec) > 0)) return []
+    const plan = JSON.parse(await fs.readFile(await resolveScenePlanPath(slug, code, episodeDir), 'utf-8'))
+    const { resolveEpisodeReveal } = await import('./scene-media-checkpoint.js')
+    const reveal = await resolveEpisodeReveal(slug, code).then(choice => choice.reveal).catch(() => null)
+    return sketchSceneBlankStarts({
+      episode_id: code,
+      scenes: Array.isArray(plan?.scenes) ? plan.scenes : [],
+      reveal,
+      speech_end_sec: speechEndSec,
+    })
+  } catch {
+    return []
   }
 }
 

@@ -233,6 +233,16 @@ export interface FinalCheckExpectation {
    */
   intro?: FinalCheckIntro
   /**
+   * The Sketch Draw scenes' expected blank starts, in the finished file's own clock. Each entry is
+   * one scene whose own clip receipt says it drew from a bare canvas for a recorded number of
+   * frames. A black stretch that begins at that scene's start and ends inside that window is the
+   * canvas; black that starts mid-scene, elsewhere, or runs past the window is still judged.
+   *
+   * Absent means the episode is not a Sketch Draw episode, or the check could not establish the
+   * scenes' actual timing — and then nothing is exempted (AGENTS.md §6).
+   */
+  scene_blank_starts?: FinalCheckSceneBlankStart[]
+  /**
    * True only for a freeze taken before the shape recorded its tail geometry. The file's intended
    * closing-tail placement is then unknown, so a black stretch near the end cannot be called
    * "outside the closing tail": it is reported as a STOP whose placement could not be established.
@@ -254,6 +264,26 @@ export interface FinalCheckExpectation {
    * settings that no longer describe it.
    */
   expectation_unknown?: string
+}
+
+/**
+ * One Sketch Draw scene's expected blank start in the finished file.
+ *
+ * A Sketch Draw clip opens on the renderer's bare canvas and draws the picture over its reveal
+ * window, so a short dark stretch at that scene's own start is the canvas arriving, not a hole the
+ * render invented (owner-confirmed on MineePod EP0029, 2026-11-06: 45 such stretches were intended).
+ * The window is bounded by the scene's ACTUAL timing and the reveal length its own clip receipt
+ * records — never a guessed duration.
+ */
+export interface FinalCheckSceneBlankStart {
+  /** The scene's id in the episode's plan, so a verdict can name it. */
+  scene_id: string
+  /** Where this scene starts in the finished file's own clock. */
+  start_sec: number
+  /** Where its reveal window ends. Black past this is not the blank canvas. */
+  end_sec: number
+  /** The reveal type the scene rendered with, when it is known. */
+  reveal?: string
 }
 
 /**
@@ -535,6 +565,12 @@ export function tailWindow(
 /** How far a measured black stretch may sit from the intro asset's own black and still be it (the clip is re-encoded into the file). */
 const INTRO_BLACK_TOLERANCE_SEC = 1
 
+/** How far a black stretch may start from a Sketch Draw scene's own boundary and still be its blank canvas (frame/transition rounding). */
+const SCENE_BLANK_START_TOLERANCE_SEC = 1
+
+/** How far past a scene's recorded reveal window a black stretch may run before the excess is a fault. */
+const SCENE_BLANK_END_TOLERANCE_SEC = 0.5
+
 /**
  * True when this black stretch is the branded intro's OWN black, playing where the render put the
  * intro clip.
@@ -700,6 +736,22 @@ export function finalCheckIssues(
     }
     // A black stretch inside the closing tail is the closing tail — that is what it was drawn for.
     if (run.start_sec >= bodyEnd - 0.5) continue
+    // A Sketch Draw scene opens on its bare canvas, so a dark stretch that begins at that scene's
+    // own start and ends inside its recorded reveal window is the canvas, not a fault. Only that:
+    // a stretch starting mid-scene, or running past the window, is still reported.
+    const blankStart = expected.scene_blank_starts?.find(scene =>
+      run.start_sec >= scene.start_sec - SCENE_BLANK_START_TOLERANCE_SEC
+      && run.start_sec <= scene.start_sec + SCENE_BLANK_START_TOLERANCE_SEC)
+    if (blankStart) {
+      if (run.end_sec <= blankStart.end_sec + SCENE_BLANK_END_TOLERANCE_SEC) continue
+      issues.push({
+        check: 'black',
+        verdict: `there is a ${length.toFixed(1)}s black stretch at ${clock(run.start_sec)} that runs past the `
+          + `${(blankStart.end_sec - blankStart.start_sec).toFixed(1)}s clean Sketch Draw reveal at `
+          + `${blankStart.scene_id}'s start (ending ${clock(blankStart.end_sec)}), so the rest of it is unexpected`,
+      })
+      continue
+    }
     issues.push({
       check: 'black',
       verdict: `there is a ${length.toFixed(1)}s black stretch at ${clock(run.start_sec)}, outside the closing tail`,
