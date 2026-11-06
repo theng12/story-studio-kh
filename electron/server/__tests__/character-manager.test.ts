@@ -210,9 +210,9 @@ describe('character-manager', () => {
     await cm.deleteCharacter(SLUG, 'lib') // drop the on-disk copy
     const got = await cm.getCharacter(SLUG, 'lib')
     assert.equal(got?.name, 'Lib')
-    assert.equal(got?.source, 'library')
-    // Not assigned anywhere → not visible from a different project.
-    await cl.unassignFromProject('lib', SLUG)
+    assert.equal(got?.source, 'project', 'channel-owned record is canonical')
+    // Deleting the channel copy removes it from this channel's view.
+    await cl.deleteChannelCharacter(SLUG, 'lib')
     assert.equal(await cm.getCharacter(SLUG, 'lib'), null)
   })
 

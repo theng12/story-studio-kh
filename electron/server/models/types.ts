@@ -1624,11 +1624,11 @@ export interface Character {
   references?: CharacterReferences
 
   /**
-   * Channel assignment labels. The persisted key remains `projects` so older
-   * installations can read the data, but each slug represents one channel.
-   * Undefined/empty = available in the library but not assigned to a channel.
+   * Legacy channel assignment labels. The persisted key remains `projects` so
+   * older installations can read the data, but a channel-owned record carries
+   * exactly one slug. Undefined/empty = a legacy unassigned record.
    * Per-project on-disk characters leave this undefined — their folder
-   * location IS their assignment. See docs/character-unification-spec.md.
+   * location IS their assignment.
    */
   projects?: string[]
 

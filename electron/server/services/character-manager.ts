@@ -67,6 +67,10 @@ function characterDir(slug: string, characterId: string): string {
  * route so it doesn't have to redo path arithmetic.
  */
 export function referenceImagePath(slug: string, characterId: string, filename: string): string {
+  // Channel-owned copy first. Legacy flat is the read-only fallback until the
+  // channel library is migrated.
+  const channelPath = path.join(pm.projectsRoot(), '.character-library', '_channels', slug, characterId, filename)
+  if (existsSync(channelPath)) return channelPath
   const libraryPath = path.join(pm.projectsRoot(), '.character-library', characterId, filename)
   if (existsSync(libraryPath)) return libraryPath
   const projectPath = path.join(characterDir(slug, characterId), filename)
@@ -93,9 +97,11 @@ function characterJsonPath(slug: string, characterId: string): string {
  * no per-consumer change. See docs/character-unification-spec.md.
  */
 export async function getCharacter(slug: string, characterId: string): Promise<Character | null> {
-  // Canonical Channel Character wins. This also overlays the channel's voice
-  // profile so every existing prompt/audio consumer gets the right voice.
+  // The channel-owned record wins. Legacy flat records are a read-only
+  // fallback until this channel's library is migrated.
   const cl = await import('./character-library.js')
+  const owned = await cl.getChannelCharacter(slug, characterId)
+  if (owned) return normalize(owned)
   const lib = await cl.getLibraryCharacter(characterId)
   if (lib && (lib.projects || []).includes(slug)) {
     return normalize(cl.resolveForChannel(lib, slug))

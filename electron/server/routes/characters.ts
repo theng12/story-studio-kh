@@ -26,7 +26,6 @@ export const router = Router()
 
 router.get('/projects/:slug/characters', async (req, res) => {
   try {
-    await cl.ensureProjectCharactersMigrated(req.params.slug)
     const episodeCode = typeof req.query.episode_code === 'string' ? req.query.episode_code : undefined
     res.json(await cm.listCharacters(req.params.slug, { episodeCode }))
   } catch (e: any) {
@@ -53,7 +52,11 @@ router.post('/projects/:slug/characters', async (req, res) => {
     if (!body.description || typeof body.description !== 'string' || !body.description.trim()) {
       return res.status(400).json({ detail: 'description is required' })
     }
-    const created = await cl.createLibraryCharacter({ ...body, scope: 'project', episode_codes: undefined, projects: [req.params.slug] })
+    const created = await cl.createChannelCharacter(req.params.slug, {
+      ...body,
+      scope: 'project',
+      episode_codes: undefined,
+    })
     res.status(201).json(created)
   } catch (e: any) {
     // character-manager throws with .status set on validation/conflict
@@ -68,10 +71,17 @@ router.post('/projects/:slug/characters', async (req, res) => {
 
 router.put('/projects/:slug/characters/:id', async (req, res) => {
   try {
-    const library = await cl.getLibraryCharacter(req.params.id)
-    const updated = library && library.projects?.includes(req.params.slug)
-      ? await cl.updateLibraryCharacter(req.params.id, req.body || {})
-      : await cm.updateCharacter(req.params.slug, req.params.id, req.body || {})
+    const owned = await cl.getChannelCharacter(req.params.slug, req.params.id)
+    if (owned) {
+      const updated = await cl.updateChannelCharacter(req.params.slug, req.params.id, req.body || {})
+      if (!updated) return res.status(404).json({ detail: 'Character not found' })
+      return res.json(updated)
+    }
+    const legacy = await cl.getLibraryCharacter(req.params.id)
+    if (legacy && (legacy.projects || []).includes(req.params.slug)) {
+      return res.status(409).json({ detail: new cl.CharacterLegacyReadOnlyError(req.params.id).message })
+    }
+    const updated = await cm.updateCharacter(req.params.slug, req.params.id, req.body || {})
     if (!updated) return res.status(404).json({ detail: 'Character not found' })
     res.json(updated)
   } catch (e: any) {
@@ -81,10 +91,13 @@ router.put('/projects/:slug/characters/:id', async (req, res) => {
 
 router.put('/projects/:slug/characters/:id/promote', async (req, res) => {
   try {
-    const library = await cl.getLibraryCharacter(req.params.id)
-    const updated = library && library.projects?.includes(req.params.slug)
-      ? cl.resolveForChannel(library, req.params.slug)
-      : await cm.promoteToProject(req.params.slug, req.params.id)
+    const owned = await cl.getChannelCharacter(req.params.slug, req.params.id)
+    if (owned) return res.json(owned)
+    const legacy = await cl.getLibraryCharacter(req.params.id)
+    if (legacy && (legacy.projects || []).includes(req.params.slug)) {
+      return res.status(409).json({ detail: new cl.CharacterLegacyReadOnlyError(req.params.id).message })
+    }
+    const updated = await cm.promoteToProject(req.params.slug, req.params.id)
     if (!updated) return res.status(404).json({ detail: 'Character not found' })
     res.json(updated)
   } catch (e: any) {
@@ -94,10 +107,16 @@ router.put('/projects/:slug/characters/:id/promote', async (req, res) => {
 
 router.delete('/projects/:slug/characters/:id', async (req, res) => {
   try {
-    const library = await cl.getLibraryCharacter(req.params.id)
-    const ok = library && library.projects?.includes(req.params.slug)
-      ? !!(await cl.unassignFromProject(req.params.id, req.params.slug))
-      : await cm.deleteCharacter(req.params.slug, req.params.id)
+    const owned = await cl.getChannelCharacter(req.params.slug, req.params.id)
+    if (owned) {
+      await cl.deleteChannelCharacter(req.params.slug, req.params.id)
+      return res.json({ ok: true, id: req.params.id })
+    }
+    const legacy = await cl.getLibraryCharacter(req.params.id)
+    if (legacy && (legacy.projects || []).includes(req.params.slug)) {
+      return res.status(409).json({ detail: new cl.CharacterLegacyReadOnlyError(req.params.id).message })
+    }
+    const ok = await cm.deleteCharacter(req.params.slug, req.params.id)
     if (!ok) return res.status(404).json({ detail: 'Character not found' })
     res.json({ ok: true, id: req.params.id })
   } catch (e: any) {
@@ -151,11 +170,35 @@ router.post('/projects/:slug/characters/:id/reference-image', async (req, res) =
     if (buf.length > MAX_IMAGE_BYTES) {
       return res.status(413).json({ detail: `Image too large (${buf.length} bytes, max ${MAX_IMAGE_BYTES})` })
     }
-    const library = await cl.getLibraryCharacter(req.params.id)
-    const result = library && library.projects?.includes(req.params.slug)
-      ? await cl.addLibraryReferenceImage(req.params.id, buf, filename)
-      : await cm.addReferenceImage(req.params.slug, req.params.id, buf, filename)
+    const owned = await cl.getChannelCharacter(req.params.slug, req.params.id)
+    if (owned) {
+      const result = await cl.addChannelReferenceImage(req.params.slug, req.params.id, buf, filename)
+      return res.json({ ok: true, relativePath: result.relativePath })
+    }
+    const legacy = await cl.getLibraryCharacter(req.params.id)
+    if (legacy && (legacy.projects || []).includes(req.params.slug)) {
+      return res.status(409).json({ detail: new cl.CharacterLegacyReadOnlyError(req.params.id).message })
+    }
+    const result = await cm.addReferenceImage(req.params.slug, req.params.id, buf, filename)
     res.json({ ok: true, relativePath: result.relativePath })
+  } catch (e: any) {
+    const status = e?.message?.includes('not found') ? 404 : 500
+    res.status(status).json({ detail: e.message })
+  }
+})
+
+router.delete('/projects/:slug/characters/:id/reference-image/:filename', async (req, res) => {
+  try {
+    const owned = await cl.getChannelCharacter(req.params.slug, req.params.id)
+    if (!owned) {
+      const legacy = await cl.getLibraryCharacter(req.params.id)
+      if (legacy && (legacy.projects || []).includes(req.params.slug)) {
+        return res.status(409).json({ detail: new cl.CharacterLegacyReadOnlyError(req.params.id).message })
+      }
+      return res.status(404).json({ detail: `Character '${req.params.id}' not found` })
+    }
+    const updated = await cl.removeChannelReferenceImage(req.params.slug, req.params.id, req.params.filename)
+    res.json(updated)
   } catch (e: any) {
     const status = e?.message?.includes('not found') ? 404 : 500
     res.status(status).json({ detail: e.message })

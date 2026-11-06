@@ -1,23 +1,19 @@
 /**
- * REST endpoints for the global character library (Phase 7).
+ * Character library routes.
  *
- *   GET    /api/character-library
- *   GET    /api/character-library/:id
- *   PUT    /api/character-library/:id  (edit a library entry in place)
- *   DELETE /api/character-library/:id
- *   DELETE /api/character-library/:id/reference-image/:filename
+ * Channel Canonical: GET/POST/PUT/DELETE /api/projects/:slug/characters*.
+ * The global routes here are READ-ONLY legacy access plus migration control.
+ * They never mutate a legacy record.
  *
- *   POST   /api/projects/:slug/characters/:id/save-to-library
- *          body: { libraryId?, overwrite? } — defaults libraryId to char id
- *
- *   POST   /api/character-library/:id/import-to/:slug
- *          body: { targetId?, scope?, episode_codes?, overwrite? }
- *
- *   Unified-library assignment (taggable per project):
- *   POST   /api/character-library/:id/assign/:slug    → tag char to project
- *   DELETE /api/character-library/:id/assign/:slug    → untag (reversible)
- *   GET    /api/projects/:slug/library-characters     → assigned to this project
- *   POST   /api/projects/:slug/characters/assign-from-library  { libraryId }
+ *   GET    /api/character-library                 → legacy flat (read-only)
+ *   GET    /api/character-library?channel=<slug>  → one channel's owned records
+ *   GET    /api/character-library/:id             → one legacy record
+ *   GET    /api/character-library/:id?channel=…   → one channel-owned record
+ *   GET    /api/character-library/:id/reference-image/:filename[?channel=…]
+ *   POST   /api/character-library/:id/...         → 409 read-only (use project routes)
+ *   GET    /api/character-library/channel-migration/preview
+ *   POST   /api/character-library/channel-migration/apply
+ *   POST   /api/character-library/channel-migration/undo  { run_id }
  */
 
 import { Router } from 'express'
@@ -28,26 +24,45 @@ import * as cl from '../services/character-library.js'
 
 export const router = Router()
 
-router.get('/character-library', async (_req, res) => {
+const LEGACY_READ_ONLY = 'Legacy channel characters are read-only. Use /api/projects/:slug/characters after migrating the channel library.'
+
+function channelQuery(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : ''
+}
+
+router.get('/character-library/channel-migration/preview', async (_req, res) => {
+  try { res.json(await cl.previewChannelMigration()) }
+  catch (e: any) { res.status(500).json({ detail: e.message }) }
+})
+
+router.post('/character-library/channel-migration/apply', async (_req, res) => {
+  try { res.json(await cl.applyChannelMigration()) }
+  catch (e: any) { res.status(500).json({ detail: e.message }) }
+})
+
+router.post('/character-library/channel-migration/undo', async (req, res) => {
   try {
-    res.json(await cl.listLibrary())
+    const runId = typeof req.body?.run_id === 'string' ? req.body.run_id : ''
+    if (!runId) return res.status(400).json({ detail: 'run_id is required' })
+    res.json(await cl.undoChannelMigration(runId))
+  } catch (e: any) { res.status(500).json({ detail: e.message }) }
+})
+
+router.get('/character-library', async (req, res) => {
+  try {
+    const channel = channelQuery(req.query.channel)
+    res.json(channel ? await cl.listChannelCharacters(channel) : await cl.listLibrary())
   } catch (e: any) {
     res.status(500).json({ detail: `Failed to list character library: ${e.message}` })
   }
 })
 
-router.post('/character-library', async (req, res) => {
-  try {
-    const created = await cl.createLibraryCharacter(req.body || {})
-    res.status(201).json(created)
-  } catch (e: any) {
-    res.status(e?.status || 400).json({ detail: e.message })
-  }
-})
-
 router.get('/character-library/:id', async (req, res) => {
   try {
-    const c = await cl.getLibraryCharacter(req.params.id)
+    const channel = channelQuery(req.query.channel)
+    const c = channel
+      ? await cl.getChannelCharacter(channel, req.params.id)
+      : await cl.getLibraryCharacter(req.params.id)
     if (!c) return res.status(404).json({ detail: 'Library character not found' })
     res.json(c)
   } catch (e: any) {
@@ -55,50 +70,31 @@ router.get('/character-library/:id', async (req, res) => {
   }
 })
 
-router.put('/character-library/:id', async (req, res) => {
-  try {
-    const updated = await cl.updateLibraryCharacter(req.params.id, req.body || {})
-    if (!updated) return res.status(404).json({ detail: 'Library character not found' })
-    res.json(updated)
-  } catch (e: any) {
-    res.status(500).json({ detail: e.message })
-  }
-})
-
-router.delete('/character-library/:id', async (req, res) => {
-  try {
-    const ok = await cl.deleteLibraryCharacter(req.params.id)
-    if (!ok) return res.status(404).json({ detail: 'Library character not found' })
-    res.json({ ok: true, id: req.params.id })
-  } catch (e: any) {
-    res.status(500).json({ detail: e.message })
-  }
-})
+router.post('/character-library', (_req, res) => res.status(409).json({ detail: LEGACY_READ_ONLY }))
+router.put('/character-library/:id', (_req, res) => res.status(409).json({ detail: LEGACY_READ_ONLY }))
+router.delete('/character-library/:id', (_req, res) => res.status(409).json({ detail: LEGACY_READ_ONLY }))
 
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024
 
 router.get('/character-library/:id/reference-image/:filename', async (req, res) => {
   try {
     const filename = req.params.filename
-    // The membership check below is NOT sufficient on its own: it tests the
-    // request against `character.references.images`, and `updateLibraryCharacter`
-    // merges a caller-supplied `references` object verbatim — so the allow-list
-    // could be made to contain the payload. `PUT .../p {"references":{"images":
-    // ["../../../../etc/hosts"]}}` followed by this GET read any file on disk.
-    // A reference image is always a bare filename, so requiring one closes it
-    // whatever the stored list says, and an escaped separator fails this too.
+    // A reference image is always a bare filename. This rejects every path
+    // form whatever the stored images list says.
     if (path.basename(filename) !== filename) {
       return res.status(404).json({ detail: 'Reference image not found' })
     }
-    const character = await cl.getLibraryCharacter(req.params.id)
+    const channel = channelQuery(req.query.channel)
+    const character = channel
+      ? await cl.getChannelCharacter(channel, req.params.id)
+      : await cl.getLibraryCharacter(req.params.id)
     if (!character || !character.references?.images?.includes(filename)) {
       return res.status(404).json({ detail: 'Reference image not found' })
     }
-    const file = `${cl.libraryCharacterDir(req.params.id)}/${filename}`
+    const file = channel
+      ? path.join(cl.channelCharacterDir(channel, req.params.id), filename)
+      : path.join(cl.legacyLibraryCharacterDir(req.params.id), filename)
     if (!existsSync(file)) return res.status(404).json({ detail: 'Reference image file missing on disk' })
-    // Express sendFile can turn an otherwise readable external-library file
-    // into a generic 404 in packaged builds. Reading the verified file here
-    // keeps the response deterministic and preserves the actual image bytes.
     const image = await readFile(file)
     res.set('Cache-Control', 'private, max-age=3600')
     res.type(filename).send(image)
@@ -108,24 +104,5 @@ router.get('/character-library/:id/reference-image/:filename', async (req, res) 
   }
 })
 
-router.post('/character-library/:id/reference-image', async (req, res) => {
-  try {
-    const { filename, data_base64 } = req.body || {}
-    if (typeof filename !== 'string' || !filename.trim()) return res.status(400).json({ detail: 'filename is required' })
-    if (typeof data_base64 !== 'string' || !data_base64) return res.status(400).json({ detail: 'data_base64 is required' })
-    const buf = Buffer.from(data_base64, 'base64')
-    if (!buf.length) return res.status(400).json({ detail: 'decoded image is empty' })
-    if (buf.length > MAX_IMAGE_BYTES) return res.status(413).json({ detail: 'Image is larger than 5 MB' })
-    res.json({ ok: true, ...(await cl.addLibraryReferenceImage(req.params.id, buf, filename)) })
-  } catch (e: any) {
-    res.status(e?.message?.includes('not found') ? 404 : 500).json({ detail: e.message })
-  }
-})
-
-router.delete('/character-library/:id/reference-image/:filename', async (req, res) => {
-  try {
-    res.json(await cl.removeLibraryReferenceImage(req.params.id, req.params.filename))
-  } catch (e: any) {
-    res.status(e?.message?.includes('not found') ? 404 : 500).json({ detail: e.message })
-  }
-})
+router.post('/character-library/:id/reference-image', (_req, res) => res.status(409).json({ detail: LEGACY_READ_ONLY }))
+router.delete('/character-library/:id/reference-image/:filename', (_req, res) => res.status(409).json({ detail: LEGACY_READ_ONLY }))
