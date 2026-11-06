@@ -375,7 +375,7 @@ test('a channel-intro change queues the real merge with the saved preset, then v
 
 test('a retry after the save fails finishes the completed merge instead of rebuilding the audio', async () => {
   const mounted = await open({ failConfigSaveCount: 1 })
-  ;(globalThis as any).__channelIntroPick = CHANNEL_INTRO
+  ;(globalThis as any).__channelIntroPick = RAW_CHANNEL_INTRO
   await mounted.click('.channel-picker-stub button')
   await mounted.click('[data-testid="apply-intro"]')
   await mounted.settle(() => mounted.calls.some(call => call.path.endsWith('/generate/audio-merge')))
