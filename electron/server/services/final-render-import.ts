@@ -14,6 +14,7 @@ import {
   type FinalRenderJobView,
 } from '../lib/final-render-gateway-client.js'
 import { assertValidMedia, type MediaInfo } from '../lib/ffmpeg-validation.js'
+import { checkPictureLength, PICTURE_SHORT_SLACK_SEC } from '../lib/final-duration-guard.js'
 import { finalLoudnessIssue, type LoudnessTarget } from '../lib/final-loudness.js'
 import {
   storeFinalCheck, type FinalCheckExpectation, type FinalCheckResult,
@@ -57,6 +58,8 @@ const SHA256 = /^[0-9a-f]{64}$/
 
 export type MediaObservation = {
   durationSec: number
+  /** Independently probed video-stream length; null when ffprobe could not measure it. */
+  videoDurationSec: number | null
   hasVideo: boolean
   hasAudio: boolean
   videoCodec: string
@@ -426,6 +429,7 @@ async function inspectMedia(pathname: string): Promise<MediaObservation> {
   }
   return {
     durationSec: info.durationSec,
+    videoDurationSec: info.videoDurationSec ?? null,
     hasVideo: info.hasVideo,
     hasAudio: info.hasAudio,
     videoCodec: info.videoCodec ?? '', audioCodec: info.audioCodec ?? '',
@@ -450,6 +454,15 @@ function validateMedia(session: FinalRenderImportSession, observation: MediaObse
     || Math.abs(observation.frameRate - Number(canvas.working_fps)) > 0.01
     || Math.abs(observation.durationSec - Number(recipe.target_duration_sec)) > durationTolerance) {
     throw new Error('Final render output media validation does not match the staged MP4 recipe.')
+  }
+  // The container tolerance above follows the audio. The picture is held to the same strict rule
+  // as a local render's encoder output — a remote render must not be accepted on its audio alone.
+  const picture = checkPictureLength(observation.videoDurationSec, Number(recipe.target_duration_sec))
+  if (picture.state !== 'ok') {
+    throw new Error(picture.state === 'unmeasurable'
+      ? 'Final render output picture length could not be measured against the staged MP4 recipe.'
+      : `Final render output picture is ${observation.videoDurationSec!.toFixed(3)}s, more than `
+        + `${PICTURE_SHORT_SLACK_SEC}s shorter than the staged ${Number(recipe.target_duration_sec).toFixed(3)}s recipe.`)
   }
   const issue = finalLoudnessIssue(observation.loudness, {
     lufs: target.lufs, true_peak_db: target.true_peak_db,

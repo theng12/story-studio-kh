@@ -45,6 +45,23 @@ export interface FinalRenderStagingInput {
     project_tree_video_dir: string
   }
   loudness?: FinalRenderResolvedLoudness
+  /** Rendered cue assets for a late-label stage; present only for a cue composition. */
+  late_label_assets?: LateLabelAssetsInput
+}
+
+/**
+ * The one prepare pass (`lib/final-render-label-assets.ts`) hands its scratch files
+ * and their facts over. Copying them into the intent is the SAME `copySource` walk
+ * every other asset takes — no new copy path, no new trust boundary.
+ */
+export interface LateLabelAssetsInput {
+  labels: ReadonlyArray<{
+    cue_id: string
+    label: { path: string; sha256: string; size_bytes: number } | null
+    reveal: { frames: ReadonlyArray<{ path: string; sha256: string; size_bytes: number }> } | null
+    line: { path: string; sha256: string; size_bytes: number } | null
+    line_reveal: { frames: ReadonlyArray<{ path: string; sha256: string; size_bytes: number }> } | null
+  }>
 }
 
 export interface FinalRenderStagingProbe {
@@ -105,7 +122,11 @@ function safeExtension(sourcePath: string, role: string): string {
     ? new Set(['wav'])
     : role === 'base_video'
       ? new Set(['mp4', 'mov', 'webm'])
-      : new Set(['mp4', 'mov', 'webm', 'png', 'jpg', 'webp', 'gif', 'bmp', 'tiff'])
+      : role === 'subtitle_ass'
+        ? new Set(['ass'])
+        : role === 'subtitle_font'
+          ? new Set(['ttf', 'otf'])
+          : new Set(['mp4', 'mov', 'webm', 'png', 'jpg', 'webp', 'gif', 'bmp', 'tiff'])
   if (!allowed.has(extension)) fail()
   return extension
 }
@@ -607,6 +628,9 @@ async function stageFinalRenderIntentUnsafe(
 
   const copied: Awaited<ReturnType<typeof copySource>>[] = []
   let total = 0
+  // Cue assets arrive through `description.source_requirements` — the pure exporter
+  // already pushed each prepared PNG as a normal cue_label requirement — so this walk
+  // is unchanged; the check below only proves the staged bytes still match prepare.
   for (const requirement of input.description.source_requirements) {
     const remaining = bounds.maxTotal - total
     if (!Number.isSafeInteger(remaining) || remaining <= 0) fail()
@@ -614,6 +638,34 @@ async function stageFinalRenderIntentUnsafe(
     total += item.size_bytes
     if (!Number.isSafeInteger(total) || total > bounds.maxTotal) fail()
     copied.push(item)
+  }
+  // The staged cue bytes must be the bytes the description's asset facts name — a
+  // scratch file that changed (or a re-render with a different size) fails here,
+  // never a manifest that promises PNGs it did not receive. Each prepared file is
+  // checked against the requirement carrying ITS OWN path, so two cue files swapped
+  // after preparation cannot satisfy each other's facts through a shared bag.
+  if (input.late_label_assets) {
+    const requirements = new Map<string, { logical_id: string }>()
+    for (const requirement of input.description.source_requirements) {
+      if (requirement.role !== 'cue_label') continue
+      if (requirements.has(requirement.source_path)) fail()
+      requirements.set(requirement.source_path, requirement)
+    }
+    const staged = new Map(copied.map(item => [item.logical_id, item]))
+    const claimed = new Set<string>()
+    for (const label of input.late_label_assets.labels) {
+      for (const file of [label.label, label.line, ...(label.reveal?.frames ?? []), ...(label.line_reveal?.frames ?? [])]) {
+        if (!file) continue
+        const requirement = requirements.get(file.path)
+        if (!requirement) fail()
+        claimed.add(file.path)
+        const item = staged.get(requirement.logical_id)
+        if (!item || item.size_bytes !== file.size_bytes || item.sha256 !== file.sha256) fail()
+      }
+    }
+    for (const sourcePath of requirements.keys()) {
+      if (!claimed.has(sourcePath)) fail()
+    }
   }
   const finalized = finalizeFinalRenderPacket(input.description, copied)
   const sources = copied.map(({ input_mode: _mode, ...item }) => item)

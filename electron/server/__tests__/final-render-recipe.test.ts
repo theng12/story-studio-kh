@@ -206,3 +206,121 @@ test('refuses manifest order, names, roles, references, unused assets, hashes, a
   reject(packet => { packet.recipe.target_duration_sec = 2.5 }, false)
   reject(packet => { packet.manifest[0].size_bytes = 16 }, false)
 })
+
+test('validates closed late-label stages, reveal refs, ordering and cue uniqueness', async () => {
+  const { validateRenderPacketSyntax } = await validator()
+  const base = fixture.cases[1].packet
+  const packetWith = (ops: any[]): any => {
+    const packet = copy(base)
+    const logoAt = packet.recipe.operations.findIndex((op: any) => op.kind === 'logo')
+    packet.recipe.operations.splice(logoAt, 0, ...ops)
+    const cueAssets = new Map<string, number>()
+    for (const op of ops) {
+      for (const id of [op.label?.asset?.logical_id, op.line?.asset?.logical_id,
+        ...(op.reveal?.frames ?? []).map((frame: any) => frame.asset.logical_id),
+        ...(op.line_reveal?.frames ?? []).map((frame: any) => frame.asset.logical_id)]) {
+        if (id) cueAssets.set(id, id.endsWith('_line') ? 1280 * 720 : 240 * 80)
+      }
+    }
+    for (const [id, size_bytes] of cueAssets) packet.manifest.push({
+      logical_id: id, safe_name: `${id}.png`, role: 'cue_label', sha256: '4'.repeat(64), size_bytes,
+    })
+    packet.manifest.sort((a: any, b: any) => a.logical_id.localeCompare(b.logical_id))
+    rehash(packet)
+    return packet
+  }
+  const asset = (logical_id: string) => ({ type: 'asset_ref', logical_id })
+  const revealFrameCount = Math.max(2, Math.ceil(base.recipe.canvas.working_fps * 0.3) + 1)
+  const frameList = (prefix: string, count = revealFrameCount, operationIndex = 9) => Array.from({ length: count }, (_, i) => ({
+    asset: asset(`cue_${String(operationIndex).padStart(4, '0')}_${prefix}${String(i).padStart(4, '0')}`), progress: i / (count - 1),
+  }))
+  const pop = {
+    kind: 'late_label_stage', contract: 'studio.render.late-label.v3', cue_id: 'cue_a',
+    enable: { start_sec: 0.25, end_sec: 1.75 }, placement: { x_px: 20, y_px: 30 },
+    motion: { kind: 'pop', entrance_sec: 0.3 }, label: { asset: asset('cue_0008_label') },
+    reveal: null, line: null, line_reveal: null,
+  }
+  const wipe = {
+    ...pop, cue_id: 'cue_b', motion: { kind: 'wipe', entrance_sec: 0.3 }, label: null,
+    reveal: { duration_sec: 0.3, frames: frameList('r') },
+  }
+  const valid = packetWith([pop, wipe])
+  assert.doesNotThrow(() => validateRenderPacketSyntax(valid))
+  assert.equal(valid.recipe.operations[8].label.asset.logical_id, 'cue_0008_label')
+
+  const reject = (ops: any[], alter?: (packet: any) => void): void => {
+    const packet = packetWith(ops)
+    alter?.(packet)
+    rehash(packet)
+    assert.throws(() => validateRenderPacketSyntax(packet), /Invalid render packet/)
+  }
+  reject([pop, { ...wipe, cue_id: 'cue_a' }])
+  reject([pop], packet => { packet.recipe.operations.splice(6, 0, packet.recipe.operations.splice(-2, 1)[0]) })
+  reject([{ ...pop, raw_filter: 'null' }])
+  reject([{ ...pop, enable: { start_sec: 2, end_sec: 6.1 } }])
+  reject([{ ...pop, placement: { x_px: -1, y_px: 0 } }])
+  reject([{ ...pop, label: null }])
+  reject([{ ...wipe, reveal: { duration_sec: 0.3, frames: frameList('r', revealFrameCount - 1) } }])
+  reject([{ ...wipe, reveal: { duration_sec: 0.3, frames: frameList('r').map((f: any, i: number) => i === 1 ? { ...f, progress: 0.9 } : f) } }])
+  reject([pop], packet => { packet.manifest.find((entry: any) => entry.logical_id === 'cue_0008_label').role = 'overlay' })
+  reject([pop], packet => { packet.manifest.find((entry: any) => entry.logical_id === 'cue_0008_label').safe_name = 'cue_0008_label.jpg' })
+})
+
+test('validates closed subtitle stages, ordered font ids, and manifest-equal font hashes', async () => {
+  const { validateRenderPacketSyntax } = await validator()
+  const base = fixture.cases[1].packet
+  const asset = (logical_id: string) => ({ type: 'asset_ref', logical_id })
+  const subtitleOp = (fontId = 'subtitle_font_0000', family = 'Inter', sha256 = '6'.repeat(64)) => ({
+    kind: 'subtitle_stage', contract: 'studio.render.subtitle.v1',
+    ass: asset('subtitle_ass'),
+    fonts: [{ asset: asset(fontId), family, sha256 }],
+  })
+  const packetWith = (ops: any[], alterManifest?: (manifest: any[]) => void): any => {
+    const packet = copy(base)
+    const logoAt = packet.recipe.operations.findIndex((op: any) => op.kind === 'logo')
+    packet.recipe.operations.splice(logoAt, 0, ...ops)
+    packet.manifest.push(
+      { logical_id: 'subtitle_ass', safe_name: 'subtitle_ass.ass', role: 'subtitle_ass', sha256: '5'.repeat(64), size_bytes: 128 },
+      { logical_id: 'subtitle_font_0000', safe_name: 'subtitle_font_0000.ttf', role: 'subtitle_font', sha256: '6'.repeat(64), size_bytes: 4096 },
+    )
+    alterManifest?.(packet.manifest)
+    packet.manifest.sort((a: any, b: any) => a.logical_id.localeCompare(b.logical_id))
+    rehash(packet)
+    return packet
+  }
+  const valid = packetWith([subtitleOp()])
+  assert.doesNotThrow(() => validateRenderPacketSyntax(valid))
+  // The stage sits after the presentation frame and before the late-label/logo tail.
+  const kinds = valid.recipe.operations.map((op: any) => op.kind)
+  assert.ok(kinds.indexOf('subtitle_stage') > kinds.indexOf('presentation_frame'))
+  assert.ok(kinds.indexOf('subtitle_stage') < kinds.indexOf('logo'))
+
+  const reject = (ops: any[], alterManifest?: (manifest: any[]) => void): void => {
+    assert.throws(() => validateRenderPacketSyntax(packetWith(ops, alterManifest)), /Invalid render packet/)
+  }
+  // Contract and shape are exact: no other version, no bare/extra fields, no empty font list.
+  reject([{ ...subtitleOp(), contract: 'studio.render.subtitle.v2' }])
+  reject([{ ...subtitleOp(), fonts: [] }])
+  reject([{ ...subtitleOp(), extra: true }])
+  // Font ids are the generated ordered names, never a source filename.
+  reject([subtitleOp('subtitle_font_0001')])
+  reject([subtitleOp('Inter.ttf')])
+  // The family is a family name, never a path.
+  reject([subtitleOp('subtitle_font_0000', 'Inter/../../etc')])
+  // A font record's hash is the manifest's hash — one value, never two.
+  reject([subtitleOp()], manifest => {
+    manifest.find((entry: any) => entry.logical_id === 'subtitle_font_0000').sha256 = '7'.repeat(64)
+  })
+  // Extension follows role: ASS for the document, TTF/OTF for fonts.
+  reject([subtitleOp()], manifest => {
+    manifest.find((entry: any) => entry.logical_id === 'subtitle_ass').safe_name = 'subtitle_ass.png'
+  })
+  reject([subtitleOp()], manifest => {
+    manifest.find((entry: any) => entry.logical_id === 'subtitle_font_0000').safe_name = 'subtitle_font_0000.png'
+  })
+  // The stage is a singleton and the manifest stays a bijection.
+  reject([subtitleOp(), subtitleOp()])
+  reject([subtitleOp()], manifest => {
+    manifest.splice(manifest.findIndex((entry: any) => entry.logical_id === 'subtitle_ass'), 1)
+  })
+})

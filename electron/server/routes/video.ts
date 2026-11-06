@@ -25,6 +25,7 @@ import { buildAnimationFilter } from '../lib/animation-filters.js'
 import { cacheToken, cachedFileForToken, getOrRender } from '../services/preview-cache.js'
 import { readManifest } from '../services/task-manifest.js'
 import { resolveAssetPath } from '../services/path-resolver.js'
+import { listBackgrounds, resolveBackground } from '../services/background-catalog.js'
 import { runFfmpeg, hasDrawtextFilter, hasLibass, getAudioDuration, stillDecoderArgs, escapeFilterPath } from '../lib/ffmpeg-utils.js'
 import { compileSceneMotion, compileSceneOverlay, overlayLoopShapes } from '../lib/scene-effect-compiler.js'
 import { bakeEffectLoop, bakeTransitionMatte } from '../lib/effect-loop-baker.js'
@@ -314,60 +315,29 @@ router.get('/projects/:slug/video-editor/ambient-files', async (req, res) => {
   }
 })
 
-// Scan local background-plate assets in project directory (v1.0.63+).
-// Compilation video layout (compilation-mode / listicle channels) needs a
-// looping background video or static image to play behind the per-
-// chapter foreground icons. Mirrors the music-files / overlay-files
-// scanners — drop sources into ${PROJECT}/backgrounds/, click + Add.
-router.get('/projects/:slug/video-editor/background-files', async (req, res) => {
-  const { slug } = req.params
-
+router.get('/backgrounds/:id/image', (req, res) => {
   try {
-    const projectDir = pm.getProjectDir(slug)
-    if (!projectDir) return res.status(404).json({ detail: 'Project directory not found' })
-
-    type BgEntry = {
-      filename: string
-      path: string
-      ext: string
-      kind: 'video' | 'image'
-      duration?: number
-    }
-    const videoExts = /\.(mp4|mov|webm|mkv|m4v)$/i
-    const imageExts = /\.(png|jpe?g|gif|bmp|webp|tiff?)$/i
-
-    const bgDir = path.join(projectDir, 'backgrounds')
-    if (!existsSync(bgDir)) {
-      return res.json({ backgrounds: [], backgrounds_dir: bgDir, exists: false })
-    }
-    const out: BgEntry[] = []
-    try {
-      const files = await fs.readdir(bgDir)
-      for (const file of files) {
-        const isVideo = videoExts.test(file)
-        const isImage = imageExts.test(file)
-        if (!isVideo && !isImage) continue
-        const fullPath = path.join(bgDir, file)
-        const ext = path.extname(file).toLowerCase()
-        let duration: number | undefined
-        if (isVideo) {
-          try { duration = await getAudioDuration(fullPath) } catch { /* tolerate */ }
-        }
-        out.push({
-          filename: file,
-          path: fullPath,
-          ext,
-          kind: isVideo ? 'video' : 'image',
-          duration,
-        })
-      }
-    } catch (e: any) {
-      return res.status(500).json({ detail: `Could not read ${bgDir}: ${e?.message || e}` })
-    }
-    out.sort((a, b) => a.filename.localeCompare(b.filename, undefined, { numeric: true }))
-    res.json({ backgrounds: out, backgrounds_dir: bgDir, exists: true })
+    const image = resolveBackground(String(req.params.id))
+    res.type('webp').sendFile(image)
   } catch (e: any) {
-    res.status(500).json(humanizeBackendError(e, 'Could not scan background files'))
+    res.status(404).json(humanizeBackendError(e, 'Background image is unavailable'))
+  }
+})
+
+// One app catalog serves every existing background choice point.
+router.get('/projects/:slug/video-editor/background-files', (req, res) => {
+  try {
+    if (!pm.getProjectDir(req.params.slug)) return res.status(404).json({ detail: 'Project directory not found' })
+    res.json({ backgrounds: listBackgrounds().map(entry => ({
+      id: entry.id,
+      filename: entry.name,
+      path: entry.reference,
+      ext: '.webp',
+      kind: 'image',
+      thumbnail_url: `/api/backgrounds/${encodeURIComponent(entry.id)}/image`,
+    })) })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Could not load backgrounds'))
   }
 })
 

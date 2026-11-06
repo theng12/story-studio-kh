@@ -4,7 +4,10 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import path from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
 
-import { describeFinalRenderExport, finalRenderRequestedEncode, type FinalRenderExportDescription } from '../lib/final-render-export.js'
+import { describeFinalRenderExport, finalRenderRequestedEncode, type FinalRenderExportDescription, type PreparedLogoAsset } from '../lib/final-render-export.js'
+import { logoCornerRadiusPct, logoShapeOf, writeShapedLogo } from '../lib/logo-shape.js'
+import { prepareFinalRenderLabelAssets } from '../lib/final-render-label-assets.js'
+import { prepareFinalRenderSubtitleAssets, type SubtitlePreparation } from '../lib/final-render-subtitle-assets.js'
 import { readInstalledStoryRenderProvenance } from '../lib/final-render-build-provenance.js'
 import { RenderProvenanceError, sameDescriptorPins } from '../lib/final-render-provenance-contract.js'
 import {
@@ -257,8 +260,17 @@ export async function preparePrivateFinalRenderDescriptor(
   const requested = finalRenderRequestedEncode(opts)
   let discovery: Awaited<ReturnType<typeof getFinalRenderCapabilities>>
   let access: Awaited<ReturnType<typeof readPrivateRenderAccess>>
+  const discoveryArgs: Parameters<typeof getFinalRenderCapabilities> = [requested ?? undefined]
+  // Cue compositions opt into the late-label contract explicitly and subtitle
+  // compositions opt into the subtitle contract; the subtitle contract takes the
+  // single `requested_contract` slot when both apply. Every other composition
+  // asks the unscoped question, so an old Gateway's answer is unchanged.
+  const contractScope: { requestedLateLabels?: boolean; requestedSubtitles?: boolean } = {}
+  if ((opts.contextualCues?.length ?? 0) > 0) contractScope.requestedLateLabels = true
+  if (opts.subtitles?.enabled) contractScope.requestedSubtitles = true
+  if (Object.keys(contractScope).length > 0) discoveryArgs[1] = contractScope
   try {
-    discovery = await getFinalRenderCapabilities(requested ?? undefined)
+    discovery = await getFinalRenderCapabilities(...discoveryArgs)
     access = await readPrivateRenderAccess()
   } catch (error) {
     if (known) throw new Error('Existing private final render lineage requires recovery before local rendering.')
@@ -276,7 +288,73 @@ export async function preparePrivateFinalRenderDescriptor(
       + 'so this video stays on this Mac. The render is otherwise unchanged.')
     return null
   }
-  const description = describeFinalRenderExport(opts, discovery)
+  // Image-backed cue assets are rendered ONCE into the run's own scratch root, beside
+  // the merged master; staging copies them into the intent from there, and only files
+  // this prepare pass wrote are ever removed. Rendering happens before the description
+  // so any cue shape outside the contract stops here with its exact reason and does no
+  // image work at all. An old Gateway (no late_labels capability) never reaches the
+  // renderers: the description refuses it below with today's contextual-cues reason.
+  let lateLabels: Awaited<ReturnType<typeof prepareFinalRenderLabelAssets>> | undefined
+  if ((opts.contextualCues?.length ?? 0) > 0 && discovery.late_labels) {
+    lateLabels = await prepareFinalRenderLabelAssets({
+      cues: opts.contextualCues!,
+      frame_w: opts.w,
+      frame_h: opts.h,
+      fps: opts.quality.fps,
+      offset_sec: opts.sceneTimelineOffsetSec || 0,
+      dir: path.dirname(opts.videoInputPath),
+      log: line => opts.job.output_lines.push(line),
+    })
+    for (const cueId of [...lateLabels.drawtext_cue_ids, ...lateLabels.unknown_cue_ids]) {
+      opts.job.output_lines.push(`Contextual cue ${cueId} uses a template that renders only on this Mac, `
+        + 'so this video stays on this Mac. The render is otherwise unchanged.')
+    }
+  }
+  // The subtitle payload is prepared only when the paired Gateway actually
+  // advertised subtitle authority, and the failure keeps its exact reason and
+  // font family in the job log; the description below refuses with the same
+  // contract reason, so no partial stage ever leaves this Mac.
+  let subtitles: SubtitlePreparation | undefined
+  if (opts.subtitles?.enabled && discovery.subtitles) {
+    subtitles = await prepareFinalRenderSubtitleAssets({
+      srt_path: (opts.subtitles.srt_path || '').trim(),
+      style: opts.subtitles.style,
+      frame_w: opts.w,
+      frame_h: opts.h,
+      target_duration_sec: opts.targetDuration,
+      dir: path.dirname(opts.videoInputPath),
+    })
+    if (subtitles.ok) {
+      opts.job.output_lines.push(`Subtitles: ASS document ready · ${subtitles.prepared.fonts.length} bundled font`
+        + `${subtitles.prepared.fonts.length === 1 ? '' : 's'} · `
+        + subtitles.prepared.fonts.map(font => font.family).join(', '))
+    } else {
+      opts.job.output_lines.push(`Subtitles: ${subtitles.reason.replaceAll('_', ' ')} (${subtitles.detail}) — `
+        + 'so this video stays on this Mac. The render is otherwise unchanged.')
+    }
+  }
+  // A shaped logo is cut ONCE into the run's scratch root at the exact width the
+  // recipe's scale resolves to, so the remote graph overlays a normal still PNG.
+  // If the cut cannot be made the composition stays local (`logo_shape`) rather
+  // than sending the unshaped logo; the local lane then shows the logo as it is.
+  let logoAsset: PreparedLogoAsset | undefined
+  const logo = opts.logo
+  const logoShape = logoShapeOf(logo?.shape)
+  if (logo?.enabled && logo.image_path && logoShape !== 'none' && logo.position !== 'custom') {
+    const shapedPath = path.join(path.dirname(opts.videoInputPath), `logo-${logoShape}.png`)
+    try {
+      await fs.mkdir(path.dirname(shapedPath), { recursive: true })
+      const size = await writeShapedLogo(
+        logo.image_path, shapedPath, Math.round(opts.w * (logo.scale || 0.1)), logoShape, logo.corner_radius_pct,
+      )
+      logoAsset = { path: shapedPath }
+      opts.job.output_lines.push(`Logo shape: ${logoShape === 'circle' ? 'circle' : `rounded corners (${logoCornerRadiusPct(logo.corner_radius_pct)}%)`} · ${size.width}x${size.height}`)
+    } catch (error) {
+      opts.job.output_lines.push(`Logo shape: ${logoShape} could not be made (${(error as Error)?.message || error}) — `
+        + 'so this video stays on this Mac. The render is otherwise unchanged.')
+    }
+  }
+  const description = describeFinalRenderExport(opts, discovery, lateLabels, subtitles, logoAsset)
   if (description.kind !== 'exportable') {
     if (known) throw new Error('Existing private final render lineage requires recovery before local rendering.')
     opts.job.output_lines.push(`Private final render: this video stays on this Mac — the composition is not `
@@ -387,6 +465,17 @@ export async function preparePrivateFinalRenderDescriptor(
     },
     destination,
     loudness: structuredClone(loudness),
+    ...(lateLabels ? {
+      late_label_assets: {
+        labels: lateLabels.labels.map(label => ({
+          cue_id: label.cue_id,
+          label: label.label,
+          reveal: label.reveal,
+          line: label.line,
+          line_reveal: label.line_reveal,
+        })),
+      },
+    } : {}),
   })
 }
 

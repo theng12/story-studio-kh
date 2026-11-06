@@ -1,5 +1,8 @@
 import type { ContextualCue } from '../models/types.js'
-import { escapeFilterArgValue } from './ffmpeg-utils.js'
+// Direct from the escape module (the same binding ffmpeg-utils re-exports):
+// the pure final-render compiler reuses the label helpers below, and pulling
+// ffmpeg-utils would drag fs/child_process into its closed dependency walk.
+import { escapeFilterArgValue } from './ffmpeg-filter-escape.js'
 import { CUE_SAFE_MARGIN_PCT, labelImagePosition, resolveContextualCuePosition } from '../contracts/contextual-cue-position.js'
 
 // Cue text is LLM-drafted and human-approved. `validateContextualCueTimeline`
@@ -190,8 +193,11 @@ export interface LabelOverlayGeometry {
  * Returns FFmpeg expressions for scale or positional offsets over time.
  *
  * Wipe and line-draw use pre-rendered frames instead of expressions.
+ *
+ * Exported for the final-render compiler: the packet lane must emit the same
+ * formulas this local lane does, never a second copy that can drift.
  */
-function labelMotionExprs(
+export function labelMotionExprs(
   motion: string | undefined,
   start: number,
   end: number,

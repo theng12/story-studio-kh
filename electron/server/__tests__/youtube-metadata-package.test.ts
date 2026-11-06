@@ -200,9 +200,22 @@ describe('youtube metadata package', () => {
     })
     assert.equal(built.status.containsSyntheticMedia, false)
     assert.deepEqual(JSON.parse(built.final_payload.snippet_json), built.snippet)
-    const frozen = metadataPackageFromFinalPayload(built.final_payload)
+    const frozen = metadataPackageFromFinalPayload(built.final_payload, 'EP0001')
     assert.equal(frozen.checklist.find(item => item.field === 'thumbnail')?.state, 'not_checked')
     assert.equal(frozen.package_revision, built.package_revision)
+  })
+
+  test('a frozen approval with a blank description refuses, naming the episode and asking for review again', () => {
+    const blankPayload = {
+      snippet_json: JSON.stringify({ title: 'A title', description: '  ', tags: [] }),
+      status_json: JSON.stringify({ privacyStatus: 'private', containsSyntheticMedia: false }),
+      source_sha256: 'x',
+    }
+    assert.throws(() => metadataPackageFromFinalPayload(blankPayload, 'EP0009'), (error: any) => {
+      assert.match(error.message, /EP0009 has a blank description/)
+      assert.match(error.message, /Review and confirm the exact video and YouTube details again/)
+      return true
+    })
   })
 
   test('checklist distinguishes supplied, missing and unchecked fields without mutation', () => {

@@ -1,0 +1,12 @@
+{
+ "kind": "lettering-style",
+ "schema_version": 1,
+ "id": "com.storystudio.lettering.text-handwritten",
+ "name": "Handwritten",
+ "description": "inked finish, uneven ink density, dry-brush streaks and blotches within the letters, pooled dark edges",
+ "axis": "text",
+ "phrase": "inked finish, uneven ink density, dry-brush streaks and blotches within the letters, pooled dark edges",
+ "preview_assets": [
+  "assets/text-handwritten.webp"
+ ]
+}

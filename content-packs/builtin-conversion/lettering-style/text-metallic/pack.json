@@ -1,0 +1,15 @@
+{
+  "pack_format": 1,
+  "pack_id": "com.storystudio.pack.lettering.text-metallic",
+  "publisher_id": "com.storystudio",
+  "key_id": "{{KEY_ID}}",
+  "version": "1.0.0",
+  "min_app_version": "{{MIN_APP_VERSION}}",
+  "lifecycle": "active",
+  "changelog": "First release of the Metallic lettering style: the built-in 3D metallic, dramatically lit, rich glow, republished under its own pack identity with its style document unchanged.",
+  "entitlement": {
+    "sku": "com.storystudio.sku.lettering.text-metallic",
+    "family": "com.storystudio.family.lettering.text-metallic"
+  },
+  "dependencies": []
+}

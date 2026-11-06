@@ -1,0 +1,12 @@
+{
+ "kind": "lettering-style",
+ "schema_version": 1,
+ "id": "com.storystudio.lettering.text-pastel",
+ "name": "Pastel",
+ "description": "soft pastel palette, gentle airbrushed glow, dreamlike",
+ "axis": "text",
+ "phrase": "soft pastel palette, gentle airbrushed glow, dreamlike",
+ "preview_assets": [
+  "assets/text-pastel.webp"
+ ]
+}

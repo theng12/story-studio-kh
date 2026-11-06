@@ -1,0 +1,12 @@
+{
+ "kind": "lettering-style",
+ "schema_version": 1,
+ "id": "com.storystudio.lettering.text-gold",
+ "name": "Gold",
+ "description": "radiant golden glow, warm magical light",
+ "axis": "text",
+ "phrase": "radiant golden glow, warm magical light",
+ "preview_assets": [
+  "assets/text-gold.webp"
+ ]
+}

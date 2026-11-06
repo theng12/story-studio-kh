@@ -13,6 +13,7 @@ import type { SketchHoldSetting } from '../lib/sketch-hold.js'
 import type { SketchRevealSetting, SketchRevealType } from '../lib/sketch-reveal.js'
 import type { SketchLineWeight } from '../lib/sketch-line-weight.js'
 import type { AssignedPipelineModelPolicy, PipelinePolicyCheckpointStore } from '../lib/pipeline-model-policy.js'
+import type { SceneImageRules } from '../contracts/scene-image-rules.js'
 
 // ── Project ─────────────────────────────────────────────────────────────────
 
@@ -2356,6 +2357,14 @@ export interface ProjectConfig {
    * decides, and a cleared tick never posts.
    */
   social_platforms?: Array<'facebook' | 'instagram' | 'tiktok'>
+  /**
+   * This channel's scene-image rules — three editable data layers:
+   * scene type → complexity → model (contracts/scene-image-rules.ts).
+   * Absent = the channel has no rules yet; nothing is seeded into a stored
+   * channel here. Model ids inside are starting selections only; capabilities
+   * resolve live at use (AGENTS §1).
+   */
+  scene_image_rules?: SceneImageRules
   llm_lineup_migration?: LlmLineupMigration
   /** Historical project files may contain retired fields; Story ignores them. */
   [key: string]: any
@@ -5017,6 +5026,22 @@ export interface ScenePlanEntry {
   /** v1.0.336 — true when the user hand-set `scene_type` in Scene Review; a
    *  re-plan / re-classify keeps their choice instead of overwriting it. */
   scene_type_locked?: boolean
+  /**
+   * Content-based scene-image classification (2026-11-05) — the id of this
+   * channel's `scene_image_rules.scene_types` entry the planner assigned, or
+   * the operator hand-set. Absent = not classified. The legacy `scene_type`
+   * above is preserved as-is: no reclassification, no migration.
+   */
+  subject_kind?: string
+  /** True when the operator hand-set `subject_kind`; a re-plan keeps it,
+   *  mirroring `scene_type_locked`. */
+  subject_kind_locked?: boolean
+  /** Why the content classifier chose `subject_kind` — a hint in the UI, never a gate. */
+  classification_reason?: string
+  /** Per-scene image model override (scene → model without changing the channel
+   *  rules). Structural id only — the live catalogue validates it at use
+   *  (AGENTS §1); no capability or cap is stored here. */
+  image_model_id?: string
   /**
    * Scene Review "Reference to Image" — ids of THIS episode's characters that
    * appear in this scene (AGENTS.md §4). Episode state, never preset state.

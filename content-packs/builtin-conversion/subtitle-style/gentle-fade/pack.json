@@ -1,0 +1,14 @@
+{
+  "pack_format": 1,
+  "pack_id": "com.storystudio.pack.subtitle-style.gentle-fade",
+  "publisher_id": "com.storystudio",
+  "key_id": "{{KEY_ID}}",
+  "version": "1.0.0",
+  "min_app_version": "{{MIN_APP_VERSION}}",
+  "lifecycle": "active",
+  "changelog": "First release of the Gentle Fade pack: the built-in Gentle Fade caption look, republished under its own pack identity with its style document unchanged.",
+  "entitlement": {
+    "sku": "com.storystudio.sku.subtitle-style.gentle-fade",
+    "family": "com.storystudio.family.subtitle-style.gentle-fade"
+  }
+}

@@ -1726,6 +1726,33 @@ export async function getSafeConfig(slug: string): Promise<any | null> {
   return safe
 }
 
+/**
+ * Preset-pattern projection of config.json for read-only inventory exports
+ * (release 383). Same allowlist as getSafeConfig's pass-through — readJson +
+ * in-memory migrateProjectPresetFields + isPresetConfigKey — but deliberately
+ * NOT getSafeConfig: that path answers via getConfig (loads app secrets) and
+ * the voice-preset fields, which reach readSettings and its first-read chmod
+ * of the global app-settings.json. An export GET must not change mode/ctime
+ * of any file, so this reader touches config.json alone. Additive; nothing
+ * about getSafeConfig/readSettings changes.
+ */
+export async function readPresetState(slug: string): Promise<{ pointers: Record<string, unknown>; presets: Record<string, unknown> } | null> {
+  const projectDir = getProjectDir(slug)
+  if (!projectDir) return null
+  const configPath = path.join(projectDir, 'config.json')
+  if (!existsSync(configPath)) return null
+  const raw = await readJson(configPath)
+  migrateProjectPresetFields(raw)
+  const pointers: Record<string, unknown> = {}
+  const presets: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(raw)) {
+    if (!isPresetConfigKey(key)) continue
+    if (key.endsWith('_presets')) presets[key] = value ?? null
+    else pointers[key] = value ?? null
+  }
+  return { pointers, presets }
+}
+
 export async function updateApiKeys(slug: string, req: UpdateApiKeysRequest): Promise<boolean> {
   // API keys now live in a separate secrets.json file (not config.json) so they
   // can be locked down (0600) and stripped from logs. See secrets-store.ts.

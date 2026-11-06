@@ -2372,7 +2372,7 @@ watch(episodeId, () => {
 /* The hint opens on hover and on focus (a click focuses the button), and Escape
    blurs it closed. The words stay in the DOM, so aria-describedby reaches them
    while it is shut. */
-.field-hint-dot { display: inline-block; width: 18px; height: 18px; margin-left: 4px; padding: 0; border: 1px solid var(--border); border-radius: 999px; background: var(--bg-tertiary); color: var(--text-muted); font-size: 11px; font-weight: 700; line-height: 1; cursor: help; vertical-align: 1px; }
+.field-hint-dot { display: inline-block; width: 18px; height: 18px; margin-left: 4px; padding: 0; border: 1px solid var(--border); border-radius: 999px; background: var(--bg-tertiary); color: var(--text-muted); font-size: var(--font-xs); font-weight: 700; line-height: 1; cursor: help; vertical-align: 1px; }
 .field-hint-dot:hover { border-color: var(--border-light); color: var(--text-primary); }
 .field-hint-dot:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .field-hint-pop { display: none; position: absolute; left: 0; right: 0; top: 100%; z-index: 6; max-width: 62ch; margin-top: 6px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-primary); box-shadow: 0 8px 24px rgba(0, 0, 0, .28); color: var(--text-secondary); font-size: var(--font-xs); font-weight: 400; line-height: 1.5; letter-spacing: normal; text-transform: none; }

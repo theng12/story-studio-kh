@@ -1,0 +1,12 @@
+{
+ "kind": "lettering-style",
+ "schema_version": 1,
+ "id": "com.storystudio.lettering.font-gothic",
+ "name": "Gothic",
+ "description": "blackletter gothic calligraphy, ornate medieval style",
+ "axis": "font",
+ "phrase": "blackletter gothic calligraphy, ornate medieval style",
+ "preview_assets": [
+  "assets/font-gothic.webp"
+ ]
+}

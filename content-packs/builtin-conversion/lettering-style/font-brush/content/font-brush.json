@@ -1,0 +1,12 @@
+{
+ "kind": "lettering-style",
+ "schema_version": 1,
+ "id": "com.storystudio.lettering.font-brush",
+ "name": "Brush",
+ "description": "brush-stroke font, loose energetic strokes",
+ "axis": "font",
+ "phrase": "brush-stroke font, loose energetic strokes",
+ "preview_assets": [
+  "assets/font-brush.webp"
+ ]
+}

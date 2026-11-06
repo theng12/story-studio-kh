@@ -19,8 +19,8 @@
  *
  * Only MODEL-GENERATED text is cleaned. If his script, his title, his standards
  * file or his prompt carries an emoji, he has made a decision about this piece
- * of work and it stands — pass those strings as `sources` and the generated
- * text is left exactly as the model wrote it. For a field that MIXES his prose
+ * of work and it stands — pass those strings as `sources` to retain those exact
+ * emoji, without exempting other generated emoji. For a field that MIXES his prose
  * with a generated block (a YouTube description with managed chapter and source
  * sections spliced into paragraphs he edited), clean the BLOCK before it is
  * spliced. Never the assembled result: by then the two are indistinguishable.
@@ -41,7 +41,7 @@
  */
 
 import { getAppSetting } from '../services/app-settings.js'
-import { stripEmojiFromGenerated } from './well-formed-text.js'
+import { containsEmoji } from './well-formed-text.js'
 
 /**
  * App setting key. Absent (the default, and every existing install) means NO
@@ -75,20 +75,54 @@ export async function noEmojiDirective(): Promise<string> {
   return await emojiAllowed() ? '' : `\n${NO_EMOJI_DIRECTIVE}`
 }
 
+/** Each grapheme cluster of `text`, in order. */
+function clustersOf(text: string): string[] {
+  return [...new Intl.Segmenter('en', { granularity: 'grapheme' }).segment(text)].map(s => s.segment)
+}
+
+/**
+ * Remove generated emoji, except an emoji that appears in one of his sources.
+ *
+ * Only that EXACT emoji is kept. Before, one emoji anywhere in a source kept
+ * every emoji the model wrote, and app-built prompts (section labels, the
+ * disclosure instruction) counted as his. Now a source is only as good as the
+ * emoji it literally carries, and the rest of the generated text is cleaned.
+ */
+export function cleanGeneratedEmoji(
+  generated: string,
+  sources: Array<string | null | undefined> = [],
+): string {
+  if (!generated) return generated
+  const supplied = new Set<string>()
+  for (const source of sources) {
+    if (!source) continue
+    for (const cluster of clustersOf(source)) if (containsEmoji(cluster)) supplied.add(cluster)
+  }
+  let removed = false
+  const kept = clustersOf(generated).filter((cluster) => {
+    if (!containsEmoji(cluster) || supplied.has(cluster)) return true
+    removed = true
+    return false
+  }).join('')
+  if (!removed) return generated
+  // Tidy the gap a removed emoji leaves; newlines are content and survive.
+  return kept.replace(/[^\S\n]+/g, ' ').split('\n').map(line => line.trim()).join('\n').trim()
+}
+
 /**
  * Clean one piece of MODEL-GENERATED text, honouring the setting and his own
  * emoji.
  *
  * `sources` is every scrap of HIS text that fed this generation — the script,
- * the title he typed, the topic line, the style instructions. One emoji in any
- * of them and `generated` comes back untouched.
+ * the title he typed, the topic line. An emoji he typed in one of them is kept
+ * where the model wrote the same one; every other generated emoji is removed.
  */
 export async function applyEmojiPolicy(
   generated: string,
   sources: Array<string | null | undefined> = [],
 ): Promise<string> {
   if (!generated || await emojiAllowed()) return generated
-  return stripEmojiFromGenerated(generated, sources)
+  return cleanGeneratedEmoji(generated, sources)
 }
 
 /** `applyEmojiPolicy` for a list — tags, title options, cue labels. */
@@ -97,5 +131,5 @@ export async function applyEmojiPolicyToAll(
   sources: Array<string | null | undefined> = [],
 ): Promise<string[]> {
   if (!generated.length || await emojiAllowed()) return generated
-  return generated.map(value => stripEmojiFromGenerated(value, sources))
+  return generated.map(value => cleanGeneratedEmoji(value, sources))
 }

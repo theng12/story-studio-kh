@@ -543,6 +543,10 @@ describe('the channel default and cached episode status', () => {
       return watcher.watcherTrustedSince(slug) !== null && a.every((row, i) => row === b[i])
     }, { label: 'the folder watcher to vouch for the fixture episodes' })
     assert.notEqual(watcher.watcherTrustedSince(slug), null, 'the rows are served on the watcher\'s word, which is the path under test')
+    // Delayed native events from the fixture writes are not the route's own
+    // invalidation. Keep the watcher trusted for serving, but make its events
+    // deaf so a straggler cannot drop a row mid-measurement.
+    watcher.bindInvalidator(() => {})
     const dropped = async (change: Record<string, unknown>) => {
       const before = await readAll()
       assert.deepEqual(await readAll(), before, 'warm rows are served as they are')
@@ -551,10 +555,14 @@ describe('the channel default and cached episode status', () => {
       return codes.filter((_, i) => after[i] !== before[i])
     }
 
-    assert.deepEqual(await dropped({ hold: { mode: 'fixed', seconds: 3 } }), [follows, ownPen], 'the episode with its own hold keeps its row')
-    assert.deepEqual(await dropped({ pen: 'plain' }), [follows, ownHold], 'the episode with its own pen keeps its row')
-    assert.deepEqual(await dropped({ pen: 'plain', hold: { mode: 'fixed', seconds: 3 } }), [], 'a save that moves nothing drops nothing')
-    assert.deepEqual(await dropped({ renderer: 'image_to_video' }), [], 'neither does a renderer-only save')
+    try {
+      assert.deepEqual(await dropped({ hold: { mode: 'fixed', seconds: 3 } }), [follows, ownPen], 'the episode with its own hold keeps its row')
+      assert.deepEqual(await dropped({ pen: 'plain' }), [follows, ownHold], 'the episode with its own pen keeps its row')
+      assert.deepEqual(await dropped({ pen: 'plain', hold: { mode: 'fixed', seconds: 3 } }), [], 'a save that moves nothing drops nothing')
+      assert.deepEqual(await dropped({ renderer: 'image_to_video' }), [], 'neither does a renderer-only save')
+    } finally {
+      watcher.bindInvalidator((s, c) => episodeStatusCache.invalidate(s, c))
+    }
   })
 })
 

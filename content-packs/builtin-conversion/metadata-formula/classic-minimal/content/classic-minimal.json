@@ -1,0 +1,54 @@
+{
+  "kind": "metadata-formula",
+  "schema_version": 1,
+  "id": "com.storystudio.metadata-formula.classic-minimal",
+  "name": "Minimal",
+  "description": "One paragraph, one attribution line, hashtags. Nothing else. For channels where the description is a formality and the video does the work, and for anyone who wants the shortest thing that still satisfies the platform.",
+  "architecture": "One paragraph, one attribution line, hashtags — no headers at all.",
+  "description_plan": {
+    "max_chars": 600,
+    "separator": "none",
+    "sections": [
+      {
+        "id": "summary",
+        "instruction": "One paragraph saying what this episode is. Plain and complete, with no opening flourish and no closing invitation.",
+        "header": {
+          "render": false
+        },
+        "target_chars": 300
+      },
+      {
+        "id": "attribution",
+        "instruction": "One line naming who made or narrated it, if the story context says. If it does not, write nothing at all for this section.",
+        "header": {
+          "render": false
+        },
+        "target_chars": 60
+      },
+      {
+        "id": "hashtags",
+        "instruction": "Emit only hashtags, on a single line, separated by spaces. No sentence, no heading, no commentary. At most five.",
+        "header": {
+          "render": false
+        },
+        "target_chars": 70
+      }
+    ]
+  },
+  "title_plan": {
+    "mode": "use_idea_title",
+    "count": 1,
+    "max_length": 60,
+    "guidance": "The plainest accurate name for the episode. No subtitle, no colon, no framing device."
+  },
+  "tag_plan": {
+    "count": 8,
+    "guidance": "for this episode, choosing only tags that are unambiguously about its subject"
+  },
+  "tone": {
+    "constraints": [
+      "No greeting, no sign-off, no call to action anywhere.",
+      "Nothing rhetorical: no questions, no suspense, no promises."
+    ]
+  }
+}

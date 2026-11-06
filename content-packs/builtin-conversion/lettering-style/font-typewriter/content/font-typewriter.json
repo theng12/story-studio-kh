@@ -1,0 +1,12 @@
+{
+ "kind": "lettering-style",
+ "schema_version": 1,
+ "id": "com.storystudio.lettering.font-typewriter",
+ "name": "Typewriter",
+ "description": "monospace typewriter font, evenly spaced, slightly inked",
+ "axis": "font",
+ "phrase": "monospace typewriter font, evenly spaced, slightly inked",
+ "preview_assets": [
+  "assets/font-typewriter.webp"
+ ]
+}

@@ -26,6 +26,15 @@ export interface FinalRenderEncodeEntry {
   bitrate_kbps: number | null
 }
 
+export interface FinalRenderLateLabelsCapability {
+  format: 'studio.render.late-label.v3'
+  motions: Array<'none' | 'pop' | 'slide' | 'float' | 'pulse' | 'wipe' | 'line-draw'>
+}
+
+export interface FinalRenderSubtitlesCapability {
+  format: 'studio.render.subtitle.v1'
+}
+
 export interface FinalRenderEncodeAuthority {
   format: 'studio.render.encode-authority.v1'
   entries: FinalRenderEncodeEntry[]
@@ -72,6 +81,15 @@ export interface FinalRenderCapabilities {
   encode?: FinalRenderEncodeAuthority | null
   /** The Gateway's echo of the exact tuple Story asked about. Absent when the Gateway did not answer a scoped query. */
   requested_encode?: FinalRenderEncodeEntry
+  /** Present only in a late-label-scoped response that requested this exact contract. */
+  late_labels?: FinalRenderLateLabelsCapability
+  /**
+   * Present only in a subtitle-scoped response that requested this exact contract.
+   * Never set today: subtitle descriptor authority awaits the Hub/Gateway freeze
+   * (after Hub 222), so every subtitle-scoped envelope is refused at parse —
+   * no assumed v4 pins, and the late-label envelope never grants subtitle authority.
+   */
+  subtitles?: FinalRenderSubtitlesCapability
   execution_bounds?: FinalRenderExecutionBounds
 }
 
@@ -356,12 +374,13 @@ function parseToolsDescriptor(raw: string): void {
   positiveSafeInteger(tools.ffprobe_size_bytes, 'tools descriptor.ffprobe_size_bytes')
 }
 
-function parseCompilerDescriptor(raw: string): void {
+function parseCompilerDescriptor(raw: string, requestedLateLabels = false): void {
   const compiler = exactRecord(parseJsonText(raw, 'compiler descriptor'), [
     'format', 'implementation', 'python_runtime_sha256', 'render_hash_sha256',
     'render_contract_sha256', 'final_render_compiler_sha256',
   ], 'compiler descriptor')
-  if (compiler.format !== 'studio.render.compiler.v1' || compiler.implementation !== 'hub-final-render-v1') {
+  const implementation = requestedLateLabels ? 'hub-final-render-late-label-v3' : 'hub-final-render-v1'
+  if (compiler.format !== 'studio.render.compiler.v1' || compiler.implementation !== implementation) {
     invalid('compiler descriptor implementation is unsupported')
   }
   for (const key of [
@@ -370,14 +389,21 @@ function parseCompilerDescriptor(raw: string): void {
   ]) sha256(compiler[key], `compiler descriptor.${key}`)
 }
 
-function parseProfileDescriptor(raw: string, toolsDigest: string, compilerDigest: string): FinalRenderExecutionBounds {
+function parseProfileDescriptor(raw: string, toolsDigest: string, compilerDigest: string, requestedLateLabels = false): FinalRenderExecutionBounds {
   const profile = exactRecord(parseJsonText(raw, 'profile descriptor'), [
     'format', 'implementation', 'recipe_namespace', 'compiler_artifact_sha256',
     'tools_artifact_sha256', 'combination_set', 'tier_policy', 'output_policy',
     'execution_bounds', 'hardware_qualification_record_sha256',
     'fidelity_record_sha256', 'production_eligible',
   ], 'profile descriptor')
-  const literals: Record<string, string> = {
+  const literals: Record<string, string> = requestedLateLabels ? {
+    format: 'studio.render.profile.v3',
+    implementation: 'story-classic-late-label-v3',
+    recipe_namespace: 'studio.render.final.v1',
+    combination_set: 'retained-classic-late-label-candidate-v3',
+    tier_policy: 'story-final-chain-v1',
+    output_policy: 'story-final-output-v1',
+  } : {
     format: 'studio.render.profile.v1',
     implementation: 'story-classic-no-font-v1',
     recipe_namespace: 'studio.render.final.v1',
@@ -592,16 +618,47 @@ function parseEncodeAuthority(value: unknown): FinalRenderEncodeAuthority {
   }
 }
 
+function parseLateLabelsCapability(value: unknown): FinalRenderLateLabelsCapability {
+  const capability = exactRecord(value, ['format', 'motions'], 'capabilities late_labels')
+  if (capability.format !== 'studio.render.late-label.v3') invalid('capabilities late_labels.format is unsupported')
+  if (!Array.isArray(capability.motions)) invalid('capabilities late_labels.motions is invalid')
+  const allowed = ['none', 'pop', 'slide', 'float', 'pulse', 'wipe', 'line-draw'] as const
+  if (capability.motions.length !== allowed.length) {
+    invalid('capabilities late_labels.motions does not contain the complete supported set')
+  }
+  const seen = new Set<string>()
+  for (const [index, motion] of capability.motions.entries()) {
+    if (!allowed.includes(motion as (typeof allowed)[number])) {
+      invalid(`capabilities late_labels.motions[${index}] is unsupported`)
+    }
+    if (seen.has(motion as string)) invalid(`capabilities late_labels.motions[${index}] is duplicated`)
+    seen.add(motion as string)
+  }
+  return capability as unknown as FinalRenderLateLabelsCapability
+}
+
+function parseSubtitlesCapability(value: unknown): FinalRenderSubtitlesCapability {
+  const capability = exactRecord(value, ['format'], 'capabilities subtitles')
+  if (capability.format !== 'studio.render.subtitle.v1') invalid('capabilities subtitles.format is unsupported')
+  return capability as unknown as FinalRenderSubtitlesCapability
+}
+
 function parseCapabilities(
   value: unknown,
   connection: PrivateRenderConnection,
   requested?: FinalRenderEncodeEntry,
+  requestedLateLabels = false,
+  requestedSubtitles = false,
 ): FinalRenderCapabilities {
   const result = closedRecord(value, [
     'format', 'private', 'chargeable', 'owner_scope', 'gateway_instance_id',
     'story_instance_id', 'eligible', 'idle', 'server_time', 'profile_descriptor_utf8',
     'profile_digest', 'tools', 'compiler',
-  ], ['qualification_provenance', 'encode', 'requested_encode'], 'capabilities response')
+  ], [
+    'qualification_provenance', 'encode', 'requested_encode',
+    ...(requestedLateLabels ? ['late_labels'] : []),
+    ...(requestedSubtitles ? ['subtitles'] : []),
+  ], 'capabilities response')
   if (result.format !== 'studio.render.gateway-capabilities.v1'
       || result.private !== true || result.chargeable !== false) invalid('capabilities response literals are invalid')
   const ownerScope = uuid(result.owner_scope, 'capabilities owner_scope')
@@ -620,11 +677,33 @@ function parseCapabilities(
   const tools = parseDescriptorLink(result.tools, 'capabilities tools')
   const compiler = parseDescriptorLink(result.compiler, 'capabilities compiler')
   parseToolsDescriptor(tools.descriptor_utf8)
-  parseCompilerDescriptor(compiler.descriptor_utf8)
+  // Old Gateways ignore the scoped contract and keep the v1 descriptor pair. A present capability
+  // is parsed before descriptor admission, so its presence alone does not select a newer pair.
+  const hasLateLabels = Object.hasOwn(result, 'late_labels')
+  if (!requestedLateLabels && hasLateLabels) {
+    invalid('capabilities response advertised late labels Story never requested')
+  }
+  if (requestedLateLabels && hasLateLabels) {
+    result.late_labels = parseLateLabelsCapability(result.late_labels)
+  }
+  const hasSubtitles = Object.hasOwn(result, 'subtitles')
+  if (!requestedSubtitles && hasSubtitles) {
+    invalid('capabilities response advertised subtitles Story never requested')
+  }
+  if (requestedSubtitles && hasSubtitles) {
+    parseSubtitlesCapability(result.subtitles)
+    // Fail closed until the Hub/Gateway descriptor freeze (after Hub 222): the
+    // late-label envelope explicitly refuses subtitle authority, and this build
+    // has no agreed subtitle descriptor literals, so a subtitle-scoped envelope
+    // is refused rather than admitted against assumed v4 pins.
+    invalid('subtitle descriptor pins are not frozen')
+  }
+  const useLateLabelDescriptors = requestedLateLabels && hasLateLabels
+  parseCompilerDescriptor(compiler.descriptor_utf8, useLateLabelDescriptors)
   if (typeof result.profile_descriptor_utf8 !== 'string') invalid('capabilities profile descriptor bytes are invalid')
   const profileDigest = sha256(result.profile_digest, 'capabilities profile_digest')
   if (digestBytes(result.profile_descriptor_utf8) !== profileDigest) invalid('capabilities profile byte digest does not match')
-  const parsedBounds = parseProfileDescriptor(result.profile_descriptor_utf8, tools.digest, compiler.digest)
+  const parsedBounds = parseProfileDescriptor(result.profile_descriptor_utf8, tools.digest, compiler.digest, useLateLabelDescriptors)
   ;(result as any).execution_bounds = parsedBounds
   if (Object.hasOwn(result, 'qualification_provenance') && result.qualification_provenance !== null) {
     try { result.qualification_provenance = parseQualificationProvenance(result.qualification_provenance) } catch (error) {
@@ -1119,19 +1198,32 @@ function byteStream(bytes: Uint8Array): ReadableStream<Uint8Array> {
  * origin; a different identity at the *same* origin is refused, never re-paired.
  *
  * With a `requested` tuple the read is scoped: the Gateway answers about that exact encode and may
- * echo it. The GET stays read-only and carries no input file, credential or destination origin.
+ * echo it. `requestedLateLabels` opts into the late-label contract; a Gateway that ignores the query
+ * may answer with v1 and no late-label capability. `requestedSubtitles` opts into the subtitle
+ * contract (`studio.render.subtitle.v1`), which takes the single `requested_contract` slot; a
+ * response carrying a subtitle record is refused until this build carries the frozen subtitle
+ * descriptor pins. The GET stays read-only and carries no input file, credential or destination
+ * origin.
  */
 export async function getFinalRenderCapabilities(
   requested?: FinalRenderEncodeEntry,
+  options: { readonly requestedLateLabels?: boolean; readonly requestedSubtitles?: boolean } = {},
 ): Promise<FinalRenderCapabilities> {
   const connection = await readPrivateRenderConnection()
   const originChanged = connection.binding !== null && connection.binding.origin !== connection.origin
-  const route = requested
-    ? `/v1/final-renders/capabilities?requested_encode=${encodeURIComponent(JSON.stringify(requested))}`
+  const requestedLateLabels = options.requestedLateLabels === true
+  const requestedSubtitles = options.requestedSubtitles === true
+  const query = new URLSearchParams()
+  if (requested) query.set('requested_encode', JSON.stringify(requested))
+  if (requestedSubtitles) query.set('requested_contract', 'studio.render.subtitle.v1')
+  else if (requestedLateLabels) query.set('requested_contract', 'studio.render.late-label.v3')
+  const queryString = query.toString()
+  const route = queryString
+    ? `/v1/final-renders/capabilities?${queryString}`
     : '/v1/final-renders/capabilities'
   const capabilities = parseCapabilities(await fetchJson(
     connection, route, { method: 'GET' }, 'Final render capabilities', 200,
-  ), originChanged ? { ...connection, binding: null } : connection, requested)
+  ), originChanged ? { ...connection, binding: null } : connection, requested, requestedLateLabels, requestedSubtitles)
   const answered = {
     origin: connection.origin,
     owner_scope: capabilities.owner_scope,

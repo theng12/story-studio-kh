@@ -584,3 +584,60 @@ describe('the shared snippet hash', () => {
     assert.equal(refused.body.code, 'YOUTUBE_METADATA_BASELINE_STALE')
   })
 })
+
+describe('a blank description is refused before any provider call', () => {
+  test('blank and whitespace-only descriptions never reach the provider', async () => {
+    // Nothing queued: any provider request throws locally, so a swallowed
+    // guard shows up as a different error or as traffic.
+    const fake = new FakeYouTube()
+    youtube.__setYouTubeTransportForTests(fake.transport())
+    const accountId = youtube.registryCredentialFor(CHANNEL)
+
+    for (const description of ['', '   ', '\n\t']) {
+      await assert.rejects(
+        () => youtube.updateVideoMetadata({ slug, accountId, videoId: 'vid-blank', snippet: { description } }),
+        (error: any) => {
+          assert.match(error.message, /not fit to publish/)
+          assert.match(error.message, /description supplied is blank/)
+          assert.match(error.message, /Nothing was changed/)
+          return true
+        },
+      )
+      assert.equal(fake.calls.length, 0, 'a blank description must not read or write the provider')
+    }
+  })
+
+  test('a real description is sent as supplied', async () => {
+    const videoId = 'vid-real-description'
+    const fake = new FakeYouTube()
+    fake.respond({ method: 'GET', path: listPath(videoId), body: listBody(videoId, liveVideo()) })
+    fake.respond({ method: 'PUT', path: '/youtube/v3/videos?part=snippet', body: { id: videoId, snippet: liveVideo().snippet } })
+    youtube.__setYouTubeTransportForTests(fake.transport())
+
+    await youtube.updateVideoMetadata({
+      slug, accountId: youtube.registryCredentialFor(CHANNEL), videoId,
+      snippet: { description: 'New prose.' },
+    })
+    const put = fake.calls.find(call => call.method === 'PUT')
+    assert.ok(put, 'the update reached YouTube')
+    assert.equal(JSON.parse(put!.body!).snippet.description, 'New prose.')
+  })
+
+  test('a title-only update still carries the live description', async () => {
+    const videoId = 'vid-title-only'
+    const fake = new FakeYouTube()
+    fake.respond({ method: 'GET', path: listPath(videoId), body: listBody(videoId, liveVideo()) })
+    fake.respond({ method: 'PUT', path: '/youtube/v3/videos?part=snippet', body: { id: videoId, snippet: liveVideo().snippet } })
+    youtube.__setYouTubeTransportForTests(fake.transport())
+
+    await youtube.updateVideoMetadata({
+      slug, accountId: youtube.registryCredentialFor(CHANNEL), videoId,
+      snippet: { title: 'A new title' },
+    })
+    const put = fake.calls.find(call => call.method === 'PUT')
+    assert.ok(put, 'the update reached YouTube')
+    const sent = JSON.parse(put!.body!)
+    assert.equal(sent.snippet.title, 'A new title')
+    assert.equal(sent.snippet.description, DESCRIPTION, 'omitting description preserves the live one')
+  })
+})

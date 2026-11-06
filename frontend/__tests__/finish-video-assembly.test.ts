@@ -118,7 +118,7 @@ test('6: a failed animations load shows an error with Try Again, not Loading for
 })
 
 test('7: folder open/refresh failures also raise a toast', () => {
-  for (const name of ['refreshBackgroundLibrary', 'openBackgroundsFolder', 'refreshOverlayLibrary', 'openOverlaysFolder']) {
+  for (const name of ['refreshBackgroundLibrary', 'refreshOverlayLibrary', 'openOverlaysFolder']) {
     assert.match(fnSource(name), /showError\((bgLibraryError|overlayPickerError)\.value\)/, name)
   }
 })

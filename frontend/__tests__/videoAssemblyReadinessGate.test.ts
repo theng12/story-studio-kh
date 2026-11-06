@@ -19,6 +19,10 @@ const source = fs.readFileSync(
   path.resolve(process.cwd(), 'pages/projects/[slug]/video-assembly.vue'),
   'utf-8',
 )
+const timingPanel = fs.readFileSync(
+  path.resolve(process.cwd(), 'components/SceneTimingPanel.vue'),
+  'utf-8',
+)
 
 test('the selected episode has an inline finished-video player with replacement and failure states', () => {
   assert.match(source, /<section class="finished-video-preview mt-2"/)
@@ -65,4 +69,16 @@ test('the gate is never silent about itself', () => {
 
 test('the deficit list is what Step 1 renders', () => {
   assert.match(source, /v-for="\(problem, i\) in unifiedTimingProblems"/)
+})
+
+test('unknown coverage is never shown as 0.0s uncovered or Ready', () => {
+  // The scan leaves gaps null when there is no measured narration duration;
+  // both the page and the panel must say so and name the recovery.
+  assert.match(source, /t\.coverage_measured === false/)
+  assert.match(source, /Narration coverage was not measured/)
+  assert.match(timingPanel, /Coverage not measured/)
+  assert.match(timingPanel, /Narration coverage was not measured/)
+  assert.match(timingPanel, /Rebuild the Scene Plan timeline/)
+  // An unconditional `uncovered_sec.toFixed` would crash on the null gap.
+  assert.doesNotMatch(timingPanel, /timing\.uncovered_sec\.toFixed/)
 })

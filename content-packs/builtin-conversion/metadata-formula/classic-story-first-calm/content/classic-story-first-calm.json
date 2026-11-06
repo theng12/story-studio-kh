@@ -1,0 +1,72 @@
+{
+  "kind": "metadata-formula",
+  "schema_version": 1,
+  "id": "com.storystudio.metadata-formula.classic-story-first-calm",
+  "name": "Story First, Calm",
+  "description": "The story arrives before anything else asks the viewer for something. An unheaded invitation, the episode itself, then the housekeeping — credits, a closing line, hashtags — kept quiet and last. This is the shape a calm narration channel already uses.",
+  "architecture": "Unheaded invitation, then the episode, then quiet housekeeping last.",
+  "description_plan": {
+    "max_chars": 2200,
+    "separator": "rule",
+    "sections": [
+      {
+        "id": "invitation",
+        "instruction": "Write one unhurried paragraph that invites the viewer to settle in and begin listening. Speak to a person who is already tired and is choosing what to fall asleep to. Do not summarise the episode here and do not mention the channel.",
+        "header": {
+          "render": false
+        },
+        "target_chars": 260
+      },
+      {
+        "id": "episode",
+        "instruction": "Describe what this episode contains, in the same unhurried voice, as a continuation of the paragraph above rather than a separate blurb. Name the places, the movement and the mood. Do not use the phrase tonight we will or any variation of a presenter introducing a segment.",
+        "header": {
+          "render": false
+        },
+        "target_chars": 520
+      },
+      {
+        "id": "credits",
+        "instruction": "List the narration and soundscape credits, one per line, plainly. If a credit is unknown, leave that line out rather than inventing one.",
+        "header": {
+          "render": true,
+          "text": "Credits"
+        },
+        "target_chars": 140
+      },
+      {
+        "id": "closing",
+        "instruction": "Write one short closing line wishing the listener rest. One sentence, no exclamation marks, no request to subscribe.",
+        "header": {
+          "render": false
+        },
+        "target_chars": 90
+      },
+      {
+        "id": "hashtags",
+        "instruction": "Emit only hashtags, on a single line, separated by spaces. No sentence, no heading, no commentary.",
+        "header": {
+          "render": false
+        },
+        "target_chars": 90
+      }
+    ]
+  },
+  "title_plan": {
+    "mode": "use_idea_title",
+    "count": 1,
+    "max_length": 100,
+    "guidance": "Calm and concrete. Name the place and the journey. No hype words, no question marks, no capitalised shouting."
+  },
+  "tag_plan": {
+    "count": 15,
+    "guidance": "for this calm long-form narration episode, mixing the setting, the mood and the listening occasion"
+  },
+  "tone": {
+    "constraints": [
+      "Never address the viewer as guys, folks, or friends.",
+      "No exclamation marks anywhere in the description.",
+      "Ask for nothing until the closing line, and even there ask gently."
+    ]
+  }
+}

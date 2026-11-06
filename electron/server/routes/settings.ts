@@ -15,10 +15,6 @@ import {
 export const router = Router()
 
 router.get('/projects/:slug/settings/config', async (req, res) => {
-  // One-time move off the retired LLM lineup, before anything reads a step's model.
-  await migrateRetiredLlmLineup(req.params.slug).catch(error => {
-    console.warn('[settings] LLM lineup migration skipped', { slug: req.params.slug, error: String(error) })
-  })
   const config = await pm.getSafeConfig(req.params.slug)
   if (!config) return res.status(404).json({ detail: 'Project not found' })
   res.json(config)
@@ -109,6 +105,10 @@ router.put('/projects/:slug/settings/config', (req, res, next) => {
   if (!updated) {
     return res.status(404).json({ detail: 'Project not found' })
   }
+  // Migrate only after an explicit save, so its model choices take precedence.
+  await migrateRetiredLlmLineup(req.params.slug).catch(error => {
+    console.warn('[settings] LLM lineup migration skipped', { slug: req.params.slug, error: String(error) })
+  })
   const requested: string[] = res.locals.requestedKeys
   const ignored = requested.filter(key => !Object.prototype.hasOwnProperty.call(req.body, key) || key === 'models')
     .map(key => ({ key, reason: CONFIG_KEYS_NOT_SAVED[key] ?? 'not a project setting' }))

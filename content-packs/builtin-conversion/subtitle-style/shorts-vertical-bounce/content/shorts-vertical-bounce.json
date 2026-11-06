@@ -1,0 +1,77 @@
+{
+  "kind": "subtitle-style",
+  "schema_version": 1,
+  "id": "com.storystudio.subtitle-style.shorts-vertical-bounce",
+  "name": "Shorts Vertical — Bounce (Anton)",
+  "description": "High-energy Anton font with word-pop bounce animation, clear of the Shorts chrome.",
+  "style": {
+    "schema_version": 2,
+    "typography": {
+      "font_family": "Anton",
+      "font_size_px": 46,
+      "bold": true,
+      "italic": false,
+      "letter_spacing_px": 0,
+      "line_spacing_px": 0,
+      "all_caps": true,
+      "max_chars_per_line": 18,
+      "max_lines": 2,
+      "wrap_style": "engine"
+    },
+    "color": {
+      "primary_hex": "#FFFFFF",
+      "primary_opacity": 1,
+      "secondary_hex": null,
+      "secondary_opacity": 1,
+      "outline_hex": "#000000",
+      "outline_opacity": 1,
+      "shadow_hex": "#000000",
+      "shadow_opacity": 1,
+      "box_hex": "#000000",
+      "box_opacity": 1
+    },
+    "box": {
+      "mode": "none",
+      "padding_px": null,
+      "corner_radius_px": 12
+    },
+    "edge": {
+      "outline_px": 5,
+      "shadow_px": 2,
+      "shadow_offset_x_px": 0,
+      "shadow_offset_y_px": 0,
+      "blur_px": 0
+    },
+    "placement": {
+      "position": "bottom",
+      "align": "center",
+      "position_x_pct": 50,
+      "position_y_pct": 62,
+      "safe_margin_pct": 10,
+      "margin_px": 40
+    },
+    "animation": {
+      "type": "none",
+      "in_ms": 0,
+      "out_ms": 0,
+      "transform_ms": 0,
+      "pop_from_pct": 72,
+      "travel_px": 36
+    },
+    "word": {
+      "mode": "pop",
+      "active_color_hex": "#FFE712",
+      "active_opacity": 1,
+      "inactive_color_hex": "#FFFFFF",
+      "inactive_opacity": 1,
+      "active_scale_pct": 125,
+      "transition_ms": 90,
+      "active_outline_hex": null,
+      "active_outline_opacity": 1,
+      "highlight_box": false,
+      "highlight_box_hex": "#FFD400",
+      "highlight_box_opacity": 1,
+      "highlight_box_px": 14
+    }
+  }
+}

@@ -265,9 +265,11 @@ const DEFS: MetadataSectionDef[] = [
     promptLabel: 'AI DISCLOSURE',
     // Asks for a literal "AI DISCLOSURE:" heading — same string as its name.
     literalHeader: true,
-    defaultConfig: { text: 'Created with the help of AI tools and reviewed before publishing.' },
+    defaultConfig: { text: '' },
     buildInstruction(cfg) {
-      return `\n- AI DISCLOSURE: Include "🤖 AI DISCLOSURE:" section with: "${cfg.text || 'Created with the help of AI tools and reviewed before publishing.'}"`
+      return cfg.text?.trim()
+        ? `\n- AI DISCLOSURE: Include an emoji-free disclosure in the video's language, translating these process facts when needed: "${cfg.text}". Do not add review or other process claims.`
+        : ''
     },
   },
   {

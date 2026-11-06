@@ -1262,8 +1262,7 @@
           <div class="form-group mt-2">
             <label>Background plate</label>
             <span class="field-hint" style="display: block; margin-bottom: 4px;">
-              Looping video (e.g. starfield) or a static image. Drop sources into the channel's
-              <code>backgrounds/</code> folder, then pick from the list.
+              Choose from the app's backgrounds. Existing episode file choices stay available for rendering.
             </span>
             <div class="flex gap-2" style="flex-wrap: wrap; align-items: center;">
               <span v-if="compilationLayout.backgroundPlate.source_path" style="font-size: 12px; flex: 1; word-break: break-all;">
@@ -1277,12 +1276,6 @@
                 class="btn btn-sm btn-secondary"
                 @click="openBackgroundPicker('compilation')"
               >+ Pick</button>
-              <button
-                type="button"
-                class="btn btn-sm btn-secondary"
-                title="Open the channel's backgrounds/ folder so you can drop a video in"
-                @click="openBackgroundsFolder"
-              >📁 Open Folder</button>
             </div>
           </div>
 
@@ -1349,20 +1342,8 @@
               </h3>
               <button type="button" class="btn btn-sm btn-secondary" @click="showBackgroundPicker = false">✕ Close</button>
             </div>
-            <div v-if="bgLibraryLoading" class="text-muted text-sm">Scanning backgrounds/ folder…</div>
+            <div v-if="bgLibraryLoading" class="text-muted text-sm">Loading backgrounds…</div>
             <div v-else-if="bgLibraryError" class="text-danger text-sm">{{ bgLibraryError }}</div>
-            <div v-else-if="!bgLibraryExists" class="text-muted text-sm">
-              No <code>backgrounds/</code> folder yet. Click <strong>📁 Open folder</strong> to create it
-              and drop your background video / image in.
-            </div>
-            <div v-else-if="!bgLibrary.length" class="text-muted text-sm">
-              <code>backgrounds/</code> folder is empty. Drop one of:
-              <ul style="margin: 6px 0 0 18px;">
-                <li><code>.mp4</code> / <code>.mov</code> / <code>.webm</code> — looping video (e.g. starfield, particles)</li>
-                <li><code>.png</code> / <code>.jpg</code> — static image</li>
-              </ul>
-              CC0 sources: Pixabay, Mixkit, Pexels.
-            </div>
             <div v-else style="display: flex; flex-direction: column; gap: 6px; max-height: 60vh; overflow-y: auto;">
               <button
                 v-for="f in bgLibrary"
@@ -1372,18 +1353,18 @@
                 style="text-align: left; padding: 10px; display: flex; gap: 10px; align-items: center;"
                 @click="pickBackgroundFile(f)"
               >
-                <span style="font-size: 18px;">{{ f.kind === 'video' ? '🌌' : '🖼️' }}</span>
+                <img v-if="f.thumbnail_url" :src="f.thumbnail_url" alt="" width="96" height="54" loading="lazy" style="object-fit: cover; border-radius: 4px;" @error="bgLibraryError = 'A background preview could not be loaded. Close and reopen Backgrounds to try again.'" />
                 <span style="flex: 1;">
                   <strong>{{ f.filename }}</strong>
                   <br>
                   <span class="text-muted text-xs">
-                    {{ f.kind }}{{ f.duration ? ` · ${f.duration.toFixed(1)}s loop` : '' }}
+                    {{ !f.path ? 'Default · no background image' : f.id ? 'App background' : 'Custom file' }}{{ f.duration ? ` · ${f.duration.toFixed(1)}s loop` : '' }}
                   </span>
                 </span>
               </button>
             </div>
             <p class="text-muted text-xs mt-2" style="margin-bottom: 0;">
-              Source folder: <code>{{ bgLibraryDir }}</code>
+              App backgrounds are shared across channels. Your saved file choice stays until you choose a replacement.
             </p>
           </div>
         </Modal>
@@ -1616,7 +1597,6 @@
               <span class="text-sm flex-1">{{ frame.background_path ? frame.background_path.split('/').pop() : 'Solid color only' }}</span>
               <button type="button" class="btn btn-sm btn-secondary" @click="openBackgroundPicker('frame')">Pick Image / Video</button>
               <button v-if="frame.background_path" type="button" class="btn btn-sm btn-secondary" @click="frame.background_path = ''">Clear</button>
-              <button type="button" class="btn btn-sm btn-secondary" @click="openBackgroundsFolder">Open Folder</button>
             </div>
           </div>
         </div>
@@ -3274,6 +3254,10 @@ const unifiedTimingProblems = computed<string[]>(() => {
   const t = scannedAssets.value?.scene_plan_timing
   if (!t || t.complete === true) return []
   const out: string[] = []
+  if (t.coverage_measured === false) {
+    out.push('Narration coverage was not measured — this Scene Plan has no usable narration duration. '
+      + 'Rebuild the Scene Plan timeline on the Scene Plan page, then rescan this episode.')
+  }
   const cov = scannedAssets.value?.scene_plan_coverage
   if (cov && cov.total > 0 && cov.ready !== cov.total) {
     // These are ARRAYS of `{ id, scene_index }` (see the backend's
@@ -3300,17 +3284,17 @@ const unifiedTimingProblems = computed<string[]>(() => {
     if (bits.length === 0) bits.push('some scenes need attention in Scene Review')
     out.push(`${cov.ready}/${cov.total} scenes are render-ready — ${bits.join(', ')}.`)
   }
-  if (t.head_gap_sec > 0) {
+  if (t.head_gap_sec != null && t.head_gap_sec > 0) {
     out.push(
       `The first ${fmtGap(t.head_gap_sec)} of narration has no scene — Scene Plan starts its first scene at `
       + `${fmtGap(t.head_gap_sec)}. Fix it on the Scene Plan page ("Cover the opening"), or add an opening clip `
       + `that long in Step 2.`,
     )
   }
-  if (t.gap_count > 0) {
+  if (t.gap_count != null && t.gap_count > 0) {
     out.push(`${t.gap_count} gap(s) between scenes have no image. Fix them on the Scene Plan page ("Repair coverage").`)
   }
-  if (t.tail_gap_sec > 0) {
+  if (t.tail_gap_sec != null && t.tail_gap_sec > 0) {
     out.push(
       `The last ${fmtGap(t.tail_gap_sec)} of narration has no scene. Fix it on the Scene Plan page `
       + `("Repair coverage").`,
@@ -4079,13 +4063,10 @@ const compilationLayout = reactive<{
   },
 })
 
-// Backgrounds folder library — fetched on first open of the picker
-// modal. Same caching pattern as overlays + ambient libraries.
+// App backgrounds share one catalog; legacy custom files remain selectable.
 const bgLibraryLoading = ref(false)
 const bgLibraryError = ref('')
-const bgLibrary = ref<Array<{ filename: string; path: string; ext: string; kind: 'video' | 'image'; duration?: number }>>([])
-const bgLibraryDir = ref('')
-const bgLibraryExists = ref(false)
+const bgLibrary = ref<Array<{ id?: string; filename: string; path: string; ext: string; kind: 'video' | 'image'; duration?: number; thumbnail_url?: string }>>([])
 const showBackgroundPicker = ref(false)
 const backgroundPickerTarget = ref<'compilation' | 'frame' | 'title-card' | 'outro-card'>('compilation')
 
@@ -4093,14 +4074,11 @@ async function refreshBackgroundLibrary() {
   bgLibraryLoading.value = true
   bgLibraryError.value = ''
   try {
-    const r = await $fetch(`/api/projects/${slug.value}/video-editor/background-files`) as {
-      backgrounds: typeof bgLibrary.value
-      backgrounds_dir: string
-      exists: boolean
-    }
-    bgLibrary.value = r.backgrounds || []
-    bgLibraryDir.value = r.backgrounds_dir || ''
-    bgLibraryExists.value = !!r.exists
+    const catalog = await $fetch(`/api/projects/${slug.value}/video-editor/background-files`) as { backgrounds: typeof bgLibrary.value }
+    bgLibrary.value = [
+      { filename: 'None', path: '', ext: '', kind: 'image' },
+      ...catalog.backgrounds,
+    ]
   } catch (e: any) {
     bgLibraryError.value = e?.data?.detail || e?.message || 'Could not scan backgrounds folder'
     // The buttons that call this live outside the picker, where the inline error is not visible.
@@ -4110,32 +4088,22 @@ async function refreshBackgroundLibrary() {
   }
 }
 
-async function openBackgroundsFolder() {
-  try {
-    await $fetch(`/api/projects/${slug.value}/video-editor/backgrounds/open-folder`, { method: 'POST' })
-    await refreshBackgroundLibrary()
-  } catch (e: any) {
-    bgLibraryError.value = e?.data?.detail || e?.message || 'Could not open backgrounds folder'
-    // The buttons that call this live outside the picker, where the inline error is not visible.
-    showError(bgLibraryError.value)
-  }
-}
-
 async function openBackgroundPicker(target: typeof backgroundPickerTarget.value) {
   backgroundPickerTarget.value = target
   await refreshBackgroundLibrary()
   showBackgroundPicker.value = true
 }
 
-function pickBackgroundFile(file: { path: string; filename: string }) {
-  void (async () => {
-    const portable = await collapseToPortablePath(file.path)
-    if (backgroundPickerTarget.value === 'frame') frame.background_path = portable
-    else if (backgroundPickerTarget.value === 'title-card') titleCard.background_media_path = portable
-    else if (backgroundPickerTarget.value === 'outro-card') outroCard.background_media_path = portable
-    else compilationLayout.backgroundPlate.source_path = portable
-    showBackgroundPicker.value = false
-  })()
+async function pickBackgroundFile(file: { path: string; filename: string }) {
+  const target = backgroundPickerTarget.value
+  const scope = videoEpisodeSequence
+  const portable = await collapseToPortablePath(file.path)
+  if (scope !== videoEpisodeSequence) return
+  if (target === 'frame') frame.background_path = portable
+  else if (target === 'title-card') titleCard.background_media_path = portable
+  else if (target === 'outro-card') outroCard.background_media_path = portable
+  else compilationLayout.backgroundPlate.source_path = portable
+  showBackgroundPicker.value = false
 }
 
 // Project's overlays/ folder contents — populated on tab open via the
@@ -6250,7 +6218,7 @@ function pickTitleImage(filePath: string) {
 async function collapseToPortablePath(input: string, adopt = false): Promise<string> {
   const raw = String(input || '').trim()
   if (!raw) return ''
-  if (!adopt && /^\$\{(?:CHANNEL|PROJECT|ASSET)\}(?:\/.*)?$/.test(raw)) return raw
+  if (!adopt && /^\$\{(?:CHANNEL|PROJECT|ASSET|BACKGROUND)\}(?:\/.*)?$/.test(raw)) return raw
   try {
     const r = await post<{ output: string }>(`/system/resolve-asset-path`, {
       path: raw,

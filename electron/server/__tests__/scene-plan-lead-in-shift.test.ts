@@ -64,6 +64,25 @@ async function episode(spans: Span[], mergedSec: number, leadInSec: number) {
   return scanEpisodeAssets(SLUG, code)
 }
 
+/** One episode whose plan has no measured narration at all (no merged track, zero plan duration). */
+async function unmeasuredEpisode() {
+  const code = `EP000${++n}`
+  const episodeDir = path.join(tmp.dir, 'projects', SLUG, 'episodes', 'Season 001', `${code} - Ep ${n}`)
+  const imagesDir = path.join(episodeDir, 'scene_images')
+  await fs.mkdir(imagesDir, { recursive: true })
+  const scenes = [{
+    id: 's1', scene_index: 1, start_sec: 0, end_sec: 10,
+    transcript_segment: 'x', visual_prompt: 'x', approved: true,
+  }]
+  await fs.writeFile(path.join(imagesDir, 's1.png'), 'png')
+  await fs.writeFile(path.join(episodeDir, 'scene_plan.json'), JSON.stringify({
+    schema_version: 1, generated_at: new Date().toISOString(), research_used: false, opening_mode: 'from-start',
+    total_duration_sec: 0, scenes,
+  }))
+  const { scanEpisodeAssets } = await import('../generators/video.js')
+  return scanEpisodeAssets(SLUG, code)
+}
+
 const near = (actual: number | undefined, expected: number, tolerance = 0.15) =>
   assert.ok(Math.abs(Number(actual) - expected) <= tolerance, `${actual} ≈ ${expected}`)
 
@@ -73,7 +92,7 @@ describe('Scene Plan on the merged audio clock (music lead-in)', () => {
     const timing = assets.scene_plan_timing!
     assert.equal(timing.audio_lead_in_shift_sec, 8)
     assert.equal(timing.complete, true)
-    assert.ok(timing.uncovered_sec <= 0.2, `uncovered ${timing.uncovered_sec}`)
+    assert.ok((timing.uncovered_sec ?? NaN) <= 0.2, `uncovered ${timing.uncovered_sec}`)
     assert.deepEqual(timing.scenes.map(s => [s.start_sec, s.end_sec]), [[0, 13], [13, 18], [18, 23]])
     assert.deepEqual(assets.scenes.map(s => s.duration_sec), [13, 5, 5])
     // Scene 1 keeps its start, so the opening offset (and with it the captions) does not move.
@@ -86,6 +105,8 @@ describe('Scene Plan on the merged audio clock (music lead-in)', () => {
     const timing = assets.scene_plan_timing!
     assert.equal('audio_lead_in_shift_sec' in timing, false)
     assert.equal(timing.complete, true)
+    assert.equal(timing.coverage_measured, true)
+    assert.equal(timing.uncovered_sec, 0)
     assert.deepEqual(timing.scenes.map(s => [s.start_sec, s.end_sec]), [[0, 5], [5, 10], [10, 15]])
   })
 
@@ -101,8 +122,29 @@ describe('Scene Plan on the merged audio clock (music lead-in)', () => {
     const timing = assets.scene_plan_timing!
     assert.equal(timing.audio_lead_in_shift_sec, 8)
     assert.equal(timing.complete, false)
-    near(timing.uncovered_sec, 5)
+    assert.equal(timing.coverage_measured, true)
+    near(timing.uncovered_sec ?? NaN, 5)
     assert.equal(timing.gap_count, 1)
+  })
+
+  test('no measured narration keeps coverage unknown, never 0 s covered', async () => {
+    const assets = await unmeasuredEpisode()
+    const timing = assets.scene_plan_timing!
+    assert.equal(timing.coverage_measured, false)
+    assert.equal(timing.coverage_reason, 'missing-duration')
+    assert.equal(timing.uncovered_sec, null)
+    assert.equal(timing.head_gap_sec, null)
+    assert.equal(timing.tail_gap_sec, null)
+    assert.equal(timing.gap_count, null)
+    assert.equal(timing.complete, false)
+  })
+
+  test('blockingUncoveredNarrationSeconds refuses unknown coverage instead of reading it as 0', async () => {
+    const { blockingUncoveredNarrationSeconds } = await import('../generators/video.js')
+    assert.throws(
+      () => blockingUncoveredNarrationSeconds({ uncovered_sec: null, head_gap_sec: null }, {} as any),
+      /coverage is unknown/i,
+    )
   })
 
   test('the shift rule itself', () => {
