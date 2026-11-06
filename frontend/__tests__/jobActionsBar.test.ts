@@ -43,11 +43,19 @@ test('Retry is off with the reason that actually applies', () => {
   assert.equal(redoFailedJobsAction({ redo: 5, waitingForCheck: 0, alreadyComplete: 0 }, { self: true, other: false, progress: 'Retrying 2/5…' }).label, 'Retrying 2/5…')
 })
 
-test('every supplementary action has a one-line hint saying what it never does', () => {
+test('every supplementary action has a one-line hint saying what it does and what it never does', () => {
   assert.match(MORE_ACTION_HINTS.recover, /Never generates or charges/)
   assert.match(MORE_ACTION_HINTS.repair, /Never generates or charges/)
-  assert.match(MORE_ACTION_HINTS.clearFailed, /Keeps files and billing records/)
-  assert.match(MORE_ACTION_HINTS.clearFinished, /Keeps files and billing records/)
+  assert.match(MORE_ACTION_HINTS.clearFailed,
+    /^Hides settled failed rows from this list\. Their error details, logs and Retry\/Recover stay, and the Hidden filter restores them\.$/)
+  assert.match(MORE_ACTION_HINTS.clearFinished,
+    /^Hides finished rows from this list\. Nothing is deleted — the Hidden filter restores them\.$/)
+
+  // Where the old hint promised files and billing records, the new Hide hint
+  // promises nothing is deleted and the record stays. The explicit files and
+  // billing reassurance lives on the bulk-selection bar, so pin it there.
+  const page = readFileSync(fileURLToPath(new URL('../pages/projects/[slug]/jobs.vue', import.meta.url)), 'utf8')
+  assert.match(page, /Selection includes matching jobs across all filtered pages\. Files and billing records stay intact\. Abandoning stops local tracking; accepted provider work may still finish\./)
 })
 
 test('Recover and Repair hints say what each one looks at, so they are not clicked at random', () => {

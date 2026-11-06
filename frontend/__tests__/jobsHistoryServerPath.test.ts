@@ -49,11 +49,12 @@ test('search and Select All Matching run over that same composed list', () => {
 })
 
 test('the history read follows the active scope, resets on scope changes, and reloads terminal rows', () => {
-  assert.match(page, /if \(isUniversal\.value\) \{\n\s*await history\.load\('\/jobs\/all\/history'/)
-  assert.match(page, /await history\.load\(`\/projects\/\$\{slug\.value\}\/jobs\/history`\)/,
-    'a channel uses its own history endpoint')
-  assert.match(page, /watch\(\[isUniversal, projectFilter, slug\], \(\) => \{\n\s*history\.reset\(\)\n\s*void loadJobHistory\(\)\n\s*\}, \{ immediate: true \}\)/,
-    'old rows and in-flight loads are invalidated when channel or scope changes')
+  assert.match(page, /if \(isUniversal\.value\) \{\n\s*const query = projectFilter\.value === 'all' \? \{\} : \{ project: projectFilter\.value \}\n\s*await Promise\.all\(\[\n\s*history\.load\('\/jobs\/all\/history', query\),\n\s*hiddenHistory\.load\('\/jobs\/all\/history', \{ \.\.\.query, hidden: '1' \}\),\n\s*\]\)/,
+    'the universal scope sends the selected channel to the server and reads visible and hidden rows in one pass')
+  assert.match(page, /await Promise\.all\(\[\n\s*history\.load\(`\/projects\/\$\{slug\.value\}\/jobs\/history`\),\n\s*hiddenHistory\.load\(`\/projects\/\$\{slug\.value\}\/jobs\/history`, \{ hidden: '1' \}\),\n\s*\]\)/,
+    'a channel uses its own history endpoint for both reads')
+  assert.match(page, /watch\(\[isUniversal, projectFilter, slug\], \(\) => \{\n\s*history\.reset\(\)\n\s*hiddenHistory\.reset\(\)\n\s*void loadJobHistory\(\)\n\s*\}, \{ immediate: true \}\)/,
+    'visible rows, hidden rows and in-flight loads are invalidated when channel or scope changes')
   assert.match(page, /watch\(\(\) => projectQueue\.jobs\.value\.map\(job => `\$\{job\.job_id\}:\$\{job\.status\}`\)\.join\('\|'\), \(\) => \{\n\s*if \(!isUniversal\.value\) scheduleHistoryRefresh\(500\)/,
     'a channel row leaving the active stream refreshes authoritative history without observing progress churn')
   assert.match(page, /watch\(\(\) => universalQueue\.jobs\.value\.map\(job => `\$\{job\.job_id\}:\$\{job\.status\}`\)\.join\('\|'\), \(\) => \{\n\s*if \(isUniversal\.value\) scheduleHistoryRefresh\(500\)/,
@@ -169,14 +170,18 @@ test('a bulk clear invalidates a read begun before it, so its answer cannot land
   })
 })
 
-test('a confirmed clear invalidates, removes, and reloads history in either scope', () => {
+test('a confirmed hide invalidates stale reads and reloads history in either scope', () => {
   assert.match(page, /history\.invalidate\(\)/)
   assert.match(page, /if \(cleared\) await loadJobHistory\(\)/,
-    'selected clears reload the active scope after confirmed removals')
-  assert.match(page, /control\.action === 'clear-history'\) \{[\s\S]{0,420}if \(!isMissingJobError\(error\)\) throw error[\s\S]{0,260}history\.removeIds\(\[job\.job_id\]\)[\s\S]{0,160}await loadJobHistory\(\)/,
-    'a single clear treats a missing job as removed, drops the row and reloads')
+    'selected hides reload the active scope after confirmed hides')
+  assert.match(page, /control\.action === 'clear-history'\) \{[\s\S]{0,520}await post\(`\$\{jobQueuePath\(job\)\}\/hide`, \{\}\)[\s\S]{0,120}await loadJobHistory\(\)/,
+    'a single clear calls the hide endpoint and reloads; the server resolves a row that survives only in saved history')
+  assert.doesNotMatch(page, /isMissingJobError\(/,
+    'the page no longer short-circuits a missing job: /hide owns the saved-history fallback and a true 404 stays an error')
+  assert.doesNotMatch(page, /history\.removeIds\(/,
+    'the page does not drop rows before the authoritative reload — Hide keeps the record')
   assert.match(page, /if \(isUniversal\.value\) void refreshVisibleJobs\(\)\n\s*else await refreshVisibleJobs\(\)\n\s*await loadJobHistory\(\)/,
-    'bulk clear reloads the authoritative active scope even when the server cleared nothing')
+    'bulk hide reloads the authoritative active scope even when the server hid nothing')
 })
 
 test('the toolbar counts use the server clear selector, not the skipped badge', () => {
