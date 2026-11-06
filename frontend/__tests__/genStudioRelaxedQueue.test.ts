@@ -139,23 +139,10 @@ test('a direct row keeps whatever heading its picker already used', () => {
   assert.equal(queueClassGroupLabel({ queue_class: 'relaxed' }, 'Language models'), RELAXED_QUEUE_GROUP_LABEL)
 })
 
-// ── 2. The hint states GenStudio's numbers and GenStudio's words ──────────
+// ── 2. The hint states only GenStudio's own sentence ──────────────────────
 
-test('the hint carries the served percentage, the threshold in dollars, and the served sentence', () => {
-  const note = describeRelaxedQueueHint(HINT)
-  assert.ok(note.includes(String(HINT.discount_percent)), 'the served percentage is on the page')
-  assert.ok(note.includes(`$${HINT.unlock_threshold_cents / 100}`), 'cents rendered as dollars')
-  assert.ok(note.includes(HINT.message), 'the owner’s sentence, verbatim and whole')
-  // Not interpolated INTO the sentence: he may reword it into a shape where
-  // the numbers no longer fit, and a client that had spliced them in would
-  // then be showing a sentence he never wrote.
-  assert.ok(note.indexOf(HINT.message) > note.indexOf(String(HINT.discount_percent)))
-})
-
-test('a threshold with cents keeps them; a round one does not grow a ".00"', () => {
-  assert.ok(describeRelaxedQueueHint({ ...HINT, unlock_threshold_cents: 10_000 }).includes('$100 '))
-  assert.ok(describeRelaxedQueueHint({ ...HINT, unlock_threshold_cents: 1_234 }).includes('$12.34'))
-  assert.ok(describeRelaxedQueueHint({ ...HINT, unlock_threshold_cents: 1_000_000 }).includes('$10,000'))
+test('the hint carries the served sentence verbatim and nothing else', () => {
+  assert.equal(describeRelaxedQueueHint(HINT), HINT.message)
 })
 
 /** Script and template only — a stylesheet's `50%` is a keyframe, not a price. */
@@ -184,12 +171,12 @@ test('no percentage, threshold or offer copy is authored anywhere in the client'
   }
 })
 
-test('an incomplete or absent hint renders nothing at all', () => {
+test('an absent message renders nothing; missing number fields do not hide it', () => {
   assert.equal(describeRelaxedQueueHint(null), '')
   assert.equal(describeRelaxedQueueHint(undefined), '')
   assert.equal(describeRelaxedQueueHint({ ...HINT, message: '   ' }), '')
-  assert.equal(describeRelaxedQueueHint({ ...HINT, discount_percent: Number.NaN }), '')
-  assert.equal(describeRelaxedQueueHint({ ...HINT, unlock_threshold_cents: undefined as any }), '')
+  assert.equal(describeRelaxedQueueHint({ ...HINT, discount_percent: Number.NaN }), HINT.message)
+  assert.equal(describeRelaxedQueueHint({ ...HINT, unlock_threshold_cents: undefined as any }), HINT.message)
 })
 
 // ── 3. The sections, and their order ──────────────────────────────────────
@@ -238,9 +225,8 @@ test('the section note is body text and is never clamped or hidden', () => {
   assert.match(menuTemplate as string, /<p v-if="group\.note" class="model-menu-group-note">\{\{ group\.note \}\}<\/p>/)
 })
 
-test('the published discount percentage keeps its hundredths', () => {
-  const note = describeRelaxedQueueHint({ ...HINT, discount_percent: 42.55 })
-  assert.match(note, /Discount 42\.55%/)
+test('the published discount percentage is not rendered', () => {
+  assert.equal(describeRelaxedQueueHint({ ...HINT, discount_percent: 42.55 }), HINT.message)
 })
 
 // ── 4. The price, with the full price struck through ──────────────────────

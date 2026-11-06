@@ -50,36 +50,15 @@ export function queueClassGroupLabel(
   return isRelaxedQueue(model) ? RELAXED_QUEUE_GROUP_LABEL : directLabel
 }
 
-function moneyFromCents(cents: number): string {
-  const dollars = cents / 100
-  // model-drift-allow: this renders GenStudio's own published cents figure, never a Story-owned rate
-  return `$${dollars.toLocaleString('en-US', {
-    minimumFractionDigits: Number.isInteger(dollars) ? 0 : 2,
-    maximumFractionDigits: 2,
-  })}`
-}
-
 /**
  * The one line shown under the "Relaxed Queue" heading, or '' when there is
  * nothing GenStudio has said to show.
  *
- * The two numbers are printed beside the sentence, never interpolated into it.
- * GenStudio's own note explains why: `message` is written to contain neither
- * figure, because the owner may reword it into a shape where they no longer
- * fit — and a client that had spliced them in would then be showing a sentence
- * he never wrote. Cents become dollars here because dollars are how he says it;
- * the amount itself is GenStudio's.
+ * Only GenStudio's own sentence is shown. The published discount percentage
+ * and unlock amount are catalogue data, not a Story Studio display.
  */
 export function describeRelaxedQueueHint(hint: RelaxedQueueHint | null | undefined): string {
-  if (!hint) return ''
-  const message = hint.message?.trim()
-  if (!message) return ''
-  if (!Number.isFinite(hint.discount_percent) || !Number.isFinite(hint.unlock_threshold_cents)) return ''
-  const percent = hint.discount_percent.toLocaleString('en-US', {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 2,
-  })
-  return `Discount ${percent}% · Unlocks at ${moneyFromCents(hint.unlock_threshold_cents)} — ${message}`
+  return hint?.message?.trim() || ''
 }
 
 /** One already-built menu row, as far as sectioning is concerned. */
