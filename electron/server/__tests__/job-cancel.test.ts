@@ -1080,8 +1080,19 @@ describe('job route controls', () => {
 
       const remove = await request(app).post(`/api/projects/${project.slug}/jobs/${job.job_id}/hide`)
       assert.equal(remove.status, 200)
-      assert.equal(jq.getJob(job.job_id), null)
+      const hidden = jq.getJob(job.job_id)
+      assert.ok(hidden, 'hide retains the terminal record')
+      assert.equal(hidden.status, 'cancelled')
+      assert.equal(hidden.finished_at, cancel.body.job.finished_at)
+      assert.deepEqual(hidden.output_lines, cancel.body.job.output_lines)
+      assert.ok(hidden.hidden_at, 'the retained row is marked hidden')
       assert.equal(await fs.readFile(output, 'utf8'), 'generated output stays')
+
+      const restore = await request(app).post(`/api/projects/${project.slug}/jobs/${job.job_id}/unhide`)
+      assert.equal(restore.status, 200)
+      const restored = jq.getJob(job.job_id)
+      assert.equal(restored?.hidden_at, undefined, 'unhide clears the mark, not the record')
+      assert.equal(restored?.status, 'cancelled')
     } finally {
       await jq.setQueuePaused(false)
     }
@@ -1102,7 +1113,16 @@ describe('job route controls', () => {
       assert.equal(cancel.body.job.status, 'cancelled')
       const remove = await request(app).post(`/api/jobs/all/${job.job_id}/hide`)
       assert.equal(remove.status, 200)
-      assert.equal(jq.getJob(job.job_id), null)
+      const hidden = jq.getJob(job.job_id)
+      assert.ok(hidden, 'hide retains the terminal record')
+      assert.equal(hidden.status, 'cancelled')
+      assert.ok(hidden.hidden_at, 'the retained row is marked hidden')
+
+      const restore = await request(app).post(`/api/jobs/all/${job.job_id}/unhide`)
+      assert.equal(restore.status, 200)
+      const restored = jq.getJob(job.job_id)
+      assert.equal(restored?.hidden_at, undefined, 'unhide clears the mark, not the record')
+      assert.equal(restored?.status, 'cancelled')
     } finally {
       await jq.setQueuePaused(false)
     }
