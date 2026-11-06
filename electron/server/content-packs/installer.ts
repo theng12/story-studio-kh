@@ -719,6 +719,12 @@ export async function installContentPackLocked(
     await quarantineContentPackBytes(request.archiveBytes, 'remote_identity_mismatch', paths)
     throw new Error('Content Pack signed manifest does not match the expected remote pack identity')
   }
+  // Owner ruling: retired archives cannot be newly installed or re-installed.
+  // Already-installed retired bytes stay readable; this guard runs before any
+  // state, staging or activation write.
+  if (verified.manifest.lifecycle === 'retired') {
+    throw new Error(`Content Pack version is retired and cannot be installed: ${verified.manifest.pack_id}@${verified.manifest.version}`)
+  }
   await assertContentPackAppCompatible(verified.manifest.min_app_version, options.appVersion)
 
   const installed = await withContentPackStateTransaction(async state => {

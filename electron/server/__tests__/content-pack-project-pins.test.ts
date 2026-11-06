@@ -1060,19 +1060,79 @@ describe('Content Pack version exposure', () => {
     assert.equal(await fs.readFile(episodeInfo, 'utf8'), before, 'existing episode selections stay untouched')
     assert.ok(applied.backup, 'apply returns a durable backup')
     await fs.stat(applied.backup.project_meta)
+    const journal = JSON.parse(await fs.readFile(path.join(applied.backup.backup_dir, 'journal.json'), 'utf8')) as {
+      files: Array<{ source: string; backup: string; sha256: string; applied_sha256: string }>
+    }
+    const metaEntry = journal.files.find(entry => entry.source === path.join(temp.dir, 'projects', project.slug, 'project.json'))
+    assert.ok(metaEntry, 'journal records the project file')
+    assert.equal(metaEntry.applied_sha256, sha256(await fs.readFile(metaEntry.source)), 'post-apply hash matches the live file')
+    assert.equal(metaEntry.sha256, sha256(await fs.readFile(metaEntry.backup)), 'backup hash matches the copied bytes')
     await undoProjectContentPinBackup(project.slug, applied.backup.backup_dir)
     assert.equal((await projectManager.getProject(project.slug))?.content_pack_versions?.[PACK_ID], '1.0.0')
   })
 
-  test('refuses an active version that is retired', async () => {
+  test('undo refuses after the project or config was edited, restoring nothing', async () => {
+    const { temp, options } = await isolated()
+    const v1 = await install('1.0.0', 'v1', options)
+    await install('1.1.0', 'v1.1', options)
+    for (const editedFile of ['project.json', 'config.json'] as const) {
+      const project = await projectManager.createProject({ name: `Pin Undo ${editedFile}` })
+      await setProjectContentPin(project.slug, { pack_id: PACK_ID, version: '1.0.0', archive_sha256: v1.archive_sha256 }, options)
+      const applied = await applyProjectContentUpgradeToActive(project.slug, PACK_ID, options)
+      assert.ok(applied.backup)
+      const filePath = path.join(temp.dir, 'projects', project.slug, editedFile)
+      const document = JSON.parse(await fs.readFile(filePath, 'utf8'))
+      document.edited_after_pin_move = true
+      await fs.writeFile(filePath, `${JSON.stringify(document, null, 2)}\n`)
+      await assert.rejects(
+        undoProjectContentPinBackup(project.slug, applied.backup.backup_dir),
+        /edited after the pin move/i,
+        `undo must refuse when ${editedFile} changed`,
+      )
+      assert.equal((await projectManager.getProject(project.slug))?.content_pack_versions?.[PACK_ID], '1.1.0',
+        'a refused undo leaves the moved pin untouched')
+    }
+  })
+
+  test('apply refuses when the project changed between snapshot and write', async () => {
     const { options } = await isolated()
+    const v1 = await install('1.0.0', 'v1', options)
+    await install('1.1.0', 'v1.1', options)
+    const project = await projectManager.createProject({ name: 'Pin Snapshot Race' })
+    await setProjectContentPin(project.slug, { pack_id: PACK_ID, version: '1.0.0', archive_sha256: v1.archive_sha256 }, options)
+    const metaPath = path.join(projectManager.getProjectDir(project.slug)!, 'project.json')
+    await assert.rejects(applyProjectContentUpgradeToActive(project.slug, PACK_ID, {
+      ...options,
+      hooks: {
+        beforeProjectWrite: async () => {
+          const document = JSON.parse(await fs.readFile(metaPath, 'utf8'))
+          document.edited_during_pin_move = true
+          await fs.writeFile(metaPath, `${JSON.stringify(document, null, 2)}\n`)
+        },
+      },
+    }), /changed while the pin move was starting/i)
+    assert.equal((await projectManager.getProject(project.slug))?.content_pack_versions?.[PACK_ID], '1.0.0',
+      'a refused move leaves the old pin in place')
+  })
+
+  test('retired archives cannot be installed, resolved, or targeted by a pin move', async () => {
+    const { temp, options } = await isolated()
     const v1 = await install('1.0.0', 'v1', options)
     const project = await projectManager.createProject({ name: 'Retired Move' })
     await setProjectContentPin(project.slug, { pack_id: PACK_ID, version: '1.0.0', archive_sha256: v1.archive_sha256 }, options)
     const retiredBytes = await buildArchive('1.1.0', 'retired', false, 'retired')
-    await installContentPack({ archiveBytes: retiredBytes, source: 'local-import', expectedArchiveSha256: sha256(retiredBytes) }, options)
-    assert.equal(await resolveCatalogPackVersion(PACK_ID, '1.1.0', options), null, 'retired resolves nowhere at the shared exact-version reader')
-    await assert.rejects(planProjectContentUpgradeToActive(project.slug, PACK_ID, options), /no active installed version/i)
+    await assert.rejects(
+      installContentPack({ archiveBytes: retiredBytes, source: 'local-import', expectedArchiveSha256: sha256(retiredBytes) }, options),
+      /retired/i,
+      'a retired archive cannot be installed',
+    )
+    await fs.writeFile(path.join(temp.dir, 'recovery', 'retired.sspack'), retiredBytes)
+    assert.equal(await resolveCatalogPackVersion(PACK_ID, '1.1.0', options), null, 'retired resolves nowhere, including recovery')
+    await assert.rejects(
+      planProjectContentUpgrade(project.slug, PACK_ID, '1.1.0', options),
+      /unavailable/i,
+      'a pin move cannot target retired bytes',
+    )
   })
 
   test('routes expose plan/apply and refuse active or pinned versions', async () => {

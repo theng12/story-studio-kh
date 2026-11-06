@@ -1,9 +1,9 @@
-import { randomUUID } from 'node:crypto'
-import { existsSync } from 'node:fs'
+import { createHash, randomUUID } from 'node:crypto'
+import { existsSync, readFileSync } from 'node:fs'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 
-import { withLock, writeJsonAtomic } from '../lib/atomic-store.js'
+import { writeJsonAtomic } from '../lib/atomic-store.js'
 import { copyToTrashSync, trashRootFor } from '../lib/trash-move.js'
 
 import type { CreateProjectRequest, JobType, ProjectMeta, UpdateConfigRequest } from '../models/types.js'
@@ -33,6 +33,22 @@ export interface ContentPackPinBackup {
   backup_dir: string
   project_meta: string
   config: string | null
+}
+
+interface PinBackupJournalFile {
+  source: string
+  backup: string
+  /** SHA-256 of the copied bytes in Trash. */
+  sha256: string
+  /** SHA-256 of the live file immediately after the pin move wrote it. */
+  applied_sha256: string
+}
+
+interface PinBackupPreservation {
+  backup: ContentPackPinBackup
+  journal_path: string
+  created_at: string
+  files: PinBackupJournalFile[]
 }
 
 export interface ContentPackUpgradePlan {
@@ -1052,10 +1068,16 @@ async function applyProjectContentUpgradeLocked(
 ): Promise<ContentPackUpgradePlan> {
   const { plan, target } = await planProjectContentUpgradeLocked(slug, packId, targetVersion, options)
   // Snapshot first: duplicate project.json and config.json into Story's Trash
-  // journal and verify the copies before the pin write is allowed to start.
-  const backup = await preservePinState(slug)
+  // journal and verify every copied byte before the pin write is allowed to start.
+  const preservation = await preservePinState(slug)
   await options.hooks?.beforeProjectWrite?.()
   const updated = await projectManager.mutateProjectMetaConsistently(slug, project => {
+    const meta = preservation.files.find(file => path.basename(file.source) === 'project.json')!
+    // The snapshot and this locked read must be the same bytes, or the backup
+    // predates a concurrent edit and restoring it would discard that edit.
+    if (sha256Bytes(readFileSync(meta.source)) !== meta.sha256) {
+      throw pinBackupConflict('The channel changed while the pin move was starting; nothing was moved.')
+    }
     const selectedIds = new Set(itemRefsForPack(project, packId).map(item => item.id))
     project.content_pack_versions = { ...(project.content_pack_versions ?? {}), [packId]: targetVersion }
     const items = { ...(project.content_pack_items ?? {}) }
@@ -1063,70 +1085,140 @@ async function applyProjectContentUpgradeLocked(
       if (selectedIds.has(item.id)) items[item.id] = { pack_id: packId, kind: item.kind }
     }
     project.content_pack_items = items
+    // Same backfill syncManifest would do, before the post-apply hash is taken,
+    // so the journal describes the bytes on disk.
+    if (!project.project_id) project.project_id = randomUUID()
+    meta.applied_sha256 = jsonFileSha256(project)
   })
   if (!updated) throw Object.assign(new Error(`Project not found: ${slug}`), { statusCode: 404, expose: true })
-  return { ...plan, backup }
+  await writeJsonAtomic(preservation.journal_path, {
+    version: 2,
+    project_slug: slug,
+    created_at: preservation.created_at,
+    files: preservation.files,
+  })
+  return { ...plan, backup: preservation.backup }
+}
+
+function sha256Bytes(bytes: Uint8Array): string {
+  return createHash('sha256').update(bytes).digest('hex')
+}
+
+/** The exact bytes writeJsonAtomic writes for these files (indent 2 + newline). */
+function jsonFileSha256(value: unknown): string {
+  return sha256Bytes(Buffer.from(`${JSON.stringify(value, null, 2)}\n`, 'utf8'))
+}
+
+function pinBackupConflict(message: string): Error {
+  return Object.assign(new Error(message), { statusCode: 409, expose: true })
 }
 
 /** Durable config + pin-state copy under the project's Trash root. */
-async function preservePinState(slug: string): Promise<ContentPackPinBackup> {
+async function preservePinState(slug: string): Promise<PinBackupPreservation> {
   const projectDir = projectManager.getProjectDir(slug)
   if (!projectDir) throw Object.assign(new Error(`Project not found: ${slug}`), { statusCode: 404, expose: true })
   const metaSource = path.join(projectDir, 'project.json')
   if (!existsSync(metaSource)) throw Object.assign(new Error(`Project not found: ${slug}`), { statusCode: 404, expose: true })
-  const stamp = new Date().toISOString().replace(/[-:.TZ]/g, '')
-  const backupDir = path.join(trashRootFor(projectDir, projectDir, slug), 'pin-move', stamp)
-  const projectMeta = copyToTrashSync(metaSource, path.join(backupDir, 'project.json'), 'content-pack-pin-backup')
   const configSource = path.join(projectDir, 'config.json')
-  const config = existsSync(configSource)
-    ? copyToTrashSync(configSource, path.join(backupDir, 'config.json'), 'content-pack-pin-backup')
-    : null
-  const files = [
-    { source: metaSource, backup: projectMeta },
-    ...(config ? [{ source: configSource, backup: config }] : []),
-  ]
-  await writeJsonAtomic(path.join(backupDir, 'journal.json'), {
-    version: 1,
-    project_slug: slug,
-    created_at: new Date().toISOString(),
-    files,
-  })
-  // No mutation starts unless every copy exists, is a file, and matches its
-  // source's byte count exactly.
-  for (const entry of files) {
-    const [source, backup] = await Promise.all([fs.stat(entry.source), fs.stat(entry.backup)])
-    if (!backup.isFile() || source.size !== backup.size) {
-      throw new Error(`Content Pack pin backup could not be verified: ${path.basename(entry.source)}`)
+  const sources = [metaSource, ...(existsSync(configSource) ? [configSource] : [])]
+  const stamp = new Date().toISOString().replace(/[-:.TZ]/g, '')
+  const backupDir = path.join(trashRootFor(projectDir, projectDir, slug), 'pin-move', `${stamp}-${randomUUID()}`)
+  const files: PinBackupJournalFile[] = []
+  for (const source of sources) {
+    const sourceBytes = await fs.readFile(source)
+    const backup = copyToTrashSync(source, path.join(backupDir, path.basename(source)), 'content-pack-pin-backup')
+    const backupBytes = await fs.readFile(backup)
+    const digest = sha256Bytes(backupBytes)
+    // Byte proof, not size: a same-size corrupt copy must stop the move.
+    if (digest !== sha256Bytes(sourceBytes)) {
+      throw new Error(`Content Pack pin backup could not be verified: ${path.basename(source)}`)
     }
+    files.push({ source, backup, sha256: digest, applied_sha256: digest })
   }
-  return { backup_dir: backupDir, project_meta: projectMeta, config }
+  const createdAt = new Date().toISOString()
+  const journalPath = path.join(backupDir, 'journal.json')
+  await writeJsonAtomic(journalPath, { version: 2, project_slug: slug, created_at: createdAt, files })
+  const metaBackup = files.find(file => path.basename(file.source) === 'project.json')
+  if (!metaBackup) throw new Error('Content Pack pin backup is missing project.json')
+  return {
+    backup: {
+      backup_dir: backupDir,
+      project_meta: metaBackup.backup,
+      config: files.find(file => path.basename(file.source) === 'config.json')?.backup ?? null,
+    },
+    journal_path: journalPath,
+    created_at: createdAt,
+    files,
+  }
 }
 
-/** Put the journaled project.json/config.json back. */
-export async function undoProjectContentPinBackup(slug: string, backupDir: string): Promise<void> {
-  const projectDir = projectManager.getProjectDir(slug)
-  if (!projectDir) throw Object.assign(new Error(`Project not found: ${slug}`), { statusCode: 404, expose: true })
-  const journalRoot = path.resolve(trashRootFor(projectDir, projectDir, slug), 'pin-move')
-  const resolved = path.resolve(backupDir)
-  const relative = path.relative(journalRoot, resolved)
-  if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) {
-    throw Object.assign(new Error('That folder is not a Content Pack pin backup for this channel.'), { statusCode: 409, expose: true })
-  }
-  const journal = JSON.parse(await fs.readFile(path.join(resolved, 'journal.json'), 'utf8')) as {
-    project_slug?: unknown
-    files?: Array<{ source?: unknown; backup?: unknown }>
-  }
-  if (journal.project_slug !== slug || !Array.isArray(journal.files)) {
-    throw Object.assign(new Error('That Content Pack pin backup journal is invalid.'), { statusCode: 409, expose: true })
-  }
-  for (const entry of journal.files) {
-    if (typeof entry.source !== 'string' || typeof entry.backup !== 'string'
-      || path.dirname(path.resolve(entry.backup)) !== resolved) {
-      throw Object.assign(new Error('That Content Pack pin backup journal is invalid.'), { statusCode: 409, expose: true })
+/** Put the journaled project.json/config.json back, unless either has been edited since. */
+export async function undoProjectContentPinBackup(
+  slug: string,
+  backupDir: string,
+  options: ContentPackProjectPinOptions = {},
+): Promise<void> {
+  return withContentPackCoordinationLock(pathsFor(options), async () => {
+    const projectDir = projectManager.getProjectDir(slug)
+    if (!projectDir) throw Object.assign(new Error(`Project not found: ${slug}`), { statusCode: 404, expose: true })
+    const journalRoot = path.resolve(trashRootFor(projectDir, projectDir, slug), 'pin-move')
+    const resolved = path.resolve(backupDir)
+    const relative = path.relative(journalRoot, resolved)
+    if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) {
+      throw pinBackupConflict('That folder is not a Content Pack pin backup for this channel.')
     }
-    const document = JSON.parse(await fs.readFile(entry.backup, 'utf8'))
-    await withLock(entry.source, () => writeJsonAtomic(entry.source, document))
-  }
+    const journal = JSON.parse(await fs.readFile(path.join(resolved, 'journal.json'), 'utf8')) as {
+      version?: unknown
+      project_slug?: unknown
+      files?: Array<Partial<PinBackupJournalFile>>
+    }
+    const allowedSources = new Set([path.join(projectDir, 'project.json'), path.join(projectDir, 'config.json')])
+    if (journal.version !== 2 || journal.project_slug !== slug || !Array.isArray(journal.files)) {
+      throw pinBackupConflict('That Content Pack pin backup journal is invalid.')
+    }
+    const files = journal.files.map(entry => {
+      if (typeof entry.source !== 'string' || typeof entry.backup !== 'string'
+        || typeof entry.sha256 !== 'string' || typeof entry.applied_sha256 !== 'string'
+        || !allowedSources.has(entry.source)
+        || path.dirname(path.resolve(entry.backup)) !== resolved) {
+        throw pinBackupConflict('That Content Pack pin backup journal is invalid.')
+      }
+      return entry as PinBackupJournalFile
+    })
+    const metaEntry = files.find(file => file.source === path.join(projectDir, 'project.json'))
+    if (!metaEntry) throw pinBackupConflict('That Content Pack pin backup journal is invalid.')
+
+    // The hash check runs under project.json's existing lock, so the bytes that
+    // pass the check are the bytes the restore replaces. If anything else has
+    // touched the channel since the pin move, refuse instead of overwriting it.
+    const updated = await projectManager.mutateProjectMetaConsistently(slug, project => {
+      for (const entry of files) {
+        let current: Buffer
+        try {
+          current = readFileSync(entry.source)
+        } catch {
+          throw pinBackupConflict('The channel was edited after the pin move; nothing was restored.')
+        }
+        if (sha256Bytes(current) !== entry.applied_sha256) {
+          throw pinBackupConflict('The channel was edited after the pin move; nothing was restored.')
+        }
+      }
+      let restoreBytes: Buffer
+      try {
+        restoreBytes = readFileSync(metaEntry.backup)
+      } catch {
+        throw pinBackupConflict('The Content Pack pin backup copy is missing; nothing was restored.')
+      }
+      if (sha256Bytes(restoreBytes) !== metaEntry.sha256) {
+        throw pinBackupConflict('The Content Pack pin backup copy is corrupt; nothing was restored.')
+      }
+      const restore = JSON.parse(restoreBytes.toString('utf8')) as Record<string, unknown>
+      const mutable = project as unknown as Record<string, unknown>
+      for (const key of Object.keys(project)) delete mutable[key]
+      Object.assign(mutable, restore)
+    })
+    if (!updated) throw Object.assign(new Error(`Project not found: ${slug}`), { statusCode: 404, expose: true })
+  })
 }
 
 export async function snapshotProjectContentPackProvenance(
