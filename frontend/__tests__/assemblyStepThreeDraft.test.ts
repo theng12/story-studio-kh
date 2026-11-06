@@ -1,5 +1,5 @@
 /**
- * Video Assembly Step 3 — the title / motion / chapter popup.
+ * Video Assembly Step 3 — the title / chapter popup.
  *
  * What this pins: the popup edits a detached draft (never the live form),
  * Apply is the only write, it lands in the captured episode's own saved
@@ -7,6 +7,10 @@
  * nothing, and the chapter font field samples this episode's REAL heading —
  * never an invented one. The chapter font is only ever offered from an actual
  * saved channel pool, and no font/pool is chosen automatically.
+ *
+ * Scene motion and Sketch Draw reveal choices are NOT this popup's: they live
+ * in the separate Motion Review step. The draft still reads and writes their
+ * saved values unchanged, so existing episodes and renders are unaffected.
  *
  * The page half is pinned by source analysis (it needs the Nuxt runtime to
  * mount); the draft rules are exercised behaviourally through the shared
@@ -102,12 +106,37 @@ describe('step 3 popup draft', () => {
 
 describe('step 3 popup wiring', () => {
   test('the editor opens a detached draft and never a preset snapshot', () => {
-    const open = section('function openTitleMotionEditor', 'function toggleTitleMotionRevealPool')
+    const open = section('function openTitleMotionEditor', 'function pickTitleMotionImage')
     assert.match(open, /beginAssemblyStepDraft<TitleMotionDraftSettings>/, 'the popup uses the detached draft helper')
     assert.match(open, /reactive\(beginAssemblyStepDraft/, 'the draft must be reactive so its controls update')
     assert.match(open, /title_image: titleImage/, 'the full title-image state, including the episode file, is copied')
     assert.match(open, /chapter_titles: chapterTitles/, 'the full chapter state, including the font presentation, is copied')
     assert.doesNotMatch(open, /snapshotTitleImagePreset|timelinePresets|excludeKeys/, 'a draft is not a preset sanitizer')
+  })
+
+  test('scene motion and Sketch Draw reveal are a separate step, not this popup', () => {
+    const popup = section('<!-- Per-episode step 3 editor (1.4.384)', '</Modal>')
+    for (const removed of ['<AnimationPicker', 'scene_animation', 'scene_reveal', 'Sketch Draw', 'revealPlan', 'stagedRevealRerolls', 'stageRevealReroll']) {
+      assert.ok(!popup.includes(removed), `the title/chapter popup must not own ${removed}`)
+    }
+    assert.doesNotMatch(page, /AnimationsCatalog|loadAnimationsCatalog|revealLibrary|loadRevealPlan/)
+
+    // The separate Motion Review step still owns the pen, reveal style and line weight.
+    const motionReview = readFileSync(new URL('../pages/projects/[slug]/motion-review.vue', import.meta.url), 'utf8')
+    assert.match(motionReview, /<option value="sketch_draw">Sketch Draw<\/option>/)
+    assert.match(motionReview, /<SketchRevealPicker/)
+    assert.match(motionReview, /Sketch Draw line weight for this episode/)
+
+    // Readback and saves are unchanged: the draft still captures and writes both slots.
+    const open = section('function openTitleMotionEditor', 'function pickTitleMotionImage')
+    assert.match(open, /scene_animation: sceneAnimation/, 'the saved motion slot is still read into the draft')
+    assert.match(open, /scene_reveal: revealBundleSnapshot\(\)/, 'the saved reveal slot is still read into the draft')
+    const save = section('async function saveTitleMotionDraft', 'function commitTitleMotionDraft')
+    assert.match(save, /scene_animation: value\.timeline\.scene_animation/, 'Apply writes the same motion value it read')
+    assert.match(save, /scene_reveal: value\.timeline\.scene_reveal/, 'Apply writes the same reveal value it read')
+    const commit = section('function commitTitleMotionDraft', 'async function applyTitleMotion')
+    assert.match(commit, /Object\.assign\(sceneAnimation, value\.timeline\.scene_animation\)/, 'the live motion state follows the saved draft')
+    assert.match(commit, /applyRevealBundle\(\{ scene_reveal: value\.timeline\.scene_reveal \}\)/, 'the live reveal state follows the saved draft')
   })
 
   test('Apply is the single write and targets only the captured episode', async () => {
@@ -183,7 +212,7 @@ describe('step 3 popup wiring', () => {
   })
 
   test('a first per-episode Apply keeps every untouched slot from the channel fallback', () => {
-    const open = section('function openTitleMotionEditor', 'function toggleTitleMotionRevealPool')
+    const open = section('function openTitleMotionEditor', 'function pickTitleMotionImage')
     assert.match(open, /snapshotAllSettings\(\)/, 'the popup captures the full settings it opened on')
     assert.match(open, /titleMotionSettingsBaseline\.value/, 'that snapshot is kept for Apply')
 

@@ -4,6 +4,8 @@ import test from 'node:test'
 import { transform } from 'esbuild'
 
 const page = readFileSync(new URL('../pages/projects/[slug]/video-assembly.vue', import.meta.url), 'utf8')
+const io = readFileSync(new URL('../composables/useVideoAssemblyIo.ts', import.meta.url), 'utf8')
+const motionReview = readFileSync(new URL('../pages/projects/[slug]/motion-review.vue', import.meta.url), 'utf8')
 const template = page.slice(0, page.indexOf('<script setup'))
 const script = page.slice(page.indexOf('<script setup'))
 
@@ -103,41 +105,37 @@ test('2: the render panel keeps the terminal status instead of saying Finished f
   assert.match(script, /const activeJobStatus = computed\(/)
 })
 
-test('5: Reveal effects loads its library and plan on the switch and on an episode change', () => {
-  assert.match(script, /watch\(\(\) => sceneReveal\.enabled, \(enabled\) => \{[\s\S]*?void loadRevealLibrary\(\)[\s\S]*?void loadRevealPlan\(\)/)
-  assert.match(script, /watch\(\[slug, episodeId\], \(\) => \{\s*revealPlan\.value = null/)
-  // A failed library read names the problem and offers a retry; the pack's own approximation is shown.
-  assert.match(template, /revealLibraryError && !revealLibrary\.length/)
-  assert.match(template, /@click="loadRevealLibrary">Try Again/)
-  assert.match(template, /reveal-approx/)
-  // The plan is the render's own resolver: ask for it, refresh it, and reroll per scene.
-  assert.match(template, /v-if="!revealPlan"[\s\S]*?Show Planned Arrivals/)
-  assert.match(template, /Refresh Plan/)
-  assert.match(template, /revealDraftPending[\s\S]*?saved reveal settings/)
-  assert.match(template, /stageRevealReroll\(entry\.scene_id\)/)
+test('5: scene motion and Sketch Draw reveal stay on the separate Motion Review step', () => {
+  // The owner's boundary: Video Assembly's title/chapter popup must not re-own them.
+  assert.doesNotMatch(template, /<AnimationPicker/)
+  assert.doesNotMatch(template, /scene_reveal\./)
+  assert.doesNotMatch(template, /Sketch Draw reveal effects/)
+  assert.doesNotMatch(script, /loadAnimationsCatalog|loadRevealPlan|stageRevealReroll|flushStagedRevealRerolls/)
+  assert.match(motionReview, /<option value="sketch_draw">Sketch Draw<\/option>/)
+  assert.match(motionReview, /<SketchRevealPicker/)
+  assert.match(motionReview, /role="group" aria-label="Sketch Draw line weight for this episode"/)
 })
 
-test('5b: rerolls stay detached until Apply writes them to the captured episode', () => {
-  const stage = fnSource('stageRevealReroll')
-  assert.doesNotMatch(stage, /\b(put|post)\(/)
-  const flush = fnSource('flushStagedRevealRerolls')
-  assert.match(flush, /video-editor\/reveals\/scene-choice/)
-  assert.match(flush, /const channel = scope\.channel/)
-  assert.match(flush, /const episode = scope\.episode/)
-  assert.match(flush, /episode_id: episode/)
-  assert.match(flush, /await put\(/)
-  assert.match(flush, /stagedRevealRerolls\.value = stagedRevealRerolls\.value\.filter/)
-  const apply = fnSource('applyTitleMotion')
-  assert.match(apply, /flushStagedRevealRerolls\(draft\.scope\)/)
-  assert.ok(apply.indexOf('flushStagedRevealRerolls') > apply.indexOf('applyAssemblyStepDraft'))
-  assert.match(fnSource('closeTitleMotionEditor'), /stagedRevealRerolls\.value = \[\]/)
+test('5b: saved motion and reveal values still reach the renderer unchanged', () => {
+  // The popup stopped editing them; the render payload must still carry the
+  // episode's saved values exactly as before, so existing episodes do not change.
+  assert.match(io, /scene_animation: \{ \.\.\.s\.sceneAnimation \}/)
+  assert.match(io, /animation_pool: s\.sceneAnimation\.pool/)
+  assert.match(io, /animation_randomize: s\.sceneAnimation\.randomize_mode/)
+  assert.match(io, /scene_reveal: s\.sceneReveal/)
+  for (const field of ['enabled', 'pace', 'coherence', 'seed', 'cap_per_effect', 'no_immediate_repeat', 'pool']) {
+    assert.match(io, new RegExp(`${field}:`), `the render payload must still carry ${field}`)
+  }
+  // Timeline presets still save and restore both slots, though the popup no longer offers them.
+  const timeline = script.slice(script.indexOf('const timelinePresets = usePresets('))
+  assert.match(timeline.slice(0, 3000), /scene_animation: \{ \.\.\.sceneAnimation/)
+  assert.match(timeline.slice(0, 3000), /scene_reveal: revealBundleSnapshot\(\)/)
+  assert.match(timeline.slice(0, 3000), /applyRevealBundle\(data\)/)
 })
 
-test('6: a failed animations load shows an error with Retry, not Loading forever', () => {
-  assert.match(template, /v-if="animationsCatalogLoading"[\s\S]*?v-else-if="animationsCatalogError"[\s\S]*?@click="loadAnimationsCatalog">Retry/)
-  assert.doesNotMatch(template, /v-if="!animationsCatalog\.length"/)
-  assert.doesNotMatch(fnSource('loadAnimationsCatalog'), /catch \{ \/\* non-fatal \*\/ \}/)
-  assert.match(fnSource('loadAnimationsCatalog'), /animationsCatalogError\.value = /)
+test('6: the title/chapter popup does not load a motion catalogue', () => {
+  assert.doesNotMatch(template, /animationsCatalog/)
+  assert.doesNotMatch(script, /loadAnimationsCatalog/)
 })
 
 test('7: folder open/refresh failures also raise a toast', () => {

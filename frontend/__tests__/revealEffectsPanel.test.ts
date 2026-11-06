@@ -1,21 +1,23 @@
 /**
- * Reveal effects on the Video Assembly page — the settings, the plan, and the reroll.
+ * Reveal effects — the separate Sketch Draw step, and the Video Assembly readback it feeds.
  *
- * The engine (1.4.229) and the assembly integration (1.4.232) are pinned elsewhere; what these
- * tests protect is the surface between them:
+ * Owner correction (2026-11-06): Motion Review and Sketch Draw are their own step
+ * OUTSIDE Video Assembly. The Video Assembly title/chapter popup must not offer
+ * scene motion, Sketch Draw or reveal controls, and must not carry a staged reroll
+ * plan. What this file now protects:
  *
- *   1. **Off by default.** A reveal changes how an episode looks, so it is never a silent default,
- *      and the plan is not even asked for while it is off.
- *   2. **The panel sends exactly what the engine reads.** A control the engine does not read, or a
- *      field the panel forgets, is a setting that does nothing — the shape of defect this repo has
- *      paid for more than once.
- *   3. **A reroll is a stored, per-scene choice, and it is a NEW choice** — the reroll number
- *      travels with it so the same preset picked twice is not mistaken for the stored one.
- *   4. **The animation preset carries the look and never the seed.** One seed per episode is the
- *      design's rule; a preset that restored a seed would make two episodes share a randomisation.
+ *   1. **The separate step owns the controls.** The pen, reveal style, line weight
+ *      and closing hold live in Motion Review.
+ *   2. **Reveals are off by default.** A reveal changes how an episode looks, so it
+ *      is never a silent default.
+ *   3. **Saved values are still read and written unchanged.** Video Assembly's draft
+ *      and Timeline preset carry the episode's own `scene_reveal` / `scene_animation`
+ *      values through Apply, without re-deciding them.
+ *   4. **The render payload is unchanged.** The assembly still sends exactly the
+ *      reveal fields the engine reads, so existing output does not change.
  *
- * The page is read as source rather than mounted: it is a 6,000-line component whose mount cost is
- * the whole pipeline, and every property here is about which fields travel where.
+ * The page is read as source rather than mounted: it is a large component whose mount
+ * cost is the whole pipeline, and every property here is about which fields travel where.
  */
 
 import assert from 'node:assert/strict'
@@ -24,70 +26,55 @@ import test from 'node:test'
 
 const page = readFileSync(new URL('../pages/projects/[slug]/video-assembly.vue', import.meta.url), 'utf8')
 const io = readFileSync(new URL('../composables/useVideoAssemblyIo.ts', import.meta.url), 'utf8')
+const motionReview = readFileSync(new URL('../pages/projects/[slug]/motion-review.vue', import.meta.url), 'utf8')
 
-test('reveals are off by default and the plan is only asked for when they are on', () => {
+test('the separate Motion Review / Sketch Draw step owns the reveal controls', () => {
+  assert.match(motionReview, /<option value="sketch_draw">Sketch Draw<\/option>/)
+  assert.match(motionReview, /<SketchRevealPicker/)
+  assert.match(motionReview, /Sketch Draw reveal style for this episode/)
+  assert.match(motionReview, /Sketch Draw line weight for this episode/)
+  assert.match(motionReview, /Sketch Draw closing hold for this episode/)
+})
+
+test('Video Assembly no longer offers scene motion, Sketch Draw or reveal controls', () => {
+  const template = page.slice(0, page.indexOf('<script setup'))
+  assert.doesNotMatch(template, /<AnimationPicker/)
+  assert.doesNotMatch(template, /Sketch Draw reveal effects/)
+  assert.doesNotMatch(template, /scene_reveal\./)
+  assert.doesNotMatch(template, /Show Planned Arrivals|Refresh Plan|Reroll on Apply/)
+})
+
+test('no staged reveal reroll machinery survives in Video Assembly', () => {
+  assert.doesNotMatch(page, /stagedRevealRerolls|stageRevealReroll|flushStagedRevealRerolls/)
+  assert.doesNotMatch(page, /video-editor\/reveals\/plan|video-editor\/reveals\/scene-choice/)
+})
+
+test('reveals are off by default in the saved state', () => {
   assert.match(page, /const sceneReveal = reactive\(\{\s*\n\s*enabled: false,/)
-  // The loader returns early while the switch is off, so an untouched episode never calls the route.
-  assert.match(page, /if \(!sceneReveal\.enabled\) \{ revealPlan\.value = null; return \}/)
 })
 
-test('the panel sends what the engine reads, and nothing else', () => {
-  const start = page.indexOf('function revealPayload()')
-  // Bounded to the function: the next top-level closing brace is its end.
-  const payload = page.slice(start, page.indexOf('\n}', start) + 2)
-  for (const field of ['enabled', 'pace', 'coherence', 'seed', 'cap_per_effect', 'no_immediate_repeat', 'pool']) {
-    assert.match(payload, new RegExp(`${field}:`), `the reveal payload must carry ${field}`)
-  }
-  // The engine reads those seven and no eighth; the panel must not invent one. Every key the
-  // function builds, spreads included, must be one of the seven.
-  const declared = [...payload.matchAll(/([a-z_]+):\s/g)].map(match => match[1])
-  assert.deepEqual([...new Set(declared)].sort(),
-    ['cap_per_effect', 'coherence', 'enabled', 'no_immediate_repeat', 'pace', 'pool', 'seed'].sort())
+test('the draft still reads, applies and writes the saved reveal and motion values', () => {
+  assert.match(page, /scene_reveal: revealBundleSnapshot\(\)/)
+  assert.match(page, /scene_animation: sceneAnimation/)
+  assert.match(page, /scene_animation: value\.timeline\.scene_animation/)
+  assert.match(page, /scene_reveal: value\.timeline\.scene_reveal/)
+  assert.match(page, /applyRevealBundle\(\{ scene_reveal: value\.timeline\.scene_reveal \}\)/)
+  assert.match(page, /Object\.assign\(sceneAnimation, value\.timeline\.scene_animation\)/)
 })
 
-test('the request carries the same settings the plan was built from', () => {
-  // One function builds both, so the two cannot drift.
-  assert.match(page, /scene_reveal: revealPayload\(\)/)
+test('the render payload carries the same reveal fields the engine reads', () => {
   assert.match(io, /scene_reveal: s\.sceneReveal/)
-  assert.match(io, /enabled: s\.sceneReveal\.enabled === true/)
+  assert.match(io, /scene_animation: \{ \.\.\.s\.sceneAnimation \}/)
+  for (const field of ['enabled', 'pace', 'coherence', 'seed', 'cap_per_effect', 'no_immediate_repeat', 'pool']) {
+    assert.match(io, new RegExp(`${field}:`), `the render payload must still carry ${field}`)
+  }
 })
 
-test('a reroll stores a per-scene choice with a reroll number, then re-reads the plan', () => {
-  const reroll = page.slice(page.indexOf('async function rerollRevealScene'))
-  assert.match(reroll, /video-editor\/reveals\/scene-choice/)
-  assert.match(reroll, /scene_id: sceneId/)
-  assert.match(reroll, /reroll: Date\.now\(\)/)
-  assert.match(reroll, /await loadRevealPlan\(\)/)
-  // A reroll never repeats the look the scene already had, when the pool offers an alternative.
-  assert.match(reroll, /candidates\.filter\(id => id !== current\)/)
-})
-
-test('the animation preset carries the reveal look and never the seed', () => {
-  const presets = page.slice(page.indexOf('const animationPresets = usePresets('))
-  const snapshot = presets.slice(presets.indexOf('reveal: {'), presets.indexOf('}),', presets.indexOf('reveal: {')))
-  assert.match(snapshot, /pace: sceneReveal\.pace/)
-  assert.match(snapshot, /coherence: sceneReveal\.coherence/)
-  assert.match(snapshot, /pool: \[\.\.\.sceneReveal\.pool\]/)
+test('the Timeline preset still carries the look and never the seed', () => {
+  const presets = page.slice(page.indexOf('const timelinePresets = usePresets('))
+  const snapshot = presets.slice(presets.indexOf('scene_reveal:'), presets.indexOf('}),', presets.indexOf('scene_reveal:')))
+  assert.match(snapshot, /revealBundleSnapshot\(\)/)
   assert.ok(!/seed:/.test(snapshot),
     'the seed is per episode: a preset that restored one would make two episodes share a randomisation')
-})
-
-test('the panel shows the render\'s own plan and asks for it through the same payload', () => {
-  assert.match(page, /video-editor\/reveals\/plan/)
-  // The request is built from the same payload the assembly uses, and the page renders what comes back.
-  assert.match(page, /scene_reveal: revealPayload\(\)/)
-  assert.match(page, /revealPlan\.value = r\.plan \|\| null/)
-  assert.match(page, /entry\.hold\.reveal_seconds/)
-  assert.match(page, /entry\.source === 'override'/)
-})
-
-test('the moved panel saves only on Apply and the page says the render is local', () => {
-  // Reveal settings now live in the Title, motion & chapters draft popup.
-  assert.match(page, /v-model="titleMotion\.timeline\.scene_reveal\.enabled"/)
-  assert.match(page, /Saved for this episode only — Video Assembly uses it on the next render/)
-  // The slow pace still explains where the image saving comes from.
-  assert.match(page, /One image carries a whole narration line/)
-  assert.match(page, /Final FFmpeg assembly runs on this Mac and does not spend GenStudio credits\./)
-  // And the family's own approximation is shown where a pack carries one.
-  assert.match(page, /preset\.approximation/)
+  assert.match(page, /applyRevealBundle\(data\)/)
 })

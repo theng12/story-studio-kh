@@ -524,15 +524,15 @@
       <p class="text-muted mt-1">Configure title image, {{ visualSource === 'image_pool' ? 'Image Pool timing, ' : 'scene recycling, ' }}and transitions</p>
 
       <!-- Per-episode step 3 editor (1.4.384): a detached draft of this step's
-           title, motion and chapter settings. Opening, browsing, Escape and close
+           title and chapter settings. Opening, browsing, Escape and close
            write nothing; Apply is the only write and it lands on this episode. -->
       <div class="settings-section mt-2">
         <div class="flex gap-2 items-center justify-between flex-wrap">
           <div>
-            <h4>Title, motion &amp; chapter settings</h4>
+            <h4>Title &amp; chapter settings</h4>
             <p class="text-muted text-sm mt-1">{{ titleMotionSummary }}</p>
           </div>
-          <button type="button" class="btn btn-sm btn-primary" :disabled="!episodeId" @click="openTitleMotionEditor">Edit title, motion &amp; chapters</button>
+          <button type="button" class="btn btn-sm btn-primary" :disabled="!episodeId" @click="openTitleMotionEditor">Edit title &amp; chapters</button>
         </div>
         <span v-if="!episodeId" class="text-muted text-xs">Pick an episode in Step 1 first.</span>
       </div>
@@ -547,7 +547,7 @@
           <header style="display: flex; align-items: flex-start; gap: 12px; margin-bottom: 12px;">
             <div style="flex: 1;">
               <span class="text-muted text-xs">Saved for this episode only — Video Assembly uses it on the next render</span>
-              <h3 id="title-motion-title">Title, motion &amp; chapters · {{ titleMotionDraft?.scope.episode || 'no episode' }}</h3>
+              <h3 id="title-motion-title">Title &amp; chapters · {{ titleMotionDraft?.scope.episode || 'no episode' }}</h3>
             </div>
             <button type="button" class="btn btn-sm btn-secondary" :disabled="titleMotionApplying" @click="closeTitleMotionEditor">Close</button>
           </header>
@@ -644,176 +644,6 @@
                   @update:duration="(d) => titleMotion.timeline.transition.duration = d"
                   @update:randomize-mode="(m) => titleMotion.timeline.transition.randomize_mode = m"
                 />
-              </div>
-
-              <!-- Scene motion -->
-              <div class="settings-section mt-2">
-                <h4>Scene motion</h4>
-                <div v-if="animationsCatalogLoading" class="text-muted text-sm catalog-loading">Loading animations…</div>
-                <div v-else-if="animationsCatalogError" class="ffmpeg-warning" role="alert">
-                  <p class="text-muted text-md">We couldn't load the animation list.</p>
-                  <p class="text-muted text-xs">{{ animationsCatalogError }}</p>
-                  <button type="button" class="btn btn-sm btn-secondary mt-1" @click="loadAnimationsCatalog">Retry</button>
-                </div>
-                <AnimationPicker
-                  v-else
-                  :slug="slug"
-                  :episode-id="episodeId"
-                  :aspect-ratio="exportSettings.aspect_ratio"
-                  :animations="animationsCatalog"
-                  :families="animationFamilies"
-                  :primary-id="titleMotion.timeline.scene_animation.type"
-                  :pool="titleMotion.timeline.scene_animation.pool"
-                  :randomize-mode="titleMotion.timeline.scene_animation.randomize_mode"
-                  @update:primary-id="(id) => titleMotion.timeline.scene_animation.type = id"
-                  @update:pool="(p) => titleMotion.timeline.scene_animation.pool = p"
-                  @update:randomize-mode="(m) => titleMotion.timeline.scene_animation.randomize_mode = m"
-                />
-                <div v-if="titleMotion.timeline.scene_animation.type === 'ken-burns'" class="mt-2">
-                  <div class="grid-2">
-                    <div class="form-group">
-                      <label>Start zoom ({{ titleMotion.timeline.scene_animation.zoom_start }}%)</label>
-                      <SliderWithNumber v-model="titleMotion.timeline.scene_animation.zoom_start" :min="90" :max="120" :step="1" suffix="%" />
-                    </div>
-                    <div class="form-group">
-                      <label>End zoom ({{ titleMotion.timeline.scene_animation.zoom_end }}%)</label>
-                      <SliderWithNumber v-model="titleMotion.timeline.scene_animation.zoom_end" :min="95" :max="130" :step="1" suffix="%" />
-                    </div>
-                  </div>
-                </div>
-                <div v-else-if="titleMotion.timeline.scene_animation.type === 'parallax-drift'" class="mt-2 grid-2">
-                  <div class="form-group">
-                    <label>Direction</label>
-                    <select v-model="titleMotion.timeline.scene_animation.parallax_direction" class="select">
-                      <option value="left">Left</option>
-                      <option value="right">Right</option>
-                      <option value="up">Up</option>
-                      <option value="down">Down</option>
-                    </select>
-                  </div>
-                  <div class="form-group">
-                    <label>Speed ({{ titleMotion.timeline.scene_animation.parallax_speed }})</label>
-                    <SliderWithNumber v-model="titleMotion.timeline.scene_animation.parallax_speed" :min="1" :max="5" :step="1" />
-                  </div>
-                </div>
-                <div v-else-if="titleMotion.timeline.scene_animation.type === 'breathe'" class="mt-2 grid-2">
-                  <div class="form-group">
-                    <label>Base zoom ({{ titleMotion.timeline.scene_animation.breathe_base_zoom }}%)</label>
-                    <SliderWithNumber v-model="titleMotion.timeline.scene_animation.breathe_base_zoom" :min="100" :max="110" :step="1" suffix="%" />
-                  </div>
-                  <div class="form-group">
-                    <label>Amplitude ({{ titleMotion.timeline.scene_animation.breathe_amplitude }}%)</label>
-                    <SliderWithNumber v-model="titleMotion.timeline.scene_animation.breathe_amplitude" :min="1" :max="5" :step="1" suffix="%" />
-                  </div>
-                </div>
-              </div>
-
-              <!-- Sketch Draw / reveal effects -->
-              <div class="settings-section mt-2 reveal-panel">
-                <label class="reveal-toggle">
-                  <input v-model="titleMotion.timeline.scene_reveal.enabled" type="checkbox">
-                  <span><strong>Sketch Draw reveal effects</strong> — each scene arrives in pieces, then holds and drifts.</span>
-                </label>
-                <template v-if="titleMotion.timeline.scene_reveal.enabled">
-                  <div class="grid-2 mt-2">
-                    <div class="form-group">
-                      <label>Pace</label>
-                      <select v-model="titleMotion.timeline.scene_reveal.pace" class="select">
-                        <option v-for="pace in revealPaces" :key="pace.id" :value="pace.id">{{ pace.name }}</option>
-                      </select>
-                      <small class="text-muted">{{ revealPaceHint }}</small>
-                    </div>
-                    <div class="form-group">
-                      <label>Look changes</label>
-                      <select v-model="titleMotion.timeline.scene_reveal.coherence" class="select">
-                        <option value="scene">Every scene</option>
-                        <option value="act">Once per act</option>
-                        <option value="episode">Once per episode</option>
-                      </select>
-                    </div>
-                  </div>
-                  <div class="grid-2 mt-2">
-                    <div class="form-group">
-                      <label>Episode seed</label>
-                      <input v-model.number="titleMotion.timeline.scene_reveal.seed" type="number" class="input" min="0" step="1">
-                    </div>
-                    <div class="form-group">
-                      <label>Cap per effect</label>
-                      <input v-model.number="titleMotion.timeline.scene_reveal.cap_per_effect" type="number" class="input" min="0" step="1">
-                    </div>
-                  </div>
-                  <div class="form-group mt-2">
-                    <label>Pool — the looks this episode may draw from</label>
-                    <div v-if="revealLibraryError && !revealLibrary.length" class="ffmpeg-warning" role="alert">
-                      <p class="text-muted text-md">
-                        We couldn't load the list of reveal looks. Rendering still works and uses the standard looks.
-                      </p>
-                      <p class="text-muted text-xs">{{ revealLibraryError }}</p>
-                      <button type="button" class="btn btn-sm btn-secondary mt-1" @click="loadRevealLibrary">Try Again</button>
-                    </div>
-                    <div v-else-if="!revealLibrary.length" class="text-muted text-sm">Loading the reveal library…</div>
-                    <div v-else class="reveal-pool">
-                      <label v-for="preset in revealLibrary" :key="preset.id" class="reveal-pool-row">
-                        <input
-                          type="checkbox"
-                          :checked="titleMotion.timeline.scene_reveal.pool.includes(preset.id)"
-                          @change="toggleTitleMotionRevealPool(preset.id, ($event.target as HTMLInputElement).checked)"
-                        >
-                        <span>
-                          <strong>{{ preset.name }}</strong>
-                          <small class="text-muted"> · {{ preset.family }}</small>
-                          <small v-if="preset.approximation" class="reveal-approx"> · {{ preset.approximation }}</small>
-                        </span>
-                      </label>
-                    </div>
-                    <small class="text-muted">Nothing ticked uses the engine's default six wipes.</small>
-                  </div>
-
-                  <div class="mt-3">
-                    <p v-if="!sceneReveal.enabled" class="text-muted text-sm">
-                      Apply reveal effects to see the planned arrivals.
-                    </p>
-                    <template v-else>
-                      <button
-                        v-if="!revealPlan"
-                        class="btn btn-secondary btn-sm"
-                        :disabled="revealPlanLoading || !episodeId"
-                        @click="loadRevealPlan()"
-                      >
-                        {{ revealPlanLoading ? 'Planning…' : 'Show Planned Arrivals' }}
-                      </button>
-                      <div v-else>
-                        <div class="reveal-plan-head">
-                          <strong>Planned arrivals</strong>
-                          <button class="btn btn-secondary btn-sm" :disabled="revealPlanLoading" @click="loadRevealPlan()">
-                            {{ revealPlanLoading ? 'Planning…' : 'Refresh Plan' }}
-                          </button>
-                        </div>
-                        <p class="text-muted text-sm">
-                          Scene track {{ revealPlanTotal }}s across {{ revealPlan.scenes.length }} scene(s) —
-                          the lengths the render will use.
-                        </p>
-                        <p v-if="revealDraftPending" class="text-muted text-sm" role="status">
-                          This plan uses the episode's saved reveal settings. Apply saves your changes; then Refresh Plan.
-                        </p>
-                        <ul class="reveal-plan">
-                          <li v-for="entry in revealPlan.scenes" :key="entry.scene_id">
-                            <span class="reveal-plan-scene">{{ entry.scene_index + 1 }}</span>
-                            <span class="reveal-plan-name">{{ revealName(entry.preset_id) }}</span>
-                            <span class="text-muted">{{ entry.hold.reveal_seconds.toFixed(1) }}s + {{ entry.hold.hold_seconds.toFixed(1) }}s</span>
-                            <span v-if="entry.source === 'override'" class="reveal-plan-badge">your choice</span>
-                            <button class="btn btn-secondary btn-sm" :disabled="revealPlanLoading" @click="stageRevealReroll(entry.scene_id)">
-                              {{ stagedRevealRerolls.some(reroll => reroll.scene_id === entry.scene_id) ? 'Reroll on Apply' : 'Reroll' }}
-                            </button>
-                          </li>
-                        </ul>
-                        <p v-if="stagedRevealRerolls.length" class="text-muted text-sm" role="status">
-                          {{ stagedRevealRerolls.length }} reroll(s) will be saved when you Apply. Cancel leaves them unchanged.
-                        </p>
-                      </div>
-                    </template>
-                  </div>
-                </template>
               </div>
 
               <!-- Title card -->
@@ -979,7 +809,7 @@
 
       <PresetPicker
         label="Timeline preset"
-        hint="Saves reusable timing and motion settings. The selected title image file stays episode-specific and is never saved."
+        hint="Saves reusable timing settings. The selected title image file stays episode-specific and is never saved."
         :presets="timelinePresets.presets.value"
         :active-id="timelinePresets.activeId.value"
         @update:active-id="timelinePresets.setActive"
@@ -3936,32 +3766,11 @@ const sceneReveal = reactive({
   pool: [] as string[],
 })
 
-const revealLibrary = ref<Array<{ id: string; name: string; family: string; description: string; approximation?: string }>>([])
-const revealPlan = ref<{ enabled: boolean; pace: string; scenes: Array<{ scene_id: string; scene_index: number; preset_id: string; source: string; hold: { reveal_seconds: number; hold_seconds: number; total_seconds: number } }> } | null>(null)
-const revealPlanLoading = ref(false)
-const revealPaces = [
-  { id: 'fast', name: 'Fast', description: 'Short scenes, quick arrivals.' },
-  { id: 'standard', name: 'Standard', description: 'A clear arrival and a few seconds of hold.' },
-  { id: 'slow', name: 'Slow', description: 'One image carries a whole narration line — the image saving lives here.' },
-  { id: 'documentary', name: 'Documentary', description: 'Long holds, the calmest arrivals.' },
-]
-const revealPaceHint = computed(() => {
-  // While the Title/Motion popup is open its detached pace is the one being edited.
-  const pace = titleMotionDraft.value?.value.timeline.scene_reveal.pace ?? sceneReveal.pace
-  return revealPaces.find(entry => entry.id === pace)?.description || ''
-})
-const revealDraftPending = computed(() => {
-  const draft = titleMotionDraft.value?.value.timeline.scene_reveal
-  return !!draft && JSON.stringify(draft) !== JSON.stringify(revealBundleSnapshot())
-})
-const revealPlanTotal = computed(() => (revealPlan.value?.scenes || [])
-  .reduce((sum, entry) => sum + entry.hold.reveal_seconds + entry.hold.hold_seconds, 0).toFixed(1))
-
 /**
  * The reveal settings as a bundle carries them.
  *
- * Exactly the keys the assembly reads — the same set `revealPayload()` sends — so a batch render and
- * a single-episode render cannot be given two different descriptions of the same look.
+ * Exactly the keys the assembly reads (see `scene_reveal` in useVideoAssemblyIo), so a batch render
+ * and a single-episode render cannot be given two different descriptions of the same look.
  */
 function revealBundleSnapshot(): Record<string, unknown> {
   return {
@@ -3987,142 +3796,6 @@ function applyRevealBundle(data: any): void {
   if (Number.isFinite(Number(reveal.cap_per_effect))) sceneReveal.cap_per_effect = Number(reveal.cap_per_effect)
   if (typeof reveal.no_immediate_repeat === 'boolean') sceneReveal.no_immediate_repeat = reveal.no_immediate_repeat
   sceneReveal.pool = Array.isArray(reveal.pool) ? [...reveal.pool] : []
-}
-
-function revealName(id: string): string {
-  return revealLibrary.value.find(preset => preset.id === id)?.name || id
-}
-
-function toggleRevealPool(id: string, on: boolean): void {
-  sceneReveal.pool = on
-    ? [...new Set([...sceneReveal.pool, id])]
-    : sceneReveal.pool.filter(candidate => candidate !== id)
-}
-
-const revealLibraryError = ref('')
-async function loadRevealLibrary(): Promise<void> {
-  revealLibraryError.value = ''
-  try {
-    const r = await get<{ reveals: typeof revealLibrary.value }>(`/projects/${slug.value}/video-editor/reveals/catalog`)
-    revealLibrary.value = r.reveals || []
-  } catch (e: any) {
-    // Non-fatal for rendering (the engine's own default pool still applies), but the panel must
-    // say so instead of showing "Loading…" forever.
-    revealLibraryError.value = e?.data?.detail || e?.message || 'Could not load the reveal library'
-  }
-}
-
-/** The plan the render will use, from the same resolver the assembly calls. */
-async function loadRevealPlan(): Promise<void> {
-  if (!sceneReveal.enabled) { revealPlan.value = null; return }
-  revealPlanLoading.value = true
-  const planEpisode = episodeId.value
-  try {
-    const r = await post<{ plan: typeof revealPlan.value }>(`/projects/${slug.value}/video-editor/reveals/plan`, {
-      episode_id: planEpisode,
-      scene_reveal: revealPayload(),
-    })
-    if (planEpisode !== episodeId.value) return
-    revealPlan.value = r.plan || null
-  } catch (error: any) {
-    if (planEpisode !== episodeId.value) return
-    revealPlan.value = null
-    showError(error?.data?.detail || error?.message || 'Could not plan the episode\'s reveals')
-  } finally {
-    revealPlanLoading.value = false
-  }
-}
-
-// Load the library and plan when Reveal effects is switched on, and re-plan on an episode change:
-// the plan belongs to one episode and must not stand while another is on screen (AGENTS §4).
-watch(() => sceneReveal.enabled, (enabled) => {
-  if (!enabled) { revealPlan.value = null; return }
-  if (!revealLibrary.value.length) void loadRevealLibrary()
-  if (episodeId.value) void loadRevealPlan()
-})
-watch([slug, episodeId], () => {
-  revealPlan.value = null
-  if (sceneReveal.enabled && episodeId.value) void loadRevealPlan()
-})
-
-/** Reroll is a draft choice: the popup stages it and only Apply writes it. */
-const stagedRevealRerolls = ref<Array<{ scene_id: string; preset_id: string; reroll: number }>>([])
-
-function stageRevealReroll(sceneId: string): void {
-  if (stagedRevealRerolls.value.some(entry => entry.scene_id === sceneId)) {
-    stagedRevealRerolls.value = stagedRevealRerolls.value.filter(entry => entry.scene_id !== sceneId)
-    return
-  }
-  const draftReveal = titleMotionDraft.value?.value.timeline.scene_reveal
-  const candidates = (draftReveal?.pool?.length ? draftReveal.pool : revealLibrary.value.map(preset => preset.id)) as string[]
-  if (!candidates.length) return
-  const current = revealPlan.value?.scenes.find(entry => entry.scene_id === sceneId)?.preset_id
-  const choices = candidates.filter(id => id !== current)
-  const pick = (choices.length ? choices : candidates)[Math.floor(Math.random() * (choices.length ? choices.length : candidates.length))]!
-  stagedRevealRerolls.value = [...stagedRevealRerolls.value, { scene_id: sceneId, preset_id: pick, reroll: Date.now() }]
-}
-
-/** Write the staged rerolls to the episode the draft was opened on, one at a time.
- *  A successful write leaves the queue immediately, so a retry never repeats it. */
-async function flushStagedRevealRerolls(scope: AssemblyStepScope): Promise<string> {
-  const channel = scope.channel
-  const episode = scope.episode
-  if (!channel || !episode) {
-    return stagedRevealRerolls.value.length
-      ? 'The episode could not be identified, so the staged rerolls were not saved.'
-      : ''
-  }
-  const failed: string[] = []
-  for (const staged of [...stagedRevealRerolls.value]) {
-    try {
-      await put(`/projects/${channel}/video-editor/reveals/scene-choice`, {
-        episode_id: episode,
-        scene_id: staged.scene_id,
-        preset_id: staged.preset_id,
-        reroll: staged.reroll,
-      })
-      stagedRevealRerolls.value = stagedRevealRerolls.value.filter(entry => entry !== staged)
-    } catch {
-      failed.push(staged.scene_id)
-    }
-  }
-  return failed.length
-    ? `${failed.length} planned arrival reroll${failed.length === 1 ? '' : 's'} could not be saved. Your settings are saved; Apply again retries only the unfinished reroll.`
-    : ''
-}
-
-/** Only what the engine reads, so the fingerprint and the plan cannot disagree with the panel. */
-function revealPayload(): Record<string, unknown> {
-  if (!sceneReveal.enabled) return { enabled: false }
-  return {
-    enabled: true,
-    pace: sceneReveal.pace,
-    coherence: sceneReveal.coherence,
-    seed: Number(sceneReveal.seed) || 0,
-    cap_per_effect: Math.max(0, Math.round(Number(sceneReveal.cap_per_effect) || 0)),
-    no_immediate_repeat: sceneReveal.no_immediate_repeat !== false,
-    ...(sceneReveal.pool.length ? { pool: [...sceneReveal.pool] } : {}),
-  }
-}
-
-const animationsCatalog = ref<Array<{ id: string; label: string; category: string; hint?: string }>>([])
-const animationFamilies = ref<Array<{ key: string; name: string; description: string; members: Array<{ id: string; strength: string }> }>>([])
-
-const animationsCatalogLoading = ref(true)
-const animationsCatalogError = ref('')
-
-async function loadAnimationsCatalog() {
-  animationsCatalogLoading.value = true
-  animationsCatalogError.value = ''
-  try {
-    const r = await get<{ animations: typeof animationsCatalog.value; families?: typeof animationFamilies.value }>(`/projects/${slug.value}/video-editor/animations/catalog`)
-    animationsCatalog.value = r.animations || []
-    animationFamilies.value = r.families || []
-  } catch (e: any) {
-    animationsCatalogError.value = e?.data?.detail || e?.message || 'Could not load animations'
-  } finally {
-    animationsCatalogLoading.value = false
-  }
 }
 
 const animationPresets = usePresets({
@@ -5152,7 +4825,7 @@ function commitAppliedIntro(value: { intro: { enabled: boolean; video_path: stri
 
 watch([slug, episodeId], () => { introEditorOpen.value = false })
 
-// ── Step 3 title / motion / chapter popup (1.4.384) ─────────────────────
+// ── Step 3 title / chapter popup (1.4.384) ──────────────────────────────
 // The popup edits a DETACHED copy of this step's settings (utils/assembly-step-draft.ts).
 // Opening, browsing, Escape, backdrop and Cancel never write; Apply is the single
 // write, and it lands in the captured episode's own saved settings only.
@@ -5194,11 +4867,9 @@ const titleMotionSummary = computed(() => {
   const title = !titleImage.enabled
     ? 'Title image off'
     : titleImage.image_path ? `Title image ${titleImage.duration}s` : 'Title image on, no file'
-  const motion = sceneReveal.enabled ? `Sketch Draw reveal (${sceneReveal.pace})` : sceneAnimation.type
   return [
     title,
     `${transition.type || 'main transition'} ${transition.duration}s`,
-    motion,
     titleCard.enabled ? 'Title card on' : 'Title card off',
     chapterTitles.enabled ? `Chapter titles ${chapterTitles.style}` : 'Chapter titles off',
   ].join(' · ')
@@ -5230,7 +4901,6 @@ async function loadTitleMotionPool(text: string): Promise<void> {
 function openTitleMotionEditor(): void {
   if (!episodeId.value) return
   titleMotionError.value = ''
-  stagedRevealRerolls.value = []
   titleMotionDraft.value = reactive(beginAssemblyStepDraft<TitleMotionDraftSettings>({
     timeline: {
       title_image: titleImage,
@@ -5249,15 +4919,6 @@ function openTitleMotionEditor(): void {
   titleMotionSettingsBaseline.value = JSON.parse(JSON.stringify(snapshotAllSettings()))
   titleMotionAdoptRoot.value = episodesRoot.value
   void loadTitleMotionPool(titleMotionChapterSample.value.text)
-  if (!revealLibrary.value.length) void loadRevealLibrary()
-}
-
-function toggleTitleMotionRevealPool(id: string, on: boolean): void {
-  const pool = titleMotionDraft.value?.value.timeline.scene_reveal.pool as string[] | undefined
-  if (!pool) return
-  titleMotionDraft.value!.value.timeline.scene_reveal.pool = on
-    ? [...pool, id]
-    : pool.filter(entry => entry !== id)
 }
 
 function pickTitleMotionImage(filePath: string): void {
@@ -5265,7 +4926,7 @@ function pickTitleMotionImage(filePath: string): void {
 }
 
 /**
- * The popup's one write: merge this episode's full title/motion draft into ITS own
+ * The popup's one write: merge this episode's full title/chapter draft into ITS own
  * `video_assembly_last_used` entry. The channel starting point and every other
  * slot on that entry are left exactly as they were (AGENTS §4).
  */
@@ -5336,21 +4997,11 @@ async function applyTitleMotion(): Promise<void> {
       titleMotionError.value = result.error
       return
     }
-    // Reveal off in this draft means its staged rerolls are moot; do not write them.
-    if (!draft.value.timeline.scene_reveal.enabled) stagedRevealRerolls.value = []
-    const rerollError = await flushStagedRevealRerolls(draft.scope)
-    if (rerollError) {
-      // Settings are saved; hand the draft back so Apply retries only the unfinished rerolls.
-      draft.state = 'editing'
-      titleMotionError.value = rerollError
-      return
-    }
     // The save is correct for the captured episode. If another episode is open
     // by the time it answers, its form must not receive the other one's title
     // image or chapter font (AGENTS §4).
     if (!sameAssemblyStepScope(draft.scope, { channel: slug.value, episode: episodeId.value })) {
       titleMotionDraft.value = null
-      stagedRevealRerolls.value = []
       titleMotionAdoptBaseline.value = null
       titleMotionSettingsBaseline.value = null
       titleMotionAdoptRoot.value = ''
@@ -5358,8 +5009,6 @@ async function applyTitleMotion(): Promise<void> {
       return
     }
     commitTitleMotionDraft(draft.value)
-    stagedRevealRerolls.value = []
-    void loadRevealPlan()
     titleMotionDraft.value = null
     titleMotionAdoptBaseline.value = null
     titleMotionSettingsBaseline.value = null
@@ -5377,7 +5026,6 @@ function closeTitleMotionEditor(): void {
   titleMotionSettingsBaseline.value = null
   titleMotionAdoptRoot.value = ''
   titleMotionError.value = ''
-  stagedRevealRerolls.value = []
 }
 
 // The draft belongs to the episode that opened it. It is never carried across.
@@ -7920,7 +7568,6 @@ onMounted(async () => {
   // own presets still win.
   const ffmpegReady = checkFfmpeg()
   loadTransitionsCatalog()
-  loadAnimationsCatalog()
   loadSceneTimingMode()
   // Format-aware seeding runs FIRST so saved presets (loaded right
   // after) can still override these defaults. Without this, listicle
@@ -8088,30 +7735,7 @@ onUnmounted(() => {
   text-align: center;
 }
 
-/* Catalog-loading state for transitions/animations selectors. */
-.reveal-panel {
-  padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px;
-  background: var(--bg-secondary);
-}
-.reveal-toggle { display: flex; gap: 8px; align-items: flex-start; font-weight: 600; }
-.reveal-pool {
-  max-height: 210px; overflow-y: auto; border: 1px solid var(--border);
-  border-radius: 8px; padding: 6px 8px; background: var(--bg-primary);
-}
-.reveal-pool-row { display: flex; gap: 8px; align-items: flex-start; padding: 3px 0; font-weight: 500; }
-.reveal-approx { color: var(--warning, #d97706); }
-.reveal-plan-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.reveal-plan { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 4px; }
-.reveal-plan li { display: flex; align-items: center; gap: 10px; font-size: var(--font-sm); }
-.reveal-plan-scene {
-  min-width: 22px; text-align: center; border-radius: 999px; padding: 1px 6px;
-  background: var(--bg-secondary); color: var(--text-muted); font-size: var(--font-xs);
-}
-.reveal-plan-name { flex: 1; }
-.reveal-plan-badge {
-  font-size: var(--font-xs); padding: 1px 6px; border-radius: 999px;
-  background: rgba(115, 168, 223, .18); color: var(--motion-blue, #73a8df);
-}
+/* Catalog-loading state for the transitions selector. */
 .catalog-loading { margin-top: 8px; }
 
 /* Color-picker: small swatch input + hex text input combo. */

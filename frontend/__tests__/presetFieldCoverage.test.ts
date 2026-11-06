@@ -349,11 +349,10 @@ const CLASSIFIED: Record<string, Record<string, Classification>> = {
       'titleMotion.effects.title_card.background', 'titleMotion.effects.title_card.background_media_path',
       'titleMotion.effects.title_card.duration', 'titleMotion.effects.title_card.enabled', 'titleMotion.effects.title_card.style',
       'titleMotion.effects.title_card.subtitle', 'titleMotion.effects.title_card.text',
-      'titleMotion.timeline.scene_animation.breathe_amplitude', 'titleMotion.timeline.scene_animation.breathe_base_zoom',
-      'titleMotion.timeline.scene_animation.parallax_direction', 'titleMotion.timeline.scene_animation.parallax_speed',
-      'titleMotion.timeline.scene_animation.zoom_end', 'titleMotion.timeline.scene_animation.zoom_start',
-      'titleMotion.timeline.scene_reveal.cap_per_effect', 'titleMotion.timeline.scene_reveal.coherence',
-      'titleMotion.timeline.scene_reveal.enabled', 'titleMotion.timeline.scene_reveal.pace', 'titleMotion.timeline.scene_reveal.seed',
+      // Scene motion and Sketch Draw reveal controls moved out of this popup to the
+      // separate Motion Review step (owner, 2026-11-06). Their saved values still
+      // travel through the draft and Timeline preset, so they are no longer template
+      // fields here and must not be classified as if they were.
       'titleMotion.timeline.title_image.duration', 'titleMotion.timeline.title_image.enabled',
       'titleMotion.timeline.title_image.transition_duration', 'titleMotion.timeline.title_image.transition_type',
       'renderAppearanceEdit.logo.enabled', 'renderAppearanceEdit.logo.image_path', 'renderAppearanceEdit.logo.position',
