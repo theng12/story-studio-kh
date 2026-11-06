@@ -2,7 +2,7 @@
   <div v-if="options.length" class="output-options">
     <div class="output-head">
       <span class="output-label">Output size</span>
-      <span class="output-sub">Published by {{ modelName }} — each row is one size Gateway renders, at its own price.</span>
+      <span class="output-sub">Published by {{ modelName }} — each row is one size Gateway renders.</span>
     </div>
     <!-- Only when the Story default cannot be honoured: name the published
          fallback honestly instead of pretending 16:9 exists. -->
@@ -24,9 +24,6 @@
           <span v-if="defaultLabel(option)" class="output-default" :title="defaultTitle(option)">{{ defaultLabel(option) }}</span>
         </span>
         <span class="output-dims">{{ option.width.toLocaleString() }}×{{ option.height.toLocaleString() }} px</span>
-        <span class="output-cost" :class="`basis-${costFor(option).basis}`" :title="costFor(option).title">
-          {{ CREDIT_BASIS_LABEL[costFor(option).basis] }}: {{ costFor(option).text }} <PriceDetails :cost="costFor(option)" />
-        </span>
       </button>
     </div>
     <!-- A model switch that changed the customer's pick has to SAY so; never
@@ -39,8 +36,8 @@
 /**
  * The published `(resolution, aspect_ratio)` rows for the selected model.
  *
- * Rows come from the live catalogue verbatim: resolution label, ratio, the
- * real `width`×`height`, and that row's own price. A model publishing none
+ * Rows come from the live catalogue verbatim: resolution label, ratio and the
+ * real `width`×`height`. A model publishing none
  * renders nothing at all, so the flow falls back to aspect ratio alone and
  * GenStudio applies its own default resolution — no invented ladder.
  */
@@ -55,11 +52,6 @@ import {
   type OutputOptionChoice,
   type PublishedOutputOption,
 } from '../utils/genstudio-output-options.js'
-import {
-  CREDIT_BASIS_LABEL,
-  describeImageUnitCost,
-  type CreditDisplay,
-} from '../utils/genstudio-credit-cost.js'
 import type { GenStudioImageModelInfo } from '../composables/useGenStudioImageModels.js'
 
 const props = withDefaults(defineProps<{
@@ -124,11 +116,6 @@ function isActive(option: PublishedOutputOption): boolean {
     && props.modelValue?.aspect_ratio === option.aspect_ratio
 }
 
-/** Recomputed per row, so switching model re-prices every row immediately. */
-function costFor(option: PublishedOutputOption): CreditDisplay {
-  return describeImageUnitCost(props.model, option, { referenceGuided: props.referenceGuided })
-}
-
 function choose(option: PublishedOutputOption): void {
   notice.value = ''
   const choice = { resolution: option.resolution, aspect_ratio: option.aspect_ratio }
@@ -185,7 +172,7 @@ watch(
 .output-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  grid-template-areas: 'main dims' 'cost cost';
+  grid-template-areas: 'main dims';
   gap: 2px 12px;
   align-items: center;
   text-align: left;
@@ -207,8 +194,5 @@ watch(
   padding: 0 6px;
 }
 .output-dims { grid-area: dims; font-size: var(--font-xs); color: var(--text-muted); white-space: nowrap; }
-.output-cost { grid-area: cost; font-size: var(--font-xs); color: var(--text-muted); }
-.output-cost.basis-unpublished { color: var(--warning, #d97706); }
-.output-cost.basis-free { color: var(--success, #16a34a); }
 .output-notice { margin: 8px 0 0; font-size: var(--font-xs); color: var(--warning, #d97706); line-height: 1.4; }
 </style>

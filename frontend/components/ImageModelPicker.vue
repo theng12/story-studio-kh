@@ -23,11 +23,6 @@
       </label>
     </fieldset>
     <p v-if="allowModeSelection && selectedModel && !modes.length" class="notice" role="status">The Gateway has not published image modes for this model.</p>
-    <!-- Price of the CURRENT selection, in the Gateway's published terms. A
-         computed, so switching model re-prices immediately. -->
-    <p v-if="selectedModel" class="notice notice-cost" :class="`basis-${unitCost.basis}`" :title="unitCost.title">
-      {{ CREDIT_BASIS_LABEL[unitCost.basis] }}: {{ unitCost.text }} <PriceDetails :cost="unitCost" />
-    </p>
     <!-- An enforced limit has to be visible at the point of choosing. Shown
          only in reference mode, only when the selected model publishes a
          ceiling, and re-derived live whenever the selection changes. -->
@@ -54,8 +49,7 @@
 import { imageModeId, publishedImageModes } from '../../electron/server/contracts/genstudio-image-modes.js'
 import type { GenStudioImageModelInfo } from '../composables/useGenStudioImageModels.js'
 import { genStudioModelLockReason, selectLiveGenStudioModel } from '../utils/live-genstudio-model-selection.js'
-import { CREDIT_BASIS_LABEL, describeImageModelRate, describeImageUnitCost } from '../utils/genstudio-credit-cost.js'
-import { defaultOutputOption } from '../utils/genstudio-output-options.js'
+import { describeImageModelRate } from '../utils/genstudio-credit-cost.js'
 import { genstudioStaleNote } from '../utils/genstudio-freshness.js'
 import { emptyDefaultModels, normalizeDefaultModels, resolveEffectiveModel } from '../utils/live-genstudio-model-selection.js'
 
@@ -143,18 +137,6 @@ const options = computed(() => {
  * an unpublished limit is shown as nothing, never as an invented number.
  * A computed, so switching model re-derives it immediately.
  */
-
-/**
- * Price of the current selection, for the model's DEFAULT published output
- * option when it publishes options at all. The per-row prices live in
- * `ImageOutputOptionPicker`; this is the headline figure at the moment of
- * choosing a model. Recomputed on every selection change.
- */
-const unitCost = computed(() => describeImageUnitCost(
-  selectedModel.value,
-  defaultOutputOption(selectedModel.value),
-  { referenceGuided: referenceMode.value },
-))
 
 const referenceDimensionNotice = computed(() => {
   // Deliberately NOT reference-active: that flow (Scene Review) fits oversized
@@ -287,9 +269,6 @@ onMounted(async () => {
 .image-modes small { color: var(--text-muted); }
 .notice { margin: 6px 0 0; color: var(--warning, #d97706); font-size: var(--font-xs); line-height: 1.4; }
 .notice-limit { color: var(--text-muted); }
-.notice-cost { color: var(--text); }
-.notice-cost.basis-unpublished { color: var(--warning, #d97706); }
-.notice-cost.basis-free { color: var(--success, #16a34a); }
 .notice-stale { color: var(--warning, #d97706); }
 .notice-error { color: var(--danger, #dc2626); }
 </style>
