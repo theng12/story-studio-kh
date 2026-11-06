@@ -106,7 +106,7 @@ function channelCharacterJsonPath(channelSlug: string, characterId: string): str
   return path.join(channelCharacterDir(channelSlug, characterId), 'character.json')
 }
 
-function channelRecord(record: Character, channelSlug: string): Character {
+function channelRecord(record: Character, channelSlug: string, createdAtFallback = new Date().toISOString()): Character {
   return {
     ...record,
     id: record.id,
@@ -119,7 +119,7 @@ function channelRecord(record: Character, channelSlug: string): Character {
     channel_profiles: undefined,
     source: 'project',
     schemaVersion: record.schemaVersion ?? SCHEMA_VERSION,
-    created_at: record.created_at ?? new Date().toISOString(),
+    created_at: record.created_at ?? createdAtFallback,
   }
 }
 
@@ -487,6 +487,8 @@ interface MigrationEntry {
   target_dir: string
   source_record_sha: string
   target_record_sha: string
+  /** Chosen once in buildPlan so re-deriving the copy is byte-identical. */
+  target_created_at?: string
   source_files: Record<string, string>
   target_files: Record<string, string>
   /** Verified copy of the source bytes, written before any channel publish. */
@@ -527,6 +529,15 @@ async function sha256File(file: string): Promise<string> {
 
 function recordBody(record: Character): string {
   return `${JSON.stringify(record, null, 2)}\n`
+}
+
+/**
+ * A stable created_at for migration hashes. Legacy records may not carry one;
+ * the file's mtime is the same on every preview of an untouched record.
+ */
+async function legacyCreatedAt(record: Character, sourceDir: string): Promise<string> {
+  if (record.created_at) return record.created_at
+  return (await fs.stat(path.join(sourceDir, 'character.json'))).mtime.toISOString()
 }
 
 function migrationRoot(): string {
@@ -596,7 +607,8 @@ async function buildPlan(): Promise<{
         continue
       }
 
-      const expected = channelRecord(record, channel)
+      const targetCreatedAt = await legacyCreatedAt(record, sourceDir)
+      const expected = channelRecord(record, channel, targetCreatedAt)
       const targetRecordSha = sha256(recordBody(expected))
       const files = record.references?.images || []
       const missing: string[] = []
@@ -641,6 +653,7 @@ async function buildPlan(): Promise<{
         target_dir: targetDir,
         source_record_sha: await sha256File(path.join(sourceDir, 'character.json')),
         target_record_sha: targetRecordSha,
+        target_created_at: targetCreatedAt,
         source_files: sourceFiles,
         target_files: { ...sourceFiles },
         status: 'pending',
@@ -682,7 +695,7 @@ async function migrateEntry(entry: MigrationEntry): Promise<CharacterMigrationCo
     if (!legacy) {
       return { character_id: entry.character_id, channel: entry.channel, reason: 'source_changed', detail: 'Legacy record disappeared.' }
     }
-    const expectedRecord = channelRecord(legacy, entry.channel)
+    const expectedRecord = channelRecord(legacy, entry.channel, entry.target_created_at)
     if (sha256(recordBody(expectedRecord)) !== entry.target_record_sha) {
       return { character_id: entry.character_id, channel: entry.channel, reason: 'source_changed', detail: 'Legacy record changed during migration.' }
     }

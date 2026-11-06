@@ -58,6 +58,15 @@ async function waitForLockWaiters(key: string, count: number): Promise<void> {
   throw new Error(`lock ${key} never reached ${count} waiter(s)`)
 }
 
+/** Wait until a held lock's own queued entry has started, so new waiters queue after it. */
+async function waitForLockIdle(key: string): Promise<void> {
+  for (let i = 0; i < 10_000; i++) {
+    if (__pendingLockWaitersForTests(key) === 0) return
+    await new Promise(resolve => setImmediate(resolve))
+  }
+  throw new Error(`lock ${key} never started`)
+}
+
 describe('character-library channel ownership', () => {
   before(async () => {
     tmp = await useTempDataDir()
@@ -254,15 +263,28 @@ describe('character-library channel ownership', () => {
     let releaseHold!: () => void
     const held = new Promise<void>(resolve => { releaseHold = resolve })
     const hold = withLock(targetJson, () => held)
+    let migration: ReturnType<typeof cl.applyChannelMigration> | null = null
+    let add: ReturnType<typeof cl.addChannelReferenceImage> | null = null
+    let setupError: unknown = null
 
-    const migration = cl.applyChannelMigration()
-    await waitForLockWaiters(targetJson, 1)
-    const add = cl.addChannelReferenceImage(SLUG_A, 'race-ref', Buffer.from('edited-bytes'), 'edit.png')
-    await waitForLockWaiters(targetJson, 2)
-    releaseHold()
-    await hold
+    try {
+      // The holder's own queued entry must start before anything else queues.
+      await waitForLockIdle(targetJson)
+      migration = cl.applyChannelMigration()
+      await waitForLockWaiters(targetJson, 1)
+      add = cl.addChannelReferenceImage(SLUG_A, 'race-ref', Buffer.from('edited-bytes'), 'edit.png')
+      await waitForLockWaiters(targetJson, 2)
+    } catch (e) {
+      setupError = e
+    } finally {
+      // Always release: a failed setup must not strand queued async work.
+      releaseHold()
+      await hold
+      await Promise.allSettled([migration, add].filter(Boolean) as Promise<unknown>[])
+    }
+    if (setupError) throw setupError
 
-    const [report, added] = await Promise.all([migration, add])
+    const [report, added] = await Promise.all([migration!, add!])
     assert.equal(report.copies_created, 1)
     assert.equal(added.relativePath, 'edit.png')
     assert.deepEqual((await cl.getChannelCharacter(SLUG_A, 'race-ref'))?.references?.images, ['edit.png'])
