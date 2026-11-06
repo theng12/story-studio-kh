@@ -189,7 +189,7 @@ describe('character-manager', () => {
     const unified = await cm.listCharacters(SLUG)
     assert.deepEqual(unified.map(c => c.id).sort(), ['native', 'seed'])
     const seed = unified.find(c => c.id === 'seed')
-    assert.equal(seed?.source, 'library', 'assigned-from-library marked source=library')
+    assert.equal(seed?.source, 'project', 'channel-owned record is canonical')
   })
 
   test('listCharacters: dedups by id, canonical Channel Character wins', async () => {
@@ -200,7 +200,7 @@ describe('character-manager', () => {
     const arias = unified.filter(c => c.id === 'aria')
     assert.equal(arias.length, 1, 'no duplicate when both stores hold the id')
     assert.equal(arias[0].description, 'project version', 'canonical copy preserves the migrated content')
-    assert.equal(arias[0].source, 'library')
+    assert.equal(arias[0].source, 'project')
   })
 
   test('getCharacter: falls back to an assigned library character', async () => {

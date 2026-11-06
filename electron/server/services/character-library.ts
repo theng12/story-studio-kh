@@ -364,7 +364,9 @@ export async function listForProject(channelSlug: string): Promise<Character[]> 
   const legacy = (await listLibrary())
     .filter(c => normalizeProjects(c.projects).includes(slug) && !ownedIds.has(c.id))
     .map(c => resolveForChannel(c, slug))
-  return [...owned.map(c => resolveForChannel(c, slug)), ...legacy]
+  // Channel-owned records stay source='project'; only the read-only legacy
+  // fallback is marked source='library' so the UI can disable editing it.
+  return [...owned, ...legacy]
     .sort((a, b) => a.name.localeCompare(b.name))
 }
 
