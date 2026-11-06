@@ -426,6 +426,8 @@ describe('the panel drafts until apply', () => {
 
       const result = await mounted.panel.value.apply()
       assert.equal(result.ok, false, 'the preset delete failed after the file had been written')
+      assert.ok(text(mounted.host).includes('Apply incomplete'), 'a partly written Apply says incomplete')
+      assert.ok(!text(mounted.host).includes('Not applied'), 'the panel never claims nothing was written')
       assert.equal(
         mounted.writes().filter(c => c.method === 'PUT' && c.path === `/projects/${SLUG}/effects-library/ep1`).length,
         1,
@@ -637,7 +639,8 @@ describe('the panel fences late answers', () => {
 
       const first = await mounted.panel.value.apply()
       assert.equal(first.ok, false, 'the failed side-write is reported to the host')
-      assert.ok(text(mounted.host).includes('Not applied'), 'the failure is visible in the panel')
+      assert.ok(text(mounted.host).includes('Apply incomplete'), 'the failure is visible in the panel')
+      assert.ok(!text(mounted.host).includes('Not applied'), 'a failed Apply never claims nothing was written')
       assert.deepEqual(mounted.presetSaves, [{ name: 'Night rain', slug: SLUG }], 'the save before the failure ran once')
 
       const retry = await mounted.panel.value.apply()

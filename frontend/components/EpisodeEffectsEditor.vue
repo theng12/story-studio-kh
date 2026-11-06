@@ -507,7 +507,8 @@ watch(loading, value => emit('loading-change', value), { immediate: true })
 const draftText = computed(() => {
   if (loading.value) return 'Loading this episode’s effects…'
   if (applying.value) return 'Applying…'
-  if (applyError.value) return `Not applied: ${applyError.value}`
+  // Never "not applied": a failed Apply can still have written the file.
+  if (applyError.value) return `Apply incomplete: ${applyError.value}`
   if (dirty.value) return 'Unsaved changes — Apply in this dialog saves them.'
   return 'Saved with this episode. Video Assembly uses it on the next render.'
 })
@@ -571,7 +572,9 @@ watch([previewScene, episodeId, slug], () => {
   img.onload = () => {
     if (slug.value === channel && episodeId.value === episode && previewScene.value?.id === scene.id) sceneImage.value = img
   }
-  img.onerror = () => { if (slug.value === channel && episodeId.value === episode) sceneImage.value = null }
+  img.onerror = () => {
+    if (slug.value === channel && episodeId.value === episode && previewScene.value?.id === scene.id) sceneImage.value = null
+  }
   img.src = `/api/projects/${encodeURIComponent(channel)}/scene-review/${encodeURIComponent(episode)}/image/${encodeURIComponent(scene.id)}`
 })
 
