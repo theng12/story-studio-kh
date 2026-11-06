@@ -390,7 +390,7 @@ test('collect before resend: every saved key is read before a lost request is re
   for (const id of idsOf(2, 5)) assert.match(saved[id]!, /Saved Gateway answer/)
 })
 
-test('collect before resend: a lost key is still resent once for scenes no other saved key covered', async () => {
+test('collect first: an unknown key fences fresh work while later saved answers are preserved', async () => {
   service.reset()
   const f = await fixture(4)
   const lost = 'story-chat-lost2000000000000000000000000000000000000000000'
@@ -403,13 +403,64 @@ test('collect before resend: a lost key is still resent once for scenes no other
   })
   const before = posts()
 
-  await runScenePlanJob(job)
+  await assert.rejects(runScenePlanJob(job), /could not confirm whether an earlier prompt request was accepted/i)
 
-  assert.equal(posts() - before, 1, 'one resend, for the scenes nothing else covered')
-  const reads = service.requests.map((entry: any, i: number) => ({ ...entry, i }))
-  const readOf = (key: string) => reads.find((entry: any) => entry.method === 'GET' && entry.path.endsWith(`/by-idempotency-key/${key}`))!.i
-  const resend = reads.filter((entry: any) => entry.method === 'POST').at(-1)!.i
-  assert.ok(readOf(lost) < resend && readOf(good) < resend, 'both saved keys were read before the resend went out')
+  assert.equal(posts() - before, 0, 'unknown outcomes never authorize a new POST')
+  assert.ok(gets(lost) >= 1)
+  assert.equal(gets(good), 1)
   const saved = await savedPrompts(f)
-  for (const id of idsOf(2, 5)) assert.match(saved[id]!, /Saved Gateway answer/)
+  for (const id of idsOf(4, 5)) assert.match(saved[id]!, /Saved Gateway answer/)
+  for (const id of idsOf(2, 3)) assert.equal(saved[id], '')
 })
+
+for (const policy of [false, true]) {
+  test(`cancelling a scene pack aborts its active ${policy ? 'policy' : 'direct'} request before another pack or save`, async () => {
+    service.reset()
+    const f = await fixture(2)
+    const original = globalThis.fetch
+    let posts = 0
+    let holding = false
+    let providerAborted = false
+    let release!: () => void
+    const restore = jq._setExecutorForTesting('scene_plan_run', runScenePlanJob)
+    service.queueScenario('chat', { states: ['accepted', 'succeeded'], outputText: answer(idsOf(2, 3)) })
+    globalThis.fetch = async (input, init) => {
+      if (String(input).endsWith('/v1/chat/responses') && init?.method === 'POST') posts++
+      if (!holding && /\/v1\/chat\/responses\/[^/]+$/.test(String(input)) && (init?.method || 'GET') === 'GET') {
+        holding = true
+        const signal = init?.signal!
+        assert.ok(signal, 'the actual provider fetch receives the job signal')
+        return new Promise<Response>((_resolve, reject) => {
+          release = () => reject(new DOMException('Cancelled', 'AbortError'))
+          signal.addEventListener('abort', () => { providerAborted = true; release() }, { once: true })
+        })
+      }
+      return original(input, init)
+    }
+    const queued = jq.enqueuePreparedForTest({
+      project_slug: f.project.slug, type: 'scene_plan_run', episode_id: f.episodeId,
+      title: 'Cancel active scene pack', params: { ...f.params, auto_retry: false,
+        ...(policy ? { pipeline_model_policy: { scene_plan: { mode: 'single', models: ['mock-chat-v1'], assigned_model: 'mock-chat-v1' } } } : {}),
+      },
+    })
+    try {
+      await waitFor(() => holding, { label: 'the provider fetch to enter its accepted scene pack' })
+      await jq.requestJobCancellation(f.project.slug, queued.job_id)
+      await waitFor(() => !jq._isJobWorkerActiveForTesting(queued.job_id), { label: 'the scene executor to settle after abort' })
+      assert.equal(providerAborted, true)
+      assert.equal(posts, 1, 'no next pack starts after cancellation')
+      const saved = await savedPrompts(f)
+      assert.equal(saved['scene-0002'], '')
+      assert.equal(saved['scene-0003'], '')
+      assert.match(saved['scene-0001']!, /already verified/)
+    } finally {
+      release?.()
+      try {
+        await waitFor(() => !jq._isJobWorkerActiveForTesting(queued.job_id), { label: 'cancel fixture worker cleanup' })
+      } finally {
+        globalThis.fetch = original
+        restore()
+      }
+    }
+  })
+}

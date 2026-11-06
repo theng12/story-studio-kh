@@ -1,0 +1,12 @@
+{
+ "kind": "lettering-style",
+ "schema_version": 1,
+ "id": "com.storystudio.lettering.text-vintage",
+ "name": "Vintage",
+ "description": "vintage sepia print, lightly weathered, muted warm tones",
+ "axis": "text",
+ "phrase": "vintage sepia print, lightly weathered, muted warm tones",
+ "preview_assets": [
+  "assets/text-vintage.webp"
+ ]
+}

@@ -17,7 +17,7 @@ async function setupWith(models: ReturnType<typeof ref<any[]>>) {
   const script = compileScript(parse(partial, { filename: pagePath.pathname }).descriptor, { id: 'task13-live-image-cap' })
   const vueUrl = await import.meta.resolve('vue')
   const support = `
-    import { computed, defineComponent as _defineComponent, reactive, ref } from ${JSON.stringify(vueUrl)}
+    import { computed, defineComponent as _defineComponent, reactive, ref, watch } from ${JSON.stringify(vueUrl)}
     const definePageMeta = () => undefined
     const useRoute = () => ({ params: { slug: 'task13-project' }, query: {} })
     const useApi = () => ({ get: async () => ({}), post: async () => ({}) })

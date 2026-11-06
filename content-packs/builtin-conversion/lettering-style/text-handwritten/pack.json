@@ -1,0 +1,15 @@
+{
+  "pack_format": 1,
+  "pack_id": "com.storystudio.pack.lettering.text-handwritten",
+  "publisher_id": "com.storystudio",
+  "key_id": "{{KEY_ID}}",
+  "version": "1.0.0",
+  "min_app_version": "{{MIN_APP_VERSION}}",
+  "lifecycle": "active",
+  "changelog": "First release of the Handwritten lettering style: the built-in inked finish, uneven ink density, dry-brush streaks and blotches within the letters, pooled dark edges, republished under its own pack identity with its style document unchanged.",
+  "entitlement": {
+    "sku": "com.storystudio.sku.lettering.text-handwritten",
+    "family": "com.storystudio.family.lettering.text-handwritten"
+  },
+  "dependencies": []
+}

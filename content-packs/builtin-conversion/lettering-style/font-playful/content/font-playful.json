@@ -1,0 +1,12 @@
+{
+ "kind": "lettering-style",
+ "schema_version": 1,
+ "id": "com.storystudio.lettering.font-playful",
+ "name": "Playful",
+ "description": "playful rounded font, friendly and approachable",
+ "axis": "font",
+ "phrase": "playful rounded font, friendly and approachable",
+ "preview_assets": [
+  "assets/font-playful.webp"
+ ]
+}

@@ -127,8 +127,8 @@ void test('an exact-replay chapter retry reaches GET by idempotency key with zer
       ],
     })
     service.queueScenario('chat', { states: ['succeeded'], outputText: outline })
-    // Owner decision 2026-10-12: the lost batch gets one fresh resend, which is lost too.
-    for (let index = 0; index < 2; index++) {
+    // The original unknown batch remains recoverable without fresh work.
+    for (let index = 0; index < 1; index++) {
       service.queueScenario('chat', {
         states: ['failed'],
         failureCode: 'LANGUAGE_PROVIDER_SUBMISSION_UNCERTAIN',
@@ -168,8 +168,8 @@ void test('an exact-replay chapter retry reaches GET by idempotency key with zer
       expandChapters(original, params, { auto_approve: true }),
       /lost track of this request/i,
     )
-    assert.equal(service.providerSubmissionCount('chat'), 3, 'outline, the failed chapter batch and its one fresh resend')
-    const historicChapterKey = service.submissions.at(-2)?.idempotencyKey
+    assert.equal(service.providerSubmissionCount('chat'), 2, 'outline and the original chapter batch only')
+    const historicChapterKey = service.submissions.at(-1)?.idempotencyKey
     assert.ok(historicChapterKey, 'the original chapter batch must retain its durable key')
     await queue.retire(original)
 
@@ -185,7 +185,7 @@ void test('an exact-replay chapter retry reaches GET by idempotency key with zer
       /lost track of this request/i,
     )
     // The retry may re-POST the already-sent resend's key, which the Gateway answers by replay.
-    assert.equal(service.providerSubmissionCount('chat'), 3, 'the exact replay must not create a replacement request')
+    assert.equal(service.providerSubmissionCount('chat'), 2, 'the exact replay must not create a replacement request')
     assert.ok(service.requests.some(request =>
       request.method === 'GET'
       && request.path === `/v1/chat/responses/by-idempotency-key/${encodeURIComponent(historicChapterKey)}`,
@@ -292,8 +292,8 @@ void test('multiple listicle recovery keys match by exact membership, not reques
       n: index + 1, title: `Topic ${index + 1}`, hook_line: `Hook ${index + 1}`, key_facts: ['fact'],
     })) })
     service.queueScenario('chat', { states: ['succeeded'], outputText: outline })
-    // Three batches, each lost and its one fresh resend lost too (owner decision 2026-10-12).
-    for (let index = 0; index < 6; index++) {
+    // Three original batches remain unknown; no replacement is submitted.
+    for (let index = 0; index < 3; index++) {
       service.queueScenario('chat', { states: ['failed'], failureCode: 'LANGUAGE_PROVIDER_SUBMISSION_UNCERTAIN' })
     }
     const outlineJob = await queue.enqueue({

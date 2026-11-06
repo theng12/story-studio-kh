@@ -235,10 +235,10 @@ describe('Jobs routes', () => {
     assert.ok(res.body.stats)
   })
 
-  test('DELETE /api/projects/:slug/jobs/ghost returns 404 without removing another job', async () => {
+  test('POST /api/projects/:slug/jobs/ghost/hide returns 404 without removing another job', async () => {
     const before = await request(app).get(`/api/projects/${slug}/jobs`)
     assert.equal(before.status, 200)
-    const res = await request(app).delete(`/api/projects/${slug}/jobs/ghost-job-id`)
+    const res = await request(app).post(`/api/projects/${slug}/jobs/ghost-job-id/hide`)
     assert.equal(res.status, 404)
     const after = await request(app).get(`/api/projects/${slug}/jobs`)
     assert.deepEqual(after.body.jobs, before.body.jobs)

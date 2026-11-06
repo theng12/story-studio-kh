@@ -234,6 +234,18 @@ describe('queue executor-settlement admission', () => {
       assert.equal(stopped.status, 'cancelled')
       assert.equal(jq.getJob(heldId)?.status, 'cancelled')
       assert.equal(jq._isJobWorkerActiveForTesting(heldId), true, 'the executor is still held after its row turned terminal')
+      const settling = jq.getPublicJob(heldId)!
+      assert.equal(settling.control?.label, 'Check again')
+      assert.match(settling.control?.reason || '', /Cancellation is saved.*still stopping its local worker/)
+      assert.deepEqual(settling.controls?.map(control => control.action), ['recheck-provider-status'])
+      for (const view of ['stream', 'row'] as const) {
+        const row = (await jq.getJobs(project.slug, { view })).find(job => job.job_id === heldId)
+        assert.equal(row?.control?.label, 'Check again', `${view} keeps the same local settling truth`)
+      }
+      const checked = await jq.recheckJobProviderStatus(project.slug, heldId)
+      assert.equal(checked.status, 'cancelled')
+      assert.equal(jq._isJobWorkerActiveForTesting(heldId), true, 'Check again never releases a live worker')
+      assert.equal(runs.size, 1, 'Check again admits no replacement')
 
       refusal(() => jq.retryTerminalJob(project.slug, heldId), settlingMessage('broll_assemble', episode))
       refusal(() => jq.enqueuePreparedForTest({
@@ -245,6 +257,7 @@ describe('queue executor-settlement admission', () => {
       await releaseAndSettle(gate, original?.job_id)
     }
 
+    assert.doesNotMatch(jq.getPublicJob(original!.job_id)?.control?.reason || '', /still stopping its local worker/)
     const retried = track(jq.retryTerminalJob(project.slug, original!.job_id))
     assert.notEqual(retried.job_id, original!.job_id)
     await waitFor(() => jq.getJob(retried.job_id)?.status === 'done', { label: 'the admitted retry to finish' })

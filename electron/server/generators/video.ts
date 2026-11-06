@@ -42,6 +42,7 @@ import { assertDecodableImage, isDecodableImage } from '../lib/image-validation.
 import { getFFmpegPath } from '../services/ffmpeg-manager.js'
 import { bundledFontsFilterOption } from '../lib/subtitle-font-dir.js'
 import { assertValidMedia, getMediaInfo, summarizeMedia, fileExistsNonEmpty } from '../lib/ffmpeg-validation.js'
+import { checkPictureLength } from '../lib/final-duration-guard.js'
 import { planTransitions, buildXfadeFilterComplex, buildVariableXfadeFilterComplex, buildEngineTransitionFilterComplex, fallbackXfadeKeywords, hasTransitionEngine } from '../lib/transition-filters.js'
 import { getTransition } from '../models/transitions.js'
 import { inspectScenePlanCoverage, COVERAGE_FAIL_SEC } from '../services/scene-planner.js'
@@ -55,6 +56,7 @@ import { checkAssetAvailability } from '../lib/sync-safe.js'
 import { finalDurationIssue, missingEnabledVideoInputs, missingInputsMessage, switchedOnCueGate } from '../lib/video-enabled-inputs.js'
 import {
   closingMusicWanted, runFinalCheck, storeFinalCheck, finalCheckSummary, readPlannedSectionGaps,
+  finalCheckOptionsFor,
   type FinalCheckExpectation, type FinalCheckIntro, type FinalCheckResult, type PlannedSectionGaps,
 } from '../lib/final-video-check.js'
 import { withLock } from '../lib/atomic-store.js'
@@ -466,14 +468,18 @@ async function validateFinalOutput(outputFile: string, targetDuration: number): 
     // even when the visual stream stopped early. Use the independently
     // probed video duration whenever ffprobe supplies it so a short concat
     // cannot be promoted as a complete render.
-    const videoEndsEarly = info.videoDurationSec !== undefined
-      && info.videoDurationSec < targetDuration - 0.25
-    if (!info.hasVideo || info.durationSec < 1 || videoEndsEarly) {
+    const picture = checkPictureLength(info.videoDurationSec, targetDuration)
+    const videoEndsEarly = picture.state === 'short'
+    // A picture we cannot measure is not a picture that passed.
+    const pictureUnmeasurable = info.hasVideo && picture.state === 'unmeasurable'
+    if (!info.hasVideo || info.durationSec < 1 || videoEndsEarly || pictureUnmeasurable) {
       const err: any = new Error(
         `Encoder exited 0 but output is unusable: ${summarizeMedia(info)}`
           + (videoEndsEarly
             ? ` (video ${info.videoDurationSec!.toFixed(3)}s, expected ${targetDuration.toFixed(3)}s)`
-            : '')
+            : pictureUnmeasurable
+              ? ` (video length could not be measured, expected ${targetDuration.toFixed(3)}s)`
+              : '')
       )
       err.stderr = 'output validation failed'
       throw err
@@ -920,7 +926,7 @@ async function finalCheckFinalVideo(
   expected: FinalCheckExpectation,
 ): Promise<FinalCheckResult | null> {
   try {
-    const result = await runFinalCheck(outputPath, expected)
+    const result = await runFinalCheck(outputPath, expected, await finalCheckOptionsFor(job.project_slug))
     await storeFinalCheck(outputPath, result)
     job.output_lines.push(`Final check: ${finalCheckSummary({ result, stale: false })}`)
     for (const issue of result.issues) job.output_lines.push(`Final check: ${issue.verdict}`)
@@ -945,9 +951,23 @@ async function verifyFinalVideo(
   // must match the plan (narration + opening + outro + tail).
   const actualSec = valid ? await getAudioDuration(outputPath).catch(() => null) : null
   let durationIssue = valid ? finalDurationIssue(actualSec, plannedSec) : null
+  // The container length follows the audio. Prove the PICTURE reaches the same plan on its own —
+  // a full-length audio track must not make a video that stopped early read as complete.
+  let pictureUnmeasurable = false
+  if (valid && !durationIssue) {
+    const info = await getMediaInfo(outputPath).catch(() => null)
+    const picture = checkPictureLength(info?.hasVideo ? info.videoDurationSec : null, plannedSec)
+    pictureUnmeasurable = picture.state === 'unmeasurable'
+    if (pictureUnmeasurable) {
+      durationIssue = 'its picture length could not be measured'
+    } else if (picture.state === 'short') {
+      durationIssue = `it is ${info!.videoDurationSec!.toFixed(1)}s of picture but the narration, `
+        + `opening, outro and tail add up to ${plannedSec.toFixed(1)}s`
+    }
+  }
   // A missing/empty/unreadable artifact is never a finished render. Only a
   // measurable length mismatch is the channel's Final video is whole choice.
-  if (durationIssue && Number(actualSec) > 0) {
+  if (durationIssue && !pictureUnmeasurable && Number(actualSec) > 0) {
     await safetyGate(job.project_slug, 'final_video_whole', job,
       `The finished video ${finalName} ${durationIssue}. The file was kept so you can inspect it.`)
     durationIssue = null
@@ -1158,6 +1178,8 @@ export { buildLetterboxFilter, computeVignetteAngle } from '../lib/video-effects
 export function resolveAssetPathsInPlace(req: GenerateVideoRequest, outputRoot: string, job: Job): void {
   const tryResolve = (p: string | undefined, label: string): string | undefined => {
     if (!p || !isPortablePath(p)) return p
+    // A chosen app background must resolve; never render a missing choice as None.
+    if (p.startsWith('${BACKGROUND}')) return resolveAssetPath(p, outputRoot)
     try {
       return resolveAssetPath(p, outputRoot)
     } catch (e: any) {
@@ -1304,14 +1326,21 @@ export interface ScannedAssets {
     approved: number
     stills_ready: number
     motion_ready: number
-    uncovered_sec: number
+    /** Null when there is no measured narration duration, so nothing was audited.
+     *  Never flatten an unknown gap to 0: the pages must not read it as covered. */
+    uncovered_sec: number | null
     /** Narration before the first scene. Split out of `uncovered_sec` so the
      *  page can say WHICH end of the timeline is short instead of naming
      *  images and approvals that may be perfectly complete. */
-    head_gap_sec: number
+    head_gap_sec: number | null
     /** Narration after the last scene. Same reason. */
-    tail_gap_sec: number
-    gap_count: number
+    tail_gap_sec: number | null
+    gap_count: number | null
+    /** False when the plan could not be audited against a real narration
+     *  duration; the gap fields above are then null. */
+    coverage_measured: boolean
+    /** Why coverage was not measured. Only present when `coverage_measured` is false. */
+    coverage_reason?: 'missing-duration' | 'invalid-timing'
     overlap_sec: number
     overlap_count: number
     complete: boolean
@@ -1520,7 +1549,10 @@ export async function scanEpisodeAssets(
         // A T2V scene's approval is its OWN Motion Review decision (owner, 2026-10-26). An
         // unapproved T2V clip falls back to its backup still and says why — the same shape as a
         // stale clip, so the operator sees the one decision still owed.
+        // v1.4.375 — a chosen clip whose file is gone (deleted, moved, import never landed) also
+        // falls back, and says so: a selection the operator made must never be dropped silently.
         const fallbackReason = clipFreshReason
+          || (scene.motion_choice === 'clip' && !clipPath ? 'no clip file on disk' : null)
           || (isT2VScene && !useMotion && scene.motion_choice !== 'still'
             ? (clipPath ? 'clip not approved in Motion Review' : 'no clip yet')
             : null)
@@ -1832,6 +1864,9 @@ export async function scanEpisodeAssets(
     const audioDrift = compareMergedAudio(scannedPlan.source_merged_audio, mergedNarrationSec, leadInShiftSec)
     const planRows = result.scenes.filter(scene => scene.source === 'scene_plan')
     const byId = new Map(planRows.map(scene => [scene.plan_scene_id, scene]))
+    // No coverage object means no measured narration duration (or invalid
+    // timings): keep the gaps unknown instead of reporting 0 s covered.
+    const measuredCoverage = integrity.coverage
     result.scene_plan_timing = {
       built_at: scannedPlan.timeline_built_at,
       opening_mode: scannedPlan.opening_mode === 'branded-opening' ? 'branded-opening' : 'from-start',
@@ -1845,13 +1880,18 @@ export async function scanEpisodeAssets(
       approved: scannedPlan.scenes.filter(scene => scene.approved).length,
       stills_ready: scannedPlan.scenes.filter(scene => !!byId.get(scene.id)?.still_path).length,
       motion_ready: planRows.filter(scene => scene.media_type === 'motion').length,
-      uncovered_sec: integrity.blockingUncoveredSec,
-      head_gap_sec: integrity.headCovered ? 0 : (integrity.coverage?.headGapSec || 0),
-      tail_gap_sec: integrity.coverage?.tailGapSec || 0,
-      gap_count: integrity.coverage?.internalGaps.length || 0,
+      uncovered_sec: measuredCoverage ? integrity.blockingUncoveredSec : null,
+      head_gap_sec: measuredCoverage ? (integrity.headCovered ? 0 : measuredCoverage.headGapSec) : null,
+      tail_gap_sec: measuredCoverage ? measuredCoverage.tailGapSec : null,
+      gap_count: measuredCoverage ? measuredCoverage.internalGaps.length : null,
+      coverage_measured: measuredCoverage !== null,
+      ...(measuredCoverage ? {} : {
+        coverage_reason: integrity.reason === 'invalid-timing' ? 'invalid-timing' as const : 'missing-duration' as const,
+      }),
       overlap_sec: overlapSec,
       overlap_count: overlapCount,
-      complete: !!result.scene_plan_coverage
+      complete: measuredCoverage !== null
+        && !!result.scene_plan_coverage
         && result.scene_plan_coverage.ready === result.scene_plan_coverage.total
         // 1.4.296 — overlaps and a slightly different narration are re-aligned by the render itself.
         && integrity.complete,
@@ -2199,6 +2239,14 @@ export function blockingUncoveredNarrationSeconds(
   req: Pick<GenerateVideoRequest, 'intro' | 'title_image' | 'title_card' | 'timeline_clips' | 'skip_intro_scenes'>,
   projectOutputRoot?: string,
 ): number {
+  // Unknown coverage is not zero coverage. Refuse it loudly so assembly never
+  // proceeds on arithmetic that quietly treats a missing measurement as safe.
+  if (timing.uncovered_sec == null || timing.head_gap_sec == null) {
+    throw new Error(
+      'Narration coverage is unknown: the Scene Plan has no measured narration duration. '
+      + 'Rebuild the Scene Plan timeline before assembling the video.',
+    )
+  }
   const headCovered = hasAvailablePlanOpening(req, projectOutputRoot)
   return Math.max(0, timing.uncovered_sec - (headCovered ? timing.head_gap_sec : 0))
 }
@@ -6756,11 +6804,19 @@ export async function premixAudio(opts: PremixAudioOpts): Promise<string> {
  * Stop here, once, without the automatic retries that would rebuild the same short timeline.
  */
 export function assertIntermediateCoversRender(videoSec: number, expectedSec: number): void {
-  if (videoSec >= expectedSec - 1) return
+  // The same strict picture rule the encoder output is held to: a shortfall this guard waves
+  // through cannot be fixed by the encode (it only caps with `-t`), so it would fail every tier
+  // and every automatic retry with identical inputs. Stop here, once.
+  const picture = checkPictureLength(videoSec, expectedSec)
+  if (picture.state === 'ok') return
   throw nonRetryable(new Error(
-    `The joined scene video is ${videoSec.toFixed(1)}s but this render needs ${expectedSec.toFixed(1)}s, `
-    + 'so the scene clips did not join to full length. Stopped before encoding: running it again would '
-    + 'stop at the same point. Send the job log to support.',
+    picture.state === 'short'
+      ? `The joined scene video is ${videoSec.toFixed(1)}s but this render needs ${expectedSec.toFixed(1)}s, `
+        + 'so the scene clips did not join to full length. Stopped before encoding: running it again would '
+        + 'stop at the same point. Send the job log to support.'
+      : `The joined scene video has no measurable length (${videoSec}s) but this render needs `
+        + `${expectedSec.toFixed(1)}s. Stopped before encoding: running it again would stop at the same `
+        + 'point. Send the job log to support.',
   ))
 }
 

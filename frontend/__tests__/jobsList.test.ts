@@ -113,6 +113,6 @@ test('capacity jargon sits behind one plain "Gateway capacity" disclosure', () =
 test('one action vocabulary and channel wording on the page', () => {
   assert.doesNotMatch(page, /Redo failed jobs|Check on running jobs|Retry all \(/)
   assert.doesNotMatch(page, /'Project Jobs'|>This project<|>All projects<|'All projects'/)
-  assert.match(page, /Remove Finished From List \(\$\{finishedCount\}\)/)
-  assert.match(page, /Remove Failed From List \(\$\{failedCount\}\)/)
+  assert.match(page, /Hide Finished From List \(\$\{finishedCount\}\)/)
+  assert.match(page, /Hide Failed From List \(\$\{failedCount\}\)/)
 })

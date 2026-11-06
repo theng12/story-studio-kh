@@ -121,8 +121,8 @@ describe('Research workspace flow', () => {
     // The control lives in Run controls ("Tune the evidence run"), where the
     // page already keeps its per-run options.
     const runControls = research.indexOf('research-setup-surface')
-    const toggle = research.indexOf('research-auto-approve-card')
-    const endOfSurface = research.indexOf('</WorkspaceSection>')
+    const toggle = research.indexOf('research-auto-approve-card', runControls)
+    const endOfSurface = research.indexOf('</WorkspaceSection>', runControls)
     assert.ok(runControls >= 0 && toggle > runControls && toggle < endOfSurface,
       'the toggle belongs inside the Run controls surface, not on a separate settings page')
 

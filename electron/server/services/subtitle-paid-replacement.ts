@@ -1,5 +1,5 @@
 /**
- * Fail-closed, deterministic eligibility for one paid subtitle replacement.
+ * Fail-closed, deterministic eligibility for configured subtitle retries.
  * Submission remains outside this pure decision boundary so callers must
  * persist the returned commitment before any provider POST.
  */
@@ -10,21 +10,23 @@ export interface SubtitleReplacementAttempt {
   originalIdempotencyKey: string
   inputHash: string
   outputPath: string
-  replacementOrdinal: 1
+  replacementOrdinal: number
   idempotencyKey: string
-  quotedCredits: number
-  priceVersion: string
+  /**
+   * Optional / legacy Gateway figures retained so old ledgers load safely.
+   */
+  quotedCredits?: number
+  priceVersion?: string
   state: 'committed' | 'submitted' | 'succeeded' | 'failed' | 'blocked'
 }
 
 export type SubtitleReplacementDecision =
-  | { action: 'free-retry'; reason: string }
   | { action: 'blocked'; reason: string }
   | { action: 'commit'; attempt: SubtitleReplacementAttempt }
 
 export interface SubtitleReplacementInput {
   enabled: boolean
-  ceiling: number | null
+  maxRetries?: number
   attempts: SubtitleReplacementAttempt[]
   section: string
   originalTaskId: string
@@ -34,49 +36,30 @@ export interface SubtitleReplacementInput {
   failure: {
     transient: boolean
     cancelled: boolean
-    reservedCredits: number | null
-    settledCredits: number | null
-    releasedCredits: number | null
   }
-  livePrice: { credits: number; priceVersion: string } | null
+  livePrice?: { credits: number; priceVersion: string } | null
 }
 
-function completeSettlement(failure: SubtitleReplacementInput['failure']): boolean {
-  return [failure.reservedCredits, failure.settledCredits, failure.releasedCredits]
-    .every(value => typeof value === 'number' && Number.isFinite(value) && value >= 0)
-    && failure.settledCredits! + failure.releasedCredits! === failure.reservedCredits
-}
-
-export function classifySubtitleFailure(failure: SubtitleReplacementInput['failure']): 'blocked' | 'free-retry' | 'paid' {
-  if (!failure.transient || failure.cancelled || !completeSettlement(failure)) {
-    return 'blocked'
-  }
-  if (completeSettlement(failure)
-    && failure.settledCredits === 0
-    && failure.releasedCredits === failure.reservedCredits) {
-    return 'free-retry'
-  }
-  return 'paid'
+/**
+ * The job's own state answers "may this section be retried": a transient
+ * failure the owner did not cancel.
+ */
+export function classifySubtitleFailure(failure: SubtitleReplacementInput['failure']): 'blocked' | 'retry' {
+  return !failure.transient || failure.cancelled ? 'blocked' : 'retry'
 }
 
 export function decideSubtitleReplacement(input: SubtitleReplacementInput): SubtitleReplacementDecision {
-  const classification = classifySubtitleFailure(input.failure)
-  if (classification === 'blocked') return { action: 'blocked', reason: 'the transcription failure is not an eligible settled transient failure' }
-  if (classification === 'free-retry') return { action: 'free-retry', reason: 'The Gateway confirmed a fully released zero-settlement transcription failure.' }
-  if (!input.enabled) return { action: 'blocked', reason: 'automatic paid subtitle replacement is Off' }
-  const ceiling = input.ceiling
-  if (typeof ceiling !== 'number' || !Number.isSafeInteger(ceiling) || ceiling < 1) return { action: 'blocked', reason: 'the subtitle additional-credit ceiling is unavailable' }
-  if (!input.livePrice || !Number.isFinite(input.livePrice.credits) || input.livePrice.credits < 0 || !input.livePrice.priceVersion.trim()) {
-    return { action: 'blocked', reason: 'the current transcription price is unavailable' }
+  if (classifySubtitleFailure(input.failure) === 'blocked') {
+    return { action: 'blocked', reason: 'the transcription failure is not an eligible transient failure' }
   }
-  if (input.attempts.some(attempt => attempt.section === input.section)) {
-    return { action: 'blocked', reason: 'this section already has a replacement attempt' }
+  if (!input.enabled) return { action: 'blocked', reason: 'automatic subtitle retry is Off' }
+  const maxRetries = Math.max(1, Math.min(10, input.maxRetries ?? 1))
+  const sectionAttempts = input.attempts.filter(attempt => attempt.section === input.section)
+  if (sectionAttempts.length >= maxRetries) {
+    return { action: 'blocked', reason: `this section already reached the retry limit (${maxRetries})` }
   }
-  const committed = input.attempts.reduce((sum, attempt) => sum + attempt.quotedCredits, 0)
-  if (committed + input.livePrice.credits > ceiling) {
-    return { action: 'blocked', reason: 'the replacement exceeds the shared subtitle additional-credit ceiling' }
-  }
-  const identity = `${input.originalIdempotencyKey}:subtitle-replacement:1`
+  const nextOrdinal = sectionAttempts.length + 1
+  const identity = `${input.originalIdempotencyKey}:subtitle-replacement:${nextOrdinal}`
   return {
     action: 'commit',
     attempt: {
@@ -85,10 +68,10 @@ export function decideSubtitleReplacement(input: SubtitleReplacementInput): Subt
       originalIdempotencyKey: input.originalIdempotencyKey,
       inputHash: input.inputHash,
       outputPath: input.outputPath,
-      replacementOrdinal: 1,
+      replacementOrdinal: nextOrdinal,
       idempotencyKey: identity,
-      quotedCredits: input.livePrice.credits,
-      priceVersion: input.livePrice.priceVersion,
+      ...(input.livePrice?.credits !== undefined ? { quotedCredits: input.livePrice.credits } : {}),
+      ...(input.livePrice?.priceVersion ? { priceVersion: input.livePrice.priceVersion } : {}),
       state: 'committed',
     },
   }

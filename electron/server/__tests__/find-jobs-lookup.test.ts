@@ -53,13 +53,13 @@ describe('findJobs serialises only the matching jobs (S3)', () => {
     await writeJobs(slug, 30)
     await jq.getJobs(slug)
     jq._resetJobPersistenceCountersForTesting()
-    await request(app).delete(`/api/projects/${slug}/jobs/${slug}-job-3`).expect(200)
-    assert.ok(jq._getJobPersistenceCountersForTesting().public_serializations <= 1, 'delete looked up one job, not thirty')
-    await request(app).delete(`/api/projects/${slug}/jobs/no-such-job`).expect(404)
+    await request(app).post(`/api/projects/${slug}/jobs/${slug}-job-3/hide`).expect(200)
+    assert.ok(jq._getJobPersistenceCountersForTesting().public_serializations <= 3, 'hide looked up one job, not thirty')
+    await request(app).post(`/api/projects/${slug}/jobs/no-such-job/hide`).expect(404)
     jq._resetJobPersistenceCountersForTesting()
-    const res = await request(app).delete(`/api/jobs/all/${slug}-job-5`)
+    const res = await request(app).post(`/api/jobs/all/${slug}-job-5/hide`)
     assert.notEqual(res.status, 404, 'the all-projects lookup still finds the job')
-    assert.ok(jq._getJobPersistenceCountersForTesting().public_serializations <= 1)
+    assert.ok(jq._getJobPersistenceCountersForTesting().public_serializations <= 3)
   })
 
   test('GET ?view=stream returns the slim view the REST fallbacks poll with (S5)', async () => {

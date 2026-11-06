@@ -340,10 +340,10 @@ export interface ContentPackRecoveryError {
  * How much of what is on screen GenStudio has actually confirmed.
  *
  * - `'fresh'`   — GenStudio answered this session. Everything is verified and
- *                 buying and installing are available.
+ *                 installing is available.
  * - `'restored'`— the published catalogue saved on this Mac is drawn, and
- *                 NOTHING about this account is known yet. Ownership, install
- *                 state and the balance are unresolved, not negative.
+ *                 NOTHING about this account is known yet. Ownership and
+ *                 install state are unresolved, not negative.
  * - `'cached'`  — GenStudio verified this session and a later fetch failed, so
  *                 the last verified catalogue stays up and is labelled stale.
  * - `'unavailable'` — there is nothing trustworthy to show.
@@ -359,7 +359,7 @@ export type ContentStoreCatalogFreshness = 'fresh' | 'restored' | 'cached' | 'un
  * How long a verified overview may back a SILENT background revalidation.
  *
  * Every `refresh()` still goes to the network with `cache: 'no-store'` — this
- * TTL never suppresses a fetch, and no ownership, install state or balance is
+ * TTL never suppresses a fetch, and no ownership or install state is
  * ever served from a store that was not just verified. All it decides is
  * whether re-opening the Store is allowed to look calm while that fetch runs.
  *
@@ -412,7 +412,6 @@ export function contentStoreErrorPresentation(error: ContentStoreUiError): Conte
     case 'CONTENT_RELEASE_NOT_AVAILABLE': return failure('This release is not available', 'Refresh the Library and choose a published release.')
     case 'CONTENT_STORE_QUOTE_NOT_FOUND': return failure('This quote is no longer available', 'Close it and start again.')
     case 'CONTENT_PURCHASE_NOT_SENT': return failure('This request was not sent', 'Try again when the Gateway is available.')
-    case 'insufficient_credits': return failure('Not enough balance for this request', 'Top up the Gateway account, then try again.')
     case 'quote_expired':
     case 'quote_rejected': return failure('This quote can no longer be used', 'Close it and start again.')
     case 'CONTENT_PURCHASE_OUTCOME_UNCERTAIN': return failure('GenStudio’s answer is uncertain', 'Retry this request; Story Studio will reuse its saved attempt.')
@@ -484,8 +483,8 @@ const sharedCachedProof = computed<ContentStoreCachedProof | null>(() =>
   sharedCatalogFreshness.value === 'cached' ? sharedLastVerifiedProof.value : null)
 /**
  * False for exactly one state: a catalogue restored from disk, before
- * GenStudio has answered. Every surface that would otherwise show ownership,
- * install state or a balance must show that it is still being checked instead.
+ * GenStudio has answered. Every surface that would otherwise show ownership
+ * or install state must show that it is still being checked instead.
  * An unverified absence is not the same fact as "you do not own this", and
  * rendering it as one is the mistake this flag exists to prevent.
  *
@@ -747,7 +746,7 @@ export function useContentStore(): {
     // session already verified, and never leaves an empty list in its place:
     // the section states below are what says it could not be asked.
     // The ACCOUNT is different: `null` on the wire means "could not ask", so a
-    // stale balance/ownership snapshot is dropped rather than presented as the
+    // stale ownership snapshot is dropped rather than presented as the
     // current answer. `ownershipResolved` stays false, so nothing renders that
     // as "you own nothing".
     sharedAccount.value = accountReady ? overview.account : null

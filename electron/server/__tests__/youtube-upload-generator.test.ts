@@ -394,6 +394,45 @@ describe('youtube upload generator', () => {
     assert.equal((await listYouTubeOperations(slug)).length, 0)
   })
 
+  test('a frozen approval with a blank description is refused with complete live metadata, before any provider call or operation', async () => {
+    const { slug, accountId } = await setUp(true)
+    // Live metadata is complete (setUp); only the frozen bytes are blank.
+    const frozen = reviewedParamsBySlug.get(slug)!.approved_final_payload as Record<string, string>
+    const fake = fakeAcceptingUpload('must-not-upload')
+    __setYouTubeTransportForTests(fake.transport())
+    const running = job(slug, accountId)
+    running.params.approved_final_payload = {
+      ...frozen,
+      snippet_json: JSON.stringify({ ...JSON.parse(frozen.snippet_json), description: '' }),
+    }
+
+    await assert.rejects(generateYoutubeUpload(running), (error: any) => {
+      assert.match(error.message, new RegExp(`${CODE} has a blank description`))
+      assert.match(error.message, /Review and confirm the exact video and YouTube details again/)
+      return true
+    })
+    assert.equal(fake.calls.length, 0, 'no session or upload request was made')
+    assert.equal((await listYouTubeOperations(slug)).length, 0, 'no durable operation was opened')
+  })
+
+  test('a valid frozen approval uploads its exact approved description even when live metadata is now blank', async () => {
+    const { slug, accountId } = await setUp(true)
+    const paths = await resolveEpisodePaths(slug, CODE, TITLE)
+    await fs.writeFile(paths.metadata_json, JSON.stringify({
+      title: 'A Real Episode Title', description: '', tags: ['alpha', 'beta'],
+    }))
+    const fake = fakeAcceptingUpload('video-frozen')
+    __setYouTubeTransportForTests(fake.transport())
+
+    await generateYoutubeUpload(job(slug, accountId))
+
+    const init = fake.calls.find(call => call.method === 'POST' && call.path.includes('uploadType=resumable'))
+    const sent = typeof init?.body === 'string' ? init.body : JSON.stringify(init?.body)
+    assert.match(sent, /"description":"A real description\."/)
+    const [operation] = await listYouTubeOperations(slug)
+    assert.equal(operation?.lifecycle, 'accepted')
+  })
+
   test('the operation record is opened before the upload, so an interrupted attempt leaves evidence', async () => {
     const { slug, accountId } = await setUp(true)
     const fake = new FakeYouTube()
@@ -503,6 +542,58 @@ describe('youtube upload generator', () => {
     assert.equal(completed[0]?.lifecycle, 'accepted')
     assert.deepEqual(completed[0]?.final_payload, originalPayload)
     assert.equal(JSON.parse(completed[0]!.final_payload!.snippet_json).title, 'A Real Episode Title')
+  })
+
+  test('a blank description on the durable resumed operation refuses before any provider call or record mutation', async () => {
+    const { slug, accountId } = await setUp(true)
+    // First run: interrupted after the session opened, so a durable operation
+    // with a stored final_payload and a usable resume sidecar both exist.
+    __setYouTubeTransportForTests((async (input, init) => {
+      const url = String(input)
+      if (url.includes('/upload/youtube/v3/videos')) {
+        return new Response('{}', { status: 200, headers: { Location: SESSION } })
+      }
+      if (url === SESSION) throw new DOMException('simulated process interruption', 'AbortError')
+      throw new Error(`Unexpected request: ${init?.method} ${url}`)
+    }) as typeof fetch)
+    // First run carries the reviewed approval, exactly like the passing resume
+    // fixture: only then does it open the durable record and reach the abort.
+    const interrupted = job(slug, accountId)
+    await assert.rejects(generateYoutubeUpload(interrupted), /cancelled|interruption/i)
+    const [before] = await listYouTubeOperations(slug)
+    assert.ok(before?.final_payload, 'the interruption left a stored payload')
+
+    // Temp-fixture mutation only: blank the description on THAT record.
+    const operationsDir = path.join(process.env.STORY_STUDIO_DATA_DIR!, 'projects', slug, 'youtube', 'operations')
+    let mutated = 0
+    for (const name of await fs.readdir(operationsDir)) {
+      if (name === 'index.json' || !name.endsWith('.json')) continue
+      const file = path.join(operationsDir, name)
+      const record = JSON.parse(await fs.readFile(file, 'utf-8')) as any
+      if (record.episode_code !== CODE || !record.final_payload) continue
+      const stored = JSON.parse(record.final_payload.snippet_json)
+      await fs.writeFile(file, JSON.stringify({
+        ...record,
+        final_payload: { ...record.final_payload, snippet_json: JSON.stringify({ ...stored, description: '' }) },
+      }))
+      mutated += 1
+    }
+    assert.equal(mutated, 1, 'exactly one durable record was rewritten')
+
+    const fake = fakeAcceptingUpload('must-not-upload')
+    __setYouTubeTransportForTests(fake.transport())
+    const resumeAttempt = job(slug, accountId)
+    resumeAttempt.params = { episode_id: CODE, account_id: accountId }
+
+    await assert.rejects(generateYoutubeUpload(resumeAttempt), (error: any) => {
+      assert.match(error.message, new RegExp(`${CODE} has a blank description`))
+      assert.match(error.message, /Review and confirm the exact video and YouTube details again/)
+      return true
+    })
+    assert.equal(fake.calls.length, 0, 'no session, session probe or upload request')
+    const [after] = await listYouTubeOperations(slug)
+    assert.equal(after?.revision, before!.revision, 'the durable record was not mutated')
+    assert.match(after!.final_payload!.snippet_json, /"description":""/)
   })
 
   test('a restart repairs the sidecar-to-operation hash crash window before any byte PUT', async () => {

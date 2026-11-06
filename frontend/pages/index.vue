@@ -109,6 +109,11 @@
           </div>
         </div>
 
+        <!-- Where this list came from, and whether it is being re-read right
+             now. One line, no props: it reads the same shared cache entry the
+             list itself is served from. -->
+        <ApiDataStatus path="/projects" @retry="retryLoadProjects" />
+
         <p v-if="showingUnconfirmedChannels" class="channel-stale-notice" role="status">
           <span>{{ projectsLoadError }} Showing the channels from your last visit until Story Studio answers.</span>
           <span class="channel-stale-actions">
@@ -619,6 +624,9 @@ import { projectSlug } from '~/utils/project-slug'
 // below is the value, not a second copy of the rule that can drift.
 import { projectSlugBase, uniqueProjectSlug } from '@shared/project-slug'
 import { readLastKnownList, writeLastKnownList } from '~/utils/last-known-list'
+// The channel list's cache entry. The page watches it so a background refresh
+// that lands repaints the rows themselves, not only the freshness line.
+import { swrReactive } from '~/utils/swrCache'
 import { CONTENT_LANGUAGE_OPTIONS } from '~/utils/content-language'
 // The saved-starting-points row. Type-only: the shape comes from the same
 // contracts file the route serves, so the card cannot drift from it.
@@ -666,6 +674,13 @@ const { get, post, put } = useApi()
 const LAST_KNOWN_CHANNELS = 'channels'
 const cachedChannels = readLastKnownList<any>(LAST_KNOWN_CHANNELS)
 const projects = ref<any[]>(cachedChannels)
+// What is on screen follows the shared cache entry, not just the read that
+// painted it: the server answer from a background refresh replaces these rows
+// as soon as it lands, so the rows and the freshness line under the title can
+// never disagree about how old the list is.
+watch(swrReactive<any[]>('GET:/projects').data, (value) => {
+  if (Array.isArray(value)) projects.value = value
+})
 // A channel folder whose read timed out is still listed, with a status other
 // than 'ready'. Only an explicit non-ready status counts: a list
 // cached by an older version has no status at all and must not read as broken.
@@ -1082,7 +1097,7 @@ async function saveLabels(): Promise<void> {
 async function loadProjects(): Promise<void> {
   loading.value = true
   try {
-    const fresh = await get<any[]>('/projects', { cache: 'no-store' })
+    const fresh = await get<any[]>('/projects')
     projects.value = fresh
     void loadChannelCounts(fresh)
     void loadChannelProfiles(fresh)

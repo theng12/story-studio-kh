@@ -113,9 +113,9 @@ test('a free-fleet thumbnail with a dead earlier task is sent again, and a 2-of-
 test('a refused paid image says why in plain words', async () => {
   await useTempDataDir()
   const queue = await import('../services/job-queue.js')
-  const messages = (['original_failure_not_eligible', 'not_verified', 'replacement_disabled', 'budget_limit'] as const)
+  const messages = (['original_failure_not_eligible', 'not_verified', 'replacement_disabled'] as const)
     .map(reason => queue.paidImageReplacementBlockedMessage(reason))
-  assert.equal(new Set(messages).size, 4)
+  assert.equal(new Set(messages).size, 3)
   for (const message of messages) assert.match(message, /^This image was not made because .+; nothing new was sent or charged\./)
   assert.match(messages[0]!, /earlier Gateway task failed in a way that is not safe to resubmit/)
 })

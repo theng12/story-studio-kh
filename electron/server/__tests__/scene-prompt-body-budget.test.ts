@@ -399,4 +399,66 @@ describe('the routes carry the selection and replay exactly', () => {
       await jq.setQueuePaused(false)
     }
   })
+
+  test('runtime: a smaller chosen allowance refuses or splits before any provider submission', async () => {
+    // Regression: promptRequestLimits used promptModel.max_output_tokens for
+    // fit while the wire sent the smaller chosen visualMaxTokens. A pack that
+    // fit the published ceiling passed sizing, then truncated at the chosen
+    // ceiling on the provider. Fix: fit uses the chosen allowance so the sizer
+    // refuses or splits before any request is sent. This test exercises the
+    // real generator path through runScenePlanJob with a mock GenStudio that
+    // records every submission; zero submissions must occur when the chosen
+    // ceiling cannot hold the measured answer.
+    service.reset()
+    const f = await fixture()
+    // Force a tiny chosen allowance that cannot hold even one scene's measured
+    // answer (550 tokens for visual English). The published mock ceiling is
+    // large enough that the old code would have passed fit.
+    const run = job(f, {
+      stage: 'visual',
+      regenerate_empty_prompts: true,
+      auto_repair_missing_prompts: true,
+      prompt_max_tokens: 100, // far below the 550-token measured per-scene rate
+      prompt_pack_size: 10,
+    }, `chosen-allowance-refuse-${sequence}`)
+    let threw = false
+    try {
+      await runScenePlanJob(run)
+    } catch (error: any) {
+      threw = true
+      assert.match(error.message, /cannot be requested|does not fit|refused/i,
+        'error must name the fit refusal, not a provider failure')
+    }
+    assert.equal(threw, true, 'generator must refuse before any provider call')
+    assert.equal(service.submissions.length, 0,
+      'no provider submission may occur when the chosen ceiling cannot hold the answer')
+  })
+
+  test('runtime: JSON wrapper instruction is counted in planner window fit', async () => {
+    // Regression: prepareChatSubmission appends a wrapper instruction to the
+    // system turn for JSON output contracts, but the planner window fit only
+    // measured buildScenePlannerPrompt's system+user text. A window that fit
+    // without the wrapper could overflow once the wrapper was appended, causing
+    // a provider refusal the sizer should have caught. Fix: fit adds
+    // jsonWrapperInstructionForContract(JSON_OBJECT_OUTPUT_CONTRACT).length.
+    // This test verifies the helper produces non-empty text (so omitting it
+    // would undercount) and that the planner's fit path includes it.
+    const { jsonWrapperInstructionForContract } = await import('../lib/genstudio-client.js')
+    const { JSON_OBJECT_OUTPUT_CONTRACT } = await import('../lib/json-output-contract.js')
+    const wrapperText = jsonWrapperInstructionForContract(JSON_OBJECT_OUTPUT_CONTRACT)
+    assert.ok(wrapperText.length > 0,
+      'wrapper instruction must be non-empty so omitting it would undercount prompt size')
+    // Verify parity with productResponseFormat: both must derive from the same
+    // source. If this assertion fails, the helper has drifted from the wire.
+    const { describeSchemaForInstructions } = await import('../lib/genstudio-client.js')
+    if (JSON_OBJECT_OUTPUT_CONTRACT.mode !== 'json_object') throw new Error('contract is not json_object')
+    const expected = JSON_OBJECT_OUTPUT_CONTRACT.schema
+      ? describeSchemaForInstructions(
+          JSON_OBJECT_OUTPUT_CONTRACT.name ?? 'story_studio_json_object',
+          JSON_OBJECT_OUTPUT_CONTRACT.schema,
+        )
+      : 'Return exactly one JSON object. Return only that object: no markdown fences, no commentary, no trailing text.'
+    assert.equal(wrapperText, expected,
+      'jsonWrapperInstructionForContract must produce the exact text prepareChatSubmission appends')
+  })
 })

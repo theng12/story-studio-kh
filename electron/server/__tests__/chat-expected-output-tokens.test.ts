@@ -213,10 +213,10 @@ test('the expectation never reaches the idempotency digest', async () => {
 
 test('the scene-plan pack states its own size as the expectation', () => {
   const plan = source('../generators/scene-plan.ts')
-  // The pack's expectation is the same arithmetic Story uses to size the pack itself
-  // (`maxSafeScenePromptPackSize` divides by the same `tokensPerScene`), so the allowance and the
-  // expectation cannot disagree about what one scene costs.
-  assert.match(plan, /Math\.round\(input\.sceneIds\.length \* promptPackTuning\.tokensPerScene\)/)
+  // The pack's expectation is the same measured per-scene arithmetic Story uses to size the
+  // pack itself (`resolveSceneUnitTokenRates`, which the owner's `scene_prompt_tokens_per_scene`
+  // still overrides), so the allowance and the expectation cannot disagree about what one scene costs.
+  assert.match(plan, /Math\.ceil\(input\.sceneIds\.length === 1[\s\S]{0,120}promptUnitRates\.perUnit\)/)
   assert.match(plan, /expectedOutputTokens,\n\s*outputContract: scenePromptPackOutputContract/)
 })
 

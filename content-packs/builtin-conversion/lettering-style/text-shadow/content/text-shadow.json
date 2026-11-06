@@ -1,0 +1,12 @@
+{
+ "kind": "lettering-style",
+ "schema_version": 1,
+ "id": "com.storystudio.lettering.text-shadow",
+ "name": "Shadow",
+ "description": "deep drop shadow, clean solid fill, strong contrast",
+ "axis": "text",
+ "phrase": "deep drop shadow, clean solid fill, strong contrast",
+ "preview_assets": [
+  "assets/text-shadow.webp"
+ ]
+}

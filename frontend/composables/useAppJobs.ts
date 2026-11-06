@@ -9,7 +9,7 @@
  * for its inline panel).
  */
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
-import { useApi } from './useApi.js'
+import { useApi, invalidateProjectCache } from './useApi.js'
 
 interface Job {
   job_id: string
@@ -59,6 +59,9 @@ function announceTransitions(next: Job[]): void {
       for (const l of doneListeners) {
         try { l(job) } catch { /* listener errors must not break the queue */ }
       }
+      // A terminal job changed its project's data on disk. Drop that
+      // project's cached reads so no page keeps showing the pre-job picture.
+      invalidateProjectCache(job.project_slug, job.episode_id)
     }
     previousStatuses.set(job.job_id, job.status)
   }

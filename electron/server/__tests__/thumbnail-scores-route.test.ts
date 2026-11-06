@@ -86,7 +86,7 @@ async function goodImage(file: string): Promise<void> {
 }
 
 async function seededEpisode(name: string): Promise<{
-  slug: string; episodeCode: string; title: string; episodeDir: string
+  slug: string; episodeCode: string; title: string; episodeDir: string; thumbDir: string
 }> {
   const temporary = await useTempDataDir()
   cleanup = temporary.cleanup
@@ -107,7 +107,7 @@ async function seededEpisode(name: string): Promise<{
   await pm.updateConfig(project.slug, {
     thumbnail_auto_pick: { enabled: true, model: MODEL_ID },
   } as any)
-  return { slug: project.slug, episodeCode, title: accepted.idea.title, episodeDir: paths.episode_dir }
+  return { slug: project.slug, episodeCode, title: accepted.idea.title, episodeDir: paths.episode_dir, thumbDir: paths.thumb_dir }
 }
 
 test('GET answers an empty record for an episode that has never been scored', async () => {
@@ -127,6 +127,7 @@ test('POST scores the candidates and records the pick', async () => {
   const res = await request(app).post(`/api/projects/${slug}/episodes/${episodeCode}/thumbnail-scores`).send({})
   assert.equal(res.status, 200, JSON.stringify(res.body))
   assert.equal(res.body.not_scored, false)
+  assert.equal(res.body.all_bad, false)
   assert.ok(res.body.picked)
   assert.equal(res.body.record.pick.score, 82)
   assert.equal(res.body.record.pick.reason, 'Bold and clear.')
@@ -141,6 +142,7 @@ test('a scoring failure answers 200 with "not scored" and the reason — never a
   const res = await request(app).post(`/api/projects/${slug}/episodes/${episodeCode}/thumbnail-scores`).send({})
   assert.equal(res.status, 200, JSON.stringify(res.body))
   assert.equal(res.body.not_scored, true)
+  assert.equal(res.body.all_bad, false, 'provider failure is not rejection')
   assert.equal(res.body.picked, '', 'scoring chose nothing — nothing could be measured')
   // Today's newest-version rule still stands: it is the UPLOAD's rule, and it
   // was never scoring's to change. `resolved` says what the upload will take,
@@ -154,6 +156,18 @@ test('a scoring failure answers 200 with "not scored" and the reason — never a
     assert.equal(entry.score, undefined, 'a failed scoring never becomes a 0')
     assert.ok(entry.reason)
   }
+})
+
+test('POST exposes all bad only when every image is explicitly rejected', async () => {
+  const { slug, episodeCode, thumbDir: thumbnailDir } = await seededEpisode('Scoring All Rejected')
+  for (const name of await fs.readdir(thumbnailDir)) {
+    if (!name.endsWith('.png')) continue
+    await sharp({ create: { width: 640, height: 360, channels: 3, background: '#282828' } })
+      .png().toFile(path.join(thumbnailDir, name))
+  }
+  const res = await request(app).post(`/api/projects/${slug}/episodes/${episodeCode}/thumbnail-scores`).send({})
+  assert.equal(res.status, 200, JSON.stringify(res.body))
+  assert.equal(res.body.all_bad, true)
 })
 
 test('the record is the episode\'s own, and one episode\'s scores never reach another', async () => {

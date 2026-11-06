@@ -1895,10 +1895,10 @@ test('Gateway catalog membership accepts only enabled live voice IDs', () => {
   assert.equal(catalogHasVoice(voices, 'voice_missing'), false)
 })
 
-test('The Gateway 1.2 control responses preserve published cancellation, settlement, and waiting fields', async () => {
+test('The Gateway 1.2 control responses preserve published cancellation and waiting fields, never settlement', async () => {
   // This fixture pins the published remote contract. Removing any forwardable
   // field from the boundary would hide cancellation or billing truth from a
-  // durable Story job.
+  // durable Story job — except settlement, which is deliberately not parsed.
   const fixture = {
     id: 'job_cancel_0971',
     state: 'failed',
@@ -1948,10 +1948,21 @@ test('The Gateway 1.2 control responses preserve published cancellation, settlem
       fixture.failure_detail,
       'a detail that says nothing about our estate passes through untouched',
     )
+    // Settlement is the one deliberate exception to the round-trip: the control
+    // DTO parses no credit field at all — Story no longer tracks credits, the
+    // Gateway owns credit logic — so the numbers this fixture publishes are
+    // dropped rather than forwarded.
+    for (const field of ['reserved_credits', 'settled_credits', 'released_credits'] as const) {
+      assert.equal(field in result, false, `${field} must stay out of the control DTO`)
+    }
+    const withoutSettlement: Partial<typeof fixture> = { ...fixture }
+    delete withoutSettlement.reserved_credits
+    delete withoutSettlement.settled_credits
+    delete withoutSettlement.released_credits
     assert.deepEqual(
       { ...result, status_detail: fixture.status_detail },
-      fixture,
-      'every other field round-trips exactly',
+      withoutSettlement,
+      'every field except settlement round-trips exactly',
     )
   } finally {
     globalThis.fetch = originalFetch

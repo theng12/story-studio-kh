@@ -123,20 +123,20 @@ describe('Contextual Cues contract', () => {
     }
   })
 
-  test('permits bounded replacement only for exact backpressure with proven full release', () => {
+  test('permits bounded replacement only for confirmed backpressure without a hold or cancellation', () => {
     const released = new GenStudioChatTerminalFailureError({
       id: 'job-backpressure', state: 'failed', failure_code: 'LANGUAGE_PROVIDER_BACKPRESSURE',
       reserved_credits: 23, settled_credits: 0, released_credits: 23,
     })
     assert.equal(released.failureCode, 'LANGUAGE_PROVIDER_BACKPRESSURE')
-    assert.equal(released.reservedCredits, 23)
-    assert.equal(released.settledCredits, 0)
-    assert.equal(released.releasedCredits, 23)
+    assert.equal(released.reservedCredits, null)
+    assert.equal(released.settledCredits, null)
+    assert.equal(released.releasedCredits, null)
     assert.equal(isReleasedContextualCueBackpressure(released), true)
     for (const failure of [
-      { failureCode: 'LANGUAGE_PROVIDER_BACKPRESSURE', reservedCredits: 23, settledCredits: 1, releasedCredits: 22 },
-      { failureCode: 'LANGUAGE_PROVIDER_BACKPRESSURE', reservedCredits: 23, settledCredits: 0 },
-      { failureCode: 'LANGUAGE_PROVIDER_SUBMISSION_UNCERTAIN', reservedCredits: 23, settledCredits: 0, releasedCredits: 23 },
+      { failureCode: 'LANGUAGE_PROVIDER_BACKPRESSURE', cancelled: true },
+      { failureCode: 'LANGUAGE_PROVIDER_BACKPRESSURE', unknownOutcome: true },
+      { failureCode: 'LANGUAGE_PROVIDER_SUBMISSION_UNCERTAIN' },
     ]) assert.equal(isReleasedContextualCueBackpressure(failure), false)
   })
 

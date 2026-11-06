@@ -374,7 +374,12 @@ void test('retry scopes are deterministic, bounded, and scoped to their base att
   const failedAgain = manifestEntry({ task_id: 'job-b', request_scope: first.scope, last_state: 'failed' })
   const second = resolveImageRetryScope(failedAgain, 'missing')
   assert.notEqual(second.scope, first.scope)
-  assert.equal(second.scope.length, first.scope.length)
+  assert.match(second.scope, /^missing:retry:2:[0-9a-f]{12}$/)
+  assert.equal(resolveImageRetryScope(failedAgain, 'missing').scope, second.scope)
+  const third = resolveImageRetryScope(manifestEntry({ task_id: 'job-c', request_scope: second.scope, last_state: 'failed' }), 'missing')
+  assert.match(third.scope, /^missing:retry:3:[0-9a-f]{12}$/)
+  assert.equal(third.scope.length, second.scope.length)
+  assert.match(resolveImageRetryScope(failedAgain, 'missing', 5).scope, /^missing:retry:5:[0-9a-f]{12}$/)
 
   // A prepared (not yet settled) entry keeps its scope so a lost response replays.
   const prepared = manifestEntry({ task_id: '', request_scope: second.scope, last_state: 'prepared' })

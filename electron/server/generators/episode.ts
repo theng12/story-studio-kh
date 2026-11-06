@@ -59,6 +59,7 @@ import { describeScriptSizingSource, formulaWordsPerChapter, resolveScriptSizing
 import { scriptLengthMinutes } from '../lib/episode-length.js'
 import { withLock } from '../lib/atomic-store.js'
 import { resolveDefaultModel } from '../services/genstudio-default-model.js'
+import { runResearchBeforeWriting } from '../services/research-before-writing.js'
 
 // v1.0.166 — fuseFormatWithPattern() removed with the Pattern system.
 // Title shaping happens at idea-time via the Ideas page's title_template
@@ -323,6 +324,7 @@ export async function generateChapterOnly(job: Job): Promise<void> {
   const project = await pm.getProject(project_slug)
   if (!project) throw new Error('Project not found')
 
+  await runResearchBeforeWriting(job)
   const standards = await pm.getStandards(project_slug) || ''
   let format = await getEffectiveFormat(project_slug, { episodeId: episode_id })
   format = await applyRecencyToFormat(format, project_slug, episode_id)
@@ -621,6 +623,7 @@ export async function generateIntroductionOnly(job: Job): Promise<void> {
   const project = await pm.getProject(project_slug)
   if (!project) throw new Error('Project not found')
 
+  await runResearchBeforeWriting(job)
   const standards = await pm.getStandards(project_slug) || ''
   let format = await getEffectiveFormat(project_slug, { episodeId: episode_id })
   format = await applyRecencyToFormat(format, project_slug, episode_id)
@@ -987,6 +990,7 @@ async function setupChunkedJobContext(
   const project = await pm.getProject(project_slug)
   if (!project) throw new Error('Project not found')
 
+  await runResearchBeforeWriting(job)
   const standards = await pm.getStandards(project_slug) || ''
   let format = await getEffectiveFormat(project_slug, { episodeId: episode_id })
   format = await applyRecencyToFormat(format, project_slug, episode_id)

@@ -1,0 +1,12 @@
+{
+ "kind": "lettering-style",
+ "schema_version": 1,
+ "id": "com.storystudio.lettering.text-gradient-sunset",
+ "name": "Gradient Sunset",
+ "description": "warm sunset gradient from pink through orange to yellow, soft glow",
+ "axis": "text",
+ "phrase": "warm sunset gradient from pink through orange to yellow, soft glow",
+ "preview_assets": [
+  "assets/text-gradient-sunset.webp"
+ ]
+}

@@ -540,7 +540,8 @@ test('the model picker shows the reference and seed limits it already enforces',
   assert.match(source, /accepts up to \$\{max\}/)
   assert.match(source, /needs at least \$\{min\}/)
   assert.match(source, /publishes no seed support/)
-  assert.match(source, /publishes no support for reference images/)
+  assert.match(source, /publishes no Reference to image mode/)
+  assert.match(source, /publishedImageModes\(selectedModel\.value\?\.image_modes\)/)
   // A published "no" is the model's, not a Story Studio restriction.
   assert.match(source, /not a Story Studio restriction/)
 })

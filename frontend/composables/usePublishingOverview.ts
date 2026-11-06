@@ -13,6 +13,7 @@
 
 import { ref } from 'vue'
 import { useApi } from './useApi.js'
+import { swrForceRefresh } from '../utils/swrCache'
 import type { PublishingOverviewResponse } from '@shared/publishing-overview'
 
 const overview = ref<PublishingOverviewResponse | null>(null)
@@ -32,10 +33,12 @@ export function usePublishingOverview() {
     error.value = null
     inFlight = (async () => {
       try {
-        overview.value = await get<PublishingOverviewResponse>(
-          '/publishing/overview',
-          force ? { cache: 'no-store' } : undefined,
-        )
+        // "Check YouTube now" must go to the network AND leave the freshness
+        // line able to say the truth about what it then shows — so the stored
+        // answer is dropped from the shared cache rather than the read stepping
+        // around the cache and leaving it a version behind the page.
+        if (force) swrForceRefresh('GET:/publishing/overview')
+        overview.value = await get<PublishingOverviewResponse>('/publishing/overview')
         return overview.value
       } catch (e: any) {
         // Never strand the page: an unreadable overview is a message, not a

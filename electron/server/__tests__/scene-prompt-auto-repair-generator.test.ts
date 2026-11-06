@@ -16,7 +16,7 @@ const settings = await import('../services/app-settings.js')
 const secrets = await import('../services/app-secrets-store.js')
 const genstudio = await import('../lib/genstudio-client.js')
 await import('../providers/text/genstudio.js')
-const { runScenePlanJob, scenePromptRequestIsUnresolved } = await import('../generators/scene-plan.js')
+const { runScenePlanJob, scenePromptRequestIsUnresolved, readScenePolicyRequestPlan } = await import('../generators/scene-plan.js')
 const jq = await import('../services/job-queue.js')
 const { resolveEpisodePathsByCode } = await import('../services/utils.js')
 const { router, scenePromptAutoRepairParams, scenePromptAutoRepairRecoveries } = await import('../routes/jobs.js')
@@ -211,6 +211,16 @@ after(async () => {
   await temp.cleanup()
 })
 
+test('a saved request shape keeps its published request limit and accepts pre-limit checkpoints', () => {
+  const base = {
+    model_id: 'mock-chat-v1', context_window_tokens: 32_768, max_output_tokens: 8_192,
+    visual_max_tokens: 8_192, active_output_budget: 8_192, prompt_pack_size: 10,
+  }
+  assert.equal(readScenePolicyRequestPlan(base)?.max_request_tokens, null, 'older checkpoints are unknown, not invalid')
+  assert.equal(readScenePolicyRequestPlan({ ...base, max_request_tokens: 23_000 })?.max_request_tokens, 23_000)
+  assert.equal(readScenePolicyRequestPlan({ ...base, max_request_tokens: 0 }), null, 'zero is not a published limit')
+})
+
 test('Pipeline checkpoints a no-ceiling request as an omission and recovers its saved pack without another paid POST', async () => {
   service.reset()
   await withPipelineChatModel(null, async () => {
@@ -234,11 +244,13 @@ test('Pipeline checkpoints a no-ceiling request as an omission and recovers its 
 
     const savedShape = {
       model_id: 'mock-chat-v1', context_window_tokens: 128_000, max_output_tokens: null,
+      max_request_tokens: null,
       visual_max_tokens: null, active_output_budget: null, prompt_pack_size: 50,
     }
     assert.deepEqual(first.params.pipeline_scene_request_plan, savedShape)
     assert.deepEqual((await jq.loadAuthoritativeJob(f.project.slug, first.job_id))?.params.pipeline_scene_request_plan, savedShape)
     assert.equal('max_output_tokens' in (chatSubmissions()[0]!.parsedBody || {}), false)
+    assert.equal(chatSubmissions()[0]!.parsedBody?.expected_output_tokens, 8 * 550, 'Gateway deadline sizing follows the same measured answer rate as pack sizing')
 
     const plan = JSON.parse(await fs.readFile(f.planPath, 'utf8'))
     for (const scene of plan.scenes.slice(1)) scene.visual_prompt = ''
@@ -270,13 +282,18 @@ test('Pipeline checkpoints a no-ceiling request as an omission and recovers its 
   })
 })
 
-test('direct and Pipeline no-ceiling requests preserve an explicit allowance and derive 20-scene packs', async () => {
+test('direct and Pipeline no-ceiling requests preserve an explicit allowance and fit packs to it', async () => {
   await withPipelineChatModel(null, async () => {
     for (const pipeline of [false, true]) {
       service.reset()
       const f = await fixture(21)
       const sceneIds = Array.from({ length: 21 }, (_, index) => `scene-${String(index + 2).padStart(4, '0')}`)
-      queuePromptPackOutputs(sceneIds, 20)
+      // Chosen 8,192 allowance / 550 measured tokens per scene = 14 scenes per
+      // request; the derived 20-scene tuning is fitted down to 14 + 6, and the
+      // trailing 1-scene pack stays its own request.
+      queuePromptPackOutputs(sceneIds.slice(0, 14), 14)
+      queuePromptPackOutputs(sceneIds.slice(14, 20), 6)
+      queuePromptPackOutputs(sceneIds.slice(20), 1)
       const job = directJob(f, `explicit-no-ceiling-${pipeline ? 'pipeline' : 'direct'}`)
       job.params = {
         ...f.params,
@@ -292,17 +309,18 @@ test('direct and Pipeline no-ceiling requests preserve an explicit allowance and
       await runScenePlanJob(job)
 
       const submissions = chatSubmissions()
-      assert.equal(submissions.length, 2, pipeline ? 'Pipeline pack count' : 'direct pack count')
-      assert.deepEqual(submissions.map(entry => (entry.parsedBody as any).max_output_tokens), [8_192, 8_192])
+      assert.equal(submissions.length, 3, pipeline ? 'Pipeline pack count' : 'direct pack count')
+      assert.deepEqual(submissions.map(entry => (entry.parsedBody as any).max_output_tokens), [8_192, 8_192, 8_192])
       assert.deepEqual(submissions.map(entry => (
         (entry.parsedBody as any)?.response_format?.json_schema?.schema
           ?.properties?.results?.items?.properties?.scene_id?.enum?.length
-      )), [20, 1])
+      )), [14, 6, 1])
       assert.ok(job.output_lines.some((line: string) => /selected output allowance/i.test(line)))
       assert.ok(job.output_lines.every((line: string) => !/this model can only return/i.test(line)))
       if (pipeline) {
         assert.deepEqual(job.params.pipeline_scene_request_plan, {
           model_id: 'mock-chat-v1', context_window_tokens: 128_000, max_output_tokens: null,
+          max_request_tokens: null,
           visual_max_tokens: 8_192, active_output_budget: 8_192, prompt_pack_size: 20,
         })
         assert.equal(job.params.pipeline_scene_prompt_pack_sizes?.visual, 20)
@@ -329,6 +347,7 @@ test('Pipeline checkpoints the published ceiling separately from an explicit cal
 
     assert.deepEqual(job.params.pipeline_scene_request_plan, {
       model_id: 'mock-chat-v1', context_window_tokens: 128_000, max_output_tokens: 4_096,
+      max_request_tokens: null,
       visual_max_tokens: 2_048, active_output_budget: 2_048, prompt_pack_size: 5,
     })
     assert.equal((chatSubmissions()[0]!.parsedBody as any).max_output_tokens, 2_048)
@@ -615,8 +634,6 @@ test('an unresolved accepted request fences every later scene and repair request
   const f = await fixture(3)
   service.queueScenario('chat', { states: ['succeeded'], outputText: promptResult('scene-0002') })
   service.queueScenario('chat', { states: ['failed'], failureCode: 'LANGUAGE_PROVIDER_SUBMISSION_UNCERTAIN' })
-  // Owner decision 2026-10-12: the lost request is resent once; that resend is lost too.
-  service.queueScenario('chat', { states: ['failed'], failureCode: 'LANGUAGE_PROVIDER_SUBMISSION_UNCERTAIN' })
   const job = directJob(f, 'uncertain-request')
 
   await assert.rejects(runScenePlanJob(job), (error: any) => {
@@ -626,7 +643,7 @@ test('an unresolved accepted request fences every later scene and repair request
     return true
   })
 
-  assert.equal(service.providerSubmissionCount('chat'), 3, 'one fresh resend, never a third request')
+  assert.equal(service.providerSubmissionCount('chat'), 2, 'the completed scene and the original unknown request only')
   assert.ok(job.output_lines.some((line: string) => /still unresolved/i.test(line)))
   const saved = JSON.parse(await fs.readFile(f.planPath, 'utf8'))
   assert.equal(saved.scenes[0].visual_prompt, f.originalPrompt)
@@ -634,20 +651,21 @@ test('an unresolved accepted request fences every later scene and repair request
   assert.ok(saved.scenes.slice(2).every((scene: any) => scene.visual_prompt === ''))
 })
 
-test('a lost prompt request is resent once with a fresh identity and the scene prompts complete', async () => {
+test('a lost prompt request retains its identity and cannot consume a queued replacement answer', async () => {
   service.reset()
   const f = await fixture(2)
   service.queueScenario('chat', { states: ['succeeded'], outputText: promptResult('scene-0002') })
   service.queueScenario('chat', { states: ['failed'], failureCode: 'LANGUAGE_PROVIDER_SUBMISSION_UNCERTAIN' })
   service.queueScenario('chat', { states: ['succeeded'], outputText: promptResult('scene-0003') })
 
-  await runScenePlanJob(directJob(f, 'lost-request-resent'))
+  const job = directJob(f, 'lost-request-held')
+  await assert.rejects(runScenePlanJob(job), /could not confirm whether an earlier prompt request was accepted/i)
 
   const keys = chatSubmissions().map(entry => entry.idempotencyKey)
-  assert.equal(keys.length, 3)
-  assert.match(keys[2]!, /^story-chat-resend-/)
+  assert.equal(keys.length, 2)
+  assert.equal(job.params.scene_prompt_recoveries[0].idempotency_key, keys[1])
   const saved = JSON.parse(await fs.readFile(f.planPath, 'utf8'))
-  assert.match(saved.scenes[2].visual_prompt, /scene-0003/)
+  assert.equal(saved.scenes[2].visual_prompt, '')
 })
 
 test('a normal Scene Plan retry reclaims an ambiguous request before any replacement work', async () => {
@@ -655,8 +673,6 @@ test('a normal Scene Plan retry reclaims an ambiguous request before any replace
   const f = await fixture(2)
   const params = { ...f.params, auto_repair_missing_prompts: false }
   service.queueScenario('chat', { states: ['succeeded'], outputText: promptResult('scene-0002') })
-  service.queueScenario('chat', { states: ['failed'], failureCode: 'LANGUAGE_PROVIDER_SUBMISSION_UNCERTAIN' })
-  // Owner decision 2026-10-12: the lost request is resent once; that resend is lost too.
   service.queueScenario('chat', { states: ['failed'], failureCode: 'LANGUAGE_PROVIDER_SUBMISSION_UNCERTAIN' })
   const original = directJob(f, 'normal-uncertain-request')
   original.params = params
@@ -672,8 +688,8 @@ test('a normal Scene Plan retry reclaims an ambiguous request before any replace
 
   await assert.rejects(runScenePlanJob(retry), /could not confirm whether an earlier prompt request was accepted/i)
 
-  // The saved identity is the resend, so the retry reclaims it and never sends a third request.
-  assert.equal(service.providerSubmissionCount('chat'), 3)
+  // Retry reads the original request and never submits replacement work.
+  assert.equal(service.providerSubmissionCount('chat'), 2)
   assert.ok(service.requests.some(entry => entry.method === 'GET' && entry.path.endsWith(`/by-idempotency-key/${recoveryKey}`)))
   const saved = JSON.parse(await fs.readFile(f.planPath, 'utf8'))
   assert.equal(saved.scenes[0].visual_prompt, f.originalPrompt)
@@ -1155,8 +1171,6 @@ test('free-fleet prompts: the queue auto-retries, recovers the stuck pack by its
     })) })
     service.queueScenario('chat', { states: ['succeeded'], outputText: pair('scene-0002', 'scene-0003') })
     service.queueScenario('chat', { states: ['failed'], failureCode: 'LANGUAGE_PROVIDER_SUBMISSION_UNCERTAIN' })
-    // Owner decision 2026-10-12: the lost pack is resent once at once; that resend is lost too.
-    service.queueScenario('chat', { states: ['failed'], failureCode: 'LANGUAGE_PROVIDER_SUBMISSION_UNCERTAIN' })
     service.queueScenario('chat', { states: ['succeeded'], outputText: pair('scene-0006', 'scene-0007') })
     jq.registerExecutor('scene_plan_run', runScenePlanJob)
     const queued = jq.enqueuePreparedForTest({
@@ -1193,8 +1207,8 @@ test('free-fleet prompts: the queue auto-retries, recovers the stuck pack by its
     assert.equal(finished.status, 'done', finished.error || finished.output_lines.join('\n'))
     assert.equal(finished.auto_retry?.attempt, 2)
     assert.ok(service.requests.some(entry => entry.method === 'GET' && entry.path.endsWith(`/by-idempotency-key/${stuckKey}`)))
-    assert.equal(service.providerSubmissionCount('chat'), 4,
-      'one POST per pack plus the lost pack\'s one resend: the stuck resend is collected by its key, never re-bought, and no empty pack is sent')
+    assert.equal(service.providerSubmissionCount('chat'), 3,
+      'one POST per pack: the original stuck request is collected by its key, never re-bought')
     const saved = JSON.parse(await fs.readFile(f.planPath, 'utf8'))
     assert.equal(saved.scenes[0].visual_prompt, f.originalPrompt)
     assert.ok(saved.scenes.slice(1).every((scene: any) => scene.visual_prompt.trim()), 'all prompts finished')

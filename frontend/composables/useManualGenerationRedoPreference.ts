@@ -11,7 +11,7 @@ export function useManualGenerationRedoPreference() {
     enabled.value = false
     const requestRevision = ++revision
     try {
-      const response = await useApi().get<{ enabled?: unknown }>('/app-settings/manual-generation-redo')
+      const response = await useApi().get<{ enabled?: unknown }>('/app-settings/manual-generation-redo', { cache: 'no-store' })
       if (requestRevision !== revision || scope !== scopeKey) return false
       enabled.value = response?.enabled === true
       return enabled.value

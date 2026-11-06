@@ -64,6 +64,11 @@ async function episode(slug: string, code: string) {
   return { code, dir: found.episode_dir, image }
 }
 
+/** Put this clip's receipt into the episode's Scene Plan — the evidence a channel-save pin reads. */
+async function planWithClip(slug: string, ep: { code: string; dir: string }, clip: unknown) {
+  await fs.writeFile(await paths.resolveScenePlanPath(slug, ep.code, ep.dir), JSON.stringify({ scenes: [clip] }))
+}
+
 /** A sketch clip rendered under whatever pen `slug`/`code` resolve to right now. */
 async function renderedUnderCurrentPen(slug: string, code: string) {
   const s = await checkpoint.resolveSketchDrawSettings(slug, code)
@@ -116,17 +121,43 @@ describe('per-episode Sketch Draw pen', () => {
     assert.equal(JSON.parse(await fs.readFile(path.join(ep2.dir, penStore.EPISODE_SKETCH_PEN_FILENAME), 'utf8')).pen, null)
   })
 
-  test('changing the channel pen stales only the episodes without a pen of their own', async () => {
+  test('a channel pen change pins a clipped episode to the pen its clips were drawn with; a clip-less one follows the new default', async () => {
     const slug = await channel('Channel change')
-    const ep1 = await episode(slug, 'EP001')
-    const ep2 = await episode(slug, 'EP002')
+    const ep1 = await episode(slug, 'EP001') // has a Sketch Draw clip
+    const ep2 = await episode(slug, 'EP002') // its own pen
+    const ep3 = await episode(slug, 'EP003') // no clips at all
     await penStore.writeEpisodeSketchPen(slug, 'EP002', 'name')
     const clip1 = await renderedUnderCurrentPen(slug, 'EP001')
     const clip2 = await renderedUnderCurrentPen(slug, 'EP002')
+    await planWithClip(slug, ep1, clip1) // the receipt on disk: the pin's evidence
 
-    await pm.updateConfig(slug, { motion_presentation: { renderer: 'sketch_draw', pen: 'plain' } } as any)
-    assert.equal(await reason(slug, ep1, clip1), 'stale pen configuration')
+    await request(app).put(`/api/projects/${slug}/motion-presentation`)
+      .send({ renderer: 'sketch_draw', pen: 'plain' }).expect(200)
+
+    // EP1 keeps the pen its clip was drawn with: fresh now, and a re-render uses that same pen.
+    assert.equal(await penStore.readEpisodeSketchPen(slug, 'EP001'), 'none')
+    assert.equal(await reason(slug, ep1, clip1), null, 'the pinned pen keeps EP1\'s clip fresh')
+    assert.equal((await checkpoint.resolveEpisodePen(slug, 'EP001')).pen, 'none')
+    assert.equal((await checkpoint.resolveSketchDrawSettings(slug, 'EP001')).penFingerprint, clip1.clip_sketch.pen_fingerprint,
+      'a redo of EP1 draws with the pinned pen, not the new channel default')
+    // EP3 has no clips, so it follows the new default.
+    assert.equal(await penStore.readEpisodeSketchPen(slug, 'EP003'), null)
+    assert.equal((await checkpoint.resolveEpisodePen(slug, 'EP003')).pen, 'plain')
+    // EP2's own pen is never overwritten.
+    assert.equal(await penStore.readEpisodeSketchPen(slug, 'EP002'), 'name')
     assert.equal(await reason(slug, ep2, clip2), null)
+  })
+
+  test('a channel save is refused, naming the episode, when its scene plan cannot be read', async () => {
+    const slug = await channel('Unreadable plan')
+    const ep = await episode(slug, 'EP001')
+    await fs.writeFile(await paths.resolveScenePlanPath(slug, 'EP001', ep.dir), '{ not json')
+    const refused = await request(app).put(`/api/projects/${slug}/motion-presentation`)
+      .send({ renderer: 'sketch_draw', pen: 'plain' }).expect(409)
+    assert.match(refused.body.detail, /EP001/)
+    assert.deepEqual((await pm.getConfig(slug))?.motion_presentation, { renderer: 'sketch_draw', pen: 'none' },
+      'a refused save changes nothing')
+    assert.equal(await penStore.readEpisodeSketchPen(slug, 'EP001'), null, 'and no pin was written')
   })
 
   test('migration: with no sidecar the pen is the channel pen, the legacy fingerprint, and nothing is written', async () => {

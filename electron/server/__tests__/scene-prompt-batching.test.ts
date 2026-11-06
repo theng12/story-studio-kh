@@ -11,6 +11,10 @@ import {
   maxSafeScenePromptPackSize,
   resolveScenePromptPackSize,
   resolveScenePromptTokenBudget,
+  resolveSceneUnitTokenRates,
+  packSceneRequestGroups,
+  sceneRequestFits,
+  fitSceneUnitsToRequest,
 } from '../services/scene-prompt-batching.js'
 
 describe('adaptive scene prompt batching', () => {
@@ -241,5 +245,135 @@ describe('batch tuning is the owner\'s data, not a constant', () => {
     // Lowering the per-scene reservation raises the derived ceiling with it.
     const measured = parseScenePromptPackTuning({ scene_prompt_tokens_per_scene: 229 })
     assert.equal(maxSafeScenePromptPackSize(384_000, measured), 1_257)
+  })
+})
+
+// Gemma-4 as the Gateway publishes it: 23,000 request + 8,192 answer in a
+// 32,768 window. Characters are ASCII, so tokens ≈ characters ÷ 4.
+const GEMMA = { maxRequestTokens: 23_000, contextWindowTokens: 32_768, maxOutputTokens: 8_192 }
+
+describe('sizing a request from the prompt it will actually send', () => {
+  test('the prompt fits the request ceiling and leaves room for the answer', () => {
+    const fits = sceneRequestFits({ promptCharacters: 80_000, answerTokens: 3_000, limits: GEMMA })
+    assert.equal(fits.fits, true)
+    assert.equal(fits.promptTokens, 20_000)
+    assert.equal(fits.answerTokens, 8_192) // allowance capped by the published ceiling
+  })
+
+  test('an over-large prompt is refused by the REQUEST limit, not the answer limit', () => {
+    const over = sceneRequestFits({ promptCharacters: 92_004, answerTokens: 3_000, limits: GEMMA })
+    assert.equal(over.fits, false)
+    assert.equal(over.refusedBy, 'request')
+    assert.equal(over.promptTokens, 23_001)
+  })
+
+  test('a prompt that fits the request still must leave its answer inside the window', () => {
+    // A product whose window is smaller than request + answer (not Gemma's shape).
+    const over = sceneRequestFits({
+      promptCharacters: 72_000, // 18,000 tokens, under the 23,000 request limit
+      answerTokens: 3_000,
+      limits: { maxRequestTokens: 23_000, contextWindowTokens: 20_000, maxOutputTokens: 8_192 },
+    })
+    assert.equal(over.fits, false)
+    assert.equal(over.refusedBy, 'window') // 18,000 + 3,000 > 20,000
+  })
+
+  test('an answer above the published output ceiling is refused', () => {
+    const over = sceneRequestFits({ promptCharacters: 4_000, answerTokens: 9_000, limits: GEMMA })
+    assert.equal(over.fits, false)
+    assert.equal(over.refusedBy, 'answer')
+  })
+
+  test('an absent limit is unknown and enforces nothing', () => {
+    const unbounded = sceneRequestFits({
+      promptCharacters: 10_000_000, answerTokens: 50_000,
+      limits: { maxRequestTokens: null, contextWindowTokens: null, maxOutputTokens: null },
+    })
+    assert.equal(unbounded.fits, true)
+    assert.equal(unbounded.refusedBy, null)
+  })
+
+  test('a candidate size shrinks until prompt AND answer both fit', () => {
+    const fitted = fitSceneUnitsToRequest({
+      maxUnits: 50,
+      rates: { perUnit: 550, singleUnit: 1_550 },
+      limits: GEMMA,
+      buildPrompt: units => ({ characters: 40_000 + units * 400 }),
+    })
+    // Output ceiling binds first: 550 × 14 = 7,700 ≤ 8,192, 550 × 15 = 8,250.
+    assert.equal(fitted.units, 14)
+    assert.equal(fitted.fits, true)
+    assert.equal(fitted.promptTokens, 11_400)
+  })
+
+  test('one scene that cannot fit refuses before any request', () => {
+    const refused = fitSceneUnitsToRequest({
+      maxUnits: 20,
+      rates: { perUnit: 550, singleUnit: 1_550 },
+      limits: GEMMA,
+      buildPrompt: () => ({ characters: 100_000 }), // 25,000 tokens > 23,000
+    })
+    assert.equal(refused.units, 0)
+    assert.equal(refused.fits, false)
+    assert.equal(refused.refusedBy, 'request')
+  })
+
+  test('packing is greedy, order-preserving, and keeps every scene', () => {
+    const items = Array.from({ length: 30 }, (_, index) => index)
+    const packed = packSceneRequestGroups({
+      items,
+      maxUnitsPerGroup: 20,
+      rates: { perUnit: 550, singleUnit: 1_550 },
+      limits: GEMMA,
+      buildPrompt: slice => ({ characters: 40_000 + slice.length * 400 }),
+    })
+    assert.equal(packed.refused, null)
+    assert.deepEqual(packed.groups.map(group => group.length), [14, 14, 2])
+    assert.deepEqual(packed.groups.flat(), items)
+  })
+
+  test('with no published limit every scene stays in its requested pack', () => {
+    const packed = packSceneRequestGroups({
+      items: Array.from({ length: 25 }, (_, index) => index),
+      maxUnitsPerGroup: 20,
+      rates: { perUnit: 550, singleUnit: 1_550 },
+      limits: {},
+      buildPrompt: () => ({ characters: 500_000 }),
+    })
+    assert.deepEqual(packed.groups.map(group => group.length), [20, 5])
+  })
+
+  test('measured rates are per kind and language; the owner key still overrides', () => {
+    assert.deepEqual(resolveSceneUnitTokenRates('visual', 'en'), { perUnit: 550, singleUnit: 1_550 })
+    assert.deepEqual(resolveSceneUnitTokenRates('visual', 'km'), { perUnit: 400, singleUnit: 400 })
+    assert.deepEqual(resolveSceneUnitTokenRates('motion', 'en'), { perUnit: 300, singleUnit: 300 })
+    assert.deepEqual(resolveSceneUnitTokenRates('visual', 'en', 229), { perUnit: 229, singleUnit: 229 })
+    assert.deepEqual(resolveSceneUnitTokenRates('visual', 'en', 'nonsense'), { perUnit: 550, singleUnit: 1_550 })
+  })
+
+  test('a smaller chosen allowance refuses before the provider would truncate', () => {
+    // The defect: promptRequestLimits used the published max_output_tokens
+    // (8,192) for fit, but the wire sent the chosen visualMaxTokens (4,096).
+    // A pack that fit 8,192 passed sizing, then truncated at 4,096 on the
+    // provider. Fix: fit uses the chosen allowance so the sizer refuses or
+    // splits before any request is sent.
+    const published = { maxRequestTokens: 23_000, contextWindowTokens: 32_768, maxOutputTokens: 8_192 }
+    const chosenSmaller = { ...published, maxOutputTokens: 4_096 }
+    // 8 scenes × 550 = 4,400 answer tokens: fits 8,192 but not 4,096.
+    const fitsPublished = sceneRequestFits({ promptCharacters: 4_000, answerTokens: 4_400, limits: published })
+    assert.equal(fitsPublished.fits, true, 'must fit the published ceiling')
+    const refusedByChosen = sceneRequestFits({ promptCharacters: 4_000, answerTokens: 4_400, limits: chosenSmaller })
+    assert.equal(refusedByChosen.fits, false, 'must refuse under the smaller chosen allowance')
+    assert.equal(refusedByChosen.refusedBy, 'answer')
+    // Packing must also split/refuse under the chosen ceiling.
+    const packed = packSceneRequestGroups({
+      items: Array.from({ length: 8 }, (_, i) => i),
+      maxUnitsPerGroup: 8,
+      rates: { perUnit: 550, singleUnit: 1_550 },
+      limits: chosenSmaller,
+      buildPrompt: slice => ({ characters: 4_000 + slice.length * 200 }),
+    })
+    assert.ok(packed.groups.every(g => g.length < 8), 'pack must split when chosen ceiling is smaller')
+    assert.equal(packed.refused, null, 'every scene must still be placed')
   })
 })

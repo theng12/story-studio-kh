@@ -534,6 +534,35 @@ describe('Content Store commerce state', () => {
     await assert.rejects(beginPurchaseAttempt('cq_test', 'acct_a'), /completed/i)
   })
 
+  test('omits new money projections and preserves an old completed receipt on replay', async () => {
+    await isolate()
+    const saved = await saveQuotedAttempt(quote())
+    assert.equal('quoted_credits' in saved, false)
+    assert.equal('operator_discount' in saved, false)
+    await beginPurchaseAttempt('cq_test', 'acct_a')
+    const completed = await recordCompletedPurchase('cq_test', purchase())
+    assert.equal('credits_charged' in completed.completed_purchase!, false)
+    assert.equal('balance_before' in completed.completed_purchase!, false)
+
+    const statePath = getContentStoreStatePath()
+    const legacy = JSON.parse(await fs.readFile(statePath, 'utf8'))
+    Object.assign(legacy.attempts.cq_test, {
+      base_credit_price: 400, discount_credits: 100, operator_discount: null,
+      quoted_credits: 300, balance_before: 5000, balance_after: 4700,
+      sufficient_credits: true, insufficient_reason: null, shortfall_credits: 0,
+    })
+    Object.assign(legacy.attempts.cq_test.completed_purchase, {
+      credits_charged: 300, discount_credits: 100, balance_before: 5000, balance_after: 4700,
+    })
+    await fs.writeFile(statePath, `${JSON.stringify(legacy, null, 2)}\n`)
+    const loaded = (await readContentStoreCommerceState()).attempts.cq_test
+    assert.equal(loaded.completed_purchase?.credits_charged, 300)
+    assert.equal(loaded.completed_purchase?.receipt.receipt_canonical_json, purchase().receipt.signedReceipt.canonicalJson)
+    const beforeReplay = await fs.readFile(statePath, 'utf8')
+    assert.deepEqual(await recordCompletedPurchase('cq_test', purchase()), loaded)
+    assert.equal(await fs.readFile(statePath, 'utf8'), beforeReplay)
+  })
+
   test('checks account and entitlement identity before changing status', async () => {
     await isolate()
     await saveQuotedAttempt(quote())

@@ -66,7 +66,8 @@ test('the hold control sits beside the pen: one select, numbers only for fixed a
   assert.match(source, /<span>Closing hold for \{\{ episodeId \}\}<\/span>/)
   assert.match(source, /v-model="holdChoice"[^>]*@change="onHoldChoice"/)
   assert.ok(source.indexOf('Closing hold for {{ episodeId }}') > source.indexOf('Pen for {{ episodeId }}'), 'after the pen')
-  assert.ok(source.indexOf('Closing hold for {{ episodeId }}') < source.indexOf('id="sketch-pen-help"'), 'inside the same controls row')
+  const controlsRow = source.slice(source.indexOf('class="motion-renderer-row"'), source.indexOf('class="motion-tools"'))
+  assert.ok(controlsRow.includes('Closing hold for {{ episodeId }}') && controlsRow.includes('id="sketch-pen-help"'), 'inside the same controls row')
   for (const option of [
     '<option value="channel">Channel default ({{ holdLabel(channelHold) }})</option>',
     '<option value="auto">Auto (follows the clip length)</option>',
@@ -143,7 +144,7 @@ test('the channel default moves only on purpose, asks first, and the renderer sa
   assert.ok(move.indexOf('await ask(') < move.indexOf("put(`/projects/"), 'nothing is saved before the answer')
   assert.match(move, /\{ renderer: clipRenderer\.value, hold \}/)
   assert.match(move, /success\(`Channel default hold is now \$\{holdLabel\(hold\)\}\./)
-  assert.match(source, /Make this the channel default hold/)
+  assert.match(source, /<button v-if="isSketchDraw && holdLoaded && episodeHold && JSON\.stringify\(episodeHold\) !== JSON\.stringify\(channelHold\)"[^>]*>Set as channel default</)
   assert.doesNotMatch(fn('saveMotionPresentation'), /\bhold/i, 'saving the renderer sends no hold')
   assert.doesNotMatch(fn('saveEpisodePen'), /\bhold/i)
 })

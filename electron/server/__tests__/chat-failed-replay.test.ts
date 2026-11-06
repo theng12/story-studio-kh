@@ -149,14 +149,14 @@ test('a replayed failure that charged keeps one paid submission per click', asyn
   assert.equal(s.keys.length, 1)
 })
 
-test('an uncertain-submission replay is resent once fresh, and a second lost send stops (owner 2026-10-12)', async () => {
+test('an uncertain-submission replay adopts the original answer without another POST', async () => {
   const s = stub(() => ({ id: 'job_uncertain', state: 'failed', failure_code: 'LANGUAGE_PROVIDER_SUBMISSION_UNCERTAIN' }), ok)
   let error: unknown
   try {
     await callChatWithGenStudio('k', request).catch(caught => { error = caught })
   } finally { s.restore() }
-  assert.deepEqual(s.keys, [s.keys[0], lostChatResendKey(s.keys[0]!, 'job_uncertain')])
-  assert.match(String(error), /lost track of this request/i)
+  assert.deepEqual(s.keys, [s.keys[0]])
+  assert.equal(error, undefined)
 })
 
 test('a brand-new job that fails on submit (202, not a replay) is not resubmitted', async () => {
@@ -183,37 +183,36 @@ test('a caller-supplied key is never moved, even after a settled failure', async
   assert.deepEqual(s.keys, ['exact-replay-key'])
 })
 
-// Owner decision 2026-10-03: a FREE model's held failure is redone fresh; paid or unknown keeps the lock.
+// Unknown outcomes keep their identity for every model, including free ones.
 const held = { id: 'job_held', state: 'failed', failure_code: 'PROVIDER_FAILED', recovery_required: true, recovery_state: 'unknown_outcome' }
 for (const [label, chargeable, expectedPosts] of [
-  ['free (chargeable: false)', false, 2],
+  ['free (chargeable: false)', false, 1],
   ['paid (chargeable: true)', true, 1],
   ['unpublished chargeability', undefined, 1],
 ] as const) {
-  test(`a held replay on a ${label} model ${expectedPosts === 2 ? 'is resubmitted fresh' : 'keeps its lock'}`, async () => {
+  test(`a held replay on a ${label} model keeps its lock`, async () => {
     const models = [{ ...catalog[0], ...(chargeable === undefined ? {} : { chargeable }) }]
     clearGenStudioCatalogCache()
     const s = stub((_key, n) => n === 1 ? held : { id: 'job_fresh', state: 'accepted' },
-      expectedPosts === 2 ? ok : { ...ok, id: 'job_held' }, models)
+      { ...ok, id: 'job_held' }, models)
     try {
       await callChatWithGenStudio('k', request).catch(() => null)
     } finally { s.restore() }
     assert.equal(s.keys.length, expectedPosts)
-    if (expectedPosts === 2) assert.equal(s.keys[1], chatKeyAfterFailedReplay(s.keys[0]!, 'job_held'))
   })
 }
 
-test('a free model\'s held replay is redone fresh even under a caller-supplied key (Retry of a Pipeline step)', async () => {
+test('a free model\'s held replay recovers under its caller-supplied key (Retry of a Pipeline step)', async () => {
   clearGenStudioCatalogCache()
   const s = stub((_key, n) => n === 1 ? held : { id: 'job_fresh', state: 'accepted' }, ok, [{ ...catalog[0], chargeable: false }])
   try {
     const result = await callChatWithGenStudio('k', { ...request, idempotencyKey: 'pipeline-checkpoint-key' })
     assert.deepEqual(JSON.parse(result.text), { ok: true })
   } finally { s.restore() }
-  assert.deepEqual(s.keys, ['pipeline-checkpoint-key', chatKeyAfterFailedReplay('pipeline-checkpoint-key', 'job_held')])
+  assert.deepEqual(s.keys, ['pipeline-checkpoint-key'])
 })
 
-// Owner decision 2026-10-12: a paid writing request the Gateway lost track of is resent ONCE fresh.
+// Original-key reconciliation must precede any new writing work.
 /** POSTs answer by key; GETs answer by job id (or the saved-key lookup). */
 function lostStub(posts: Record<string, unknown>[], byId: Record<string, Record<string, unknown>>) {
   const original = globalThis.fetch
@@ -233,27 +232,26 @@ function lostStub(posts: Record<string, unknown>[], byId: Record<string, Record<
 }
 const lost = (id: string) => ({ id, state: 'failed', failure_code: 'LANGUAGE_PROVIDER_SUBMISSION_UNCERTAIN' })
 
-test('a paid writing request lost after it was sent is resent once with a fresh key', async () => {
+test('a paid writing request lost after submission adopts its recovered answer without another POST', async () => {
   clearGenStudioCatalogCache()
   const s = lostStub([{ id: 'job_lost', state: 'accepted' }, { id: 'job_fresh', state: 'accepted' }],
-    { job_lost: lost('job_lost'), job_fresh: ok })
+    { job_lost: lost('job_lost'), 'by-key': { ...ok, id: 'job_lost' } })
   try {
     const result = await callChatWithGenStudio('k', request)
     assert.deepEqual(JSON.parse(result.text), { ok: true })
   } finally { s.restore() }
-  assert.deepEqual(s.keys, [s.keys[0], lostChatResendKey(s.keys[0]!, 'job_lost')])
+  assert.deepEqual(s.keys, [s.keys[0]])
 })
 
-test('a saved request identity whose outcome is lost gets one fresh resend instead of a permanent stop', async () => {
+test('a saved unknown request keeps its original identity without a POST', async () => {
   clearGenStudioCatalogCache()
   const s = lostStub([{ id: 'job_fresh', state: 'accepted' }], { 'by-key': lost('job_saved'), job_fresh: ok })
   try {
-    const result = await callChatWithGenStudio('k', {
+    await assert.rejects(callChatWithGenStudio('k', {
       ...request, recoverByIdempotencyKey: true, idempotencyKey: 'saved-key', allowedRecoveryKeys: ['saved-key'],
-    })
-    assert.deepEqual(JSON.parse(result.text), { ok: true })
+    }), /lost track of this request/i)
   } finally { s.restore() }
-  assert.deepEqual(s.keys, [lostChatResendKey('saved-key', 'job_saved')])
+  assert.deepEqual(s.keys, [])
 })
 
 test('recovering a saved resend that was lost too stops instead of sending a third request', async () => {

@@ -1,3 +1,4 @@
+import type { GenStudioImageMode } from '../../electron/server/contracts/genstudio-image-modes.js'
 import { computed, ref } from 'vue'
 import { useApi } from './useApi.js'
 import type { PriceTruth } from '../utils/genstudio-price-usd.js'
@@ -51,6 +52,7 @@ export interface GenStudioImageModelInfo extends PriceTruth {
   default_aspect_ratio: string
   default_resolution?: string
   output_options?: GenStudioImageOutputOption[]
+  image_modes?: GenStudioImageMode[]
   supports_reference_images: boolean
   supports_image_to_image?: boolean
   supports_seed?: boolean

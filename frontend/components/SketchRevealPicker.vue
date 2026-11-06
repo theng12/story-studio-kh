@@ -1,15 +1,16 @@
 <template>
   <div class="reveal-picker">
     <button type="button" class="select trigger" :disabled="disabled" :aria-label="label" aria-haspopup="dialog" :aria-expanded="open" @click="show">
-      <span>{{ triggerText }}</span><span aria-hidden="true">▾</span>
+      <span>{{ triggerText }}</span>
     </button>
     <PickerDialog :visible="open" :title="title" :description="description" size="xl" @close="open = false">
       <div class="picker-content">
-        <label class="weight">Line weight for this episode
-          <select v-model="draftWeight" class="select" aria-label="Sample line weight">
-            <option value="thin">Thin</option><option value="normal">Normal</option><option value="bold">Bold</option>
-          </select>
-        </label>
+        <div class="weight">
+          <span>Line weight for this episode</span>
+          <div class="weight-tabs" role="group" aria-label="Sample line weight">
+            <button v-for="weight in LINE_WEIGHTS" :key="weight" type="button" class="weight-tab" :class="{ 'is-active': draftWeight === weight }" :aria-pressed="draftWeight === weight" @click="draftWeight = weight">{{ lineWeightLabel(weight) }}</button>
+          </div>
+        </div>
         <p v-if="error" class="error" role="alert">{{ error }}</p>
         <div v-if="!multiple" class="other-choices">
           <button v-if="inheritLabel" type="button" class="btn btn-sm" @click="choose(inheritValue)">{{ inheritLabel }}</button>
@@ -33,6 +34,7 @@
 
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
+import { LINE_WEIGHTS, lineWeightLabel } from '../utils/sketch-line-weight'
 
 const props = withDefaults(defineProps<{
   modelValue: string
@@ -65,10 +67,18 @@ function applyMix() { saveWeight(); emit('mix', draftMix.value); open.value = fa
 </script>
 
 <style scoped>
-.trigger { display: flex; justify-content: space-between; gap: 1em; text-align: left; width: 100%; cursor: pointer; }
+/* The native single-line <select> metrics and shared chevron (design-system.css
+   → Controls), so this trigger matches the selects it sits beside: 10px
+   vertical padding, 14px left, 32px right room for the chevron. */
+.trigger { display: flex; align-items: center; width: 100%; padding: 10px 32px 10px 14px; font-size: var(--font-md); line-height: 1.35; text-align: left; cursor: pointer; background-image: var(--select-chevron); background-repeat: no-repeat; background-position: right 10px center; background-size: 12px 12px; }
+.trigger > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .picker-content { padding: 16px; overflow-y: auto; }
 .weight { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 12px; }
-.weight select { width: auto; }
+.weight > span { color: var(--text-secondary); font-size: 13px; font-weight: 500; }
+.weight-tabs { display: flex; flex-wrap: wrap; gap: 4px; }
+.weight-tab { flex: 1 1 0; min-width: 0; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-primary); color: var(--text-secondary); font-size: 14px; line-height: 1.35; cursor: pointer; }
+.weight-tab:hover:not(:disabled) { border-color: var(--border-light); }
+.weight-tab.is-active { border-color: color-mix(in srgb, var(--motion-blue) 70%, var(--border)); background: color-mix(in srgb, var(--motion-blue) 12%, var(--bg-primary)); color: var(--text-primary); font-weight: 600; }
 .other-choices { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 12px; margin-bottom: 14px; }
 .card { display: grid; gap: 8px; padding: 8px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-primary); color: var(--text-primary); text-align: left; cursor: pointer; }

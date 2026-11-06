@@ -76,7 +76,11 @@ test('reconciles only the existing provider task and sends cancellation only aft
       { method: 'GET', path: '/v1/jobs/provider-1' },
       { method: 'POST', path: '/v1/jobs/provider-1/cancel' },
     ])
-    assert.equal(result.records['voice.tts:provider-1']?.released_credits, 4)
+    const record = result.records['voice.tts:provider-1']
+    assert.ok(record, 'the cancel answer is recorded')
+    // S1/S2 retirement: Story no longer parses Gateway credit fields, so the
+    // cancel answer's released_credits is deliberately never stored.
+    assert.equal('released_credits' in record, false)
   } finally {
     globalThis.fetch = original
   }
@@ -552,9 +556,12 @@ test('boot and manual recheck replace a stale transcription absence without reta
     const entry = recovered.genstudio_jobs?.[0]!
     assert.deepEqual(requests, ['/v1/transcriptions/by-idempotency-key/stale-transcription-boot-confirm'])
     assert.equal(entry.state, 'succeeded')
-    for (const field of ['cancelled', 'cancellable', 'cancellation_requested', 'failure_code', 'cancellation_note', 'reserved_credits', 'settled_credits', 'released_credits'] as const) {
+    for (const field of ['cancelled', 'cancellable', 'cancellation_requested', 'failure_code', 'cancellation_note'] as const) {
       assert.equal(Object.hasOwn(entry, field), false, `${field} must not retain a synthetic absence value`)
     }
+    // Credit fields are retired (S1/S2): reconciliation no longer strips the
+    // stored values a legacy absence record carries, and nothing acts on them.
+    assert.deepEqual([entry.reserved_credits, entry.settled_credits, entry.released_credits], [0, 0, 0])
     assert.ok(recovered.output_lines.some(line => line.includes('corrected its earlier no-record result')))
 
     requests.length = 0

@@ -35,7 +35,7 @@
  * in v1.0.114 for exactly that reason.
  */
 
-import { GenStudioApiError, GenStudioTerminalFailureError, hasFullyReleasedZeroSettlement } from './genstudio-client.js'
+import { GenStudioApiError, GenStudioTerminalFailureError } from './genstudio-client.js'
 import { FREE_MAC_WAIT_REASON, isFreeFleetModelId } from '../contracts/provider-task-state.js'
 
 /** Codes GenStudio uses when no machine could take the job. */
@@ -61,15 +61,14 @@ export const FREE_MAC_WAIT_CODES: ReadonlySet<string> = new Set([
 function isFreeMacWait(error: GenStudioTerminalFailureError): boolean {
   return isFreeFleetModelId(error.modelId)
     && FREE_MAC_WAIT_CODES.has(String(error.failureCode || ''))
-    && !(typeof error.settledCredits === 'number' && error.settledCredits > 0)
 }
 
 /**
- * Was this refused for want of a free machine, with the money given back?
+ * Was this refused for want of a free machine?
  *
- * BOTH conditions are required. A capacity code arriving with credits settled
- * would mean the guarantee above had stopped holding, and the response to an
- * assumption you can no longer verify is to stop, not to resubmit.
+ * The code and the job's own state are the evidence: a capacity code on a job
+ * that is terminal, not cancelled and not held as an unknown outcome means no
+ * machine took it.
  *
  * @param modality when given, the failure must belong to it — a busy fleet on
  *   a TTS job is not licence for an image generator to resubmit.
@@ -91,8 +90,7 @@ export function isFleetBusyFailure(error: unknown, modality?: string): boolean {
   // The gateway files an ambiguous read-timeout submit under the same code. It may have started
   // real work, so it is not "never reached a machine" and must not be resubmitted.
   if (error.unknownOutcome) return false
-  if (!FLEET_BUSY_FAILURE_CODES.has(String(error.failureCode || ''))) return false
-  return hasFullyReleasedZeroSettlement(error)
+  return FLEET_BUSY_FAILURE_CODES.has(String(error.failureCode || ''))
 }
 
 /**

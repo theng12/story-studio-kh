@@ -1,0 +1,14 @@
+{
+  "pack_format": 1,
+  "pack_id": "com.storystudio.pack.subtitle-style.shorts-vertical-bounce",
+  "publisher_id": "com.storystudio",
+  "key_id": "{{KEY_ID}}",
+  "version": "1.0.0",
+  "min_app_version": "{{MIN_APP_VERSION}}",
+  "lifecycle": "active",
+  "changelog": "First release of the Shorts Vertical — Bounce (Anton) pack: the built-in Shorts Vertical — Bounce (Anton) caption look, republished under its own pack identity with its style document unchanged.",
+  "entitlement": {
+    "sku": "com.storystudio.sku.subtitle-style.shorts-vertical-bounce",
+    "family": "com.storystudio.family.subtitle-style.shorts-vertical-bounce"
+  }
+}

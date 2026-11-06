@@ -26,6 +26,15 @@ export interface FinalRenderEncodeEntry {
   bitrate_kbps: number | null
 }
 
+export interface FinalRenderLateLabelsCapability {
+  format: 'studio.render.late-label.v3'
+  motions: Array<'none' | 'pop' | 'slide' | 'float' | 'pulse' | 'wipe' | 'line-draw'>
+}
+
+export interface FinalRenderSubtitlesCapability {
+  format: 'studio.render.subtitle.v1'
+}
+
 export interface FinalRenderEncodeAuthority {
   format: 'studio.render.encode-authority.v1'
   entries: FinalRenderEncodeEntry[]
@@ -70,7 +79,30 @@ export interface FinalRenderCapabilities {
   compiler: DescriptorText
   qualification_provenance?: QualificationProvenance | null
   encode?: FinalRenderEncodeAuthority | null
+  /** The Gateway's echo of the exact tuple Story asked about. Absent when the Gateway did not answer a scoped query. */
+  requested_encode?: FinalRenderEncodeEntry
+  /** Present only in a late-label-scoped response that requested this exact contract. */
+  late_labels?: FinalRenderLateLabelsCapability
+  /**
+   * Present only in a subtitle-scoped response that requested this exact contract.
+   * Never set today: subtitle descriptor authority awaits the Hub/Gateway freeze
+   * (after Hub 222), so every subtitle-scoped envelope is refused at parse —
+   * no assumed v4 pins, and the late-label envelope never grants subtitle authority.
+   */
+  subtitles?: FinalRenderSubtitlesCapability
   execution_bounds?: FinalRenderExecutionBounds
+}
+
+/**
+ * Revision-4 output-settings negotiation (`studio.render.output-settings-capabilities.v1`).
+ * `supported` is protocol support only — never workload admission, and never by itself a
+ * reason to offer Best.
+ */
+export interface FinalRenderOutputSettingsCapabilities {
+  supported: boolean
+  reason: string | null
+  profile_descriptor_utf8: string | null
+  profile_digest: string | null
 }
 
 export interface FinalRenderOutputReceipt {
@@ -342,12 +374,13 @@ function parseToolsDescriptor(raw: string): void {
   positiveSafeInteger(tools.ffprobe_size_bytes, 'tools descriptor.ffprobe_size_bytes')
 }
 
-function parseCompilerDescriptor(raw: string): void {
+function parseCompilerDescriptor(raw: string, requestedLateLabels = false): void {
   const compiler = exactRecord(parseJsonText(raw, 'compiler descriptor'), [
     'format', 'implementation', 'python_runtime_sha256', 'render_hash_sha256',
     'render_contract_sha256', 'final_render_compiler_sha256',
   ], 'compiler descriptor')
-  if (compiler.format !== 'studio.render.compiler.v1' || compiler.implementation !== 'hub-final-render-v1') {
+  const implementation = requestedLateLabels ? 'hub-final-render-late-label-v3' : 'hub-final-render-v1'
+  if (compiler.format !== 'studio.render.compiler.v1' || compiler.implementation !== implementation) {
     invalid('compiler descriptor implementation is unsupported')
   }
   for (const key of [
@@ -356,14 +389,21 @@ function parseCompilerDescriptor(raw: string): void {
   ]) sha256(compiler[key], `compiler descriptor.${key}`)
 }
 
-function parseProfileDescriptor(raw: string, toolsDigest: string, compilerDigest: string): FinalRenderExecutionBounds {
+function parseProfileDescriptor(raw: string, toolsDigest: string, compilerDigest: string, requestedLateLabels = false): FinalRenderExecutionBounds {
   const profile = exactRecord(parseJsonText(raw, 'profile descriptor'), [
     'format', 'implementation', 'recipe_namespace', 'compiler_artifact_sha256',
     'tools_artifact_sha256', 'combination_set', 'tier_policy', 'output_policy',
     'execution_bounds', 'hardware_qualification_record_sha256',
     'fidelity_record_sha256', 'production_eligible',
   ], 'profile descriptor')
-  const literals: Record<string, string> = {
+  const literals: Record<string, string> = requestedLateLabels ? {
+    format: 'studio.render.profile.v3',
+    implementation: 'story-classic-late-label-v3',
+    recipe_namespace: 'studio.render.final.v1',
+    combination_set: 'retained-classic-late-label-candidate-v3',
+    tier_policy: 'story-final-chain-v1',
+    output_policy: 'story-final-output-v1',
+  } : {
     format: 'studio.render.profile.v1',
     implementation: 'story-classic-no-font-v1',
     recipe_namespace: 'studio.render.final.v1',
@@ -517,32 +557,32 @@ async function requestJson<T>(
   return parse(await fetchJson(access, route, init, label, expectedStatus), access)
 }
 
-function parseEncodeEntry(value: unknown): FinalRenderEncodeEntry {
+function parseEncodeEntry(value: unknown, label = 'capabilities encode entry'): FinalRenderEncodeEntry {
   const entry = exactRecord(value, [
     'container', 'requested_codec', 'requested_effort', 'crf',
     'quality_cpu_preset', 'bitrate_kbps',
-  ], 'capabilities encode entry')
+  ], label)
   const container = entry.container
   if (container !== 'mp4' && container !== 'mov' && container !== 'webm') {
-    invalid('capabilities encode container is unsupported')
+    invalid(`${label} container is unsupported`)
   }
   const codec = entry.requested_codec
   if (codec !== 'h264' && codec !== 'h265') {
-    invalid('capabilities encode codec is unsupported')
+    invalid(`${label} codec is unsupported`)
   }
   const effort = entry.requested_effort
   if (effort !== 'ultrafast' && effort !== 'medium'
       && effort !== 'slow' && effort !== 'hardware') {
-    invalid('capabilities encode effort is unsupported')
+    invalid(`${label} effort is unsupported`)
   }
   const preset = entry.quality_cpu_preset
   if (preset !== 'ultrafast' && preset !== 'medium' && preset !== 'slow') {
-    invalid('capabilities encode CPU preset is unsupported')
+    invalid(`${label} CPU preset is unsupported`)
   }
-  const crf = nonnegativeSafeInteger(entry.crf, 'capabilities encode crf')
+  const crf = nonnegativeSafeInteger(entry.crf, `${label} crf`)
   const bitrate = entry.bitrate_kbps === null
     ? null
-    : positiveSafeInteger(entry.bitrate_kbps, 'capabilities encode bitrate_kbps')
+    : positiveSafeInteger(entry.bitrate_kbps, `${label} bitrate_kbps`)
   return {
     container,
     requested_codec: codec,
@@ -553,6 +593,19 @@ function parseEncodeEntry(value: unknown): FinalRenderEncodeEntry {
   }
 }
 
+/** Two encodes are equal only when all six fields are equal. A null cap never equals a positive one. */
+export function sameFinalRenderEncodeTuple(
+  left: Readonly<FinalRenderEncodeEntry>,
+  right: Readonly<FinalRenderEncodeEntry>,
+): boolean {
+  return left.container === right.container
+    && left.requested_codec === right.requested_codec
+    && left.requested_effort === right.requested_effort
+    && left.crf === right.crf
+    && left.quality_cpu_preset === right.quality_cpu_preset
+    && left.bitrate_kbps === right.bitrate_kbps
+}
+
 function parseEncodeAuthority(value: unknown): FinalRenderEncodeAuthority {
   const authority = exactRecord(value, ['format', 'entries'], 'capabilities encode')
   const entries = authority.entries
@@ -561,16 +614,51 @@ function parseEncodeAuthority(value: unknown): FinalRenderEncodeAuthority {
   }
   return {
     format: 'studio.render.encode-authority.v1',
-    entries: entries.map(parseEncodeEntry),
+    entries: entries.map(entry => parseEncodeEntry(entry)),
   }
 }
 
-function parseCapabilities(value: unknown, connection: PrivateRenderConnection): FinalRenderCapabilities {
+function parseLateLabelsCapability(value: unknown): FinalRenderLateLabelsCapability {
+  const capability = exactRecord(value, ['format', 'motions'], 'capabilities late_labels')
+  if (capability.format !== 'studio.render.late-label.v3') invalid('capabilities late_labels.format is unsupported')
+  if (!Array.isArray(capability.motions)) invalid('capabilities late_labels.motions is invalid')
+  const allowed = ['none', 'pop', 'slide', 'float', 'pulse', 'wipe', 'line-draw'] as const
+  if (capability.motions.length !== allowed.length) {
+    invalid('capabilities late_labels.motions does not contain the complete supported set')
+  }
+  const seen = new Set<string>()
+  for (const [index, motion] of capability.motions.entries()) {
+    if (!allowed.includes(motion as (typeof allowed)[number])) {
+      invalid(`capabilities late_labels.motions[${index}] is unsupported`)
+    }
+    if (seen.has(motion as string)) invalid(`capabilities late_labels.motions[${index}] is duplicated`)
+    seen.add(motion as string)
+  }
+  return capability as unknown as FinalRenderLateLabelsCapability
+}
+
+function parseSubtitlesCapability(value: unknown): FinalRenderSubtitlesCapability {
+  const capability = exactRecord(value, ['format'], 'capabilities subtitles')
+  if (capability.format !== 'studio.render.subtitle.v1') invalid('capabilities subtitles.format is unsupported')
+  return capability as unknown as FinalRenderSubtitlesCapability
+}
+
+function parseCapabilities(
+  value: unknown,
+  connection: PrivateRenderConnection,
+  requested?: FinalRenderEncodeEntry,
+  requestedLateLabels = false,
+  requestedSubtitles = false,
+): FinalRenderCapabilities {
   const result = closedRecord(value, [
     'format', 'private', 'chargeable', 'owner_scope', 'gateway_instance_id',
     'story_instance_id', 'eligible', 'idle', 'server_time', 'profile_descriptor_utf8',
     'profile_digest', 'tools', 'compiler',
-  ], ['qualification_provenance', 'encode'], 'capabilities response')
+  ], [
+    'qualification_provenance', 'encode', 'requested_encode',
+    ...(requestedLateLabels ? ['late_labels'] : []),
+    ...(requestedSubtitles ? ['subtitles'] : []),
+  ], 'capabilities response')
   if (result.format !== 'studio.render.gateway-capabilities.v1'
       || result.private !== true || result.chargeable !== false) invalid('capabilities response literals are invalid')
   const ownerScope = uuid(result.owner_scope, 'capabilities owner_scope')
@@ -589,11 +677,33 @@ function parseCapabilities(value: unknown, connection: PrivateRenderConnection):
   const tools = parseDescriptorLink(result.tools, 'capabilities tools')
   const compiler = parseDescriptorLink(result.compiler, 'capabilities compiler')
   parseToolsDescriptor(tools.descriptor_utf8)
-  parseCompilerDescriptor(compiler.descriptor_utf8)
+  // Old Gateways ignore the scoped contract and keep the v1 descriptor pair. A present capability
+  // is parsed before descriptor admission, so its presence alone does not select a newer pair.
+  const hasLateLabels = Object.hasOwn(result, 'late_labels')
+  if (!requestedLateLabels && hasLateLabels) {
+    invalid('capabilities response advertised late labels Story never requested')
+  }
+  if (requestedLateLabels && hasLateLabels) {
+    result.late_labels = parseLateLabelsCapability(result.late_labels)
+  }
+  const hasSubtitles = Object.hasOwn(result, 'subtitles')
+  if (!requestedSubtitles && hasSubtitles) {
+    invalid('capabilities response advertised subtitles Story never requested')
+  }
+  if (requestedSubtitles && hasSubtitles) {
+    parseSubtitlesCapability(result.subtitles)
+    // Fail closed until the Hub/Gateway descriptor freeze (after Hub 222): the
+    // late-label envelope explicitly refuses subtitle authority, and this build
+    // has no agreed subtitle descriptor literals, so a subtitle-scoped envelope
+    // is refused rather than admitted against assumed v4 pins.
+    invalid('subtitle descriptor pins are not frozen')
+  }
+  const useLateLabelDescriptors = requestedLateLabels && hasLateLabels
+  parseCompilerDescriptor(compiler.descriptor_utf8, useLateLabelDescriptors)
   if (typeof result.profile_descriptor_utf8 !== 'string') invalid('capabilities profile descriptor bytes are invalid')
   const profileDigest = sha256(result.profile_digest, 'capabilities profile_digest')
   if (digestBytes(result.profile_descriptor_utf8) !== profileDigest) invalid('capabilities profile byte digest does not match')
-  const parsedBounds = parseProfileDescriptor(result.profile_descriptor_utf8, tools.digest, compiler.digest)
+  const parsedBounds = parseProfileDescriptor(result.profile_descriptor_utf8, tools.digest, compiler.digest, useLateLabelDescriptors)
   ;(result as any).execution_bounds = parsedBounds
   if (Object.hasOwn(result, 'qualification_provenance') && result.qualification_provenance !== null) {
     try { result.qualification_provenance = parseQualificationProvenance(result.qualification_provenance) } catch (error) {
@@ -603,6 +713,28 @@ function parseCapabilities(value: unknown, connection: PrivateRenderConnection):
   }
   if (Object.hasOwn(result, 'encode') && result.encode !== null) {
     result.encode = parseEncodeAuthority(result.encode)
+  }
+  // A scoped query may be echoed with the exact tuple Story asked about, and only that tuple.
+  // An unsolicited echo, an echo of a different tuple, or an entry claiming another tuple in an
+  // echoed scope is refused: a flag or a near-match is not admission.
+  const echoed = Object.hasOwn(result, 'requested_encode')
+  if (!requested && echoed) invalid('capabilities response echoed an encode Story never requested')
+  if (echoed) {
+    const echo = parseEncodeEntry(result.requested_encode, 'capabilities requested_encode')
+    if (!requested || !sameFinalRenderEncodeTuple(echo, requested)) {
+      invalid('capabilities response echoed a different encode than the one requested')
+    }
+    if (result.encode !== null && result.encode !== undefined) {
+      const authority = result.encode as FinalRenderEncodeAuthority
+      if (authority.entries.length > 1
+        || (authority.entries.length === 1 && !sameFinalRenderEncodeTuple(authority.entries[0]!, requested))) {
+        invalid('capabilities response lists an encode entry other than the requested one')
+      }
+      if (authority.entries.length > 0 && eligible === 0) {
+        invalid('capabilities response lists supported encode with no eligible nodes')
+      }
+    }
+    result.requested_encode = echo
   }
   return result as unknown as FinalRenderCapabilities
 }
@@ -1064,13 +1196,34 @@ function byteStream(bytes: Uint8Array): ReadableStream<Uint8Array> {
  * The first valid capabilities response pins the Gateway identity. A pin for another origin means
  * the owner moved the Gateway, so this call re-pairs to the identity that answers at the configured
  * origin; a different identity at the *same* origin is refused, never re-paired.
+ *
+ * With a `requested` tuple the read is scoped: the Gateway answers about that exact encode and may
+ * echo it. `requestedLateLabels` opts into the late-label contract; a Gateway that ignores the query
+ * may answer with v1 and no late-label capability. `requestedSubtitles` opts into the subtitle
+ * contract (`studio.render.subtitle.v1`), which takes the single `requested_contract` slot; a
+ * response carrying a subtitle record is refused until this build carries the frozen subtitle
+ * descriptor pins. The GET stays read-only and carries no input file, credential or destination
+ * origin.
  */
-export async function getFinalRenderCapabilities(): Promise<FinalRenderCapabilities> {
+export async function getFinalRenderCapabilities(
+  requested?: FinalRenderEncodeEntry,
+  options: { readonly requestedLateLabels?: boolean; readonly requestedSubtitles?: boolean } = {},
+): Promise<FinalRenderCapabilities> {
   const connection = await readPrivateRenderConnection()
   const originChanged = connection.binding !== null && connection.binding.origin !== connection.origin
+  const requestedLateLabels = options.requestedLateLabels === true
+  const requestedSubtitles = options.requestedSubtitles === true
+  const query = new URLSearchParams()
+  if (requested) query.set('requested_encode', JSON.stringify(requested))
+  if (requestedSubtitles) query.set('requested_contract', 'studio.render.subtitle.v1')
+  else if (requestedLateLabels) query.set('requested_contract', 'studio.render.late-label.v3')
+  const queryString = query.toString()
+  const route = queryString
+    ? `/v1/final-renders/capabilities?${queryString}`
+    : '/v1/final-renders/capabilities'
   const capabilities = parseCapabilities(await fetchJson(
-    connection, '/v1/final-renders/capabilities', { method: 'GET' }, 'Final render capabilities', 200,
-  ), originChanged ? { ...connection, binding: null } : connection)
+    connection, route, { method: 'GET' }, 'Final render capabilities', 200,
+  ), originChanged ? { ...connection, binding: null } : connection, requested, requestedLateLabels, requestedSubtitles)
   const answered = {
     origin: connection.origin,
     owner_scope: capabilities.owner_scope,
@@ -1079,6 +1232,124 @@ export async function getFinalRenderCapabilities(): Promise<FinalRenderCapabilit
   if (originChanged) await repairGatewayBinding(answered)
   else await pinGatewayBinding(answered)
   return capabilities
+}
+
+const OUTPUT_SETTINGS_FORMAT = 'studio.render.output-settings-capabilities.v1'
+
+/**
+ * The v2 profile travels alone in this response — no tools/compiler link to cross-check — so it is
+ * validated against the revision-4 literals only. An unknown profile format fails admission.
+ */
+function parseOutputSettingsProfile(raw: string): void {
+  const profile = exactRecord(parseJsonText(raw, 'output-settings profile descriptor'), [
+    'format', 'implementation', 'recipe_namespace', 'compiler_artifact_sha256',
+    'tools_artifact_sha256', 'combination_set', 'tier_policy', 'output_policy',
+    'execution_bounds', 'hardware_qualification_record_sha256',
+    'fidelity_record_sha256', 'production_eligible',
+  ], 'output-settings profile descriptor')
+  const literals: Record<string, string> = {
+    format: 'studio.render.profile.v2',
+    implementation: 'story-classic-no-font-v2',
+    recipe_namespace: 'studio.render.final.v2',
+    combination_set: 'retained-classic-no-font-candidate-v1',
+    tier_policy: 'story-final-chain-v1',
+    output_policy: 'story-final-output-v2',
+  }
+  for (const [key, expected] of Object.entries(literals)) {
+    if (profile[key] !== expected) invalid(`output-settings profile descriptor.${key} is unsupported`)
+  }
+  for (const key of ['compiler_artifact_sha256', 'tools_artifact_sha256']) {
+    sha256(profile[key], `output-settings profile descriptor.${key}`)
+  }
+  for (const key of ['hardware_qualification_record_sha256', 'fidelity_record_sha256']) {
+    if (profile[key] !== null) sha256(profile[key], `output-settings profile descriptor.${key}`)
+  }
+  if (profile.production_eligible !== false) invalid('output-settings profile descriptor.production_eligible is unsupported')
+  parseExecutionBounds(profile.execution_bounds)
+}
+
+function parseOutputSettingsCapabilities(
+  value: unknown,
+  connection: Pick<PrivateRenderConnection, 'story_instance_id' | 'binding'>,
+): FinalRenderOutputSettingsCapabilities {
+  const shape = record(value, 'output-settings capabilities response')
+  if (typeof shape.format !== 'string') invalid('output-settings capabilities response format is invalid')
+  // A version this build does not implement is "not offered", never support and never a crash.
+  if (shape.format !== OUTPUT_SETTINGS_FORMAT) {
+    return {
+      supported: false,
+      reason: `This Gateway answers with "${shape.format}", which this Story build does not implement.`,
+      profile_descriptor_utf8: null,
+      profile_digest: null,
+    }
+  }
+  const result = closedRecord(shape, [
+    'format', 'private', 'chargeable', 'owner_scope', 'gateway_instance_id',
+    'story_instance_id', 'server_time', 'supported', 'reason',
+    'profile_descriptor_utf8', 'profile_digest',
+  ], [], 'output-settings capabilities response')
+  if (result.private !== true || result.chargeable !== false) {
+    invalid('output-settings capabilities response literals are invalid')
+  }
+  const ownerScope = uuid(result.owner_scope, 'output-settings capabilities owner_scope')
+  const gatewayInstanceId = uuid(result.gateway_instance_id, 'output-settings capabilities gateway_instance_id')
+  if (uuid(result.story_instance_id, 'output-settings capabilities story_instance_id') !== connection.story_instance_id
+      || (connection.binding && (ownerScope !== connection.binding.owner_scope
+        || gatewayInstanceId !== connection.binding.gateway_instance_id))) {
+    invalid('output-settings capabilities response Gateway binding does not match')
+  }
+  const serverTime = positiveSafeInteger(result.server_time, 'output-settings capabilities server_time')
+  const now = Math.floor(Date.now() / 1000)
+  if (serverTime < now - 120 || serverTime > now + 30) {
+    invalid('output-settings capabilities response freshness is outside the allowed window')
+  }
+  if (typeof result.supported !== 'boolean') invalid('output-settings capabilities response supported is invalid')
+  const reason = result.reason
+  if (reason !== null && (typeof reason !== 'string' || !reason || reason !== reason.trim() || reason.length > 256)) {
+    invalid('output-settings capabilities response reason is invalid')
+  }
+  const descriptor = result.profile_descriptor_utf8
+  if (result.supported) {
+    if (reason !== null) invalid('output-settings capabilities response reason must be null when supported')
+    if (typeof descriptor !== 'string') invalid('output-settings capabilities response profile is missing while supported')
+    const profileDigest = sha256(result.profile_digest, 'output-settings capabilities profile_digest')
+    if (digestBytes(descriptor) !== profileDigest) invalid('output-settings capabilities profile byte digest does not match')
+    parseOutputSettingsProfile(descriptor)
+    return { supported: true, reason: null, profile_descriptor_utf8: descriptor, profile_digest: profileDigest }
+  }
+  if (reason === null) invalid('output-settings capabilities response reason is required when unsupported')
+  if (descriptor !== null || result.profile_digest !== null) {
+    invalid('output-settings capabilities response profile must be null when unsupported')
+  }
+  return { supported: false, reason, profile_descriptor_utf8: null, profile_digest: null }
+}
+
+/**
+ * Revision-4 output-settings negotiation on the paired Gateway origin, with the same authentication
+ * and owner/Story identity checks as the v1 capabilities read (but no pinning: v1 still owns pairing).
+ * A 404/405 is "this Gateway does not offer it"; a version it does not implement is unavailable with
+ * a reason. Malformed output or a mismatched identity is a validation error, never support.
+ */
+export async function getFinalRenderOutputSettingsCapabilities(): Promise<FinalRenderOutputSettingsCapabilities> {
+  const connection = await readPrivateRenderConnection()
+  let body: unknown
+  try {
+    body = await fetchJson(
+      connection, '/v2/final-renders/capabilities', { method: 'GET' },
+      'Output settings capabilities', 200,
+    )
+  } catch (error) {
+    if (error instanceof FinalRenderHttpError && (error.status === 404 || error.status === 405)) {
+      return {
+        supported: false,
+        reason: `This Gateway does not offer output-settings capabilities (HTTP ${error.status}).`,
+        profile_descriptor_utf8: null,
+        profile_digest: null,
+      }
+    }
+    throw error
+  }
+  return parseOutputSettingsCapabilities(body, connection)
 }
 
 export function getFinalRenderBlobStatus(sha: string, sizeBytes: number): Promise<FinalRenderBlobStatus> {

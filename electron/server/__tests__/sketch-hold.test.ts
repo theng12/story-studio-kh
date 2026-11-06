@@ -189,6 +189,11 @@ async function episode(slug: string, code: string) {
   return { code, dir: found.episode_dir, image }
 }
 
+/** Put this clip's receipt into the episode's Scene Plan — the evidence a channel-save pin reads. */
+async function planWithClip(slug: string, ep: { code: string; dir: string }, clip: unknown) {
+  await fs.writeFile(await paths.resolveScenePlanPath(slug, ep.code, ep.dir), JSON.stringify({ scenes: [clip] }))
+}
+
 type Ep = Awaited<ReturnType<typeof episode>>
 
 /** A sketch clip of `seconds` rendered under whatever hold `slug`/`code` resolve to right now. */
@@ -317,14 +322,60 @@ describe('the hold in settings and freshness', () => {
     assert.equal(await holdStore.readEpisodeSketchHold(slug, 'EP002'), null)
     assert.equal(JSON.parse(await fs.readFile(path.join(ep2.dir, holdStore.EPISODE_SKETCH_HOLD_FILENAME), 'utf8')).hold, null)
     assert.equal(await reason(slug, ep2, clip2), 'stale closing hold', 'EP2 now holds 2 s, not the 1 frame it was rendered with')
-    // Changing the channel default moves only the episodes that follow it.
+    // Changing the channel default through the route pins the episodes that follow it AND have
+    // clips, so EP1 keeps the hold its clip was drawn with; EP2's own hold is untouched.
     const clip2again = await renderedNow(slug, 'EP002', 10)
     await holdStore.writeEpisodeSketchHold(slug, 'EP002', { mode: 'fixed', seconds: 4 })
     const clip2own = await renderedNow(slug, 'EP002', 10)
-    await setChannel(slug, { mode: 'fixed', seconds: 1 })
-    assert.equal(await reason(slug, ep1, clip1), 'stale closing hold')
+    await planWithClip(slug, ep1, clip1)
+    await request(app).put(`/api/projects/${slug}/motion-presentation`)
+      .send({ renderer: 'sketch_draw', pen: 'none', hold: { mode: 'fixed', seconds: 1 } }).expect(200)
+    assert.deepEqual(await holdStore.readEpisodeSketchHold(slug, 'EP001'), { mode: 'fixed', seconds: 2 },
+      'EP1 is pinned to the hold its clip was drawn with')
+    assert.equal(await reason(slug, ep1, clip1), null, 'the pinned hold keeps EP1\'s clip fresh')
+    assert.deepEqual((await checkpoint.resolveSketchDrawSettings(slug, 'EP001')).hold, { mode: 'fixed', seconds: 2 },
+      'a redo of EP1 draws with the pinned hold, not the new channel default')
     assert.equal(await reason(slug, ep2, clip2own), null, 'EP2 has its own hold')
     assert.equal(clip2again.clip_sketch.hold_frames, 60)
+  })
+
+  test('a channel hold change pins a clipped episode to the hold its clips were drawn with; a clip-less one follows the new default', async () => {
+    const slug = await channel('Channel pins', { mode: 'fixed', seconds: 2 })
+    const ep1 = await episode(slug, 'EP001') // has a Sketch Draw clip
+    const ep2 = await episode(slug, 'EP002') // its own hold
+    const ep3 = await episode(slug, 'EP003') // no clips at all
+    await holdStore.writeEpisodeSketchHold(slug, 'EP002', { mode: 'off' })
+    const clip1 = await renderedNow(slug, 'EP001', 10)
+    const clip2 = await renderedNow(slug, 'EP002', 10)
+    await planWithClip(slug, ep1, clip1)
+
+    await request(app).put(`/api/projects/${slug}/motion-presentation`)
+      .send({ renderer: 'sketch_draw', pen: 'none', hold: { mode: 'fixed', seconds: 1 } }).expect(200)
+
+    // EP1 keeps the hold its clip was drawn with: fresh now, and a re-render uses that same hold.
+    assert.deepEqual(await holdStore.readEpisodeSketchHold(slug, 'EP001'), { mode: 'fixed', seconds: 2 })
+    assert.equal(await reason(slug, ep1, clip1), null, 'the pinned hold keeps EP1\'s clip fresh')
+    assert.deepEqual((await checkpoint.resolveSketchDrawSettings(slug, 'EP001')).hold, { mode: 'fixed', seconds: 2 })
+    assert.equal((await checkpoint.resolveSketchDrawSettings(slug, 'EP001')).holdFingerprint, clip1.clip_sketch.hold_fingerprint,
+      'a redo of EP1 draws with the pinned hold, not the new channel default')
+    // EP3 has no clips, so it follows the new default.
+    assert.equal(await holdStore.readEpisodeSketchHold(slug, 'EP003'), null)
+    assert.deepEqual((await checkpoint.resolveEpisodeHold(slug, 'EP003')).hold, { mode: 'fixed', seconds: 1 })
+    // EP2's own hold is never overwritten.
+    assert.deepEqual(await holdStore.readEpisodeSketchHold(slug, 'EP002'), { mode: 'off' })
+    assert.equal(await reason(slug, ep2, clip2), null)
+  })
+
+  test('a channel save is refused, naming the episode, when its scene plan cannot be read', async () => {
+    const slug = await channel('Unreadable plan', { mode: 'fixed', seconds: 2 })
+    const ep = await episode(slug, 'EP001')
+    await fs.writeFile(await paths.resolveScenePlanPath(slug, 'EP001', ep.dir), '{ not json')
+    const refused = await request(app).put(`/api/projects/${slug}/motion-presentation`)
+      .send({ renderer: 'sketch_draw', pen: 'none', hold: { mode: 'fixed', seconds: 1 } }).expect(409)
+    assert.match(refused.body.detail, /EP001/)
+    assert.deepEqual((await pm.getConfig(slug))?.motion_presentation?.hold, { mode: 'fixed', seconds: 2 },
+      'a refused save changes nothing')
+    assert.equal(await holdStore.readEpisodeSketchHold(slug, 'EP001'), null, 'and no pin was written')
   })
 
   test('the hold is stored only in the episode folder and the channel default, never in a preset or an invented place', async () => {
@@ -492,6 +543,10 @@ describe('the channel default and cached episode status', () => {
       return watcher.watcherTrustedSince(slug) !== null && a.every((row, i) => row === b[i])
     }, { label: 'the folder watcher to vouch for the fixture episodes' })
     assert.notEqual(watcher.watcherTrustedSince(slug), null, 'the rows are served on the watcher\'s word, which is the path under test')
+    // Delayed native events from the fixture writes are not the route's own
+    // invalidation. Keep the watcher trusted for serving, but make its events
+    // deaf so a straggler cannot drop a row mid-measurement.
+    watcher.bindInvalidator(() => {})
     const dropped = async (change: Record<string, unknown>) => {
       const before = await readAll()
       assert.deepEqual(await readAll(), before, 'warm rows are served as they are')
@@ -500,10 +555,14 @@ describe('the channel default and cached episode status', () => {
       return codes.filter((_, i) => after[i] !== before[i])
     }
 
-    assert.deepEqual(await dropped({ hold: { mode: 'fixed', seconds: 3 } }), [follows, ownPen], 'the episode with its own hold keeps its row')
-    assert.deepEqual(await dropped({ pen: 'plain' }), [follows, ownHold], 'the episode with its own pen keeps its row')
-    assert.deepEqual(await dropped({ pen: 'plain', hold: { mode: 'fixed', seconds: 3 } }), [], 'a save that moves nothing drops nothing')
-    assert.deepEqual(await dropped({ renderer: 'image_to_video' }), [], 'neither does a renderer-only save')
+    try {
+      assert.deepEqual(await dropped({ hold: { mode: 'fixed', seconds: 3 } }), [follows, ownPen], 'the episode with its own hold keeps its row')
+      assert.deepEqual(await dropped({ pen: 'plain' }), [follows, ownHold], 'the episode with its own pen keeps its row')
+      assert.deepEqual(await dropped({ pen: 'plain', hold: { mode: 'fixed', seconds: 3 } }), [], 'a save that moves nothing drops nothing')
+      assert.deepEqual(await dropped({ renderer: 'image_to_video' }), [], 'neither does a renderer-only save')
+    } finally {
+      watcher.bindInvalidator((s, c) => episodeStatusCache.invalidate(s, c))
+    }
   })
 })
 

@@ -81,7 +81,7 @@ export const SETTINGS_INDEX: SettingEntry[] = [
   { section: 'maintenance', anchor: 'exports-folder', label: 'Finished videos folder', keywords: 'finished videos exports export folder renders final mp4 where location' },
   { section: 'maintenance', anchor: 'free-up-space', label: 'Free up space', keywords: 'free up space cleanup disk storage trash shrink images clean up all channels leftover files uploaded videos' },
   { section: 'maintenance', anchor: 'move-uploaded', label: 'Move uploaded videos to another drive', keywords: 'archive move uploaded videos drive disk space external' },
-  { section: 'maintenance', anchor: 'episode-storage', label: "What's using space", keywords: 'storage disk usage space used episode scan preview cache' },
+  { section: 'files', anchor: 'episode-storage', label: "What's using space", keywords: 'storage disk usage space used episode scan preview cache' },
   { section: 'maintenance', anchor: 'smaller-files', label: 'Smaller files (compression)', keywords: 'compression compress smaller files aac jpeg png music narration images thumbnails' },
   { section: 'maintenance', anchor: 'ffmpeg', label: 'FFmpeg video engine', keywords: 'ffmpeg video engine assembly subtitles burn drawtext libass install' },
   { section: 'maintenance', anchor: 'about', label: 'Version and build', keywords: 'about version build copy report bug' },

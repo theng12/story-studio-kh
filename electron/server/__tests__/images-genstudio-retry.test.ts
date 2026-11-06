@@ -60,22 +60,25 @@ test('a busy fleet with the money returned is waited out, not dropped', () => {
   }
 })
 
-test('a capacity code that took money is NOT retried', () => {
-  // Settled credits mean a provider was paid and may already have rendered the
-  // image. Resubmitting over that charges the owner twice for one asset — the
-  // single worst outcome this file exists to prevent — so an assumption that
-  // can no longer be verified stops the retry, whatever the code claims.
+test('legacy or missing settlement does not decide; the code and the job state do', () => {
+  // Story no longer tracks credits — the error's credit fields are null — so a
+  // legacy payload's settled/released numbers can neither grant nor deny an
+  // attempt. Only the failure code, cancellation, modality and the
+  // unknown-outcome hold decide.
+  for (const over of [
+    { failure_code: 'SITE_PLACEMENT_EXHAUSTED', settled_credits: 12, released_credits: 0 },
+    { failure_code: 'SITE_CAPACITY_UNAVAILABLE', settled_credits: 3, released_credits: 9 },
+    {
+      failure_code: 'SITE_PLACEMENT_EXHAUSTED',
+      reserved_credits: undefined, settled_credits: undefined, released_credits: undefined,
+    },
+  ]) {
+    const plan = imageRetryPlan(imageFailure(over), 1)
+    assert.ok(plan, `${JSON.stringify(over)} must not deny the attempt by itself`)
+  }
   assert.equal(
-    imageRetryPlan(imageFailure({
-      failure_code: 'SITE_PLACEMENT_EXHAUSTED', settled_credits: 12, released_credits: 0,
-    }), 1),
-    null,
-  )
-  assert.equal(
-    imageRetryPlan(imageFailure({
-      failure_code: 'SITE_CAPACITY_UNAVAILABLE', settled_credits: 3, released_credits: 9,
-    }), 1),
-    null,
+    imageFailure({ failure_code: 'SITE_PLACEMENT_EXHAUSTED' }).settledCredits, null,
+    'the error publishes no settlement to decide on',
   )
 })
 
@@ -103,6 +106,18 @@ test('a cancelled job is never resubmitted', () => {
     imageRetryPlan(imageFailure({ failure_code: 'SITE_PLACEMENT_EXHAUSTED', cancelled: true }), 1),
     null,
   )
+})
+
+test('an unknown-outcome hold is never resubmitted', () => {
+  // The gateway may still be holding a result that has not landed; a busy code
+  // on such a job must not buy a second image.
+  for (const over of [{ recovery_state: 'unknown_outcome' }, { recovery_required: true }]) {
+    assert.equal(
+      imageRetryPlan(imageFailure({ failure_code: 'SITE_PLACEMENT_EXHAUSTED', ...over }), 1),
+      null,
+      JSON.stringify(over),
+    )
+  }
 })
 
 test('another modality queuing up is not licence to resubmit an image', () => {
@@ -172,8 +187,14 @@ test('the generator waits under the owner\'s control and resubmits under a deriv
   // chain (`resolveImageRetryScope`, via `deriveRouteRetryAttempt`) derived
   // from the failed job id, so a replayed retry re-attaches instead of paying.
   assert.equal(
-    source.match(/attempt = deriveRouteRetryAttempt\(attempt, e\.jobId \|\| acceptedTaskId, finalPrompt\)/g)?.length,
+    source.match(/attempt = deriveRouteRetryAttempt\(attempt, e\.jobId \|\| acceptedTaskId, finalPrompt(?:, retryDecisionScope)?\)/g)?.length,
     2,
+  )
+  // The second call site hands the recovery decision's scope through as the
+  // 4th argument, so a decision-named scope is never re-derived.
+  assert.equal(
+    source.match(/deriveRouteRetryAttempt\(attempt, e\.jobId \|\| acceptedTaskId, finalPrompt, retryDecisionScope\)/g)?.length,
+    1,
   )
   assert.doesNotMatch(source, /randomUUID/)
   assert.doesNotMatch(source, /nextImageRouteRetryIdentity/)

@@ -163,12 +163,13 @@ function finalStreamUrl(slug: string, episodeCode: string, now: FinalReviewFileN
 }
 
 /**
- * Every finished video of every channel that has review on, newest first.
+ * Every finished video of every channel, newest first.
  *
- * Only review-enabled channels are walked, which is what keeps "off" free: a
- * channel without the switch costs one config read, no folder walk. A hand-run
- * or imported final is included on the same rule as a pipeline one — the file
- * is the fact, not the run that produced it.
+ * Walks every channel regardless of review setting (owner, 2026-11-01: the
+ * Review page must show finals even when review is off — an empty page that
+ * says "turn review on" is a dead end when five finals actually exist).
+ * A hand-run or imported final is included on the same rule as a pipeline
+ * one — the file is the fact, not the run that produced it.
  */
 export async function listFinalReviews(options: { slug?: string } = {}): Promise<FinalReviewListResponse> {
   const projects = await pm.listProjects()
@@ -186,15 +187,15 @@ export async function listFinalReviews(options: { slug?: string } = {}): Promise
     } catch (error: any) {
       configError = `Could not read this channel's review setting: ${error?.message || error}`
     }
+    const enabled = finalReviewEnabled(config)
     const channel: FinalReviewChannel = {
       slug: project.slug,
       name: project.name,
-      review_enabled: finalReviewEnabled(config),
+      review_enabled: enabled,
       final_count: 0,
     }
     if (configError) channel.error = configError
     channels.push(channel)
-    if (!channel.review_enabled) return
 
     let failed = 0
     let ideas: Awaited<ReturnType<typeof im.getIdeas>>
@@ -224,6 +225,7 @@ export async function listFinalReviews(options: { slug?: string } = {}): Promise
           size: now.size,
           mtime_ms: now.mtime_ms,
           ino: now.ino,
+          review_enabled: enabled,
           review: await readFinalReview(finalPath, now),
         }
       } catch {

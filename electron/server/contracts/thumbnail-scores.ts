@@ -96,6 +96,13 @@ export interface ThumbnailScoreRecord {
   /**
    * The pick the scores produced, and why — the log the owner asked for so
    * the scores can later be compared with real click-through.
+   *
+   * A `basis: 'score'` pick may be KEPT from an earlier run when a later run
+   * could not measure every candidate (no model, a provider failure): it stays only
+   * while the file's content hash still matches the one that was scored, and
+   * its `reason` says the pick was kept because scoring was incomplete.
+   * A pin always wins over any of this, and a candidate the local rules now
+   * reject is never kept.
    */
   pick?: {
     filename: string

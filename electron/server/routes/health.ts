@@ -151,6 +151,8 @@ router.get('/models', async (_req, res) => {
       // field is: the page that shows the allowance must be able to say whether the
       // *model* stated it, and it cannot reconstruct that here.
       max_output_tokens_source: model.max_output_tokens_source,
+      max_request_tokens: model.max_request_tokens,
+      max_request_tokens_source: model.max_request_tokens_source,
       structured_output_mode: model.structured_output_mode,
       // Preserve GenStudio's published pricing verbatim. The renderer shows
       // these as rates because an LLM total is unknowable before generation.

@@ -48,6 +48,13 @@
         <button type="submit" class="btn btn-secondary" :disabled="!newTitle.trim() || !!busy">New Episode</button>
       </form>
       <p class="eb-hint eb-wide">Each episode gets its own code and folder. Building one never makes or buys songs.</p>
+      <form v-if="channelTargetMinutes !== null" class="eb-channel-target eb-wide" @submit.prevent="saveChannelTarget">
+        <label class="eb-label" for="eb-channel-target">Future mix target</label>
+        <input id="eb-channel-target" v-model.number="channelTargetMinutes" type="number" min="1" max="360" step="1" required class="input eb-num" :disabled="channelTargetSaving">
+        <span class="eb-hint">minutes · 1–360</span>
+        <button type="submit" class="btn btn-secondary" :disabled="channelTargetSaving">{{ channelTargetSaving ? 'Saving…' : 'Save channel target' }}</button>
+        <span class="eb-hint">New mixes start here. Saved mixes keep their own target.</span>
+      </form>
     </section>
 
     <WorkspaceNotice v-if="listError" tone="error" title="Could not load episodes">{{ listError }}</WorkspaceNotice>
@@ -459,6 +466,29 @@ const episodes = ref<Array<{ code: string; title: string; has_plan: boolean; son
 const allPools = ref<View['pools']>([])
 const listLoading = ref(false)
 const listError = ref('')
+const channelTargetMinutes = ref<number | null>(null)
+const channelTargetSaving = ref(false)
+
+async function saveChannelTarget() {
+  const minutes = Number(channelTargetMinutes.value)
+  if (!Number.isInteger(minutes) || minutes < 1 || minutes > 360) {
+    showError('Choose a mix target between 1 and 360 minutes.')
+    return
+  }
+  const scope = slug.value
+  channelTargetSaving.value = true
+  try {
+    const result = await put<{ channel_settings: Settings }>(`/projects/${scope}/music-episodes/channel-settings`, { target_length_s: minutes * 60 })
+    if (scope !== slug.value) return
+    channelTargetMinutes.value = result.channel_settings.target_length_s / 60
+    success('Channel target saved. Saved mixes keep their own target.')
+    if (!view.value?.doc) await loadView()
+  } catch (e: any) {
+    if (scope === slug.value) showError(e?.data?.detail || e?.message || 'Could not save the channel mix target.')
+  } finally {
+    channelTargetSaving.value = false
+  }
+}
 const code = ref(String(route.query.episode_id || '').toUpperCase())
 const newTitle = ref('')
 const view = ref<View | null>(null)
@@ -585,7 +615,10 @@ async function loadList() {
   listLoading.value = true
   listError.value = ''
   try {
-    const res = await get<{ episodes: typeof episodes.value; pools: View['pools'] }>(`/projects/${slug.value}/music-episodes`)
+    const scope = slug.value
+    const res = await get<{ episodes: typeof episodes.value; pools: View['pools']; channel_settings: Settings }>(`/projects/${scope}/music-episodes`)
+    if (scope !== slug.value) return
+    channelTargetMinutes.value = res.channel_settings.target_length_s / 60
     episodes.value = res.episodes
     allPools.value = res.pools
     if (!code.value) code.value = (res.episodes.find(e => e.has_plan) || res.episodes[0])?.code || ''
@@ -890,6 +923,7 @@ onMounted(async () => {
 .eb-episode-select { min-width: 280px; max-width: 460px; }
 .eb-new { display: flex; gap: 8px; flex: 1 1 360px; }
 .eb-new .input { flex: 1; }
+.eb-channel-target { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .eb-label { display: block; font-weight: 600; font-size: 13px; margin-bottom: 6px; color: var(--text-primary); }
 .eb-controls { display: flex; flex-wrap: wrap; gap: 14px 22px; align-items: flex-start; }
 .eb-controls-2 { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border); }

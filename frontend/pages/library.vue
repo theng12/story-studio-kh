@@ -12,6 +12,8 @@
         <button type="button" class="btn btn-secondary" :disabled="loading" @click="refreshStore">{{ loading ? 'Refreshing…' : 'Refresh Library' }}</button>
       </template>
     </PageTitle>
+    <!-- One line, fed from this page's own store rather than a cache key. -->
+    <ApiDataStatus :updated-at="lastVerifiedAt ? Date.parse(lastVerifiedAt) : null" :refreshing="loading" :error="pageError?.detail || null" @retry="refreshStore" />
     <div v-if="recovery" class="store-notice warning" role="status" aria-live="polite"><div><strong>A local Content Pack recovery needs your attention</strong><p>Refresh Library to see what is installed here, then install any packs still missing.</p><p>The unreadable index was reset; pack folders were retained. Reinstall any packs still missing.</p><button type="button" class="notice-action" :disabled="recoveryDismissBusy" @click="dismissRecovery">{{ recoveryDismissBusy ? 'Dismissing…' : 'Dismiss Notice' }}</button></div></div>
     <div v-if="recoveryError" class="store-notice warning" role="status" aria-live="polite"><div><strong>{{ recoveryError.action === 'dismiss' ? 'Content Pack recovery notice was not dismissed' : 'Content Pack recovery could not be checked' }}</strong><p>{{ recoveryError.detail }}</p></div></div>
     <div v-if="importBusy" class="store-notice neutral" role="status" aria-live="polite"><div><strong>Installing Content Pack…</strong><p>Reading the chosen .sspack and installing it on this Mac. This local install needs no Gateway connection.</p></div></div>

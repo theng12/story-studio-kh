@@ -53,6 +53,27 @@ test('every check has a default; loudness is Off, broken output is Block, and th
   assert.equal(await safetyMode(slug, 'loudness'), 'off')
 })
 
+test('silence tolerance defaults to ten, persists per channel, and is used fresh by checks', async () => {
+  const pm = await import('../services/project-manager.js')
+  const { finalCheckOptionsFor } = await import('../lib/final-video-check.js')
+  const other = (await pm.createProject({ name: 'Other Silence Channel' })).slug
+  assert.equal((await request(app).get(`/projects/${slug}/safety-checks`).expect(200)).body.silence_min_sec, 10)
+  await request(app).put(`/projects/${slug}/safety-checks`).send({ silence_min_sec: 15 }).expect(200)
+  assert.equal((await request(app).get(`/projects/${slug}/safety-checks`).expect(200)).body.silence_min_sec, 15)
+  assert.deepEqual(await finalCheckOptionsFor(slug), { silence_min_sec: 15 })
+  assert.deepEqual(await finalCheckOptionsFor(other), {})
+  await request(app).put(`/projects/${slug}/safety-checks`).send({ silence_min_sec: 20 }).expect(200)
+  assert.deepEqual(await finalCheckOptionsFor(slug), { silence_min_sec: 20 })
+  for (const bad of [0, 301, null, true, 'bad']) {
+    await request(app).put(`/projects/${slug}/safety-checks`).send({ silence_min_sec: bad }).expect(400)
+    assert.deepEqual(await finalCheckOptionsFor(slug), { silence_min_sec: 20 })
+  }
+  await request(app).post('/safety-checks/apply-to-all').send({ silence_min_sec: 12 }).expect(200)
+  assert.deepEqual(await finalCheckOptionsFor(other), { silence_min_sec: 12 })
+  await request(app).put(`/projects/${slug}/safety-checks`).send({ silence_min_sec: 10 }).expect(200)
+  assert.deepEqual(await finalCheckOptionsFor(slug), { silence_min_sec: 10 })
+})
+
 test('a failed check stops on Block, and carries on with a log line (Off) or a job warning (Warn)', async () => {
   const { safetyGate } = await import('../services/safety-checks.js')
   const { isNonRetryableError } = await import('../services/job-retry-policy.js')

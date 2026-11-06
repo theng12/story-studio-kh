@@ -955,6 +955,16 @@ export async function updateVideoMetadata(opts: {
   baseline?: VideoBackfillView
 }): Promise<UploadedVideo> {
   if (!opts.snippet && !opts.status) throw new Error('Name at least one YouTube metadata part to update.')
+  // A supplied-but-blank description would replace the live one with '' — the
+  // "published silent" shape, through the update door. Omitting the field stays
+  // a partial update (`?? live` below), so title-only changes keep working.
+  if (typeof opts.snippet?.description === 'string' && !opts.snippet.description.trim()) {
+    throw new Error(
+      'Story Studio stopped this update because the video details are not fit to publish: '
+      + 'the description supplied is blank. Nothing was changed on YouTube. '
+      + 'Write a description, then send the update again.',
+    )
+  }
   const live = opts.baseline ?? (await listVideoSnippetStatus(opts.slug, opts.accountId, [opts.videoId]))[opts.videoId]
   if (!live) throw new Error('YouTube did not return the exact video requested for metadata update.')
   if (!live.etag) throw new Error('YouTube did not return an ETag; refusing to overwrite metadata without concurrency protection.')
@@ -1335,6 +1345,7 @@ export interface VideoPublicationDetails {
   description?: string
   tags?: string[]
   thumbnailEtag?: string
+  thumbnailUrl?: string
 }
 
 const COMMENTS_MODERATION_URL = 'https://www.googleapis.com/youtube/v3/comments/setModerationStatus'
@@ -1420,6 +1431,7 @@ export async function listVideoPublicationDetails(
         description: snippet.description,
         tags: Array.isArray(snippet.tags) ? snippet.tags : [],
         thumbnailEtag: snippet.thumbnails?.default?.url,
+        thumbnailUrl: (snippet.thumbnails?.maxres || snippet.thumbnails?.standard || snippet.thumbnails?.high || snippet.thumbnails?.medium || snippet.thumbnails?.default)?.url,
       }
     }
   }

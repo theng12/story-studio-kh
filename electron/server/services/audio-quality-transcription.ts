@@ -58,16 +58,6 @@ export async function stageActiveAudioQualityCheck(input: {
   return { audioPath, audioHash: `sha256:${createHash('sha256').update(audio).digest('hex')}` }
 }
 
-export class AudioQualityVerificationCreditCeilingError extends Error {
-  constructor(readonly quote: Required<Pick<GenStudioTranscriptionQuote, 'id'>> & {
-    quoted_credit_cost?: number
-    price_version?: string
-  }, readonly remainingCredits: number) {
-    super(`Verification quote is ${quote.quoted_credit_cost ?? 'unpriced'} credits, above the ${remainingCredits}-credit remaining verification allowance.`)
-    this.name = 'AudioQualityVerificationCreditCeilingError'
-  }
-}
-
 export interface VerifyAudioQualityCandidateRawTranscriptInput {
   job: Pick<Job, 'project_slug' | 'episode_id'>
   actionId: string
@@ -76,8 +66,6 @@ export interface VerifyAudioQualityCandidateRawTranscriptInput {
   candidateOutDir: string
   apiKey: string
   transcription: { modelId: string; language?: string }
-  verification_credit_ceiling: number
-  verification_committed_credits?: number
   /** Exact quote persisted by the active-audio check route for these bytes. */
   preparedQuote?: { id: string; quoted_credit_cost?: number; price_version?: string }
   /** Route-owned atomic action checkpoint: revalidates source facts and reserves the live quote before confirm. */
@@ -119,12 +107,6 @@ function quoteFacts(quote: GenStudioTranscriptionQuote) {
 export async function verifyAudioQualityCandidateRawTranscript(
   input: VerifyAudioQualityCandidateRawTranscriptInput,
 ): Promise<AudioQualityCandidateRawTranscript> {
-  const ceiling = input.verification_credit_ceiling
-  // model-drift-allow: local verification ledger begins at zero before a provider confirmation.
-  const committed = input.verification_committed_credits ?? 0
-  if (!Number.isSafeInteger(ceiling) || ceiling < 1 || !Number.isSafeInteger(committed) || committed < 0) {
-    throw new Error('Candidate verification requires a positive whole-credit ceiling and non-negative committed credits.')
-  }
   const candidateRoot = path.resolve(input.candidateOutDir)
   const key = safeOutputKey(input.section, input.actionId)
   const outputPath = path.resolve(candidateRoot, key)
@@ -145,17 +127,9 @@ export async function verifyAudioQualityCandidateRawTranscript(
   let quote: ReturnType<typeof quoteFacts> | undefined
   const beforeConfirm = async (liveQuote: GenStudioTranscriptionQuote) => {
     quote = quoteFacts(liveQuote)
-    const remaining = ceiling - committed
-    // The initial value is only a fast refusal. The action owner must reserve
-    // the quote under its lock here so concurrent selected chapters cannot
-    // each spend the same uncommitted allowance. It also durably records a
-    // held quote before rejecting it; a local early throw would strand the
-    // candidate as Confirmed after a restart.
-    if (input.authorizeQuote) {
-      await input.authorizeQuote(quote)
-    } else if (typeof liveQuote.quoted_credit_cost !== 'number' || liveQuote.quoted_credit_cost > remaining) {
-      throw new AudioQualityVerificationCreditCeilingError(quote, remaining)
-    }
+    // The action owner records the live quote under its lock, so concurrent
+    // selected chapters cannot each confirm against the same evidence.
+    if (input.authorizeQuote) await input.authorizeQuote(quote)
   }
   const record = async (taskId: string, state: string) => recordTaskStrict(candidateRoot, key, {
     provider: 'genstudio', task_id: taskId, submitted_at: priorEntry?.submitted_at || new Date().toISOString(),

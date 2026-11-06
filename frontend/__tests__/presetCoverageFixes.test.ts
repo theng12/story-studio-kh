@@ -18,6 +18,7 @@ import { fileURLToPath } from 'node:url'
 import { beforeEach, describe, test } from 'node:test'
 
 import { DEFAULT_EXCLUDE_KEYS, usePresets } from '../composables/usePresets.js'
+import { applyAmbientPresetRows } from '../utils/audio-merge-preset.js'
 
 const configStore: Record<string, any> = {}
 
@@ -230,7 +231,6 @@ describe('the Audio Assembly preset carries settings and never a file', () => {
         const liveFiles = [...live.music.files]
         const liveIntroFile = live.intro.file
         const liveNoiseFile = live.backgroundNoise.custom_file
-        const liveAmbientPaths = live.ambient.map(t => t.source_path)
 
         if (data.intro) Object.assign(live.intro, data.intro)
         if (data.music) {
@@ -242,19 +242,11 @@ describe('the Audio Assembly preset carries settings and never a file', () => {
         }
         if (data.background_noise) Object.assign(live.backgroundNoise, data.background_noise)
         if (Array.isArray(data.ambient_tracks)) {
-          live.ambient.splice(0, live.ambient.length, ...data.ambient_tracks.map((t: any) => ({ ...t })))
-          live.ambient.forEach((track, index) => {
-            const path = liveAmbientPaths[index]
-            if (path) track.source_path = path
-          })
+          applyAmbientPresetRows(live.ambient, data.ambient_tracks)
         }
         live.music.files = liveFiles
         live.intro.file = liveIntroFile
         live.backgroundNoise.custom_file = liveNoiseFile
-        live.ambient.forEach((track, index) => {
-          const path = liveAmbientPaths[index]
-          if (path) track.source_path = path
-        })
       },
     })
   }

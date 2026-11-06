@@ -4,6 +4,81 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.383 — 2026-11-06
+
+- An approved or resumed YouTube upload rechecks the exact frozen title and description before any provider or quota work. A blank field fails loudly with the episode named and asks you to review and confirm again; the live metadata is never substituted.
+- Final renders now hold the independently measured picture length to the plan, not just the container duration. A picture that cannot be measured is refused, and a remote import must pass the same check as a local render.
+- Closing-tail remixes treat missing or partial opening timing as unmeasured: they measure the original audio instead of reading a missing value as zero or borrowing the current preset's lead-in.
+- Unknown scene coverage stays unknown. Gaps are reported as not measured with a reason, completion stays false, and video assembly refuses with the missing narration coverage named.
+- Thumbnail scoring stays optional. A failed thumbnail-list read is reported as "not scored" with its reason, not as "no artwork"; an incomplete run keeps a valid earlier scored pick, and nothing is blocked.
+- Rounded and circular logos are cut to their exact shape at the render width and staged for remote final renders. If the shape cannot be prepared, the video stays local with the reason instead of sending the unshaped logo.
+- Built-in lettering and subtitle looks are now also authored as portable Content Packs: 29 lettering looks and 24 subtitle styles. Every existing built-in and alias stays available; removal waits for measured usage proof in a later release.
+- New read-only GETs expose saved preset pointers and each episode's lettering and subtitle selections for settings export. They run no migration and write nothing, and missing, corrupt and unreadable values stay distinct.
+- Video Assembly's background picker lists the app's shared backgrounds with previews. An episode's existing custom background choice stays in place and keeps rendering until you pick a replacement.
+- Remote final renders ask only for the exact optional late-label and subtitle capabilities. A Gateway that does not advertise them, or returns an incomplete contract, keeps the video local with a reason; older Gateways keep the existing v1 path.
+
+## v1.4.382 — 2026-11-05
+
+- Quitting while the first window is loading no longer opens a startup error dialog that can hold the app open.
+- Research before writing is a channel switch on Research, also shown in Pipeline. It starts on for writing channels and off for music channels. Missing presets or failed research show why they were skipped while writing continues; retries do not submit uncertain research again.
+- Each thumbnail prompt keeps its own recipe, art style, lettering and text placement. Review and approve prompts individually, deliberately enable automatic approval for an episode, or duplicate an option with its settings. Three options remain the default, with no fixed six-option ceiling.
+- Compare generated thumbnails side by side and pin the one to upload. Incomplete scoring preserves a valid earlier scored choice; missing images are reported as unmeasured. When every image fails the image checks, Regenerate once and score starts one confirmed generation and one rescore, then stops for your next choice.
+
+- Audio Assembly presets keep each live ambient clip in its current order while applying reusable mix settings. The duration estimate includes a selected music lead-in and the gap after a selected intro, and names the intro clip length and closing tail it has not counted.
+- Settings explains why Best rendering is unavailable and refreshes that reason after you save the private-render switch. Gateway protocol support alone cannot enable Best; qualified rendering evidence is still required.
+
+## v1.4.381 — 2026-11-05
+
+- Adding closing music to older narration preserves its original opening timing, so a newly selected music lead-in cannot shift the narration away from its scene plan and subtitles.
+- App Settings now holds this Mac's connections, default models, notifications, files, backup and maintenance controls. Channel Settings keeps channel controls, with each moved control in one place and existing saved choices preserved.
+- Coffee Jazz keeps recognizing its saved music formula when the store pack is unavailable. Episode Builder now saves an editable channel target for future mixes; existing mixes keep their saved length and songs.
+- Replace a published or scheduled video's YouTube thumbnail from any local candidate after confirmation. Progress and fresh YouTube readback show the result; the previous image is retained for restoration, including a friend's titled thumbnail. Visibility, schedule and metadata stay unchanged.
+- Private final rendering asks the Gateway for a Mac that supports the video's exact encoding settings, including hardware encoding and its chosen bitrate cap. Older Gateways keep the existing compatibility check; unavailable settings keep the render local with the reason shown.
+
+## v1.4.380 — 2026-11-04
+
+- Chapter writing requests size their deadline hints from the chapters being written, separately from the model's answer ceiling.
+- Cancelling a scene plan stops its active writing request before another pack starts.
+- Uncertain writing requests check the original provider outcome before any replacement. Finished answers are recovered; unknown outcomes keep their saved identity instead of sending duplicate work.
+- Cancelled jobs explain when their local worker is still stopping. Check again safely refreshes that state, and Retry stays blocked until the worker releases the episode.
+
+## v1.4.379 — 2026-11-04
+
+- Thumbnail Generator and Scene Review offer Text to image or Reference to image from the selected model's live Gateway modes. Unavailable modes show the reason. Text mode leaves saved references out of new requests; reference mode shows its published limits.
+
+- Refreshing YouTube status now checks the channel listing every time, so schedules created in YouTube Studio appear even when the previous check was recent. A failed listing refresh keeps the last successful results and reports the failure.
+
+## v1.4.378 — 2026-11-04
+
+- Writing requests now respect the request-size limit each AI pool publishes, alongside its context and answer limits. A limit the provider has not published is shown as unknown, never guessed. When neither your chosen allowance nor the provider sets an answer limit, requests allow up to 128,000 tokens of answer instead of a small default.
+- Studio Library removes retired credit and price fields while keeping old receipts readable.
+- The existing page guide uses the current New Channel, Library and channel-settings wording.
+- Job lists can now clear a row whose job the server no longer holds: Remove From List and Remove Finished work on those rows instead of answering "Job not found". Hidden-row counts follow the list, and files and billing records stay untouched.
+
+## v1.4.377 — 2026-11-03
+
+- Upload review shows a checklist for the title, description, tags, thumbnail, schedule, visibility, category and AI disclosure choice. Each says Present, Missing or Not checked; the checklist never blocks an upload and is also available in the preview JSON.
+- Upload previews with warnings say Warnings instead of Ready.
+- Publishing reflects saved channel labels and settings immediately, without waiting for the overview cache to expire.
+- Final video checks accept narration gaps of up to 10 seconds by default. Each channel can adjust its allowed gap in Safety Checks; only longer gaps are flagged.
+
+## 1.4.376 — 2026-11-03
+
+- Writing, image, subtitle and narration retries use the saved retry settings and keep their attempt count after a restart. A held or uncertain result stops further attempts instead of sending another request.
+- Failed generation requests no longer wait for retired credit balances or use separate paid and free retry rules. Gateway refusals keep their actual reason.
+- A new thumbnail or scene re-render starts its own request even when the previous action failed. Replaying the same action keeps its existing request identity. Contextual Cues can retry confirmed provider backpressure while cancellation and uncertain outcomes remain stopped.
+- macOS packages keep their normal app signatures instead of rewriting them after the build. This addresses the signing rejection reported when 1.4.375 started through the login agent.
+
+## v1.4.375 — 2026-11-02
+
+- Pages show their last loaded data immediately while checking for updates. The header says when data is refreshing or could not be refreshed, and changes you save update the shared page data.
+- Scene Import works with images and clips from any outside tool. Copy a scene prompt with its clip length, match files by scene name, and save custom allowed clip lengths for each channel. Watermarked clips are accepted.
+- Browser uploads send the image or clip itself to the Story server. Large images no longer hit the smaller JSON upload limit. Imported clips stay current, and a selected clip missing from disk falls back to its still image with the reason shown.
+- Publishing has owner-set channel labels and coverage filters, including Live, Preparing, Testing, Paused and Retired. Labels do not change uploading or publishing dates.
+- The main pages share one width and header. Review finals has clearer channel filters, compact rows and a direct link to the episode.
+- Studio Library shows a style pack's three preview pictures, opens them in a viewer, and keeps the detail page usable when a preview cannot load.
+- Sketch Draw offers six more reveal styles with samples. Moving a channel's default keeps following episodes consistent with that choice.
+
 ## v1.4.374 — 2026-11-01
 
 - Every Sketch Draw reveal now ends on the actual scene image. Clips you already made stay as they are and do not redraw.

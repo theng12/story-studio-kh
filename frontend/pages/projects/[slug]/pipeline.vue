@@ -70,6 +70,11 @@
         <strong>Repair selected gaps</strong> first collects results that finished but never saved, then redoes only what is still missing in the selected steps — that part may use credits.
         Both ask before anything starts.
       </p>
+      <p class="pipeline-command-copy">
+        Research before writing: <strong>{{ config ? (config.research_before_writing ? 'On' : 'Off') : 'Loading…' }}</strong>.
+        It follows the channel switch independently of these stage selections and never blocks writing.
+        <NuxtLink :to="`/projects/${slug}/research`">Change in Research</NuxtLink>
+      </p>
       <WorkspaceNotice v-if="formatError" tone="warning" title="Production flow unavailable">
         {{ formatError }} Stage selection and batch actions stay disabled until the channel format is available.
       </WorkspaceNotice>

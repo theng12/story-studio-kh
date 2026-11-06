@@ -14,6 +14,7 @@ import {
 } from './final-render-gateway-client.js'
 import { parseFinalRenderRemoteWaitReceipt, sameFinalRenderRemoteWaitIdentity } from './final-render-remote-wait.js'
 import { classifyFinalRenderContainerEvidence } from './ffmpeg-validation.js'
+import { checkPictureLength, PICTURE_SHORT_SLACK_SEC } from './final-duration-guard.js'
 import { finalLoudnessIssue } from './final-loudness.js'
 import type {
   FinalRenderIntentStagedReceiptV2,
@@ -568,6 +569,8 @@ export function validateFinalRenderTransportEvidence(
       outputCandidateIdentity = `${value.payload.candidate.dev}:${value.payload.candidate.ino}`
     } else if (value.event === 'output_validation_observed') {
       const media = value.payload.media
+      // Existing v3 receipts remain readable; new imports always probe the picture before writing one.
+      const hasPictureProbe = Object.prototype.hasOwnProperty.call(media ?? {}, 'videoDurationSec')
       const loudness = value.payload.loudness
       const target = value.payload.target
       const recipe = manifest.packet?.recipe
@@ -596,10 +599,11 @@ export function validateFinalRenderTransportEvidence(
         || value.payload.candidate.pathname !== outputCandidate
         || `${value.payload.candidate.dev}:${value.payload.candidate.ino}` !== outputCandidateIdentity
         || !exactKeys(media, [
-          'durationSec', 'hasVideo', 'hasAudio', 'videoCodec', 'audioCodec', 'width', 'height',
+          'durationSec', ...(hasPictureProbe ? ['videoDurationSec'] : []), 'hasVideo', 'hasAudio', 'videoCodec', 'audioCodec', 'width', 'height',
           'frameRate', 'containerNames', 'containerBrand', 'container', 'loudness',
         ])
         || !Number.isFinite(media.durationSec) || media.durationSec <= 0
+        || (hasPictureProbe && (!Number.isFinite(media.videoDurationSec) || media.videoDurationSec <= 0))
         || media.hasVideo !== true || media.hasAudio !== true
         || typeof media.videoCodec !== 'string' || !media.videoCodec
         || typeof media.audioCodec !== 'string' || !media.audioCodec
@@ -621,6 +625,12 @@ export function validateFinalRenderTransportEvidence(
         || !isDeepStrictEqual(media.loudness, loudness)
         || !isDeepStrictEqual(target, manifest.loudness)
         || value.payload.verdict !== 'pass') fail('output validation evidence is invalid')
+      // Retain old v3 history; newly observed picture lengths must meet the local encode rule.
+      const picture = hasPictureProbe ? checkPictureLength(media.videoDurationSec, Number(recipe?.target_duration_sec)) : null
+      if (picture?.state === 'short') {
+        fail(`output validation picture is ${media.videoDurationSec.toFixed(3)}s, more than `
+          + `${PICTURE_SHORT_SLACK_SEC}s shorter than the staged ${Number(recipe?.target_duration_sec).toFixed(3)}s recipe`)
+      }
       if (target.check === 'block' && finalLoudnessIssue(
         { lufs: loudness.lufs, true_peak_db: loudness.true_peak_db },
         { lufs: target.lufs, true_peak_db: target.true_peak_db, tolerance_pct: target.tolerance_pct, check: target.check },

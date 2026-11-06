@@ -247,6 +247,9 @@ export function describeOutputBudget(budget: OutputBudget | undefined): string |
 //     did before this rule existed.
 //   - a product that publishes no output ceiling keeps sending NO ceiling
 //     (owner decision #6): this bound never invents a number to send.
+//   - a product or pool that publishes a `max_request_tokens` (the Gateway's
+//     own admission line) refuses a prompt above it, with that published
+//     figure. It never lowers the answer, and an absent one enforces nothing.
 //   - when the prompt alone leaves no room, the call is refused BEFORE it is
 //     made, with both figures, rather than being sent to be cut off.
 
@@ -293,37 +296,86 @@ export interface ContextBoundedOutput {
   promptTokens: number
   /** The product's published window, or `null` when it states none. */
   contextWindowTokens: number | null
-  /** True when the prompt alone leaves no room for any answer. */
+  /**
+   * The product's published REQUEST ceiling (`max_request_tokens`), or `null`
+   * when it states none. This is the input-side admission line the Gateway
+   * publishes for the product/pool; it never bounds the answer, and an absent
+   * one stays absent (unknown) rather than becoming a number of ours.
+   */
+  requestLimit: number | null
+  /** True when the prompt alone leaves no room for any answer, at either limit. */
   overflow: boolean
+  /** Which published limit the prompt alone exceeds, or `null` when it fits. */
+  overflowLimit: 'request' | 'window' | null
 }
 
 /**
  * The context-window bound described above. Callers format their own refusal —
  * a chapter request and a chat request say the same thing in their own words —
  * but the NUMBERS are computed here and nowhere else.
+ *
+ * `maxRequestTokens` is the product's published `max_request_tokens`, when the
+ * Gateway published one for this model or pool. It is the INPUT-side admission
+ * line: a prompt above it is refused by the Gateway, so the request is refused
+ * here first, with the model's own figure, instead of being sent to fail. It
+ * never lowers the answer allowance — a published request ceiling already
+ * reserves room for the answer (gemma-4: 23,000 request + 8,192 answer inside a
+ * 32,768 window). An absent value is UNKNOWN: no request ceiling is enforced,
+ * and Story never substitutes one — the fleet's `caller → published cap →
+ * 128,000` chain keeps its last link downstream (Studio Hub), never a 4,096.
  */
 export function boundOutputTokensToContext(
   requestedTokens: number | null,
   contextWindowTokens: unknown,
   promptCharacters: number,
   promptNonAsciiCharacters = 0,
+  maxRequestTokens: unknown = null,
 ): ContextBoundedOutput {
   const promptTokens = estimatePromptTokens(promptCharacters, promptNonAsciiCharacters)
   const window = Number.isInteger(contextWindowTokens) && (contextWindowTokens as number) >= 1
     ? contextWindowTokens as number
     : null
+  const requestLimit = Number.isInteger(maxRequestTokens) && (maxRequestTokens as number) >= 1
+    ? maxRequestTokens as number
+    : null
+  if (requestLimit !== null && promptTokens > requestLimit) {
+    return {
+      maxTokens: requestedTokens === null ? null : 1,
+      promptTokens,
+      contextWindowTokens: window,
+      requestLimit,
+      overflow: true,
+      overflowLimit: 'request',
+    }
+  }
   if (window === null) {
-    return { maxTokens: requestedTokens, promptTokens, contextWindowTokens: null, overflow: false }
+    return {
+      maxTokens: requestedTokens,
+      promptTokens,
+      contextWindowTokens: null,
+      requestLimit,
+      overflow: false,
+      overflowLimit: null,
+    }
   }
   const available = window - promptTokens
   if (available < 1) {
-    return { maxTokens: requestedTokens === null ? null : 1, promptTokens, contextWindowTokens: window, overflow: true }
+    return {
+      maxTokens: requestedTokens === null ? null : 1,
+      promptTokens,
+      contextWindowTokens: window,
+      requestLimit,
+      overflow: true,
+      overflowLimit: 'window',
+    }
   }
   return {
     maxTokens: requestedTokens === null ? null : Math.min(requestedTokens, available),
     promptTokens,
     contextWindowTokens: window,
+    requestLimit,
     overflow: false,
+    overflowLimit: null,
   }
 }
 

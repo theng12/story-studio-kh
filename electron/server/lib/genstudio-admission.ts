@@ -19,7 +19,6 @@ export interface GenStudioServiceTierStanding {
 }
 
 export interface GenStudioAccountCapacity {
-  credit_balance?: number
   paid_concurrency_limit: number
   paid_active_jobs: number
   paid_queued_jobs: number
@@ -59,39 +58,10 @@ interface AdmissionWaiter {
   state?: GenStudioAdmissionState
 }
 
-interface CreditHold {
-  error: Error
-  balance: number | null
-  /**
-   * When the hold was taken, so it can expire.
-   *
-   * A hold clears when the balance is strictly GREATER than `balance` above,
-   * which is the only honest proof of replenishment — a lower or equal balance
-   * proves nothing. But an endpoint whose balance is permanently `0` can never
-   * satisfy it, so without an expiry a single 402 would hold that API key for
-   * the life of the process and every later request would re-throw a stale
-   * error. gateway-kh never returns 402, so this is dormant today; it stops the
-   * next charging endpoint from bricking a key.
-   */
-  at: number
-}
-
 const WINDOW_MS = 60_000
 const DEFAULT_REFRESH_MS = 15_000
 const QUEUED_REFRESH_MS = 5_000
 const DEFAULT_GLOBAL_FAILURE_RETRY_MS = 60_000
-/**
- * Ceiling on how long a credit hold may suppress submissions.
- *
- * On expiry the hold is dropped and the next request is allowed to try again, so
- * the worst case is one wasted request per interval — never a permanently dead
- * key. Long enough that a genuinely exhausted account is not re-probed on every
- * submission, short enough that buying credits is not followed by an hour of
- * confusing refusals.
- */
-const CREDIT_HOLD_MAX_MS = 15 * 60_000
-
-export { CREDIT_HOLD_MAX_MS }
 const SAFE_FALLBACK: GenStudioAccountCapacity = {
   paid_concurrency_limit: 1,
   paid_active_jobs: 0,
@@ -187,11 +157,6 @@ function validTierStanding(value: unknown): value is GenStudioServiceTierStandin
 
 function normalizeCapacity(value: GenStudioAccountCapacity): GenStudioAccountCapacity {
   return {
-    ...(typeof value.credit_balance === 'number'
-      && Number.isInteger(value.credit_balance)
-      && value.credit_balance >= 0
-      ? { credit_balance: value.credit_balance }
-      : {}),
     paid_concurrency_limit: whole(value.paid_concurrency_limit, 1, 1),
     paid_active_jobs: whole(value.paid_active_jobs, 0),
     paid_queued_jobs: whole(value.paid_queued_jobs, 0),
@@ -222,8 +187,6 @@ export class GenStudioAdmissionPool {
   // GenStudio is still the remote admission authority.
   private globalFailure: Error | null = null
   private globalFailureUntil = 0
-  private readonly creditBalances = new Map<string, number>()
-  private readonly creditHolds = new Map<string, CreditHold>()
   private readonly waiters: AdmissionWaiter[] = []
   private wakeTimer: ReturnType<typeof setTimeout> | null = null
   private wakeAt = 0
@@ -265,7 +228,6 @@ export class GenStudioAdmissionPool {
   ): Promise<T> {
     if (signal?.aborted) throw new Error('Cancelled by user')
     await this.refresh(apiKey)
-    await this.requireCreditReady(apiKey)
     return new Promise<T>((resolve, reject) => {
       const waiter: AdmissionWaiter = {
         apiKey,
@@ -396,54 +358,6 @@ export class GenStudioAdmissionPool {
     this.drain()
   }
 
-  /** Reject every not-yet-submitted request for the account that returned 402. */
-  noteInsufficientCredits(apiKey: string, error: Error): void {
-    this.creditHolds.set(apiKey, {
-      error,
-      balance: this.creditBalances.get(apiKey) ?? null,
-      at: Date.now(),
-    })
-    const blocked = this.waiters.filter(waiter => waiter.apiKey === apiKey)
-    for (const waiter of blocked) {
-      const index = this.waiters.indexOf(waiter)
-      if (index >= 0) this.waiters.splice(index, 1)
-      this.rejectWaiter(waiter, error)
-    }
-    this.scheduleWake()
-  }
-
-  private async requireCreditReady(apiKey: string): Promise<void> {
-    const hold = this.creditHolds.get(apiKey)
-    if (!hold) return
-    // A hold is never permanent. Without this, an endpoint that reports a
-    // constant balance (gateway-kh always reports 0) could never satisfy the
-    // strictly-greater test below, and one 402 would disable the key for the
-    // life of the process. Expiry makes the failure bounded and recoverable.
-    if (Date.now() - hold.at >= CREDIT_HOLD_MAX_MS) {
-      this.creditHolds.delete(apiKey)
-      return
-    }
-    try {
-      const overview = await this.loadCapacity(apiKey)
-      const fresh = normalizeCapacity(overview)
-      const balance = fresh.credit_balance
-      if (balance !== undefined) this.creditBalances.set(apiKey, balance)
-      if (hold.balance !== null && balance !== undefined && balance > hold.balance) {
-        this.creditHolds.delete(apiKey)
-        const state = this.stateFor(apiKey)
-        state.capacity = fresh
-        state.limitSource = 'account-overview'
-        state.capacityVerified = hasVerifiedCapacity(overview)
-        state.refreshedAt = Date.now()
-        state.refreshAfter = Date.now() + this.cacheMs
-        return
-      }
-    } catch {
-      // An unavailable balance cannot prove that the account was replenished.
-    }
-    throw hold.error
-  }
-
   private async refresh(apiKey: string): Promise<void> {
     const state = this.stateFor(apiKey)
     if (Date.now() < state.refreshAfter) return
@@ -452,9 +366,6 @@ export class GenStudioAdmissionPool {
       try {
         const overview = await this.loadCapacity(apiKey)
         state.capacity = normalizeCapacity(overview)
-        if (state.capacity.credit_balance !== undefined) {
-          this.creditBalances.set(apiKey, state.capacity.credit_balance)
-        }
         state.limitSource = 'account-overview'
         state.capacityVerified = hasVerifiedCapacity(overview)
         state.refreshedAt = Date.now()
@@ -541,13 +452,6 @@ export class GenStudioAdmissionPool {
       let selectedState: CapacityState | null = null
       for (let index = 0; index < this.waiters.length; index++) {
         const waiter = this.waiters[index]!
-        const creditHold = this.creditHolds.get(waiter.apiKey)
-        if (creditHold) {
-          this.waiters.splice(index, 1)
-          this.rejectWaiter(waiter, creditHold.error)
-          index--
-          continue
-        }
         if (waiter.signal?.aborted) {
           this.waiters.splice(index, 1)
           this.rejectWaiter(waiter, new Error('Cancelled by user'))

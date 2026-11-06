@@ -1199,7 +1199,12 @@ export async function updateProject(slug: string, req: UpdateProjectRequest): Pr
     changed = JSON.stringify(merged) !== JSON.stringify(data)
     if (changed) await writeJsonAtomic(metaPath, merged)
   })
-  if (changed) await syncManifest(slug)
+  if (changed) {
+    await syncManifest(slug)
+    // Refresh saved channel facts immediately; dynamic import avoids the overview's dependency cycle.
+    const { invalidatePublishingOverviewCache } = await import('./publishing-overview.js')
+    invalidatePublishingOverviewCache()
+  }
   return merged
 }
 
@@ -1571,6 +1576,7 @@ export async function getSafeConfig(slug: string): Promise<any | null> {
     // an entry the saved range would be invisible on the next read and the
     // Script page would re-render the Formula's default. Undefined means "never
     // set", which resolves to the live Formula's range (lib/episode-length.ts).
+    music_episode_target_length_s: config.music_episode_target_length_s,
     episode_length: (() => {
       const raw = (config as any).episode_length
       if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined
@@ -1617,6 +1623,7 @@ export async function getSafeConfig(slug: string): Promise<any | null> {
     // an entry the saved value would be invisible on the next read and the
     // page would re-render its default. Undefined means "never set", which
     // resolves to OFF (lib/research-verification.ts).
+    research_before_writing: await (await import('../lib/research-before-writing.js')).researchBeforeWritingEnabled(slug, config),
     research_auto_approve_claims: typeof (config as any).research_auto_approve_claims === 'boolean'
       ? (config as any).research_auto_approve_claims
       : undefined,
@@ -1659,6 +1666,10 @@ export async function getSafeConfig(slug: string): Promise<any | null> {
     // invisible on the next read (the write-only defect above).
     scene_image_check: ((raw as any).scene_image_check && typeof (raw as any).scene_image_check === 'object')
       ? (raw as any).scene_image_check
+      : undefined,
+    // 1.4.375 — scene import preset and allowed clip lengths for outside video/image tools.
+    scene_import: ((raw as any).scene_import && typeof (raw as any).scene_import === 'object')
+      ? (raw as any).scene_import
       : undefined,
     intro_standards: raw.intro_standards || '',
     standards_presets: raw.standards_presets || [],
@@ -1711,6 +1722,33 @@ export async function getSafeConfig(slug: string): Promise<any | null> {
   }
 
   return safe
+}
+
+/**
+ * Preset-pattern projection of config.json for read-only inventory exports
+ * (release 383). Same allowlist as getSafeConfig's pass-through — readJson +
+ * in-memory migrateProjectPresetFields + isPresetConfigKey — but deliberately
+ * NOT getSafeConfig: that path answers via getConfig (loads app secrets) and
+ * the voice-preset fields, which reach readSettings and its first-read chmod
+ * of the global app-settings.json. An export GET must not change mode/ctime
+ * of any file, so this reader touches config.json alone. Additive; nothing
+ * about getSafeConfig/readSettings changes.
+ */
+export async function readPresetState(slug: string): Promise<{ pointers: Record<string, unknown>; presets: Record<string, unknown> } | null> {
+  const projectDir = getProjectDir(slug)
+  if (!projectDir) return null
+  const configPath = path.join(projectDir, 'config.json')
+  if (!existsSync(configPath)) return null
+  const raw = await readJson(configPath)
+  migrateProjectPresetFields(raw)
+  const pointers: Record<string, unknown> = {}
+  const presets: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(raw)) {
+    if (!isPresetConfigKey(key)) continue
+    if (key.endsWith('_presets')) presets[key] = value ?? null
+    else pointers[key] = value ?? null
+  }
+  return { pointers, presets }
 }
 
 export async function updateApiKeys(slug: string, req: UpdateApiKeysRequest): Promise<boolean> {

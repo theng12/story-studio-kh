@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { describe, test, type TestContext } from 'node:test'
+import { afterEach, describe, test, type TestContext } from 'node:test'
 import { createApp, defineComponent, h, nextTick, reactive, ref, type Component } from 'vue'
 import { parse, compileScript, compileTemplate } from '@vue/compiler-sfc'
 import { transform } from 'esbuild'
@@ -38,7 +38,18 @@ async function loadPage(): Promise<Component> {
   ).toString('base64')}`)).default
 }
 
+async function loadChecklist(): Promise<Component> {
+  const filename = fileURLToPath(new URL('../components/UploadMetadataChecklist.vue', import.meta.url))
+  const { descriptor } = parse(readFileSync(filename, 'utf8'), { filename })
+  const script = compileScript(descriptor, { id: 'upload-checklist', inlineTemplate: true })
+  const vueUrl = await import.meta.resolve('vue')
+  const out = await transform(`import { computed } from ${JSON.stringify(vueUrl)}\n${script.content}`, { loader: 'ts', format: 'esm' })
+  return (await import(`data:text/javascript;base64,${Buffer.from(out.code.replaceAll('"vue"', JSON.stringify(vueUrl))).toString('base64')}`)).default
+}
+
 interface Recorded { method: string; path: string; body?: any }
+
+const mountedFixtures = new Set<() => void>()
 
 async function mount(input: {
   /** Upload RECORDS. Each becomes a rendered episode carrying that record. */
@@ -193,15 +204,18 @@ async function mount(input: {
       }, `${props.label || ''} ${props.progress ?? ''}% ${props.bytesDone ?? ''}/${props.bytesTotal ?? ''}`)
     },
   }))
+  app.component('UploadMetadataChecklist', await loadChecklist())
   app.mount(el)
   for (let i = 0; i < 6; i++) await nextTick()
   let destroyed = false
   const destroy = () => {
     if (destroyed) return
     destroyed = true
+    mountedFixtures.delete(destroy)
     app.unmount()
     el.remove()
   }
+  mountedFixtures.add(destroy)
   // A test that fails on an assertion must still give the fixture back: the
   // page arms a 5-second final-check interval and a 60-second plan clock,
   // and an unmounted page never clears them — the test file would then sit
@@ -230,6 +244,10 @@ async function uploadCountAfterSelecting(el: HTMLElement, code: string): Promise
 }
 
 describe('Upload Center Publish', () => {
+  afterEach(() => {
+    for (const destroy of mountedFixtures) destroy()
+  })
+
   test('shows YouTube’s own refusal reason rather than a generic failure', async () => {
     const mounted = await mount({
       operations: [{
@@ -902,6 +920,26 @@ describe('Upload Center Publish', () => {
     assert.match(text, /YouTube itself allows up to 5,000 bytes/, 'while stating YouTube’s own limit separately')
     assert.doesNotMatch(text, /YouTube allows at most 4,900 bytes/, 'and never claims YouTube’s limit is the working limit')
     mounted.destroy()
+  })
+
+  test('missing advisory checklist fields remain visible and do not block upload', async (t) => {
+    const mounted = await mount({
+      episodes: [NEVER_UPLOADED],
+      preview: { ...PREVIEWED, checklist: [
+        { field: 'title', label: 'Title', state: 'present' },
+        { field: 'tags', label: 'Tags', state: 'missing' },
+        { field: 'thumbnail', label: 'Thumbnail', state: 'not_checked' },
+      ] },
+    }, t)
+    const upload = await previewThen(mounted)
+    const checklist = mounted.el.querySelector('[aria-label="Upload checklist"]')!
+    assert.match(checklist.textContent || '', /TitlePresent/)
+    assert.match(checklist.textContent || '', /TagsMissing/)
+    assert.match(checklist.textContent || '', /ThumbnailNot checked/)
+    assert.equal(upload.disabled, false)
+    upload.click()
+    for (let i = 0; i < 8; i++) await nextTick()
+    assert.equal(mounted.calls.filter(call => call.path.endsWith('/youtube/upload')).length, 1)
   })
 
   test('an episode that has never been uploaded is offered, previewed and uploaded', async () => {
@@ -1624,6 +1662,24 @@ describe('Upload Center Publish', () => {
       /\(1\)/,
     )
     mounted.destroy()
+  })
+
+  test('bulk review labels warnings honestly and older previews show unchecked checklist fields', async (t) => {
+    const mounted = await mount({
+      episodes: [NEVER_UPLOADED],
+      preview: { ...PREVIEWED, warnings: ['A schedule needs attention.'] },
+    }, t)
+    ;[...mounted.el.querySelectorAll<HTMLButtonElement>('button')]
+      .find(button => button.textContent!.includes('Select All Matching'))!.click()
+    await nextTick()
+    ;[...mounted.el.querySelectorAll<HTMLButtonElement>('button')]
+      .find(button => button.textContent!.includes('Review Selected Uploads'))!.click()
+    for (let i = 0; i < 10; i++) await nextTick()
+    const dialog = mounted.el.querySelector('[aria-labelledby="bulk-upload-review-title"]')!
+    assert.match(dialog.textContent || '', /Warnings · 1 warning/)
+    assert.doesNotMatch(dialog.textContent || '', /Ready ·/)
+    assert.equal(dialog.querySelectorAll('.metadata-checklist li').length, 8)
+    assert.equal([...dialog.querySelectorAll('.metadata-checklist strong')].every(item => item.textContent?.trim() === 'Not checked'), true)
   })
 
   test('bulk review shows exact files thumbnails metadata channel and timing, then queues each reviewed fence once', async () => {

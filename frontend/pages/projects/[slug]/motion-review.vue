@@ -41,6 +41,9 @@
         on import to the same shape this render uses. Long clips are trimmed and short external or legacy clips loop to
         fill the narration window. Clips generated with Follow narration hold their final frame instead when they cannot
         reach the full scene.
+        <template #actions>
+          <NuxtLink :to="`/projects/${slug}/scene-import?episode_id=${encodeURIComponent(episodeId)}`" class="btn btn-sm btn-secondary">Import clips made outside the app</NuxtLink>
+        </template>
       </WorkspaceNotice>
     </div>
 
@@ -113,19 +116,43 @@
       </div>
       <div class="motion-tool-row">
         <div class="motion-tool-heading">
-          <strong>Motion controls</strong>
-          <span>Choose how clips are made, then review each scoped scene.</span>
+          <strong>Motion controls <span class="field-hint"><button type="button" class="field-hint-dot" aria-label="Help" aria-describedby="motion-controls-help" @keydown.esc.prevent="($event.target as HTMLElement).blur()">?</button><span id="motion-controls-help" class="field-hint-pop">Choose how clips are made, then review each scoped scene. <span v-if="isSketchDraw">A channel default (pen, hold, reveal, line weight) applies to new episodes and episodes with no clips yet.</span></span></span></strong>
         </div>
         <div class="motion-renderer-row">
-          <label class="model-field renderer-field">
-            <span>Renderer</span>
+          <div class="model-field renderer-field">
+            <div class="field-label-row">
+              <span class="field-label">
+                <span>Renderer</span>
+                <span v-if="isSketchDraw" class="field-hint">
+                  <button type="button" class="field-hint-dot" aria-label="Help" aria-describedby="sketch-renderer-help" @keydown.esc.prevent="($event.target as HTMLElement).blur()">?</button>
+                  <span id="sketch-renderer-help" class="field-hint-pop">Draw the exact scene image, add colour, then hold the complete image for its Scene Plan window. Free, on this Mac.
+                    Each clip lasts exactly its scene window at your Video Assembly frame rate; prompt text does not change the drawing.</span>
+                </span>
+              </span>
+            </div>
             <select v-model="clipRenderer" class="select" :disabled="!presentationLoaded || presentationSaving" aria-label="Motion renderer" @change="saveMotionPresentation">
               <option value="image_to_video">Image to video</option>
               <option value="sketch_draw">Sketch Draw</option>
             </select>
-          </label>
-          <label v-if="isSketchDraw" class="model-field renderer-field">
-            <span>Pen for {{ episodeId }}</span>
+          </div>
+          <div v-if="isSketchDraw" class="model-field renderer-field">
+            <div class="field-label-row">
+              <span class="field-label">
+                <span>Pen for {{ episodeId }}</span>
+                <span class="field-hint">
+                  <button type="button" class="field-hint-dot" aria-label="Help" aria-describedby="sketch-pen-help" @keydown.esc.prevent="($event.target as HTMLElement).blur()">?</button>
+                  <span id="sketch-pen-help" class="field-hint-pop" role="status">
+                    <span v-if="!penLoaded">Loading this episode's pen.</span>
+                    <span v-else-if="penUnreadable">{{ penUnreadable }} Choose a pen to replace it; Sketch Draw waits until you do.</span>
+                    <span v-else-if="episodePen">{{ episodeId }} uses its own pen: {{ penLabel(episodePen) }}. Other episodes are not affected.</span>
+                    <span v-else>{{ episodeId }} follows the channel default pen: {{ penLabel(channelPen) }}. Choosing a pen here changes only {{ episodeId }}.</span>
+                    <span v-if="sketchPen === 'name'">Pen name: {{ channelName }}.</span>
+                    <span v-if="!channelHasLogo">Channel logo pen is unavailable. Add a logo in Channel Profile to use it.</span>
+                  </span>
+                </span>
+              </span>
+              <button v-if="isSketchDraw && penLoaded && episodePen && episodePen !== channelPen" type="button" class="btn btn-sm btn-ghost" :disabled="penSaving || presentationSaving" @click="setChannelPenDefault">Set as channel default</button>
+            </div>
             <select v-model="penChoice" class="select" :disabled="!penLoaded || penSaving" aria-label="Sketch Draw pen for this episode" aria-describedby="sketch-pen-help" @change="saveEpisodePen">
               <option v-if="penUnreadable" value="" disabled>Choose a pen…</option>
               <option value="channel">Channel default ({{ penLabel(channelPen) }})</option>
@@ -134,12 +161,28 @@
               <option value="name">Pen with channel name</option>
               <option value="logo" :disabled="!channelHasLogo">Pen with channel logo</option>
             </select>
-          </label>
-          <button v-if="isSketchDraw && penLoaded && episodePen && episodePen !== channelPen" type="button" class="btn btn-sm btn-ghost" :disabled="penSaving || presentationSaving" @click="setChannelPenDefault">
-            Make this the channel default
-          </button>
-          <label v-if="isSketchDraw" class="model-field renderer-field">
-            <span>Closing hold for {{ episodeId }}</span>
+          </div>
+          <div v-if="isSketchDraw" class="model-field renderer-field">
+            <div class="field-label-row">
+              <span class="field-label">
+                <span>Closing hold for {{ episodeId }}</span>
+                <span class="field-hint">
+                  <button type="button" class="field-hint-dot" aria-label="Help" aria-describedby="sketch-hold-help" @keydown.esc.prevent="($event.target as HTMLElement).blur()">?</button>
+                  <span id="sketch-hold-help" class="field-hint-pop" role="status">
+                    The drawing finishes, then the complete image holds for the closing hold. A hold never takes more than half a scene, so the drawing always has time; scene length and narration do not change.
+                    <span v-if="!holdLoaded">Loading this episode's closing hold.</span>
+                    <span v-else-if="holdUnreadable">{{ holdUnreadable }} Choose a hold to replace it; Sketch Draw waits until you do.</span>
+                    <span v-else-if="episodeHold">{{ episodeId }} uses its own hold: {{ holdLabel(episodeHold) }}. Other episodes are not affected.</span>
+                    <span v-else>{{ episodeId }} follows the channel default hold: {{ holdLabel(channelHold) }}. Choosing a hold here changes only {{ episodeId }}.</span>
+                    <span v-if="holdChoice === 'range'">Each scene gets its own hold between the two, the same every time it is re-rendered.</span>
+                    <span v-if="holdPending">Not applied yet. Apply the hold, or pick another option, before generating.</span>
+                    <span v-if="holdError" class="stale-note" role="alert">{{ holdError }}</span>
+                    <span>Clips made before this setting keep their old hold until you re-generate them.</span>
+                  </span>
+                </span>
+              </span>
+              <button v-if="isSketchDraw && holdLoaded && episodeHold && JSON.stringify(episodeHold) !== JSON.stringify(channelHold)" type="button" class="btn btn-sm btn-ghost" :disabled="holdSaving || presentationSaving" @click="setChannelHoldDefault">Set as channel default</button>
+            </div>
             <select v-model="holdChoice" class="select" :disabled="!holdLoaded || holdSaving" aria-label="Sketch Draw closing hold for this episode" aria-describedby="sketch-hold-help" @change="onHoldChoice">
               <option v-if="holdUnreadable" value="" disabled>Choose a hold…</option>
               <option value="channel">Channel default ({{ holdLabel(channelHold) }})</option>
@@ -148,92 +191,76 @@
               <option value="fixed">Fixed seconds</option>
               <option value="range">Random range</option>
             </select>
-          </label>
-          <div v-if="isSketchDraw && holdLoaded && (holdChoice === 'fixed' || holdChoice === 'range')" class="hold-inputs">
-            <label v-if="holdChoice === 'fixed'" class="model-field">
-              <span>Seconds</span>
-              <input v-model="holdDraft.fixed" type="number" class="input" min="0.1" :max="HOLD_MAX_SECONDS" step="0.1" inputmode="decimal" aria-label="Closing hold in seconds" aria-describedby="sketch-hold-help" @keydown.enter.prevent="applyHold">
-            </label>
-            <template v-else>
-              <label class="model-field">
-                <span>Shortest (s)</span>
-                <input v-model="holdDraft.min" type="number" class="input" min="0.1" :max="HOLD_MAX_SECONDS" step="0.1" inputmode="decimal" aria-label="Shortest closing hold in seconds" aria-describedby="sketch-hold-help" @keydown.enter.prevent="applyHold">
+            <div v-if="isSketchDraw && holdLoaded && (holdChoice === 'fixed' || holdChoice === 'range')" class="hold-inputs">
+              <label v-if="holdChoice === 'fixed'" class="model-field">
+                <span>Seconds</span>
+                <input v-model="holdDraft.fixed" type="number" class="input" min="0.1" :max="HOLD_MAX_SECONDS" step="0.1" inputmode="decimal" aria-label="Closing hold in seconds" aria-describedby="sketch-hold-help" @keydown.enter.prevent="applyHold">
               </label>
-              <label class="model-field">
-                <span>Longest (s)</span>
-                <input v-model="holdDraft.max" type="number" class="input" min="0.1" :max="HOLD_MAX_SECONDS" step="0.1" inputmode="decimal" aria-label="Longest closing hold in seconds" aria-describedby="sketch-hold-help" @keydown.enter.prevent="applyHold">
-              </label>
-            </template>
-            <button type="button" class="btn btn-sm" :disabled="holdSaving || !holdPending" @click="applyHold">Apply hold</button>
+              <template v-else>
+                <label class="model-field">
+                  <span>Shortest (s)</span>
+                  <input v-model="holdDraft.min" type="number" class="input" min="0.1" :max="HOLD_MAX_SECONDS" step="0.1" inputmode="decimal" aria-label="Shortest closing hold in seconds" aria-describedby="sketch-hold-help" @keydown.enter.prevent="applyHold">
+                </label>
+                <label class="model-field">
+                  <span>Longest (s)</span>
+                  <input v-model="holdDraft.max" type="number" class="input" min="0.1" :max="HOLD_MAX_SECONDS" step="0.1" inputmode="decimal" aria-label="Longest closing hold in seconds" aria-describedby="sketch-hold-help" @keydown.enter.prevent="applyHold">
+                </label>
+              </template>
+              <button type="button" class="btn btn-sm" :disabled="holdSaving || !holdPending" @click="applyHold">Apply hold</button>
+            </div>
           </div>
-          <button v-if="isSketchDraw && holdLoaded && episodeHold && JSON.stringify(episodeHold) !== JSON.stringify(channelHold)" type="button" class="btn btn-sm btn-ghost" :disabled="holdSaving || presentationSaving" @click="setChannelHoldDefault">
-            Make this the channel default hold
-          </button>
           <div v-if="isSketchDraw" class="model-field renderer-field">
-            <span>Reveal style for {{ episodeId }}</span>
+            <div class="field-label-row">
+              <span class="field-label">
+                <span>Reveal style for {{ episodeId }}</span>
+                <span class="field-hint">
+                  <button type="button" class="field-hint-dot" aria-label="Help" aria-describedby="sketch-reveal-help" @keydown.esc.prevent="($event.target as HTMLElement).blur()">?</button>
+                  <span id="sketch-reveal-help" class="field-hint-pop" role="status">
+                    How each scene's finished drawing arrives. This is {{ episodeId }}'s setting; other episodes are not affected. Each scene records the style it actually drew with, so changing it re-generates only the scenes whose style moved.
+                    <span v-if="!revealLoaded">Loading this episode's reveal style.</span>
+                    <span v-else-if="revealUnreadable">{{ revealUnreadable }} Choose a reveal style to replace it; Sketch Draw waits until you do.</span>
+                    <span v-else-if="episodeReveal">{{ episodeId }} uses its own reveal: {{ revealLabel(episodeReveal) }}. Other episodes are not affected.</span>
+                    <span v-else-if="channelReveal">{{ episodeId }} follows the channel default reveal: {{ revealLabel(channelReveal) }}. Choosing a reveal here changes only {{ episodeId }}.</span>
+                    <span v-else>No reveal style chosen, so clips keep the reveal they were made with.</span>
+                    <span v-if="revealChoice === 'mix'">Each scene gets one of the picked styles, the same every time it is re-generated, and never the same style as the scene before it.</span>
+                    <span v-if="revealPending">Not applied yet. Apply the mix, or pick another option.</span>
+                    <span v-if="revealError" class="stale-note" role="alert">{{ revealError }}</span>
+                    <span>Clips made before this setting keep their reveal until you re-generate them.</span>
+                  </span>
+                </span>
+              </span>
+              <button v-if="isSketchDraw && revealLoaded && episodeReveal && JSON.stringify(episodeReveal) !== JSON.stringify(channelReveal)" type="button" class="btn btn-sm btn-ghost" :disabled="revealSaving || presentationSaving" @click="setChannelRevealDefault">Set as channel default</button>
+            </div>
             <SketchRevealPicker :model-value="revealChoice" :reveals="revealCatalog" :weight="episodeLineWeight ?? channelLineWeight" :disabled="!revealLoaded || revealSaving || !lineWeightLoaded || lineWeightSaving || !revealCatalog.length" :error="revealCatalogError" label="Sketch Draw reveal style for this episode" title="Choose a reveal" :inherit-label="`Channel default (${revealLabel(channelReveal)})`" inherit-value="channel" allow-mix @pick="pickEpisodeReveal" @weight="saveLineWeight" />
             <p v-if="revealCatalogError" role="alert">{{ revealCatalogError }} <button type="button" class="btn btn-sm" @click="loadRevealCatalog">Retry</button></p>
+            <div v-if="isSketchDraw && revealChoice === 'mix'" class="hold-inputs">
+              <SketchRevealPicker model-value="mix" :reveals="revealCatalog" :weight="episodeLineWeight ?? channelLineWeight" :mix="revealMixDraft" :disabled="revealSaving || !revealCatalog.length" multiple label="Choose Mix reveal styles" title="Choose Mix styles" description="Pick at least two styles. Each scene uses one." @mix="pickRevealMix" @weight="saveLineWeight" />
+            </div>
           </div>
-          <div v-if="isSketchDraw && revealChoice === 'mix'" class="hold-inputs">
-            <SketchRevealPicker model-value="mix" :reveals="revealCatalog" :weight="episodeLineWeight ?? channelLineWeight" :mix="revealMixDraft" :disabled="revealSaving || !revealCatalog.length" multiple label="Choose Mix reveal styles" title="Choose Mix styles" description="Pick at least two styles. Each scene uses one." @mix="pickRevealMix" @weight="saveLineWeight" />
+          <div v-if="isSketchDraw" class="model-field renderer-field">
+            <div class="field-label-row">
+              <span class="field-label">
+                <span>Line weight for {{ episodeId }}</span>
+                <span class="field-hint">
+                  <button type="button" class="field-hint-dot" aria-label="Help" aria-describedby="sketch-line-weight-help" @keydown.esc.prevent="($event.target as HTMLElement).blur()">?</button>
+                  <span id="sketch-line-weight-help" class="field-hint-pop" role="status">
+                    How heavy the ink is drawn. This is {{ episodeId }}'s setting; other episodes are not affected. Each scene records the weight it actually drew with, so changing it re-generates only the scenes whose weight moved.
+                    <span v-if="!lineWeightLoaded">Loading this episode's line weight.</span>
+                    <span v-else-if="lineWeightUnreadable">{{ lineWeightUnreadable }} Choose a line weight to replace it; Sketch Draw waits until you do.</span>
+                    <span v-else-if="episodeLineWeight">{{ episodeId }} uses its own weight: {{ lineWeightLabel(episodeLineWeight) }}. Other episodes are not affected.</span>
+                    <span v-else>{{ episodeId }} follows the channel default weight: {{ lineWeightLabel(channelLineWeight) }}. Choosing a weight here changes only {{ episodeId }}.</span>
+                    <span v-if="lineWeightError" class="stale-note" role="alert">{{ lineWeightError }}</span>
+                    <span>Clips made before this setting keep their weight until you re-generate them.</span>
+                  </span>
+                </span>
+              </span>
+              <button v-if="isSketchDraw && lineWeightLoaded && episodeLineWeight && episodeLineWeight !== channelLineWeight" type="button" class="btn btn-sm btn-ghost" :disabled="lineWeightSaving || presentationSaving" @click="setChannelLineWeightDefault">Set as channel default</button>
+            </div>
+            <div class="weight-tabs" role="group" aria-label="Sketch Draw line weight for this episode">
+              <button v-for="weight in LINE_WEIGHTS" :key="weight" type="button" class="weight-tab" :class="{ 'is-active': activeLineWeight === weight }" :aria-pressed="activeLineWeight === weight" :disabled="!lineWeightLoaded || lineWeightSaving" @click="chooseLineWeight(weight)">{{ lineWeightLabel(weight) }}</button>
+            </div>
+            <button v-if="isSketchDraw && lineWeightLoaded && episodeLineWeight" type="button" class="btn btn-sm btn-ghost" :disabled="lineWeightSaving || presentationSaving" @click="followChannelLineWeight">Channel default ({{ lineWeightLabel(channelLineWeight) }})</button>
           </div>
-          <button v-if="isSketchDraw && revealLoaded && episodeReveal && JSON.stringify(episodeReveal) !== JSON.stringify(channelReveal)" type="button" class="btn btn-sm btn-ghost" :disabled="revealSaving || presentationSaving" @click="setChannelRevealDefault">
-            Make this the channel default reveal
-          </button>
-          <label v-if="isSketchDraw" class="model-field renderer-field">
-            <span>Line weight for {{ episodeId }}</span>
-            <select v-model="lineWeightChoice" class="select" :disabled="!lineWeightLoaded || lineWeightSaving" aria-label="Sketch Draw line weight for this episode" aria-describedby="sketch-line-weight-help" @change="onLineWeightChoice">
-              <option v-if="lineWeightUnreadable" value="" disabled>Choose a line weight…</option>
-              <option value="channel">Channel default ({{ lineWeightLabel(channelLineWeight) }})</option>
-              <option v-for="weight in LINE_WEIGHTS" :key="weight" :value="weight">{{ lineWeightLabel(weight) }}</option>
-            </select>
-          </label>
-          <button v-if="isSketchDraw && lineWeightLoaded && episodeLineWeight && episodeLineWeight !== channelLineWeight" type="button" class="btn btn-sm btn-ghost" :disabled="lineWeightSaving || presentationSaving" @click="setChannelLineWeightDefault">
-            Make this the channel default weight
-          </button>
-          <div v-if="isSketchDraw" class="renderer-help-break" aria-hidden="true" />
-          <p v-if="isSketchDraw" id="sketch-line-weight-help" class="renderer-help" role="status">
-            How heavy the ink is drawn. This is {{ episodeId }}'s setting; other episodes are not affected. Each scene records the weight it actually drew with, so changing it re-generates only the scenes whose weight moved.
-            <span v-if="!lineWeightLoaded">Loading this episode's line weight.</span>
-            <span v-else-if="lineWeightUnreadable">{{ lineWeightUnreadable }} Choose a line weight to replace it; Sketch Draw waits until you do.</span>
-            <span v-else-if="episodeLineWeight">{{ episodeId }} uses its own weight: {{ lineWeightLabel(episodeLineWeight) }}. Other episodes are not affected.</span>
-            <span v-else>{{ episodeId }} follows the channel default weight: {{ lineWeightLabel(channelLineWeight) }}. Choosing a weight here changes only {{ episodeId }}.</span>
-            <span v-if="lineWeightError" class="stale-note" role="alert">{{ lineWeightError }}</span>
-            <span>Clips made before this setting keep their weight until you re-generate them.</span>
-          </p>
-          <p v-if="isSketchDraw" id="sketch-reveal-help" class="renderer-help" role="status">
-            How each scene's finished drawing arrives. This is {{ episodeId }}'s setting; other episodes are not affected. Each scene records the style it actually drew with, so changing it re-generates only the scenes whose style moved.
-            <span v-if="!revealLoaded">Loading this episode's reveal style.</span>
-            <span v-else-if="revealUnreadable">{{ revealUnreadable }} Choose a reveal style to replace it; Sketch Draw waits until you do.</span>
-            <span v-else-if="episodeReveal">{{ episodeId }} uses its own reveal: {{ revealLabel(episodeReveal) }}. Other episodes are not affected.</span>
-            <span v-else-if="channelReveal">{{ episodeId }} follows the channel default reveal: {{ revealLabel(channelReveal) }}. Choosing a reveal here changes only {{ episodeId }}.</span>
-            <span v-else>No reveal style chosen, so clips keep the reveal they were made with.</span>
-            <span v-if="revealChoice === 'mix'">Each scene gets one of the picked styles, the same every time it is re-generated, and never the same style as the scene before it.</span>
-            <span v-if="revealPending">Not applied yet. Apply the mix, or pick another option.</span>
-            <span v-if="revealError" class="stale-note" role="alert">{{ revealError }}</span>
-            <span>Clips made before this setting keep their reveal until you re-generate them.</span>
-          </p>
-          <p v-if="isSketchDraw" id="sketch-hold-help" class="renderer-help" role="status">
-            The drawing finishes, then the complete image holds for the closing hold. A hold never takes more than half a scene, so the drawing always has time; scene length and narration do not change.
-            <span v-if="!holdLoaded">Loading this episode's closing hold.</span>
-            <span v-else-if="holdUnreadable">{{ holdUnreadable }} Choose a hold to replace it; Sketch Draw waits until you do.</span>
-            <span v-else-if="episodeHold">{{ episodeId }} uses its own hold: {{ holdLabel(episodeHold) }}. Other episodes are not affected.</span>
-            <span v-else>{{ episodeId }} follows the channel default hold: {{ holdLabel(channelHold) }}. Choosing a hold here changes only {{ episodeId }}.</span>
-            <span v-if="holdChoice === 'range'">Each scene gets its own hold between the two, the same every time it is re-rendered.</span>
-            <span v-if="holdPending">Not applied yet. Apply the hold, or pick another option, before generating.</span>
-            <span v-if="holdError" class="stale-note" role="alert">{{ holdError }}</span>
-            <span>Clips made before this setting keep their old hold until you re-generate them.</span>
-          </p>
-          <p v-if="isSketchDraw" id="sketch-pen-help" class="renderer-help" role="status">
-            Draw the exact scene image, add colour, then hold the complete image for its Scene Plan window. Free, on this Mac.
-            Each clip lasts exactly its scene window at your Video Assembly frame rate; prompt text does not change the drawing.
-            <span v-if="!penLoaded">Loading this episode's pen.</span>
-            <span v-else-if="penUnreadable">{{ penUnreadable }} Choose a pen to replace it; Sketch Draw waits until you do.</span>
-            <span v-else-if="episodePen">{{ episodeId }} uses its own pen: {{ penLabel(episodePen) }}. Other episodes are not affected.</span>
-            <span v-else>{{ episodeId }} follows the channel default pen: {{ penLabel(channelPen) }}. Choosing a pen here changes only {{ episodeId }}.</span>
-            <span v-if="sketchPen === 'name'">Pen name: {{ channelName }}.</span>
-            <span v-if="!channelHasLogo">Channel logo pen is unavailable. Add a logo in Channel Profile to use it.</span>
-          </p>
           <p v-if="presentationError" class="stale-note" role="alert">{{ presentationError }}</p>
         </div>
         <div class="motion-tools" :class="{ 'sketch-tools': isSketchDraw }">
@@ -935,6 +962,26 @@ async function saveLineWeight(next: SketchLineWeight | null) {
     lineWeightError.value = error?.data?.detail || error?.message || `Could not save the line weight for ${ep}. Try again.`
     showError(lineWeightError.value)
   } finally { if (ep === episodeId.value) lineWeightSaving.value = false }
+}
+// The tab showing the weight in force: this episode's own, or the channel's
+// while it follows the channel. Loading or an unreadable file shows none.
+const activeLineWeight = computed<SketchLineWeight | null>(() => {
+  if (!lineWeightLoaded.value) return null
+  const choice = lineWeightChoice.value
+  if (choice === 'channel') return channelLineWeight.value
+  return choice || null
+})
+// The tabs ARE the weight values; picking the one already in force changes nothing.
+function chooseLineWeight(weight: SketchLineWeight): void {
+  if (lineWeightChoice.value === weight) return
+  if (lineWeightChoice.value === 'channel' && channelLineWeight.value === weight) return
+  lineWeightChoice.value = weight
+  onLineWeightChoice()
+}
+// The old select's "Channel default (...)" row: this episode follows the channel again.
+function followChannelLineWeight(): void {
+  lineWeightChoice.value = 'channel'
+  onLineWeightChoice()
 }
 // A weight needs no further picking, so it saves at once.
 function onLineWeightChoice() {
@@ -2309,11 +2356,37 @@ watch(episodeId, () => {
 .motion-tool-heading { display: flex; flex-direction: column; gap: 3px; }
 .motion-tool-heading strong { font-size: 13px; }
 .motion-tool-heading span { color: var(--text-muted); font-size: var(--font-xs); line-height: 1.4; }
-.motion-renderer-row { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; }
-.motion-renderer-row .renderer-field { flex: 0 1 240px; min-width: 0; }
-.renderer-help-break { flex: 0 0 100%; height: 0; }
-.renderer-help { flex: 1 1 280px; max-width: 70ch; margin: 0; color: var(--text-secondary); font-size: var(--font-xs); line-height: 1.5; }
-.renderer-help span { display: block; }
+/* One consistent column per control; the row wraps to fewer columns when narrow. */
+.motion-renderer-row { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr)); gap: 12px; }
+.motion-renderer-row .renderer-field { min-width: 0; }
+.motion-renderer-row > .stale-note { grid-column: 1 / -1; }
+.motion-tool-heading { position: relative; }
+/* One label line per field: label + '?' hint on the left, the quiet "Set as
+   channel default" action on the right. Its height is reserved on EVERY field
+   so all controls start on the same line whether or not the action shows. The
+   label takes the space it needs (basis 0, free to wrap); the action never
+   shrinks or breaks, so it stays top-right on the label line at any width. */
+.field-label-row { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 4px 8px; min-height: 54px; margin-bottom: 6px; position: relative; }
+.field-label { display: block; flex: 1 1 0; min-width: 0; color: var(--text-muted); font-size: var(--font-xs); font-weight: 750; letter-spacing: .07em; text-transform: uppercase; }
+.field-label-row > .btn { flex-shrink: 0; margin-left: auto; white-space: nowrap; }
+/* The hint opens on hover and on focus (a click focuses the button), and Escape
+   blurs it closed. The words stay in the DOM, so aria-describedby reaches them
+   while it is shut. */
+.field-hint-dot { display: inline-block; width: 18px; height: 18px; margin-left: 4px; padding: 0; border: 1px solid var(--border); border-radius: 999px; background: var(--bg-tertiary); color: var(--text-muted); font-size: var(--font-xs); font-weight: 700; line-height: 1; cursor: help; vertical-align: 1px; }
+.field-hint-dot:hover { border-color: var(--border-light); color: var(--text-primary); }
+.field-hint-dot:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.field-hint-pop { display: none; position: absolute; left: 0; right: 0; top: 100%; z-index: 6; max-width: 62ch; margin-top: 6px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-primary); box-shadow: 0 8px 24px rgba(0, 0, 0, .28); color: var(--text-secondary); font-size: var(--font-xs); font-weight: 400; line-height: 1.5; letter-spacing: normal; text-transform: none; }
+.field-hint:hover .field-hint-pop, .field-hint:focus-within .field-hint-pop { display: block; }
+.field-hint-pop span { display: block; }
+.motion-tool-heading .field-hint-pop { right: auto; max-width: 70ch; }
+.renderer-field .hold-inputs { margin-top: 8px; }
+/* Line weight tabs: the same three words at the same height as a select
+   (select metrics: 10px vertical padding + 1.35×14px line + 1px borders). */
+.weight-tabs { display: flex; flex-wrap: wrap; gap: 4px; }
+.weight-tab { flex: 1 1 0; min-width: 0; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-primary); color: var(--text-secondary); font-size: 14px; line-height: 1.35; cursor: pointer; }
+.weight-tab:hover:not(:disabled) { border-color: var(--border-light); }
+.weight-tab.is-active { border-color: color-mix(in srgb, var(--motion-blue) 70%, var(--border)); background: color-mix(in srgb, var(--motion-blue) 12%, var(--bg-primary)); color: var(--text-primary); font-weight: 600; }
+.weight-tab:disabled { opacity: .55; cursor: not-allowed; }
 .hold-inputs { display: flex; flex-wrap: wrap; align-items: end; gap: 8px; }
 .hold-inputs .model-field { min-width: 0; flex: 0 1 104px; }
 .motion-tools.sketch-tools { display: flex; flex-wrap: wrap; gap: 8px; }

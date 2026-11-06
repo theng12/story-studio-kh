@@ -5,6 +5,7 @@
  * Studio URL, token, worker list, or direct provider connection.
  */
 
+import { publishedImageModes, type GenStudioImageMode } from '../contracts/genstudio-image-modes.js'
 import { submitSent } from './inflight-submits.js'
 import { safetyGate, safetyMode, type SafetyMode } from '../services/safety-checks.js'
 import { STORY_CALLER } from './machine-name.js'
@@ -14,8 +15,8 @@ import os from 'os'
 import path from 'path'
 import { createHash, randomUUID } from 'crypto'
 import { carriesCapacityFacts, humanGatewayText } from './gateway-failure-text.js'
-import { getAppSetting, getGenStudioUrl, getLanguageTimeoutMs, setAppSetting, getPaidAudioReplacementSetting, getPaidWritingReplacementSetting, withPaidAudioConfirmation, withPaidWritingConfirmation } from '../services/app-settings.js'
-import { balancedReplacementSettlement, generationReplacementKey, replacementAllowance, type ReplacementKind } from '../services/generation-paid-replacement.js'
+import { getAppSetting, getGenStudioUrl, getLanguageTimeoutMs, setAppSetting, getRetryFailedRequestsSetting, RETRY_ATTEMPTS_MIN, RETRY_ATTEMPTS_MAX, RETRY_ATTEMPTS_DEFAULT } from '../services/app-settings.js'
+import { generationReplacementKey, type ReplacementKind } from '../services/generation-paid-replacement.js'
 import type { GenerationReplacementAttempt, Job } from '../models/types.js'
 import { runFfmpeg } from './ffmpeg-utils.js'
 import { probeAudioSignature } from './audio-concat.js'
@@ -241,11 +242,10 @@ export type GenStudioQueueState =
   | 'completing'
   | 'succeeded'
   | 'failed'
-  | 'waiting_credits'
   | 'cancelled'
 
 interface GenStudioOperationContext {
-  /** Internal automatic replacement cap; only sent after a fresh server support check. */
+  /** Internal automatic replacement marker (no credit cap; retired); keeps replacement idempotency key from moving. */
   replacementChargeLimit?: number
   /** Called after admission/waits and immediately before each physical POST. */
   beforePost?: () => void | Promise<void>
@@ -266,16 +266,13 @@ export interface GenStudioJob {
   audio_url?: string | null
   model_id?: string
   model_revision_id?: string
-  credit_cost?: number
   /** USD the provider charged, present only when it stated one (`cost_source: "provider"`). Absent is not $0. */
   cost_usd?: number
   cost_source?: 'provider'
+  // Credit fields kept optional for backward compatibility with stored job records.
+  // Story no longer parses, tracks or acts on these values. Gateway owns credit logic.
+  credit_cost?: number
   remaining_credits?: number
-  /**
-   * Settlement values, exactly as GenStudio publishes them. `released_credits`
-   * Story Studio forwards whatever GenStudio publishes and never derives a
-   * charge locally.
-   */
   reserved_credits?: number | null
   settled_credits?: number | null
   released_credits?: number | null
@@ -347,6 +344,8 @@ export type GenStudioCancellationFields = {
   cancellation_requested?: boolean
   cancellation_note?: string | null
   failure_code?: string | null
+  // Credit fields kept optional for backward compatibility with stored job records.
+  // Story no longer parses, tracks or acts on these values. Gateway owns credit logic.
   reserved_credits?: number
   settled_credits?: number
   released_credits?: number
@@ -383,10 +382,6 @@ function parseGenStudioCancellationResponse(value: unknown): GenStudioJob & GenS
   const optionalText = (name: string): string | null | undefined => (
     typeof body[name] === 'string' || body[name] === null ? body[name] as string | null : undefined
   )
-  const optionalSettlement = (name: string): number | undefined => {
-    const field = body[name]
-    return isValidSettlement(field) ? field : undefined
-  }
   const optionalNumberOrNull = (name: string): number | null | undefined => {
     const field = body[name]
     return field === null || isValidSettlement(field) ? field as number | null : undefined
@@ -415,9 +410,6 @@ function parseGenStudioCancellationResponse(value: unknown): GenStudioJob & GenS
     ...(body.waiting !== undefined ? { waiting: normalizeGenStudioWaiting(body.waiting) } : {}),
     ...(optionalText('failure_code') !== undefined ? { failure_code: optionalText('failure_code') } : {}),
     ...(optionalText('failure_class') !== undefined ? { failure_class: optionalText('failure_class') } : {}),
-    ...(optionalSettlement('reserved_credits') !== undefined ? { reserved_credits: optionalSettlement('reserved_credits') } : {}),
-    ...(optionalSettlement('settled_credits') !== undefined ? { settled_credits: optionalSettlement('settled_credits') } : {}),
-    ...(optionalSettlement('released_credits') !== undefined ? { released_credits: optionalSettlement('released_credits') } : {}),
     ...(optionalNumberOrNull('retry_after_seconds') !== undefined ? { retry_after_seconds: optionalNumberOrNull('retry_after_seconds') } : {}),
     ...(optionalNonEmptyTextOrNull('retry_at') !== undefined ? { retry_at: optionalNonEmptyTextOrNull('retry_at') } : {}),
     ...(optionalNonEmptyTextOrNull('last_provider_progress_at') !== undefined ? { last_provider_progress_at: optionalNonEmptyTextOrNull('last_provider_progress_at') } : {}),
@@ -541,6 +533,8 @@ export interface GenStudioSettledJobShape {
   /** `studio-hub::…` is the owner's free fleet (see `isFreeFleetModelId`). */
   model_id?: string | null
   failure_code?: string | null
+  // Credit fields kept optional for backward compatibility with stored job records.
+  // Story no longer parses, tracks or acts on these values. Gateway owns credit logic.
   reserved_credits?: number | null
   settled_credits?: number | null
   released_credits?: number | null
@@ -648,15 +642,6 @@ export function genStudioFailureGuidance(
   }
 }
 
-function releasedCreditSettlement(job: GenStudioSettledJobShape): string {
-  // Free fleet work has no credits to report; "0 credits released" there is noise (owner, 2026-10-03).
-  if (isFreeFleetModelId(job.model_id)) return ''
-  const released = job.released_credits
-  return typeof released === 'number' && Number.isFinite(released) && released >= 0
-    ? `GenStudio reports ${released} credits released.`
-    : 'Credit settlement is not yet published; check its Gateway status.'
-}
-
 /** A sentence about credits or fallbacks belongs to paid work only. */
 function paidOnly(job: GenStudioSettledJobShape, text: string): string {
   return isFreeFleetModelId(job.model_id) ? '' : text
@@ -683,12 +668,13 @@ export class GenStudioTerminalFailureError extends Error {
   readonly cancelled: boolean
   /** The gateway holds this failure as an unknown outcome: never resubmit it by machine. */
   readonly unknownOutcome: boolean
+  // Credit settlement properties kept as null for backward compatibility.
+  // Story no longer tracks credits; Gateway owns credit logic.
   readonly reservedCredits: number | null
   readonly settledCredits: number | null
   readonly releasedCredits: number | null
   /** The model id the job envelope published; `studio-hub::…` is the owner's free fleet. */
   readonly modelId: string | null
-
   constructor(modality: GenStudioModality, job: GenStudioSettledJobShape, message: string) {
     // Appended HERE rather than in each of the six subclasses, and rather than
     // at the render sites, because every surface that shows a failed job shows
@@ -714,19 +700,11 @@ export class GenStudioTerminalFailureError extends Error {
     this.failureClass = failureClass
     this.cancelled = job.cancelled === true
     this.unknownOutcome = holdsUnknownOutcome(job)
-    this.reservedCredits = typeof job.reserved_credits === 'number' && Number.isFinite(job.reserved_credits) ? job.reserved_credits : null
-    this.settledCredits = typeof job.settled_credits === 'number' && Number.isFinite(job.settled_credits) ? job.settled_credits : null
-    this.releasedCredits = typeof job.released_credits === 'number' && Number.isFinite(job.released_credits) ? job.released_credits : null
+    this.reservedCredits = null
+    this.settledCredits = null
+    this.releasedCredits = null
     this.modelId = typeof job.model_id === 'string' && job.model_id ? job.model_id : null
   }
-}
-
-/** A machine retry is safe only when GenStudio proves the whole reservation returned. */
-export function hasFullyReleasedZeroSettlement(error: GenStudioTerminalFailureError): boolean {
-  const values = [error.reservedCredits, error.settledCredits, error.releasedCredits]
-  return values.every(value => typeof value === 'number' && Number.isFinite(value) && value >= 0)
-    && error.settledCredits === 0
-    && error.releasedCredits === error.reservedCredits
 }
 
 export class GenStudioImageTerminalFailureError extends GenStudioTerminalFailureError {
@@ -735,10 +713,8 @@ export class GenStudioImageTerminalFailureError extends GenStudioTerminalFailure
       'image',
       job,
       job.cancelled === true
-        ? `The image job ${job.id} was cancelled at the Gateway${job.cancellation_note ? ` (${job.cancellation_note})` : ''}. `
-          + `${releasedCreditSettlement(job)} Retry submits a new job.`
-        : `The Gateway could not make the image${settledFailureCode(job) ? ` (${settledFailureCode(job)})` : ''}. `
-          + `${releasedCreditSettlement(job)} This job cannot be reopened; Retry submits a new job.`,
+        ? `The image job ${job.id} was cancelled at the Gateway${job.cancellation_note ? ` (${job.cancellation_note})` : ''}. Retry submits a new job.`
+        : `The Gateway could not make the image${settledFailureCode(job) ? ` (${settledFailureCode(job)})` : ''}. This job cannot be reopened; Retry submits a new job.`,
     )
     this.name = 'GenStudioImageTerminalFailureError'
   }
@@ -750,10 +726,8 @@ export class GenStudioVideoTerminalFailureError extends GenStudioTerminalFailure
       'video',
       job,
       job.cancelled === true
-        ? `The video job ${job.id} was cancelled at the Gateway. `
-          + `${releasedCreditSettlement(job)} Retry submits a new job. ${paidOnly(job, 'No legacy fallback was attempted.')}`
-        : `The Gateway could not make the video${settledFailureCode(job) ? ` (${settledFailureCode(job)})` : ''}. `
-          + `${releasedCreditSettlement(job)} This job cannot be reopened; Retry submits a new job. `
+        ? `The video job ${job.id} was cancelled at the Gateway. Retry submits a new job. ${paidOnly(job, 'No legacy fallback was attempted.')}`
+        : `The Gateway could not make the video${settledFailureCode(job) ? ` (${settledFailureCode(job)})` : ''}. This job cannot be reopened; Retry submits a new job. `
           + paidOnly(job, 'No legacy fallback was attempted.'),
     )
     this.name = 'GenStudioVideoTerminalFailureError'
@@ -775,14 +749,11 @@ export class GenStudioMusicTerminalFailureError extends GenStudioTerminalFailure
       'music',
       job,
       job.cancelled === true
-        ? `The music job ${job.id} was cancelled at the Gateway. `
-          + `${releasedCreditSettlement(job)} Retry submits a new job. ${paidOnly(job, 'No legacy fallback was attempted.')}`
+        ? `The music job ${job.id} was cancelled at the Gateway. Retry submits a new job. ${paidOnly(job, 'No legacy fallback was attempted.')}`
         : holdsUnknownOutcome(job)
-          ? `The Gateway is still checking this music result${settledFailureCode(job) ? ` (${settledFailureCode(job)})` : ''}; nothing was run twice. `
-            + 'Once it finishes, "Recover existing result" on the Music Library page imports it without a new generation.'
-        : `The Gateway could not make the music${settledFailureCode(job) ? ` (${settledFailureCode(job)})` : ''}. `
-          + `${releasedCreditSettlement(job)} This job cannot be reopened; Retry submits a new job. `
-          + paidOnly(job, 'No legacy fallback was attempted.'),
+          ? `The Gateway is still checking this music result${settledFailureCode(job) ? ` (${settledFailureCode(job)})` : ''}; nothing was run twice. Once it finishes, "Recover existing result" on the Music Library page imports it without a new generation.`
+          : `The Gateway could not make the music${settledFailureCode(job) ? ` (${settledFailureCode(job)})` : ''}. This job cannot be reopened; Retry submits a new job. `
+            + paidOnly(job, 'No legacy fallback was attempted.'),
     )
     this.name = 'GenStudioMusicTerminalFailureError'
   }
@@ -794,10 +765,8 @@ export class GenStudioTtsTerminalFailureError extends GenStudioTerminalFailureEr
       'tts',
       job,
       job.cancelled === true
-        ? `The narration job ${job.id} was cancelled at the Gateway${job.cancellation_note ? ` (${job.cancellation_note})` : ''}. `
-          + `${releasedCreditSettlement(job)} Retry submits a new job. ${paidOnly(job, 'No fallback route was attempted.')}`
-        : `Gateway generation failed${settledFailureCode(job) ? ` (${settledFailureCode(job)})` : ''}. `
-          + `${releasedCreditSettlement(job)} ${paidOnly(job, 'No fallback route was attempted.')}`,
+        ? `The narration job ${job.id} was cancelled at the Gateway${job.cancellation_note ? ` (${job.cancellation_note})` : ''}. Retry submits a new job. ${paidOnly(job, 'No fallback route was attempted.')}`
+        : `Gateway generation failed${settledFailureCode(job) ? ` (${settledFailureCode(job)})` : ''}. ${paidOnly(job, 'No fallback route was attempted.')}`,
     )
     this.name = 'GenStudioTtsTerminalFailureError'
   }
@@ -809,11 +778,8 @@ export class GenStudioTranscriptionTerminalFailureError extends GenStudioTermina
       'transcription',
       job,
       job.cancelled === true
-        ? `The transcription job ${job.id} was cancelled at the Gateway${job.cancellation_note ? ` (${job.cancellation_note})` : ''}. `
-          + `${releasedCreditSettlement(job)} Retry submits a new job. `
-          + paidOnly(job, 'No fallback route was attempted.')
-        : `The Gateway could not transcribe the audio${settledFailureCode(job) ? ` (${settledFailureCode(job)})` : ''}. `
-          + `${releasedCreditSettlement(job)} ${paidOnly(job, 'No fallback route was attempted.')}`,
+        ? `The transcription job ${job.id} was cancelled at the Gateway${job.cancellation_note ? ` (${job.cancellation_note})` : ''}. Retry submits a new job. ${paidOnly(job, 'No fallback route was attempted.')}`
+        : `The Gateway could not transcribe the audio${settledFailureCode(job) ? ` (${settledFailureCode(job)})` : ''}. ${paidOnly(job, 'No fallback route was attempted.')}`,
     )
     this.name = 'GenStudioTranscriptionTerminalFailureError'
   }
@@ -854,19 +820,12 @@ export class GenStudioChatTerminalFailureError extends GenStudioTerminalFailureE
  */
 function chatFailureSentence(job: GenStudioSettledJobShape): string {
   const code = settledFailureCode(job)
-  const what = job.cancelled === true
+  return job.cancelled === true
     ? 'This writing request was cancelled. Retry sends it again.'
     : holdsUnknownOutcome(job)
       ? LOST_WRITING_REQUEST
       : describeGenStudioLanguageFailure(code)
         ?? 'Writing failed. Retry this step; if it keeps failing, pick a different writing model.'
-  const released = job.released_credits
-  const settled = job.settled_credits
-  const credits = [
-    typeof settled === 'number' && settled > 0 ? `${settled} credits were charged for this attempt.` : null,
-    typeof released === 'number' && released > 0 ? `GenStudio reports ${released} credits released.` : null,
-  ].filter(Boolean).join(' ')
-  return credits ? `${what} ${credits}` : what
 }
 
 const LOST_WRITING_REQUEST = 'The writing service lost track of this request after it was sent, so Story Studio '
@@ -1474,6 +1433,7 @@ export interface GenStudioImageModel extends GenStudioCatalogLock, GenStudioPric
   default_resolution?: string
   /** Valid `(resolution, aspect_ratio)` pairs with their own pricing. */
   output_options?: GenStudioImageOutputOption[]
+  image_modes?: GenStudioImageMode[]
   supports_reference_images: boolean
   /** Explicit img2img flag, where a model separates it from plain references. */
   supports_image_to_image?: boolean
@@ -1512,11 +1472,6 @@ interface GenStudioImageJob {
   failure_reason?: string | null
   failure_class?: string | null
   routing_status_code?: string | null
-  /** `ImageJobResponse` publishes a released reservation when it has one. */
-  credit_cost?: number
-  remaining_credits?: number
-  settled_credits?: number | null
-  released_credits?: number | null
   cancellable?: boolean | null
   cancelled?: boolean | null
   cancellation_note?: string | null
@@ -1585,12 +1540,6 @@ interface GenStudioTranscriptionJob {
   srt_url?: string | null
   credit_cost?: number
   remaining_credits?: number
-  /**
-   * `TranscriptionJobResponse` DOES publish `released_credits` (image, chat,
-   * video and music jobs do not). Story Studio forwards it verbatim so the UI
-   * can show real settlement instead of a permanent "on hold".
-   */
-  released_credits?: number | null
   price_version?: string | null
   cancellable?: boolean | null
   cancelled?: boolean | null
@@ -2066,6 +2015,18 @@ export interface GenStudioChatModel extends GenStudioCatalogLock, GenStudioPrice
    * Hub's fallback as the model's own ceiling.
    */
   max_output_tokens_source: GenStudioLimitSource | null
+  /**
+   * The largest REQUEST (input) this Gateway will accept for this product,
+   * published as `max_request_tokens`. A pool publishes the smallest of its
+   * enabled members', and only when every one of them states it.
+   *
+   * 0 means "not published" — same contract as `max_output_tokens`. Read live
+   * per product/pool and enforced before submission; Story never infers one
+   * from a provider or model name, and an absent value enforces nothing.
+   */
+  max_request_tokens?: number
+  /** Whose `max_request_tokens` that is, or `null` when nobody labelled it. */
+  max_request_tokens_source?: GenStudioLimitSource | null
   /** Published structured-item ceiling. Null means unmeasured, never unlimited. */
   max_structured_items_per_request: number | null
   controls: string[]
@@ -3207,8 +3168,9 @@ const genStudioAdmission = new GenStudioAdmissionPool(async (apiKey): Promise<Ge
   }
   const burstCeiling = positiveInteger(overview.burst_concurrency_ceiling)
   const tierStanding = parseServiceTierStanding(overview.service_tier)
+  // Gateway publishes `credit_balance` here; Story deliberately drops it. Gateway
+  // owns every credit decision, so a Story-side balance is never read or enforced.
   return {
-    credit_balance: overview.credit_balance,
     paid_concurrency_limit: overview.paid_concurrency_limit,
     paid_active_jobs: overview.paid_active_jobs,
     paid_queued_jobs: overview.paid_queued_jobs,
@@ -3613,7 +3575,7 @@ interface GenStudioSubmissionEvidence {
   preview: GenStudioRequestPreview
 }
 
-async function recordGenStudioCreditRefusal(
+async function recordGenStudioTerminalRefusal(
   evidence: GenStudioSubmissionEvidence,
   error: GenStudioApiError,
 ): Promise<void> {
@@ -3627,7 +3589,8 @@ async function recordGenStudioCreditRefusal(
     state: 'failed',
     dispatch_state: 'pre_dispatch',
     model_id: evidence.preview.model_id,
-    queue_state: 'waiting_credits',
+    // Story no longer tracks credits; this is a terminal refusal with Gateway's reason.
+    queue_state: 'failed',
     failure_code: error.code || null,
     updated_at: new Date().toISOString(),
     request: evidence.preview,
@@ -4190,19 +4153,17 @@ export function isGenStudioRouteExhausted(error: unknown): error is GenStudioTer
   return error instanceof GenStudioTerminalFailureError
     && !error.cancelled
     && error.failureCode === GENSTUDIO_ROUTE_EXHAUSTED_FAILURE_CODE
-    && hasFullyReleasedZeroSettlement(error)
 }
 
 /**
- * A published temporary language quota exhaustion is safe to leave behind
- * only after the durable settlement proves the request never consumed a
- * credit. Callers still choose whether to park/recheck or surface it.
+ * A published temporary language quota exhaustion is safe to leave behind once
+ * the job is terminal and not cancelled. Callers still choose whether to
+ * park/recheck or surface it.
  */
 export function isGenStudioLanguageQuotaExhausted(error: unknown): error is GenStudioTerminalFailureError {
   return error instanceof GenStudioTerminalFailureError
     && !error.cancelled
     && isQuotaExhaustedCode(error.failureCode)
-    && hasFullyReleasedZeroSettlement(error)
 }
 
 /**
@@ -4298,7 +4259,10 @@ export class GenStudioApiError extends Error {
       : status === 401
       ? `The Gateway did not accept this Gateway API Key: ${detail}. Save a valid Gateway API Key in Settings → This Mac.`
       : status === 402
-        ? `The Gateway has insufficient credits for this request: ${detail}. Add credits, then Retry.`
+        // A terminal refusal in Gateway's own words. Story holds no balance and
+        // never coaches the owner on credits — Gateway owns that entirely — so
+        // this is shown as-is, never as a wait state and never auto-requeued.
+        ? `The Gateway refused this request: ${detail}`
         : status === 403
           ? `This Gateway API Key or account is not allowed to use the selected product: ${detail}. Check its scopes and product access.`
           : status === 422
@@ -4337,7 +4301,7 @@ export class GenStudioTransportTimeoutError extends Error {
   }
 }
 
-export function isGenStudioInsufficientCredits(error: unknown): error is GenStudioApiError {
+export function isGenStudioPaymentRefusal(error: unknown): error is GenStudioApiError {
   return error instanceof GenStudioApiError && error.status === 402
 }
 
@@ -4597,8 +4561,9 @@ async function requestJsonWithRetry(
         }
         if (apiKey) genStudioAdmission.noteSubmissionReachable()
         if (response.status === 402) {
-          if (apiKey) genStudioAdmission.noteInsufficientCredits(apiKey, error)
-          await request.onQueueState?.('waiting_credits')
+          // Gateway refused due to insufficient credits. Story no longer tracks credits or waits;
+          // this is a terminal refusal carrying Gateway's reason. No retry, no waiting state.
+          await request.onQueueState?.('failed')
           throw error
         }
         if (noRetryApiErrors || !retryableStatus(response.status)) {
@@ -4681,8 +4646,8 @@ async function submitJsonWithAdmission(
       () => requestJsonWithRetry(url, init, request, deadline, apiKey, operationTimeoutMs, noRetryStatuses),
     )
   } catch (error) {
-    if (evidence && isGenStudioInsufficientCredits(error)) {
-      await recordGenStudioCreditRefusal(evidence, error)
+    if (evidence && isGenStudioPaymentRefusal(error)) {
+      await recordGenStudioTerminalRefusal(evidence, error)
     }
     throw error
   }
@@ -5747,24 +5712,32 @@ function readPublishedTokenLimit(preferred: unknown, deprecatedAlias: unknown): 
 }
 
 /**
- * Preserve the three authoritative chat output-limit states at ingestion:
- * omitted/null, a positive safe integer, or malformed. The first keeps the
- * existing local `0` sentinel; the second is copied exactly; the third stops
- * before any request can mistake bad catalogue data for an omission or `1`.
+ * Preserve the three authoritative chat limit states at ingestion: omitted/null,
+ * a positive safe integer, or malformed. The first keeps the existing local `0`
+ * sentinel; the second is copied exactly; the third stops before any request can
+ * mistake bad catalogue data for an omission or `1`.
+ *
+ * Reads `max_output_tokens` or `max_request_tokens` — the same contract, said by
+ * the Gateway for both. `field` only names the figure in the refusal.
  *
  * The malformed value is deliberately not interpolated into the error: a wire
  * object is arbitrary remote data and may contain private provider metadata.
  */
-function readPublishedChatMaxOutputTokens(value: unknown, rawModelId: unknown): number {
+function readPublishedChatTokenLimit(value: unknown, rawModelId: unknown, field = 'max_output_tokens'): number {
   if (value === null || value === undefined) return 0
   if (Number.isSafeInteger(value) && (value as number) > 0) return value as number
   const modelId = typeof rawModelId === 'string' && rawModelId.trim()
     ? rawModelId.trim().replace(/[\r\n\t]/g, ' ').slice(0, 120)
     : '(missing model id)'
   throw new GenStudioCatalogFieldValidationError(
-    `Gateway chat model ${JSON.stringify(modelId)} published malformed max_output_tokens; `
+    `Gateway chat model ${JSON.stringify(modelId)} published malformed ${field}; `
     + 'expected null/omitted or a positive safe integer. No request or credit charge was made.',
   )
+}
+
+/** The historical name, kept at its call site. */
+function readPublishedChatMaxOutputTokens(value: unknown, rawModelId: unknown): number {
+  return readPublishedChatTokenLimit(value, rawModelId)
 }
 
 /**
@@ -5827,6 +5800,11 @@ export async function listChatModelsSnapshot(
     // against it comes back truncated after the customer has paid for it.
     max_output_tokens: readPublishedChatMaxOutputTokens(value?.max_output_tokens, value?.id),
     max_output_tokens_source: readPublishedLimitSource(value?.max_output_tokens_source),
+    // The Gateway's admission line for a request, published per model and per
+    // pool (smallest of the members'). 0 = nobody stated one, and nothing is
+    // refused for it — never a number of ours, never a provider-name guess.
+    max_request_tokens: readPublishedChatTokenLimit(value?.max_request_tokens, value?.id, 'max_request_tokens'),
+    max_request_tokens_source: readPublishedLimitSource(value?.max_request_tokens_source),
     max_structured_items_per_request: Number.isInteger(value?.max_structured_items_per_request)
       && value.max_structured_items_per_request > 0
       ? value.max_structured_items_per_request
@@ -7458,6 +7436,19 @@ const PROSE_RESPONSE_FORMAT: Record<string, unknown> | null = null
  * acceptance run. "No format" is the honest way to ask for prose; the explicit
  * object was a compatibility shim for a rule the one endpoint no longer has.
  */
+/** The wrapper instruction `prepareChatSubmission` appends to the system turn
+ * for a JSON output contract. Exported so request-sizing can measure the real
+ * assembled prompt (system + wrapper + user) without duplicating the logic. */
+export function jsonWrapperInstructionForContract(
+  outputContract: TextOutputContract,
+): string {
+  if (outputContract.mode === 'prose') return ''
+  const name = outputContract.name ?? 'story_studio_json_object'
+  return outputContract.schema
+    ? describeSchemaForInstructions(name, outputContract.schema)
+    : JSON_OBJECT_WRAPPER_INSTRUCTION
+}
+
 function productResponseFormat(
   productMode: GenStudioChatModel['structured_output_mode'],
   outputContract: TextOutputContract,
@@ -7849,11 +7840,28 @@ async function prepareChatSubmission(
   // report publishes 128,000 output tokens in a 32,768-token window — so "under its published
   // output limit" is not "fits beside this prompt". This is the ONE place every writing request
   // (research, outline, chapters, metadata) passes through with the product's LIVE figures, so the
-  // bound is applied here and nowhere else; a product that publishes no window is unchanged.
+  // bound is applied here and nowhere else.
+  //
+  // The same rule now carries the Gateway's published REQUEST ceiling (`max_request_tokens`,
+  // per model and per pool). That is the INPUT-side admission line: a prompt above it is refused
+  // by the Gateway, so it is refused here first, before any network call, with the model's own
+  // figure. It does not shrink the answer — a published request ceiling already reserves room for
+  // the answer (gemma-4: 23,000 request + 8,192 answer inside a 32,768 window). When the Gateway
+  // publishes none, nothing is enforced and no number is invented: the fleet's
+  // `caller → published cap → 128,000` fallback keeps its last link downstream, never a 4,096.
   const contextBounded = boundOutputTokensToContext(
     maxOutputTokens, product.context_window_tokens, promptCharacters, promptNonAsciiCharacters,
+    product.max_request_tokens,
   )
   if (contextBounded.overflow) {
+    if (contextBounded.overflowLimit === 'request') {
+      throw new Error(
+        `This request's instructions are about ${contextBounded.promptTokens.toLocaleString()} tokens, and `
+        + `${product.display_name} publishes a ${(contextBounded.requestLimit as number).toLocaleString()}-token request limit, `
+        + 'so the Gateway would refuse it. Shorten the request or choose a model with a larger request limit. '
+        + 'No request or credit charge was made.',
+      )
+    }
     throw new Error(
       `This request's instructions are about ${contextBounded.promptTokens.toLocaleString()} tokens, and ${product.display_name} publishes a `
       + `${(contextBounded.contextWindowTokens as number).toLocaleString()}-token context window, so there is no room left for an answer. `
@@ -8176,15 +8184,17 @@ function replacementConnectionFingerprint(baseUrl: string, apiKey: string): stri
   return createHash('sha256').update(JSON.stringify([apiBase(baseUrl), apiKey])).digest('hex')
 }
 
-/** Restore the immutable cap after restart, even when the asset checkpoint only has its key. */
+/** Restore the replacement marker after restart, even when the asset checkpoint only has its key. */
 async function restoreReplacementRequest<R extends GenStudioOperationContext>(
   kind: ReplacementKind, apiKey: string, key: string, itemKey: string, request: R,
 ): Promise<{ request: R; taskId?: string; key: string }> {
   const queue = await import('../services/job-queue.js')
   const job = queue.getJob(queue.currentJobId() || '')
   const isManualReplacementKey = job?.manual_failed_item_replacement?.requests.some(item => item.replacement_idempotency_key === key)
-  const attempt = job?.generation_replacement_attempts?.find(item => item.kind === kind
-    && (item.idempotency_key === key || (!isManualReplacementKey && item.item_key === itemKey && item.state !== 'failed')))
+  const matchingAttempts = (job?.generation_replacement_attempts || []).filter(item => item.kind === kind
+    && (item.idempotency_key === key || (!isManualReplacementKey && item.item_key === itemKey)))
+  const attempt = matchingAttempts.find(item => item.idempotency_key === key)
+    || matchingAttempts.filter(item => item.state !== 'failed').sort((a, b) => (b.ordinal ?? 1) - (a.ordinal ?? 1))[0]
   if (!job || !attempt) return { request, key }
   key = attempt.idempotency_key
   const baseUrl = await getGenStudioUrl()
@@ -8200,33 +8210,25 @@ async function restoreReplacementRequest<R extends GenStudioOperationContext>(
     await queue.mutateAuthoritativeJob(job.project_slug, job.job_id, authoritative => {
       authoritative.generation_replacement_attempts = (authoritative.generation_replacement_attempts || []).map(item => {
         if (item.idempotency_key !== key) return item
-        const settled = balancedReplacementSettlement(accepted)
         return { ...item, task_id: accepted.id, revision: item.revision + 1,
-          state: accepted.state === 'succeeded' ? 'succeeded' : accepted.state === 'failed' ? 'failed' : 'submitted',
-          ...(settled !== null && settled <= item.max_credits ? { settled_credits: settled } : {}) }
+          state: accepted.state === 'succeeded' ? 'succeeded' : accepted.state === 'failed' ? 'failed' : 'submitted' }
       })
       return authoritative
     })
-    return { request: { ...request, replacementChargeLimit: attempt.max_credits }, taskId: accepted.id, key }
+    return { request: { ...request, replacementChargeLimit: 0 }, taskId: accepted.id, key }
   } catch (error) {
     if (!(error instanceof GenStudioApiError) || error.status !== 404 || attempt.state !== 'committed') throw error
   }
-  const setting = kind === 'audio' ? getPaidAudioReplacementSetting : getPaidWritingReplacementSetting
-  const gate = kind === 'audio' ? withPaidAudioConfirmation : withPaidWritingConfirmation
-  const support: any = await requestJsonWithRetry(`${apiBase(baseUrl)}/v1/account/overview`, { headers: authorization(apiKey) }, request,
-    Date.now() + GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS, apiKey, GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS, [], true, 1)
-  if (!Array.isArray(support?.max_charge_credits_supported_operations) || !support.max_charge_credits_supported_operations.includes(operation)) throw new Error('Gateway spending-limit support must be available before replacement can resume.')
-  return { key, request: { ...request, replacementChargeLimit: attempt.max_credits,
-    withPost: post => gate(async () => {
-      const policy = await setting()
+  return { key, request: { ...request, replacementChargeLimit: 0,
+    withPost: async post => {
+      const policy = await getRetryFailedRequestsSetting(kind)
       const live = await queue.loadAuthoritativeJob(job.project_slug, job.job_id)
       if (!policy.enabled || !live || live.status !== 'running' || live.pause_requested
-        || request.isCancelled?.() || request.signal?.aborted || await getGenStudioUrl() !== baseUrl
-        || replacementAllowance((live.generation_replacement_attempts || []).filter(item => item.idempotency_key !== key), kind, policy.additional_credit_ceiling ?? 0) < attempt.max_credits) {
-        throw new Error('Automatic replacement stopped before submission: disabled, paused, cancelled, or spending limit changed.')
+        || request.isCancelled?.() || request.signal?.aborted || await getGenStudioUrl() !== baseUrl) {
+        throw new Error('Automatic retry stopped before submission: disabled, paused or cancelled.')
       }
-      return post()
-    }),
+      return request.withPost ? request.withPost(post) : post()
+    },
   } }
 }
 
@@ -8238,7 +8240,6 @@ async function replaceConfirmedGeneration<T>(
   error: unknown,
   request: GenStudioOperationContext,
   submit: (key: string, cap: number, hooks: GenStudioOperationContext) => Promise<T>,
-  quoteMaximum?: () => Promise<number | null>,
 ): Promise<T> {
   if (!(error instanceof GenStudioTerminalFailureError)
     || error.failureClass !== 'provider_transient' || error.cancelled
@@ -8250,27 +8251,39 @@ async function replaceConfirmedGeneration<T>(
     || isGenStudioSubmissionUncertain(error)
     || !originalKey || request.replacementChargeLimit !== undefined) throw error
   const queue = await import('../services/job-queue.js')
-  const storyJob = queue.getJob(queue.currentJobId() || '')
+  const current = queue.getJob(queue.currentJobId() || '')
+  if (!current || current.params?.jobs_replace_failed_items) throw error
+  const storyJob = (await queue.loadAuthoritativeJob(current.project_slug, current.job_id)) || current
   // The Jobs action already consumed this exact failed item's one deliberate
   // replacement. It must never start a second automatic replacement chain.
   if (!storyJob || storyJob.params?.jobs_replace_failed_items) throw error
-  const setting = kind === 'audio' ? getPaidAudioReplacementSetting : getPaidWritingReplacementSetting
-  const gate = kind === 'audio' ? withPaidAudioConfirmation : withPaidWritingConfirmation
-  if (!(await setting()).enabled) throw error
+  const setting = await getRetryFailedRequestsSetting(kind)
+  if (!setting.enabled) throw error
+  const maxRetries = Math.max(RETRY_ATTEMPTS_MIN, Math.min(RETRY_ATTEMPTS_MAX, setting.retries ?? RETRY_ATTEMPTS_DEFAULT))
   const operation = kind === 'audio' ? 'voice.tts' : 'chat.response'
   const baseUrl = await getGenStudioUrl()
   const deadline = Date.now() + GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS
-  const notice = async (state: string, reason: string) => {
+  const preserveOutputLines = (job: Job, extraLine?: string) => {
+    const live = queue.getJob(storyJob.job_id)
+    const existing = new Set(job.output_lines || [])
+    if (live?.output_lines?.length) {
+      for (const line of live.output_lines) existing.add(line)
+    }
+    if (extraLine) existing.add(extraLine)
+    job.output_lines = [...existing]
+  }
+  const notice = async (state: string, reason: string, extraNote?: string) => {
     await queue.mutateAuthoritativeJob(storyJob.project_slug, storyJob.job_id, job => {
+      preserveOutputLines(job, extraNote)
       job.result = { ...job.result, automatic_replacement: { kind, state, reason } }
       return job
     })
   }
-  const refuse = async (reason: string): Promise<never> => {
+  const refuse = async (reason: string, cause?: unknown): Promise<never> => {
     await notice('blocked', reason)
-    throw new Error(`${error.message} Automatic ${kind} replacement: ${reason}`, { cause: error })
+    throw new Error(`${error.message} Automatic ${kind} retry: ${reason}`, { cause: cause ?? error })
   }
-  await notice('checking', 'Checking the previous request before replacement.')
+  await notice('checking', 'Checking the previous request before retry.')
   let original: GenStudioJob
   try {
     original = await getGenStudioJobByIdempotencyKey(operation, baseUrl, apiKey, originalKey, request, deadline)
@@ -8283,105 +8296,145 @@ async function replaceConfirmedGeneration<T>(
     // `replayedSettledChatFailure` already read the hold; this guard read the code alone,
     // so a hold taken between the failure and this read bought a replacement anyway.
     || holdsUnknownOutcome(original)
-    || balancedReplacementSettlement(original) === null) {
-    return refuse('The previous request is not a confirmed eligible failure with settled credits.')
+    || (original.failure_code === 'UNKNOWN_OUTCOME' && original.recovery_required !== false)) {
+    return refuse('The previous request is not a confirmed eligible failure.')
   }
-  // Uncached and authenticated. An old API may ignore unknown request fields;
-  // only explicit support allows the cap to be sent as spending authority.
-  let support: any
-  try {
-    support = await requestJsonWithRetry(`${apiBase(baseUrl)}/v1/account/overview`,
-      { headers: authorization(apiKey) }, request, deadline, apiKey, GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS, [], true, 1)
-  } catch { return refuse('Gateway spending-limit support could not be checked.') }
-  if (!Array.isArray(support?.max_charge_credits_supported_operations)
-    || !support.max_charge_credits_supported_operations.includes(operation)) {
-    return refuse('This Gateway does not yet support bounded automatic replacement. Manual Retry remains available.')
+
+  const existingAttempts = (storyJob.generation_replacement_attempts || []).filter(item => item.kind === kind && (
+    item.item_key === itemKey || item.original_idempotency_key === originalKey || item.task_id === original.id
+  ))
+  const activeExisting = existingAttempts.find(item => item.state === 'committed' || item.state === 'submitted')
+  const maxCompletedOrdinal = existingAttempts.reduce((max, item) => item.state === 'failed' ? Math.max(max, item.ordinal ?? 1) : max, 0)
+  const startOrdinal = activeExisting?.ordinal ?? (maxCompletedOrdinal + 1)
+  if (startOrdinal > maxRetries) {
+    return refuse(`Retry limit (${maxRetries}) reached for this item.`)
   }
-  let quotedMaximum: number | null = null
-  if (quoteMaximum) {
-    try { quotedMaximum = await quoteMaximum() } catch { return refuse('The current audio price could not be verified.') }
-    if (quotedMaximum === null || !Number.isSafeInteger(quotedMaximum) || quotedMaximum < 0) {
-      return refuse('The Gateway did not publish a valid maximum audio quote.')
+
+  let lastError: unknown = error
+  for (let ordinal = startOrdinal; ordinal <= maxRetries; ordinal++) {
+    const policy = await getRetryFailedRequestsSetting(kind)
+    if (!policy.enabled) {
+      await notice('blocked', 'Automatic retry disabled.')
+      throw lastError
     }
-  }
-  let attempt: GenerationReplacementAttempt | undefined
-  let blocked = 'The replacement allowance is exhausted, or this item already used its one replacement.'
-  await gate(async () => {
-    const policy = await setting()
-    if (!policy.enabled || request.isCancelled?.() || request.signal?.aborted || await getGenStudioUrl() !== baseUrl) {
-      blocked = 'Replacement was disabled, cancelled, or the Gateway connection changed.'
-      return
+    const retryKey = generationReplacementKey(kind, originalKey, ordinal)
+    let attempt: GenerationReplacementAttempt | undefined
+    let blockedReason = ''
+
+    if (request.isCancelled?.() || request.signal?.aborted || await getGenStudioUrl() !== baseUrl) {
+      return refuse('Retry was cancelled or the Gateway connection changed.')
     }
+
     await queue.mutateAuthoritativeJob(storyJob.project_slug, storyJob.job_id, job => {
-      if (job.status !== 'running' || job.pause_requested) return null
-      const attempts = job.generation_replacement_attempts || []
-      const existing = attempts.find(item => item.kind === kind && (item.item_key === itemKey
-        || item.idempotency_key === originalKey || item.task_id === original.id))
-      if (existing) {
-        if (existing.original_idempotency_key === originalKey && existing.state !== 'failed') attempt = existing
+      preserveOutputLines(job)
+      if (job.status !== 'running' || job.pause_requested) {
+        blockedReason = 'Job is no longer running or paused.'
         return null
       }
-      const available = replacementAllowance(attempts, kind, policy.additional_credit_ceiling ?? 0)
-      const cap = quotedMaximum ?? available
-      if (available <= 0 || cap > available) return null
+      const attempts = job.generation_replacement_attempts || []
+      const existing = attempts.find(item => item.idempotency_key === retryKey)
+      if (existing) {
+        attempt = existing
+        return null
+      }
       attempt = {
         kind, item_key: itemKey, connection_fingerprint: replacementConnectionFingerprint(baseUrl, apiKey),
         original_task_id: original.id, original_idempotency_key: originalKey,
-        idempotency_key: generationReplacementKey(kind, originalKey), max_credits: cap, state: 'committed', revision: 1,
+        idempotency_key: retryKey, state: 'committed', revision: 1, ordinal,
       }
       job.generation_replacement_attempts = [...attempts, attempt]
       return job
     })
-  })
-  if (!attempt) return refuse(blocked)
-  const committed = attempt
-  const checkpoint = async (update: Partial<GenerationReplacementAttempt>) => {
-    await queue.mutateAuthoritativeJob(storyJob.project_slug, storyJob.job_id, job => {
-      job.generation_replacement_attempts = (job.generation_replacement_attempts || []).map(item =>
-        item.idempotency_key === committed.idempotency_key ? { ...item, ...update, revision: item.revision + 1 } : item)
-      return job
-    })
-  }
-  const hooks: GenStudioOperationContext = {
-    replacementChargeLimit: committed.max_credits,
-    withPost: post => gate(async () => {
-      const policy = await setting()
-      const live = await queue.loadAuthoritativeJob(storyJob.project_slug, storyJob.job_id)
-      if (!policy.enabled || !live || live.status !== 'running' || live.pause_requested
-        || request.isCancelled?.() || request.signal?.aborted || await getGenStudioUrl() !== baseUrl
-        || replacementAllowance((live.generation_replacement_attempts || []).filter(item => item.idempotency_key !== committed.idempotency_key), kind, policy.additional_credit_ceiling ?? 0) < committed.max_credits) {
-        throw new Error('Automatic replacement stopped before submission: disabled, paused, cancelled, or spending limit changed.')
-      }
-      return request.withPost ? request.withPost(post) : post()
-    }),
-  }
-  await notice('queued', 'One failed item is being replaced within your additional-credit limit.')
-  try {
-    const result = await submit(committed.idempotency_key, committed.max_credits, hooks)
-    await checkpoint({ state: 'succeeded' })
-    await notice('complete', 'Replacement finished; saved results are being verified.')
-    return result
-  } catch (replacementError) {
-    await notice('blocked', 'Replacement did not complete. Its saved request will be recovered before any further work.')
-    // Do not let a caller's narrower free-capacity retry start another chain
-    // after this item's explicitly bounded paid replacement already ran.
-    throw new Error(`Automatic ${kind} replacement did not complete: ${replacementError instanceof Error ? replacementError.message : String(replacementError)}`, { cause: replacementError })
-  } finally {
-    // A lost response keeps the entire cap held. Only the authoritative ledger
-    // releases unused allowance, including input, output/reasoning and search.
+
+    if (!attempt) {
+      const liveAttempts = (queue.getJob(storyJob.job_id)?.generation_replacement_attempts || [])
+      attempt = liveAttempts.find(item => item.idempotency_key === retryKey)
+      if (!attempt) return refuse(blockedReason || 'Could not record retry attempt.')
+    }
+    const committed = attempt
+    const checkpoint = async (update: Partial<GenerationReplacementAttempt>) => {
+      await queue.mutateAuthoritativeJob(storyJob.project_slug, storyJob.job_id, job => {
+        preserveOutputLines(job)
+        job.generation_replacement_attempts = (job.generation_replacement_attempts || []).map(item =>
+          item.idempotency_key === committed.idempotency_key ? { ...item, ...update, revision: item.revision + 1 } : item)
+        return job
+      })
+    }
+
+    const hooks: GenStudioOperationContext = {
+      replacementChargeLimit: 0,
+      withPost: async post => {
+        const livePolicy = await getRetryFailedRequestsSetting(kind)
+        const live = await queue.loadAuthoritativeJob(storyJob.project_slug, storyJob.job_id)
+        if (!livePolicy.enabled || !live || live.status !== 'running' || live.pause_requested
+          || request.isCancelled?.() || request.signal?.aborted || await getGenStudioUrl() !== baseUrl) {
+          throw new Error('Automatic retry stopped before submission: disabled, paused or cancelled.')
+        }
+        return request.withPost ? request.withPost(post) : post()
+      },
+    }
+
+    const noteLine = `↻ Retrying failed ${kind} request (retry ${ordinal} of ${maxRetries})...`
+    queue.noteCurrentJob(noteLine)
+    await notice('queued', `Retrying failed ${kind} request (retry ${ordinal} of ${maxRetries}).`, noteLine)
+
     try {
-      const current = await getGenStudioJobByIdempotencyKey(operation, baseUrl, apiKey, committed.idempotency_key, {}, Date.now() + GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS)
-      const settled = balancedReplacementSettlement(current)
-      await checkpoint({ task_id: current.id, state: current.state === 'succeeded' ? 'succeeded' : current.state === 'failed' ? 'failed' : 'submitted',
-        ...(settled !== null && settled <= committed.max_credits ? { settled_credits: settled } : {}) })
-    } catch { /* Unknown outcome retains its durable cap and identity. */ }
+      const result = await submit(committed.idempotency_key, 0, hooks)
+      await checkpoint({ state: 'succeeded' })
+      await notice('complete', `Retry ${ordinal} of ${maxRetries} finished; saved results are being verified.`)
+      try {
+        const current = await getGenStudioJobByIdempotencyKey(operation, baseUrl, apiKey, committed.idempotency_key, {}, Date.now() + GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS)
+        await checkpoint({ task_id: current.id, state: current.state === 'succeeded' ? 'succeeded' : current.state === 'failed' ? 'failed' : 'submitted' })
+      } catch { /* control lookup fallback */ }
+      return result
+    } catch (attemptError) {
+      lastError = attemptError
+      try {
+        const current = await getGenStudioJobByIdempotencyKey(operation, baseUrl, apiKey, committed.idempotency_key, {}, Date.now() + GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS)
+        await checkpoint({ task_id: current.id, state: current.state === 'succeeded' ? 'succeeded' : current.state === 'failed' ? 'failed' : 'submitted' })
+        if (current.cancelled === true) {
+          await notice('blocked', `Retry ${ordinal} of ${maxRetries} was cancelled.`)
+          throw new Error(`Automatic ${kind} retry was cancelled: ${committed.idempotency_key}`, { cause: attemptError })
+        }
+        if (holdsUnknownOutcome(current) || isUncertainGenerationCode(current.failure_code) || (current.failure_code === 'UNKNOWN_OUTCOME' && current.recovery_required !== false)) {
+          await notice('blocked', `Retry ${ordinal} of ${maxRetries} holds unknown outcome.`)
+          throw new Error(`Automatic ${kind} retry holds unknown outcome: ${committed.idempotency_key}`, { cause: attemptError })
+        }
+        if (current.state === 'failed' && current.failure_class !== 'provider_transient') {
+          await notice('blocked', `Retry ${ordinal} of ${maxRetries} encountered non-transient failure: ${current.failure_code || 'non-transient'}`)
+          throw new Error(`Automatic ${kind} retry encountered non-transient failure: ${committed.idempotency_key}`, { cause: attemptError })
+        }
+      } catch (checkErr) {
+        if (checkErr instanceof Error && (checkErr.message.includes('holds unknown outcome') || checkErr.message.includes('was cancelled') || checkErr.message.includes('encountered non-transient failure'))) {
+          throw checkErr
+        }
+      }
+
+      if (request.isCancelled?.() || request.signal?.aborted || (attemptError instanceof GenStudioTerminalFailureError && attemptError.cancelled)) {
+        await notice('blocked', `Retry ${ordinal} of ${maxRetries} was cancelled.`)
+        throw attemptError
+      }
+      if (isGenStudioSubmissionUncertain(attemptError)) {
+        await notice('blocked', `Retry ${ordinal} of ${maxRetries} has uncertain submission state.`)
+        throw attemptError
+      }
+      if (!(attemptError instanceof GenStudioTerminalFailureError) || attemptError.failureClass !== 'provider_transient') {
+        await notice('blocked', `Retry ${ordinal} of ${maxRetries} encountered non-transient failure: ${attemptError instanceof Error ? attemptError.message : String(attemptError)}`)
+        throw attemptError
+      }
+      if (ordinal >= maxRetries) {
+        await notice('blocked', `Retries exhausted (${maxRetries} of ${maxRetries}).`)
+        throw new Error(`Automatic ${kind} retry did not complete after ${maxRetries} attempts: ${attemptError instanceof Error ? attemptError.message : String(attemptError)}`, { cause: attemptError })
+      }
+    }
   }
+  throw lastError
 }
 
-function replaceFailedChat(apiKey: string, request: GenStudioChatRequest, prepared: PreparedChatSubmission, error: unknown): Promise<GenStudioChatResult> {
+function replaceFailedChat(apiKey: string, request: GenStudioChatRequest, prepared: PreparedChatSubmission, error: unknown, baseUrlOverride?: string): Promise<GenStudioChatResult> {
   return replaceConfirmedGeneration('writing', apiKey, prepared.idempotencyKey, chatReplacementItemKey(prepared, request), error, request,
     async (key, _cap, hooks) => {
-      return callChatViaResponses(apiKey, { ...request, ...hooks, recoverByIdempotencyKey: false }, { ...prepared, idempotencyKey: key })
+      return callChatViaResponsesOnce(apiKey, { ...request, ...hooks, recoverByIdempotencyKey: false }, { ...prepared, idempotencyKey: key }, baseUrlOverride)
     })
 }
 
@@ -8451,15 +8504,13 @@ async function callChatViaResponses(
     return await callChatViaResponsesOnce(apiKey, request, prepared, baseUrlOverride)
   } catch (error) {
     const lost = lostChatRequest(error, request, prepared.idempotencyKey)
-    return lost ? resendLostChat(apiKey, request, prepared, lost, baseUrlOverride) : replaceFailedChat(apiKey, request, prepared, error)
+    return lost ? reconcileLostChat(apiKey, request, prepared, baseUrlOverride) : replaceFailedChat(apiKey, request, prepared, error, baseUrlOverride)
   }
 }
 
 /**
- * Owner decision 2026-10-12: a writing request the Gateway lost track of after it was sent (a held
- * unknown outcome, or an uncertain-submission code) is resent ONCE with a fresh identity. The owner
- * accepts the small double-charge risk on a paid writing model. A capped paid replacement is never
- * resent, and images, voice, video and transcription keep their lock (this is chat-only).
+ * Unknown writing outcomes must be reconciled under their original identity before any new work.
+ * Legacy resend keys remain recoverable, but no uncertain outcome authorizes a replacement POST.
  */
 function lostChatRequest(error: unknown, request: GenStudioChatRequest, key: string): GenStudioChatTerminalFailureError | null {
   return error instanceof GenStudioChatTerminalFailureError && !error.cancelled && !key.startsWith(LOST_CHAT_RESEND_PREFIX)
@@ -8476,26 +8527,17 @@ export function lostChatResendKey(key: string, lostJobId: string): string {
   return `${LOST_CHAT_RESEND_PREFIX}${createHash('sha256').update(`${key}:lost:${lostJobId}`).digest('hex').slice(0, 40)}`
 }
 
-async function resendLostChat(
+async function reconcileLostChat(
   apiKey: string,
   request: GenStudioChatRequest,
   prepared: PreparedChatSubmission,
-  lost: GenStudioChatTerminalFailureError,
   baseUrlOverride?: string,
 ): Promise<GenStudioChatResult> {
-  // 1.4.300 — "Lost writing request": Off (the default) and Warn resend once as before; Block stops.
-  if (await currentJobSafety('lost_writing_request',
-    'The writing service lost track of a writing request after it was sent; Story sends it once more as a fresh request.', 'off') === 'block') throw lost
+  // Block still allows this read-only lookup; no mode permits a replacement POST.
+  await currentJobSafety('lost_writing_request', 'The writing request has an unknown outcome. Checking its original identity without submitting replacement work.', 'off')
   const queue = await import('../services/job-queue.js')
-  queue.noteCurrentJob('↻ The writing service lost track of the last writing request after it was sent, '
-    + 'so Story Studio sent it once more as a fresh request (it will not resend it again by itself).')
-  const resend = { ...request, recoverByIdempotencyKey: false }
-  const resent = { ...prepared, idempotencyKey: lostChatResendKey(prepared.idempotencyKey, lost.jobId) }
-  try {
-    return await callChatViaResponsesOnce(apiKey, resend, resent, baseUrlOverride)
-  } catch (error) {
-    return replaceFailedChat(apiKey, resend, resent, error)
-  }
+  queue.noteCurrentJob('↻ Checking the original writing request before doing any new work. An unknown outcome keeps its saved identity.')
+  return recoverChatByIdempotencyKey(apiKey, prepared.idempotencyKey, request, prepared, undefined, baseUrlOverride)
 }
 
 /**
@@ -8706,7 +8748,7 @@ async function callChatViaResponsesOnce(
           ...(prepared.expectedOutputTokens === null
             ? {}
             : { expected_output_tokens: prepared.expectedOutputTokens }),
-          ...(request.replacementChargeLimit !== undefined ? { max_charge_credits: request.replacementChargeLimit } : {}),
+          // No `max_charge_credits`: the Gateway owns the charge and never required a client cap.
           // Present only for a deliberate web-search request. `web_search` is
           // available on this route too, so web research is durable as well.
           ...(request.webSearch ? { web_search: request.webSearch } : {}),
@@ -8747,8 +8789,7 @@ async function callChatViaResponsesOnce(
   await recordGenStudioEvidence('chat.response', chatJobEvidence(submitted), requestPreview)
   // Only a key Story derived from content: a caller-supplied key (exact replay,
   // paid replacement) names one specific request and must never be moved —
-  // except a free model's held failure, which the owner redoes fresh (see
-  // replayedHeldFreeChatFailure); its new key reaches the caller through onJobAccepted.
+  // including a free model's held failure: an unknown answer can still be recovered.
   const freeHeldRedo = request.replacementChargeLimit === undefined
     && replayedHeldFreeChatFailure(submitted, prepared.product.chargeable)
   const settledRedo = !request.idempotencyKey?.trim() && request.replacementChargeLimit === undefined
@@ -8760,7 +8801,10 @@ async function callChatViaResponsesOnce(
   // recovery-only reattach never reaches this block — it returns before the POST.
   const cancelledRedo = !request.idempotencyKey?.trim() && request.replacementChargeLimit === undefined
     && replayedCancelledChatFailure(submitted)
-  if ((freeHeldRedo || settledRedo || cancelledRedo) && replayHops < MAX_FAILED_CHAT_REPLAY_HOPS) {
+  if (freeHeldRedo) {
+    return recoverChatByIdempotencyKey(apiKey, prepared.idempotencyKey, request, prepared, requestPreview, baseUrl)
+  }
+  if ((settledRedo || cancelledRedo) && replayHops < MAX_FAILED_CHAT_REPLAY_HOPS) {
     // The key is derived from the request content, so a Retry of the same step
     // re-POSTs the same key and the gateway answers with the OLD failed job.
     // Without this, one failure (the gateway
@@ -8962,25 +9006,14 @@ async function callChatWithGenStudioAdmitted(
     if (request.allowedRecoveryKeys?.length && !request.allowedRecoveryKeys.includes(idempotencyKey)) {
       throw new GenStudioChatRecoveryUnresolvedError(idempotencyKey)
     }
-    try {
-      return await recoverChatByIdempotencyKey(apiKey, idempotencyKey, request, {
-        outputContract: request.outputContract
-          ?? (request.jsonObject === true ? JSON_OBJECT_OUTPUT_CONTRACT : PROSE_OUTPUT_CONTRACT),
-        // The recovered job's own ceiling is unknown here by design (the saved key
-        // outranks today's catalogue), so the usage check has nothing to compare
-        // against and stays off for a recovery — `null`, not a guess.
-        maxOutputTokens: null,
-      })
-    } catch (error) {
-      // A saved request the Gateway lost track of gets its one fresh resend here, so a saved
-      // identity can no longer block its step forever (Scene Plan HMH0003, 0/185 prompts).
-      const lost = lostChatRequest(error, request, idempotencyKey)
-      if (!lost || request.deferLostResend) throw error
-      const fresh = { ...request, recoverByIdempotencyKey: false }
-      const prepared = await prepareChatSubmission(apiKey, fresh).catch(() => { throw error })
-      if (prepared.transport !== 'responses') throw error
-      return resendLostChat(apiKey, fresh, { ...prepared, idempotencyKey }, lost)
-    }
+    return await recoverChatByIdempotencyKey(apiKey, idempotencyKey, request, {
+      outputContract: request.outputContract
+        ?? (request.jsonObject === true ? JSON_OBJECT_OUTPUT_CONTRACT : PROSE_OUTPUT_CONTRACT),
+      // The recovered job's own ceiling is unknown here by design (the saved key
+      // outranks today's catalogue), so the usage check has nothing to compare
+      // against and stays off for a recovery — `null`, not a guess.
+      maxOutputTokens: null,
+    })
   }
   // Bind the entire verified retry to one server. The catalogue shapes the
   // exact old request too, so refuse a settings switch while it is read.
@@ -9038,7 +9071,7 @@ async function callChatWithGenStudioAdmitted(
       )
     } catch (error) {
       const lost = lostChatRequest(error, request, prepared.idempotencyKey)
-      if (lost) return resendLostChat(apiKey, request, prepared, lost, uncreatedRecoveryBaseUrl)
+      if (lost) return reconcileLostChat(apiKey, request, prepared, uncreatedRecoveryBaseUrl)
       // Only a 404 is the absence proof; see `isProvenUncreatedChatRequest`.
       if (!isProvenUncreatedChatRequest(error)) throw error
     }
@@ -9227,6 +9260,7 @@ async function loadImageModelsFromGenStudio(baseUrl: string, apiKey: string, sig
           reference_generation_price_version: publishedText(option?.reference_generation_price_version),
         }))
       : undefined,
+    image_modes: publishedImageModes(value?.image_modes),
     supports_reference_images: value?.supports_reference_images === true,
     supports_image_to_image: publishedFlag(value?.supports_image_to_image),
     supports_seed: publishedFlag(value?.supports_seed),
@@ -9474,9 +9508,10 @@ async function recoverImageWithGenStudioAdmitted(
     request.onState?.(initial.state)
   }
   const url = await downloadImageArtifact(baseUrl, apiKey, completed, request, deadline)
+  // No `settledCredits`: Story no longer tracks settlement. Gateway owns every
+  // credit decision, so the optional field on GenStudioImageResult stays unfilled.
   return {
     url, jobId: completed.id, modelId: completed.model_id,
-    ...(isValidSettlement(completed.settled_credits) ? { settledCredits: completed.settled_credits } : {}),
   }
 }
 
@@ -9910,8 +9945,8 @@ async function generateImageWithGenStudioAdmitted(
       ) as GenStudioImageJob
       break
     } catch (error) {
-      if (isGenStudioInsufficientCredits(error)) {
-        await recordGenStudioCreditRefusal({ operation: 'image.generation', preview: requestPreview }, error)
+      if (isGenStudioPaymentRefusal(error)) {
+        await recordGenStudioTerminalRefusal({ operation: 'image.generation', preview: requestPreview }, error)
       }
       if (!request.requiresAdmissionPermit || !isAuthoritativelyUnchargedPermitFailure(error)) throw error
       permitId = await acquireImageAdmissionPermit(
@@ -9927,7 +9962,6 @@ async function generateImageWithGenStudioAdmitted(
     const url = await downloadImageArtifact(baseUrl, apiKey, completed, request, deadline)
     return {
       url, jobId: completed.id, modelId: completed.model_id,
-      ...(isValidSettlement(completed.settled_credits) ? { settledCredits: completed.settled_credits } : {}),
     }
   } catch (error) {
     if (!shouldReconnectAcceptedTask(error, request)) throw error
@@ -10458,17 +10492,7 @@ function replaceFailedTts(apiKey: string, outPath: string, request: GenStudioTts
   const originalKey = request.idempotencyKey?.trim() || buildGenStudioSubmission(submitRequest).idempotencyKey
   const itemKey = createHash('sha256').update(outPath + JSON.stringify(buildGenStudioSubmission(submitRequest).body)).digest('hex')
   return replaceConfirmedGeneration('audio', apiKey, originalKey, itemKey, error, request,
-    (key, _cap, hooks) => generateTtsToFileAdmitted(apiKey, outPath, { ...submitRequest, ...hooks, idempotencyKey: key }),
-    async () => {
-      const quote = await requestGenStudioTtsQuote(apiKey, {
-        modelId: request.modelId!, voiceId: request.voiceId!, text: request.text, speed: request.speed,
-        supportsSpeed: request.supportsSpeed,
-        minimumSpeed: request.minimumSpeed,
-        maximumSpeed: request.maximumSpeed,
-        controls: request.controls,
-      })
-      return quote.maximum_credits ?? null
-    })
+    (key, _cap, hooks) => generateTtsToFileAdmitted(apiKey, outPath, { ...submitRequest, ...hooks, idempotencyKey: key }))
 }
 
 /** Generate a GenStudio API TTS job, then convert its private WAV response to Story's MP3 contract. */
@@ -10533,7 +10557,7 @@ async function generateTtsToFileAdmitted(
         'Content-Type': 'application/json',
         'Idempotency-Key': idempotencyKey,
       },
-      body: wellFormedJson({ ...jobGroup, ...submission.body, ...(request.replacementChargeLimit !== undefined ? { max_charge_credits: request.replacementChargeLimit } : {}) }),
+      body: wellFormedJson({ ...jobGroup, ...submission.body }),
     },
     request,
     deadline,

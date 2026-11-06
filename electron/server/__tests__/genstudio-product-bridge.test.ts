@@ -626,7 +626,9 @@ test('story workflow schemas accept complete output and reject partial output', 
 
 test('Gateway errors remain distinct and actionable', () => {
   assert.match(new GenStudioApiError(401, 'bad key').message, /valid Gateway API Key/i)
-  assert.match(new GenStudioApiError(402, 'balance too low').message, /insufficient credits/i)
+  const paymentRefusal = new GenStudioApiError(402, 'balance too low').message
+  assert.equal(paymentRefusal, 'The Gateway refused this request: balance too low')
+  assert.doesNotMatch(paymentRefusal, /credit/i, 'Story never invents a credit claim of its own')
   assert.match(new GenStudioApiError(403, 'scope missing').message, /scopes and product access/i)
   assert.match(new GenStudioApiError(422, 'wrong mode').message, /selected model and its output contract/i)
   assert.match(new GenStudioApiError(429, 'busy').message, /Retry-After/i)

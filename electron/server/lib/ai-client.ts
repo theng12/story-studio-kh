@@ -21,7 +21,6 @@ import {
   type GenStudioChatModel,
   GenStudioChatProductUnavailableError,
   GenStudioChatTerminalFailureError,
-  hasFullyReleasedZeroSettlement,
   isGenStudioLanguageQuotaExhausted,
   isGenStudioSubmissionUncertain,
   listChatModels,
@@ -38,7 +37,7 @@ import type { GenStudioRequestPreview } from './genstudio-request-preview.js'
 import { findGenStudioProduct } from '../contracts/genstudio-product-identity.js'
 
 /**
- * A writing model that answered "quota used up" (a proven, uncharged stop) is asked again later
+ * A writing model that confirmed "quota used up" without a hold is asked again later
  * instead of failing the job. A free allowance is usually DAILY, so the wait doubles per
  * consecutive stop — 1, 2, 4, 8, 16, then every 30 minutes — and a success resets it.
  * One model only: a Gateway pool already falls through its own members (owner, 2026-10-03).
@@ -53,11 +52,11 @@ export function _setQuotaRecheckMsForTesting(ms: number): void {
   quotaRecheckMs = ms
 }
 
-/** True when this error (or one it wraps) is a quota stop that provably charged nothing. */
+/** True when this error (or one it wraps) is a confirmed quota stop without a hold. */
 export function isUnchargedQuotaStop(error: unknown): boolean {
   for (let e: any = error, depth = 0; e && depth < 8; e = e.cause, depth++) {
     if (isGenStudioLanguageQuotaExhausted(e) && !e.cancelled
-      && !isGenStudioSubmissionUncertain(e) && hasFullyReleasedZeroSettlement(e)) return true
+      && !isGenStudioSubmissionUncertain(e)) return true
   }
   return false
 }
@@ -390,8 +389,8 @@ export async function executePipelineModelPolicy<T>(
   if (saved?.status === 'failed_terminal') {
     throw new Error(`The previously submitted Pipeline request for "${saved.candidate_model}" reached a terminal failure. Start a new run instead of replaying its failed request key.`)
   }
-  // A request that was proved never accepted (or never charged) starts fresh;
-  // anything that may have reached the Gateway reconnects to its own key.
+  // A request that was never accepted or reached a confirmed terminal failure starts fresh;
+  // an unresolved request reconnects to its own key.
   const startFresh = !saved || ['failed_unaccepted', 'exhausted', 'waiting'].includes(saved.status)
   const model = startFresh ? policy.assigned_model : saved.candidate_model
   let acceptedIdempotencyKey = startFresh ? undefined : saved?.idempotency_key
@@ -425,13 +424,12 @@ export async function executePipelineModelPolicy<T>(
     await checkpoint?.write(checkpointKey, state('succeeded'))
     return result
   } catch (error) {
-    const provenUncharged = error instanceof GenStudioChatTerminalFailureError
+    const confirmedTerminal = error instanceof GenStudioChatTerminalFailureError
       && !error.cancelled
       && !isGenStudioSubmissionUncertain(error)
-      && hasFullyReleasedZeroSettlement(error)
-    if (provenUncharged || (!acceptedIdempotencyKey && isSafePipelineModelAdvance(error))) {
-      // Nothing was charged and the failed key is terminal: a later Retry or
-      // quota recheck makes a fresh request instead of replaying this one.
+    if (confirmedTerminal || (!acceptedIdempotencyKey && isSafePipelineModelAdvance(error))) {
+      // This key is terminal: a later Retry or quota recheck needs a fresh
+      // request instead of replaying its known failure.
       acceptedIdempotencyKey = undefined
       await checkpoint?.write(checkpointKey, state('failed_unaccepted'))
     } else {
@@ -480,8 +478,7 @@ export function isSafePipelineModelAdvance(error: unknown): boolean {
     || error instanceof GenStudioChatCapabilityUnavailableError
     || (error instanceof GenStudioChatTerminalFailureError
       && !error.cancelled
-      && !isGenStudioSubmissionUncertain(error)
-      && hasFullyReleasedZeroSettlement(error))
+      && !isGenStudioSubmissionUncertain(error))
 }
 
 /**

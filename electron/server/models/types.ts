@@ -8,10 +8,12 @@ import type { ContentPackItemKind } from '../content-packs/types.js'
 import type { MotionScope } from '../contracts/motion-scope.js'
 import type { ScenePacing, ScenePacingPeriod } from '../contracts/pacing.js'
 import type { ContextualCueCorner } from '../contracts/contextual-cue-position.js'
+import type { ChannelStatus } from '../contracts/publishing-overview.js'
 import type { SketchHoldSetting } from '../lib/sketch-hold.js'
 import type { SketchRevealSetting, SketchRevealType } from '../lib/sketch-reveal.js'
 import type { SketchLineWeight } from '../lib/sketch-line-weight.js'
 import type { AssignedPipelineModelPolicy, PipelinePolicyCheckpointStore } from '../lib/pipeline-model-policy.js'
+import type { SceneImageRules } from '../contracts/scene-image-rules.js'
 
 // ── Project ─────────────────────────────────────────────────────────────────
 
@@ -145,6 +147,20 @@ export interface ProjectMeta {
    * own word and is never re-cased or re-ordered for him.
    */
   labels?: string[]
+
+  /**
+   * The owner-set status label for this channel — `live`, `preparing`,
+   * `testing`, `paused` or `retired` (see `CHANNEL_STATUSES`). ABSENT (or
+   * null) means **Unclassified**, and is NEVER inferred from the schedule,
+   * readiness, freshness or anything else: a channel he has not labelled is
+   * unlabelled, and an app that guessed would be deciding for him.
+   *
+   * Written only through `updateProject` (`UpdateProjectSchema`), the ordinary
+   * channel-settings route. It is deliberately not a preset field (§5), and is
+   * read by exactly one place — the Publishing Overview — so setting it
+   * changes nothing about upload or publishing.
+   */
+  channel_status?: ChannelStatus | null
 
   /**
    * Format primitive (Phase 1 of the format/character/pattern system).
@@ -1776,6 +1792,11 @@ export interface UpdateProjectRequest {
    * (`contracts/project-labels.ts`); `[]` clears them. See `ProjectMeta.labels`.
    */
   labels?: string[]
+  /**
+   * The owner-set status label. `null` clears it back to Unclassified — the
+   * same answer an absent key gives. See `ProjectMeta.channel_status`.
+   */
+  channel_status?: ChannelStatus | null
 }
 
 /**
@@ -2267,6 +2288,9 @@ export interface EpisodeLengthSetting {
 }
 
 export interface ProjectConfig {
+  research_before_writing?: boolean
+  /** Starting mix length for future music episodes; saved episode settings win. */
+  music_episode_target_length_s?: number
   /**
    * 1.4.369 — this channel's episode length, as a STARTING value for each NEW
    * episode. A Quote Shorts Formula asks for 10–60 s per Short, drawn once
@@ -2300,6 +2324,12 @@ export interface ProjectConfig {
   /** 1.4.300 — per-channel Off / Warn / Block for each safety check; only changed rows are saved. */
   safety_checks?: Record<string, 'off' | 'warn' | 'block'>
   /**
+   * 1.4.377 — this channel's final-check knobs (owner rule, 2026-11-03): a narration silence up to
+   * and including `silence_min_sec` seconds is accepted, a longer one is flagged. Absent = the
+   * default of 10 s; bounds live in lib/final-video-check.ts's SILENCE_MIN_SEC_BOUNDS.
+   */
+  final_check?: { silence_min_sec?: number }
+  /**
    * The channel's local identity — handle, About text and the logo/banner
    * art the app shows for this channel. See `ChannelProfileConfig`; the
    * channel's name stays in `ProjectMeta.name`.
@@ -2319,6 +2349,14 @@ export interface ProjectConfig {
    * decides, and a cleared tick never posts.
    */
   social_platforms?: Array<'facebook' | 'instagram' | 'tiktok'>
+  /**
+   * This channel's scene-image rules — three editable data layers:
+   * scene type → complexity → model (contracts/scene-image-rules.ts).
+   * Absent = the channel has no rules yet; nothing is seeded into a stored
+   * channel here. Model ids inside are starting selections only; capabilities
+   * resolve live at use (AGENTS §1).
+   */
+  scene_image_rules?: SceneImageRules
   llm_lineup_migration?: LlmLineupMigration
   /** Historical project files may contain retired fields; Story ignores them. */
   [key: string]: any
@@ -2621,10 +2659,13 @@ export interface UpdateApiKeysRequest {
 }
 
 export interface UpdateConfigRequest {
+  music_episode_target_length_s?: number
   /** 1.4.369 — the channel's per-episode starting length (Quote Shorts). */
   episode_length?: EpisodeLengthSetting
   /** 1.4.300 — per-channel Off / Warn / Block for each safety check. */
   safety_checks?: Record<string, 'off' | 'warn' | 'block'>
+  /** 1.4.377 — this channel's final-check knobs (`silence_min_sec`, owner rule 2026-11-03). */
+  final_check?: { silence_min_sec?: number }
   /** Server-written only (the HTTP schema strips it). */
   llm_lineup_migration?: LlmLineupMigration
   image_models?: Record<string, ImageModelConfig>
@@ -2670,6 +2711,7 @@ export interface UpdateConfigRequest {
    * provenance never reads as a person. Absent = off; the default lives in
    * `lib/research-verification.ts` (researchAutoApproveEnabled), not here.
    */
+  research_before_writing?: boolean
   research_auto_approve_claims?: boolean
   /**
    * E2–E4 (1.4.288) — scene analysis for this channel (Effects Library). Off unless set. `depth`
@@ -2891,7 +2933,8 @@ export interface PaidImageReplacementPolicySnapshot {
   enabled: boolean
   wait_minutes: 30
   max_replacements_per_asset: 1
-  additional_credit_ceiling: number | null
+  /** Legacy records only; ignored. The switch alone decides. */
+  additional_credit_ceiling?: number | null
   snapshotted_at: string
 }
 
@@ -2909,9 +2952,10 @@ export interface PaidImageReplacementAttempt {
   reference_inputs: import('../services/task-manifest.js').PaidImageReferenceInput[]
   reference_identity_hash: string
   failure_code: string
-  reserved_credits: number
-  settled_credits: number
-  released_credits: number
+  /** Legacy records only; ignored. */
+  reserved_credits?: number
+  settled_credits?: number
+  released_credits?: number
   terminal_observed_at: string
   eligible_at: string
   quoted_credits?: number
@@ -2922,7 +2966,7 @@ export interface PaidImageReplacementAttempt {
   actual_settled_credits?: number
   reason?: string
   /** Allow-listed renderer explanation; never derived from provider prose. */
-  public_reason?: 'original_failure_not_eligible' | 'replacement_disabled' | 'not_verified' | 'budget_limit'
+  public_reason?: 'original_failure_not_eligible' | 'replacement_disabled' | 'not_verified'
 }
 
 export interface GenerationReplacementAttempt {
@@ -2933,11 +2977,13 @@ export interface GenerationReplacementAttempt {
   original_task_id: string
   original_idempotency_key: string
   idempotency_key: string
-  max_credits: number
+  /** Legacy records only; ignored. Credits retired with the paid/free retry distinction. */
+  max_credits?: number
   state: 'committed' | 'submitted' | 'succeeded' | 'failed'
   task_id?: string
   settled_credits?: number
   revision: number
+  ordinal?: number
 }
 
 export interface FinalRenderRemoteWaitReceiptV1 {
@@ -4976,6 +5022,22 @@ export interface ScenePlanEntry {
   /** v1.0.336 — true when the user hand-set `scene_type` in Scene Review; a
    *  re-plan / re-classify keeps their choice instead of overwriting it. */
   scene_type_locked?: boolean
+  /**
+   * Content-based scene-image classification (2026-11-05) — the id of this
+   * channel's `scene_image_rules.scene_types` entry the planner assigned, or
+   * the operator hand-set. Absent = not classified. The legacy `scene_type`
+   * above is preserved as-is: no reclassification, no migration.
+   */
+  subject_kind?: string
+  /** True when the operator hand-set `subject_kind`; a re-plan keeps it,
+   *  mirroring `scene_type_locked`. */
+  subject_kind_locked?: boolean
+  /** Why the content classifier chose `subject_kind` — a hint in the UI, never a gate. */
+  classification_reason?: string
+  /** Per-scene image model override (scene → model without changing the channel
+   *  rules). Structural id only — the live catalogue validates it at use
+   *  (AGENTS §1); no capability or cap is stored here. */
+  image_model_id?: string
   /**
    * Scene Review "Reference to Image" — ids of THIS episode's characters that
    * appear in this scene (AGENTS.md §4). Episode state, never preset state.

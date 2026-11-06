@@ -171,18 +171,18 @@ test('a model publishing no reference support refuses the selection — never a 
     await assert.rejects(
       resolveSceneReferences({
         slug: project.slug, episodeCode: episodeId, characterIds: [id],
-        episodeDir: paths.episode_dir, supportsReferences: false, maxReferences: 0, modelName: 'Klein text-only',
+        episodeDir: paths.episode_dir, supportsReferences: false, maxReferences: 0, modelName: 'model-with-zero-references',
       }),
-      /Klein text-only accepts no reference images/,
+      /model-with-zero-references accepts no reference images/,
     )
     // A reference-capable model that publishes no limit is refused too: the count is
     // never guessed (AGENTS.md §1).
     await assert.rejects(
       resolveSceneReferences({
         slug: project.slug, episodeCode: episodeId, characterIds: [id],
-        episodeDir: paths.episode_dir, supportsReferences: true, maxReferences: undefined, modelName: 'Klein unpublished',
+        episodeDir: paths.episode_dir, supportsReferences: true, maxReferences: undefined, modelName: 'model-with-unpublished-reference-limit',
       }),
-      /Klein unpublished accepts no reference images/,
+      /model-with-unpublished-reference-limit accepts no reference images/,
     )
   } finally {
     await temp.cleanup()

@@ -55,6 +55,21 @@
         Research for {{ episodeId }} did not finish: {{ researchJobErrorText }}
         <NuxtLink :to="`/projects/${slug}/jobs`">Open Jobs</NuxtLink>
       </p>
+      <div class="research-auto-approve-card">
+        <div class="research-auto-approve-head">
+          <label class="research-switch-label">
+            <input
+              type="checkbox"
+              :checked="researchBeforeWriting"
+              :disabled="!projectConfig || savingResearchBeforeWriting"
+              @change="setResearchBeforeWriting(($event.target as HTMLInputElement).checked)"
+            />
+            Research before writing
+          </label>
+        </div>
+        <p class="research-setting-help">Applies to this channel's manual and automatic writing runs. Missing or failed research is skipped with a message; writing continues.</p>
+        <p v-if="researchBeforeWriting && !researchPresetReady" class="research-setting-help" role="status">Choose a research preset.</p>
+      </div>
       <div class="research-flow-rail" aria-label="Research workflow">
         <span class="research-flow-step" :class="{ active: !result }"><b>1</b> Brief</span>
         <span class="research-flow-line" aria-hidden="true"></span>
@@ -598,6 +613,23 @@ const { success, error: showError, showAction } = useToast()
 const { ask } = useConfirm()
 const { config: projectConfig } = useProject()
 
+const researchBeforeWriting = computed(() => projectConfig.value?.research_before_writing === true)
+const savingResearchBeforeWriting = ref(false)
+async function setResearchBeforeWriting(enabled: boolean): Promise<void> {
+  const projectSlug = slug.value
+  savingResearchBeforeWriting.value = true
+  try {
+    await put(`/projects/${projectSlug}/settings/config`, { research_before_writing: enabled })
+    if (slug.value !== projectSlug) return
+    if (projectConfig.value) projectConfig.value.research_before_writing = enabled
+    success(enabled ? 'Research before writing is on for this channel.' : 'Research before writing is off for this channel.')
+  } catch (e: any) {
+    if (slug.value === projectSlug) showError(e?.data?.detail || e?.message || 'Could not save the setting')
+  } finally {
+    savingResearchBeforeWriting.value = false
+  }
+}
+
 // ── "Approve claims automatically" (config `research_auto_approve_claims`) ──
 // Per-project, persisted through the same /settings/config endpoint the Scene
 // Plan toggles use. ABSENT MEANS OFF: `=== true`, never `!== false`, so a
@@ -729,6 +761,13 @@ const researchPresets = usePresets<any>({
     if (typeof data.form.allowed_domains === 'string') form.value.allowed_domains = data.form.allowed_domains
     if (typeof data.form.blocked_domains === 'string') form.value.blocked_domains = data.form.blocked_domains
   },
+})
+const researchPresetReady = computed(() => {
+  const data = researchPresets.activeData.value
+  const preset = data?.form || data
+  return !!(preset?.research_mode === 'web-search'
+    ? preset.web_model?.trim()
+    : (preset?.source_model || preset?.model)?.trim())
 })
 // Persist the model choice whenever it changes.
 watch(() => form.value.source_model, (m) => {

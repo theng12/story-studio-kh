@@ -253,6 +253,21 @@ async function findUniversalJob(jobId: string): Promise<Job | undefined> {
   return (await Promise.all(scopes.map(scope => jq.findJobs(scope, job => job.job_id === jobId)))).flat()[0]
 }
 
+/**
+ * Which scope's saved history still holds a job the queue's store has dropped.
+ *
+ * The universal removal path is asked for one job id with no scope, so the
+ * scopes are read one by one. The first scope whose saved jobs file still has
+ * the row owns it.
+ */
+async function removalScopeFor(jobId: string): Promise<string | undefined> {
+  const scopes = await allJobScopes()
+  for (const scope of scopes) {
+    if (await jq.savedJobExists(scope, jobId)) return scope
+  }
+  return undefined
+}
+
 function sendJobControlError(res: import('express').Response, error: unknown): boolean {
   if (!(error instanceof jq.JobControlError)) return false
   res.status(error.status).json({
@@ -731,14 +746,27 @@ router.post('/jobs/all/:jobId/abandon', async (req, res, next) => {
 // puts the row back. There is no route that deletes a terminal job any more.
 router.post('/jobs/all/:jobId/hide', async (req, res) => {
   const existing = await findUniversalJob(req.params.jobId)
-  if (!existing) return res.status(404).json({ detail: 'Job not found' })
+  if (!existing) {
+    // The row may only exist in the scope's saved history; hide it there too.
+    const scope = await removalScopeFor(req.params.jobId)
+    if (!scope || !await jq.hideTerminalJob(scope, req.params.jobId)) {
+      return res.status(404).json({ detail: 'Job not found' })
+    }
+    return res.json({ ok: true })
+  }
   if (!await jq.hideTerminalJob(existing.project_slug, req.params.jobId)) return sendTerminalOnlyConflict(res, existing)
   res.json({ ok: true, job: jq.getPublicJob(req.params.jobId) })
 })
 
 router.post('/jobs/all/:jobId/unhide', async (req, res) => {
   const existing = await findUniversalJob(req.params.jobId)
-  if (!existing) return res.status(404).json({ detail: 'Job not found' })
+  if (!existing) {
+    const scope = await removalScopeFor(req.params.jobId)
+    if (!scope || !await jq.unhideTerminalJob(scope, req.params.jobId)) {
+      return res.status(404).json({ detail: 'Job not found' })
+    }
+    return res.json({ ok: true })
+  }
   if (!await jq.unhideTerminalJob(existing.project_slug, req.params.jobId)) return sendTerminalOnlyConflict(res, existing)
   res.json({ ok: true, job: jq.getPublicJob(req.params.jobId) })
 })
@@ -1060,14 +1088,24 @@ router.post('/projects/:slug/jobs/:jobId/abandon', async (req, res, next) => {
 // Hide, never delete — see the `/jobs/all` sibling for why.
 router.post('/projects/:slug/jobs/:jobId/hide', async (req, res) => {
   const existing = (await jq.findJobs(req.params.slug, job => job.job_id === req.params.jobId))[0]
-  if (!existing || existing.project_slug !== req.params.slug) return res.status(404).json({ detail: 'Job not found' })
+  if (!existing || existing.project_slug !== req.params.slug) {
+    if (!await jq.hideTerminalJob(req.params.slug, req.params.jobId)) {
+      return res.status(404).json({ detail: 'Job not found' })
+    }
+    return res.json({ ok: true })
+  }
   if (!await jq.hideTerminalJob(req.params.slug, req.params.jobId)) return sendTerminalOnlyConflict(res, existing)
   res.json({ ok: true, job: jq.getPublicJob(req.params.jobId) })
 })
 
 router.post('/projects/:slug/jobs/:jobId/unhide', async (req, res) => {
   const existing = (await jq.findJobs(req.params.slug, job => job.job_id === req.params.jobId))[0]
-  if (!existing || existing.project_slug !== req.params.slug) return res.status(404).json({ detail: 'Job not found' })
+  if (!existing || existing.project_slug !== req.params.slug) {
+    if (!await jq.unhideTerminalJob(req.params.slug, req.params.jobId)) {
+      return res.status(404).json({ detail: 'Job not found' })
+    }
+    return res.json({ ok: true })
+  }
   if (!await jq.unhideTerminalJob(req.params.slug, req.params.jobId)) return sendTerminalOnlyConflict(res, existing)
   res.json({ ok: true, job: jq.getPublicJob(req.params.jobId) })
 })

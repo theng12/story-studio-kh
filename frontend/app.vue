@@ -2,6 +2,9 @@
   <NuxtLayout>
     <NuxtPage />
   </NuxtLayout>
+  <!-- The data-refresh chip and failure strip live in components/AppHeader.vue
+       (reserved slot at the end of the bar + a strip under it), so they are in
+       flow with the header and can never sit on top of the nav. -->
   <ToastContainer />
   <GenerationConfirmationDialog />
   <ConfirmDialog />

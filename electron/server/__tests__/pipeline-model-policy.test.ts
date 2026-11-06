@@ -39,7 +39,7 @@ test('A stored policy runs only its assigned model; a retired-lineup policy defe
   assert.equal(policy({ mode: 'backup', models: ['a', 'b'], assigned_model: 'a', wait_for_availability: true }), null)
 })
 
-test('A proven uncharged stop requires a typed zero-settlement terminal failure', () => {
+test('A safe terminal stop requires a typed failure without cancellation or an uncertain outcome', () => {
   assert.equal(isSafePipelineModelAdvance(new Error('timeout')), false)
   assert.equal(isSafePipelineModelAdvance(new GenStudioChatCapabilityUnavailableError('chat-1', 'structured output is unavailable')), true)
   assert.equal(isSafePipelineModelAdvance(new GenStudioChatTerminalFailureError({
@@ -47,7 +47,7 @@ test('A proven uncharged stop requires a typed zero-settlement terminal failure'
   })), true)
   assert.equal(isSafePipelineModelAdvance(new GenStudioChatTerminalFailureError({
     id: 'chat-2', state: 'failed', reserved_credits: 10, settled_credits: null, released_credits: null,
-  })), false)
+  })), true)
   assert.equal(isSafePipelineModelAdvance(new GenStudioChatTerminalFailureError({
     id: 'chat-cancelled', state: 'failed', cancelled: true, reserved_credits: 10, settled_credits: 0, released_credits: 10,
   })), false)
@@ -57,6 +57,9 @@ test('A proven uncharged stop requires a typed zero-settlement terminal failure'
   })), false)
   assert.equal(isSafePipelineModelAdvance(new GenStudioChatTerminalFailureError({
     id: 'chat-charged', state: 'failed', reserved_credits: 10, settled_credits: 1, released_credits: 9,
+  })), true)
+  assert.equal(isSafePipelineModelAdvance(new GenStudioChatTerminalFailureError({
+    id: 'chat-held', state: 'failed', recovery_required: true,
   })), false)
 })
 
@@ -190,6 +193,7 @@ test('Chunked policy restart retains an accepted chapter range when today\'s bat
 test('Scene Plan accepts only a complete persisted request shape for saved-key recovery', () => {
   const saved = {
     model_id: 'primary', context_window_tokens: 128_000, max_output_tokens: 32_768,
+    max_request_tokens: null,
     visual_max_tokens: 16_384, active_output_budget: 16_384, prompt_pack_size: 4,
   }
   assert.deepEqual(readScenePolicyRequestPlan(saved), saved)
@@ -212,9 +216,15 @@ test('Scene Plan accepts only a complete persisted request shape for saved-key r
   }
   assert.equal(readScenePolicyRequestPlan({ ...saved, visual_max_tokens: 0 }), null)
   assert.equal(readScenePolicyRequestPlan({ ...saved, active_output_budget: 0 }), null)
+  // A checkpoint written before the request-side figure existed stays valid and
+  // reads as UNKNOWN, not as a number of ours.
+  const { max_request_tokens: _omitted, ...legacy } = saved
+  assert.deepEqual(readScenePolicyRequestPlan(legacy), { ...saved, max_request_tokens: null })
+  assert.equal(readScenePolicyRequestPlan({ ...saved, max_request_tokens: '23000' }), null)
+  assert.equal(readScenePolicyRequestPlan({ ...saved, max_request_tokens: 0 }), null)
 })
 
-test('A proven uncharged failure lets the next run make a fresh request on the same model', async () => {
+test('A confirmed terminal quota failure lets the next run make a fresh request on the same model', async () => {
   const entries = new Map<string, PipelinePolicyAttemptCheckpoint>()
   const store = checkpointStore(entries)
   const policy = { mode: 'single' as const, models: ['pool::gemini-free-all'], assigned_model: 'pool::gemini-free-all' }
@@ -320,7 +330,7 @@ test('An accepted request keeps its key on a later product refusal', async () =>
   assert.equal(entries.get('research:EP0004')?.idempotency_key, 'accepted-primary-key')
 })
 
-test('An ordinary explicit policy retains an accepted recovery key after a charged terminal failure', async () => {
+test('An ordinary explicit policy starts fresh after a terminal failure regardless of legacy settlement', async () => {
   const entries = new Map<string, PipelinePolicyAttemptCheckpoint>([['ordinary:terminal', {
     input_fingerprint: 'same-input', candidates: ['primary', 'backup'], candidate_index: 0, candidate_model: 'primary',
     status: 'accepted', idempotency_key: 'accepted-primary-key', updated_at: '2026-09-09T00:00:00.000Z',
@@ -330,13 +340,29 @@ test('An ordinary explicit policy retains an accepted recovery key after a charg
   await assert.rejects(executePipelineModelPolicy(policy, async () => {
     throw new GenStudioChatTerminalFailureError({ id: 'primary', state: 'failed', reserved_credits: 10, settled_credits: 1, released_credits: 9 })
   }, store, 'ordinary:terminal', 'same-input'))
-  assert.equal(entries.get('ordinary:terminal')?.status, 'unknown')
+  assert.equal(entries.get('ordinary:terminal')?.status, 'failed_unaccepted')
+  assert.equal(entries.get('ordinary:terminal')?.idempotency_key, undefined)
   const recovered: string[] = []
   await executePipelineModelPolicy(policy, async (_model, recovery) => {
     recovered.push(recovery?.idempotencyKey || '')
     return 'legacy recovery'
   }, store, 'ordinary:terminal', 'same-input')
-  assert.deepEqual(recovered, ['accepted-primary-key'])
+  assert.deepEqual(recovered, [''])
+})
+
+test('Held and cancelled terminal failures retain their accepted recovery key', async () => {
+  for (const flags of [{ recovery_required: true }, { recovery_state: 'unknown_outcome' }, { cancelled: true }]) {
+    const entries = new Map<string, PipelinePolicyAttemptCheckpoint>()
+    await assert.rejects(executePipelineModelPolicy(
+      { mode: 'single', models: ['primary'], assigned_model: 'primary' },
+      async (_model, _recovery, accepted) => {
+        await accepted?.('held-primary-key')
+        throw new GenStudioChatTerminalFailureError({ id: 'held', state: 'failed', ...flags })
+      }, checkpointStore(entries), 'held:key', 'same-input',
+    ))
+    assert.equal(entries.get('held:key')?.status, 'unknown')
+    assert.equal(entries.get('held:key')?.idempotency_key, 'held-primary-key')
+  }
 })
 
 test('Pipeline policy rejects a malformed durable binding before any request', async () => {

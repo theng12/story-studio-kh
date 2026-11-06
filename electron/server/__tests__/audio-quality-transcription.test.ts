@@ -4,10 +4,7 @@ import path from 'node:path'
 import test from 'node:test'
 
 import { readManifest } from '../services/task-manifest.js'
-import {
-  AudioQualityVerificationCreditCeilingError,
-  verifyAudioQualityCandidateRawTranscript,
-} from '../services/audio-quality-transcription.js'
+import { verifyAudioQualityCandidateRawTranscript } from '../services/audio-quality-transcription.js'
 import { setGenStudioUrl } from '../services/app-settings.js'
 import { setApiKey } from '../services/app-secrets-store.js'
 import { clearGenStudioCatalogCache } from '../lib/genstudio-client.js'
@@ -17,7 +14,7 @@ import { MOCK_GENSTUDIO_FULL_KEY, startMockGenStudioService } from './fixtures/m
 const job = { project_slug: 'audio-quality-test', episode_id: 'EP0001' }
 const actionId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
 
-test('candidate alternate ASR is action-replayable, raw-only, and cannot confirm above its approved allowance', async t => {
+test('candidate alternate ASR is action-replayable, raw-only, and records the live quote it confirmed', async t => {
   const temporary = await useTempDataDir()
   const service = await startMockGenStudioService()
   t.after(async () => {
@@ -39,7 +36,6 @@ test('candidate alternate ASR is action-replayable, raw-only, and cannot confirm
   const input = {
     job, actionId, section: 'Chapter_01', candidateAudioPath: audioPath, candidateOutDir: candidateDir,
     apiKey: MOCK_GENSTUDIO_FULL_KEY, transcription: { modelId: 'mock-whisper-v1', language: 'en' },
-    verification_credit_ceiling: 7,
   }
   const first = await verifyAudioQualityCandidateRawTranscript(input)
   assert.match(first.srt, /Hello from mock the Gateway/)
@@ -60,32 +56,12 @@ test('candidate alternate ASR is action-replayable, raw-only, and cannot confirm
   assert.equal(replay.taskId, first.taskId)
   assert.equal(service.providerSubmissionCount('transcription'), 1, 'restart reattaches to the action-owned task')
 
-  let committed = 0
-  const reserve = async (quote: { id: string; quoted_credit_cost?: number; price_version?: string }) => {
-    const cost = quote.quoted_credit_cost ?? Number.POSITIVE_INFINITY
-    const remaining = 7 - committed
-    if (cost > remaining) throw new AudioQualityVerificationCreditCeilingError(quote, remaining)
-    committed += cost
-  }
+  const seen: string[] = []
   await verifyAudioQualityCandidateRawTranscript({ ...input, actionId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
-    section: 'Chapter_02', candidateOutDir: path.join(temporary.dir, 'shared-ceiling-one'), authorizeQuote: reserve })
-  await assert.rejects(
-    verifyAudioQualityCandidateRawTranscript({ ...input, actionId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
-      section: 'Chapter_03', candidateOutDir: path.join(temporary.dir, 'shared-ceiling-two'), authorizeQuote: reserve }),
-    error => error instanceof AudioQualityVerificationCreditCeilingError && error.remainingCredits === 0,
-  )
+    section: 'Chapter_02', candidateOutDir: path.join(temporary.dir, 'second-action'),
+    authorizeQuote: quote => { seen.push(String(quote.quoted_credit_cost)) } })
+  assert.deepEqual(seen, ['7'], 'the owner-facing callback receives the Gateway\'s own figure')
   assert.equal(service.requests.filter(request => /^\/v1\/audio\/transcriptions\/quotes\/[^/]+\/confirm$/.test(request.path)).length, 2,
-    'the action-level reservation permits one shared-ceiling confirmation only')
-
-  const overCeilingDir = path.join(temporary.dir, 'over-ceiling')
-  await assert.rejects(
-    verifyAudioQualityCandidateRawTranscript({ ...input, actionId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', candidateOutDir: overCeilingDir,
-      verification_credit_ceiling: 6 }),
-    error => error instanceof AudioQualityVerificationCreditCeilingError
-      && error.quote.quoted_credit_cost === 7,
-  )
-  assert.equal(service.requests.filter(request => /^\/v1\/audio\/transcriptions\/quotes\/[^/]+\/confirm$/.test(request.path)).length, 2,
-    'the above-ceiling path quotes but never confirms another candidate request')
-  await assert.rejects(fs.access(path.join(overCeilingDir, 'EP0001_Chapter_01.srt')))
+    'each confirmed candidate confirms exactly one quote')
   assert.match(await fs.readFile(activeSrt, 'utf8'), /must remain unchanged/)
 })

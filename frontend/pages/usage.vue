@@ -18,6 +18,7 @@
         <button class="btn btn-secondary btn-sm" :disabled="loading" @click="load">{{ loading ? 'Refreshing…' : 'Refresh' }}</button>
       </template>
     </PageTitle>
+    <ApiDataStatus path="/app-settings/genstudio/usage" @retry="load" />
 
     <p v-if="loading && !snapshot && !error" class="empty" role="status">Loading usage from your Gateway…</p>
 
@@ -157,7 +158,10 @@ async function load(): Promise<void> {
   error.value = ''
   usageErrorCode.value = ''
   try {
-    snapshot.value = await get<Snapshot>('/app-settings/genstudio/usage', { cache: 'no-store' })
+    // Read through the shared cache like every other page: the last answer is
+    // on screen at once and revalidated behind it, so Gateway figures are never
+    // a blank wait and never a silent stale number either.
+    snapshot.value = await get<Snapshot>('/app-settings/genstudio/usage')
   } catch (cause: any) {
     snapshot.value = null
     usageErrorCode.value = cause?.data?.code || ''

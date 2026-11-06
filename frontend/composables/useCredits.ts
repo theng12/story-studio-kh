@@ -63,7 +63,7 @@ export function useCredits() {
     creditRequest = (async () => {
       isRefreshing.value = true
       try {
-        const keys = await get<{ providers: Array<{ providerId: string; hasKey: boolean }> }>('/app-settings/api-keys')
+        const keys = await get<{ providers: Array<{ providerId: string; hasKey: boolean }> }>('/app-settings/api-keys', { cache: 'no-store' })
         genstudioConfigured.value = keys.providers.some(row => row.providerId === 'genstudio' && row.hasKey)
         if (!genstudioConfigured.value) {
           forgetStanding()
@@ -78,7 +78,7 @@ export function useCredits() {
             service_tier?: GenStudioServiceTierStanding
           }
           overview_freshness?: { stale?: boolean; ageMs?: number }
-        }>('/app-settings/genstudio/overview')
+        }>('/app-settings/genstudio/overview', { cache: 'no-store' })
         // The server retries before it answers, and falls back to its own last
         // known copy rather than failing. A 200 that is marked stale is still a
         // real balance — it is just not one refreshed during this call.

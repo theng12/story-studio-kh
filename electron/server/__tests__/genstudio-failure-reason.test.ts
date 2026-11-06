@@ -149,11 +149,13 @@ test('with no reason and no class the message is exactly what it was before', ()
   assert.equal(
     error.message,
     'The Gateway could not make the image (IMAGE_CONTENT_REFUSED). '
-    + 'GenStudio reports 20 credits released. '
     + 'This job cannot be reopened; Retry submits a new job.',
   )
   assert.equal(error.failureReason, null)
   assert.equal(error.failureClass, 'unknown')
+  assert.equal(error.reservedCredits, null, 'credit settlement is retired on every terminal failure')
+  assert.equal(error.settledCredits, null)
+  assert.equal(error.releasedCredits, null)
   // No stray separator, no dangling punctuation from a joined empty part.
   assert.doesNotMatch(error.message, /Provider reason:/)
   assert.doesNotMatch(error.message, / {2}/)

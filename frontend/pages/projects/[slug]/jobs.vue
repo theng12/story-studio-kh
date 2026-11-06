@@ -311,17 +311,6 @@
         Nothing was deleted: each keeps its error details, logs and Retry/Recover, and Restore puts it back.
         Hidden rows are not counted in Needs attention or in the Hide Failed total while they are here.
       </p>
-      <div v-if="hiddenJobsInScope.length" class="hidden-jobs" role="status">
-        <span v-if="!showHidden && hiddenSettlingCount" class="hidden-settling-count">
-          {{ hiddenSettlingCount }} hidden {{ hiddenSettlingCount === 1 ? 'job is' : 'jobs are' }} still settling
-        </span>
-        <button
-          type="button"
-          class="btn btn-xs btn-ghost"
-          :aria-pressed="showHidden"
-          @click="toggleHiddenJobs"
-        >{{ showHidden ? 'Hide Hidden' : `Show Hidden (${hiddenJobsInScope.length})` }}</button>
-      </div>
     </div>
 
     <!-- Sort Bar -->
@@ -821,11 +810,6 @@
                 @click="restoreHiddenJob(job)"
               >Restore</button>
               <button
-                v-if="showHidden && isJobHidden(job)"
-                class="btn btn-xs btn-ghost"
-                @click="restoreJob(job)"
-              >Restore</button>
-              <button
                 v-else-if="canHideJob(job)"
                 class="btn btn-xs btn-ghost"
                 title="Hide this completed card from Jobs. Work, receipts, and settlement checks continue."
@@ -1111,7 +1095,7 @@ const queueStats = computed(() => isUniversal.value ? universalQueue.stats.value
 const jobsStale = computed(() => isUniversal.value ? universalQueue.jobsStale.value : projectQueue.jobsStale.value)
 const jobsRefreshError = computed(() => isUniversal.value ? universalQueue.lastRefreshError.value : projectQueue.lastRefreshError.value)
 const jobsLoading = computed(() => isUniversal.value ? universalQueue.isLoading.value : projectQueue.isLoading.value)
-const { success, error: showError, info, successUndoable } = useToast()
+const { success, error: showError, info } = useToast()
 
 interface ProjectOption { slug: string; name: string }
 interface GenStudioServiceTier {
@@ -2182,43 +2166,24 @@ const projectScopedJobs = computed(() => {
   if (!isUniversal.value || projectFilter.value === 'all') return jobs.value
   return jobs.value.filter(job => job.project_slug === projectFilter.value)
 })
-const HIDDEN_JOBS_KEY = 'story-studio:hidden-jobs:v1'
-const showHidden = ref(false)
-const hiddenJobIds = ref(new Set(loadHiddenJobIds()))
-
-function loadHiddenJobIds(): string[] {
-  try {
-    const saved = typeof localStorage === 'undefined' ? null : localStorage.getItem(HIDDEN_JOBS_KEY)
-    const parsed = saved ? JSON.parse(saved) : []
-    return Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === 'string') : []
-  } catch { return [] }
-}
-
-function saveHiddenJobIds(next: Set<string>) {
-  hiddenJobIds.value = next
-  try {
-    if (typeof localStorage !== 'undefined') localStorage.setItem(HIDDEN_JOBS_KEY, JSON.stringify([...next]))
-  } catch { /* hiding stays local to this visit */ }
-}
-
-function isJobHidden(job: RJob): boolean { return hiddenJobIds.value.has(job.job_id) }
+/**
+ * The server owns the one hidden state: `hidden_at` is set by Hide and cleared
+ * by Restore, so a row the page never held in memory (it exists only in the
+ * scope's saved history) hides and restores the same way.
+ */
+function isJobHidden(job: RJob): boolean { return Boolean(job.hidden_at) }
 function canHideJob(job: RJob): boolean { return ['done', 'recovered', 'skipped'].includes(jobDisplayStatus(job)) }
-function restoreJob(job: RJob) {
-  const next = new Set(hiddenJobIds.value)
-  next.delete(job.job_id)
-  saveHiddenJobIds(next)
-}
-function hideJob(job: RJob) {
+async function hideJob(job: RJob) {
   if (isJobHidden(job) || !canHideJob(job)) return
-  const next = new Set(hiddenJobIds.value)
-  next.add(job.job_id)
-  saveHiddenJobIds(next)
-  successUndoable({ message: 'Hidden from Jobs.', onUndo: () => restoreJob(job) })
+  try {
+    await post(`${jobQueuePath(job)}/hide`, {})
+    success('Hidden from the list. Open Hidden to Restore it.')
+    await loadJobHistory()
+  } catch (e: any) {
+    showError(customerJobText(e?.data?.detail || 'Failed to hide this job', job))
+  }
 }
 
-// A hidden card never hides a new actionable failure. Recovered subtitle
-// attempts retain their raw error for diagnostics, so the display status is
-// the authority for whether the row needs attention.
 /**
  * Put a hidden row back on the list (the server's `hidden_at`). Nothing was
  * deleted on the way out, so its error details, log and Retry/Recover are
@@ -2242,28 +2207,8 @@ async function restoreHiddenJob(job: RJob) {
   }
 }
 
-function isActionableHiddenFailure(job: RJob): boolean {
-  return isJobHidden(job) && jobDisplayStatus(job) === 'error'
-}
-function restoreActionableFailures(jobIds: readonly string[]) {
-  if (!jobIds.length) return
-  const next = new Set(hiddenJobIds.value)
-  for (const jobId of jobIds) next.delete(jobId)
-  saveHiddenJobIds(next)
-}
-const actionableHiddenFailureIds = computed(() => jobs.value
-  .filter(isActionableHiddenFailure)
-  .map(job => job.job_id))
-watch(actionableHiddenFailureIds, restoreActionableFailures)
-
-const hiddenJobsInScope = computed(() => projectScopedJobs.value.filter(isJobHidden))
-const hiddenSettlingCount = computed(() => hiddenJobsInScope.value.filter(job =>
-  Boolean(job.genstudio_jobs?.length) && !isFreeFleetWork(job.genstudio_jobs)
-    && !summariseSettlement(settledRemoteJobs(job)).confirmed,
-).length)
-const presentationScopedJobs = computed(() => showHidden.value
-  ? projectScopedJobs.value
-  : projectScopedJobs.value.filter(job => !isJobHidden(job)))
+const presentationScopedJobs = computed(() =>
+  projectScopedJobs.value.filter(job => !isJobHidden(job)))
 const stats = computed(() => {
   const scoped = projectScopedJobs.value
   const recovered = scoped.filter(job => jobDisplayStatus(job) === 'recovered').length
@@ -2301,14 +2246,6 @@ const typeScopedJobs = computed(() => statusFilter.value === 'hidden'
   : visibleTypeScopedJobs.value)
 // v1.0.x — status filter (independent of the type tabs).
 const statusFilter = ref<'all' | 'running' | 'queued' | 'paused' | 'error' | 'done' | 'recovered' | 'cancelled' | 'skipped' | 'hidden'>('all')
-function toggleHiddenJobs() {
-  showHidden.value = !showHidden.value
-  if (showHidden.value) {
-    activeFilter.value = 'all'
-    statusFilter.value = 'all'
-    failureBatchFilter.value = null
-  }
-}
 const failureBatchFilter = ref<string | null>(null)
 const historySection = ref<HTMLElement | null>(null)
 const historyHeading = ref<HTMLElement | null>(null)
@@ -2408,8 +2345,8 @@ const filterTabs = computed(() => {
 const filterLabel = computed(() => filterTabs.value.find(t => t.type === activeFilter.value)?.label || '')
 
 const emptyState = computed(() => jobsEmptyState({
-  hiddenInScope: hiddenJobsInScope.value.length,
-  showHidden: showHidden.value,
+  hiddenInScope: hiddenScopedJobs.value.length,
+  showHidden: statusFilter.value === 'hidden',
   scopedJobs: presentationScopedJobs.value.length,
   typeFilter: activeFilter.value,
   typeLabel: filterLabel.value,
@@ -2454,7 +2391,9 @@ function toggleSort(key: string) {
 const filteredJobs = computed(() => {
   return filterJobsForView(typeScopedJobs.value, {
     type: 'all',
-    status: statusFilter.value,
+    // `typeScopedJobs` is already the hidden read here; "hidden" is not a
+    // display status, so passing it through would filter every row out.
+    status: statusFilter.value === 'hidden' ? 'all' : statusFilter.value,
     project: 'all',
     batch: failureBatchFilter.value,
   }).filter(job => matchesEpisodeSearch(job, episodeSearch.value))
@@ -2512,7 +2451,7 @@ const visibleActiveJobs = computed(() => capList(activeJobs.value, showAllActive
 const detailJobIds = computed(() => new Set([
   ...visibleActiveJobs.value, ...paginatedHistory.value,
   ...projectScopedJobs.value.filter(job => (job.status === 'error' || job.status === 'cancelled') && job.params?.jobs_replace_failed_items),
-  ...hiddenJobsInScope.value.filter(job => job.genstudio_settlement_open || job.genstudio_jobs?.length),
+  ...hiddenScopedJobs.value.filter(job => job.genstudio_settlement_open || job.genstudio_jobs?.length),
 ].map(job => job.job_id)))
 watch([streamedJobs, detailJobIds], ([list, ids]) => {
   jobDetails.ensure(list.filter(job => ids.has(job.job_id)))
@@ -3697,7 +3636,7 @@ async function clearHistory(status: 'finished' | 'failed') {
   const endpoint = isUniversal.value && project === 'all' ? '/jobs/all'
     : project === '_app_' ? '/jobs/app' : `/projects/${project}/jobs`
   clearingHistory.value = status
-  // A history read that began before this delete may still carry a row it removes.
+  // A history read that began before this hide may still carry a row it moves.
   history.invalidate()
   try {
     const result = await post<{ hidden: number }>(`${endpoint}/hide?status=${status}`)

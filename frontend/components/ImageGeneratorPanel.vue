@@ -40,6 +40,23 @@
       The Generate Thumbnail Images button at the top renders the whole board. Each row's own button renders just that one {{ kindLabelLower }}.
     </p>
 
+    <details v-if="renderedCount > 1" class="igp-compare">
+      <summary>Compare thumbnails</summary>
+      <div class="igp-compare-grid">
+        <figure v-for="image in comparisonImages" :key="image.filename">
+          <button type="button" class="igp-compare-preview" :aria-label="`Preview thumbnail ${image.number || image.filename}`" @click="$emit('open-preview', image.path)">
+            <ResilientImage :src="`/api/projects/${projectSlug}/video-editor/preview-image?path=${encodeURIComponent(image.path)}&k=${cacheKey}`" :alt="`Thumbnail ${image.number || image.filename}`" loading="lazy" />
+          </button>
+          <figcaption>
+            {{ image.filename }}
+            <button type="button" class="btn btn-sm btn-secondary" @click="togglePinForRow(image.filename)">
+              {{ image.filename === pinnedFilename ? 'Pinned for upload' : 'Pin for upload' }}
+            </button>
+          </figcaption>
+        </figure>
+      </div>
+    </details>
+
     <!-- Loading / error / empty states -->
     <div v-if="loading" class="igp-status">
       <LoadingSpinner size="sm" /> Loading prompts…
@@ -275,7 +292,11 @@ const imageByNumber = computed<Map<number, ScannedImage>>(() => {
 })
 
 // Only images that belong to a prompt on this board count as "ready".
-const renderedCount = computed(() => prompts.value.filter(row => imageByNumber.value.has(row.number)).length)
+const comparisonImages = computed(() => prompts.value.flatMap(row => {
+  const image = imageByNumber.value.get(row.number)
+  return image ? [image] : []
+}))
+const renderedCount = computed(() => comparisonImages.value.length)
 const missingCount = computed(() => Math.max(0, prompts.value.length - renderedCount.value))
 
 /**
@@ -444,6 +465,15 @@ watch(
 </script>
 
 <style scoped>
+.igp-compare { margin: 12px 0; }
+.igp-compare summary { cursor: pointer; }
+.igp-compare-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-top: 12px; }
+.igp-compare figure { margin: 0; min-width: 0; }
+.igp-compare-preview { display: block; width: 100%; padding: 0; border: 0; background: transparent; cursor: pointer; }
+.igp-compare-preview :deep(img) { width: 100%; aspect-ratio: 16 / 9; object-fit: contain; }
+.igp-compare figcaption { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; overflow-wrap: anywhere; margin-top: 8px; }
+@media (max-width: 640px) { .igp-compare-grid { grid-template-columns: 1fr; } }
+
 .igp {
   padding: 12px 14px;
   border: 1px solid var(--border);

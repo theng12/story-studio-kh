@@ -22,7 +22,7 @@ import { AsyncLocalStorage } from 'async_hooks'
 import type { ChildProcess } from 'child_process'
 import { createHash, randomUUID } from 'node:crypto'
 import { isDeepStrictEqual } from 'node:util'
-import { balancedReplacementSettlement, mergeGenerationReplacementAttempts } from './generation-paid-replacement.js'
+import { mergeGenerationReplacementAttempts } from './generation-paid-replacement.js'
 import { projectsRoot, getProjectDir, getUserDataDir } from './project-manager.js'
 import { reapRecordedChildren, recordChildProcess } from './orphan-reaper.js'
 import { trackGeneration } from './session-tracker.js'
@@ -223,10 +223,8 @@ export async function recordGenStudioJob(
     await mutateAuthoritativeJob(job.project_slug, job.job_id, authoritative => {
       authoritative.generation_replacement_attempts = (authoritative.generation_replacement_attempts || []).map(attempt => {
         if (attempt.task_id !== snapshot.id && attempt.idempotency_key !== requestKey) return attempt
-        const settled = balancedReplacementSettlement(snapshot)
         return { ...attempt, task_id: snapshot.id, revision: attempt.revision + 1,
-          state: snapshot.state === 'succeeded' ? 'succeeded' : snapshot.state === 'failed' ? 'failed' : 'submitted',
-          ...(settled !== null && settled <= attempt.max_credits ? { settled_credits: settled } : {}) }
+          state: snapshot.state === 'succeeded' ? 'succeeded' : snapshot.state === 'failed' ? 'failed' : 'submitted' }
       })
       return authoritative
     })
@@ -334,9 +332,6 @@ export async function reconcileRemoteCancellationFromProvider(
     cancellation_requested?: boolean | null
     cancellation_note?: string | null
     failure_code?: string | null
-    reserved_credits?: number | null
-    settled_credits?: number | null
-    released_credits?: number | null
     transcription_absence_verified_at?: string
   },
 ): Promise<void> {
@@ -359,9 +354,6 @@ export async function reconcileRemoteCancellationFromProvider(
     ...(evidence.cancellation_requested !== undefined && evidence.cancellation_requested !== null ? { cancellation_requested: evidence.cancellation_requested } : {}),
     ...(evidence.cancellation_note !== undefined ? { cancellation_note: evidence.cancellation_note } : {}),
     ...(evidence.failure_code !== undefined ? { failure_code: evidence.failure_code } : {}),
-    ...(typeof evidence.reserved_credits === 'number' && Number.isFinite(evidence.reserved_credits) && evidence.reserved_credits >= 0 ? { reserved_credits: evidence.reserved_credits } : {}),
-    ...(typeof evidence.settled_credits === 'number' && Number.isFinite(evidence.settled_credits) && evidence.settled_credits >= 0 ? { settled_credits: evidence.settled_credits } : {}),
-    ...(typeof evidence.released_credits === 'number' && Number.isFinite(evidence.released_credits) && evidence.released_credits >= 0 ? { released_credits: evidence.released_credits } : {}),
   })
 }
 
@@ -866,9 +858,6 @@ function mergeGenStudioReconciliationEvidence(
     cancellation_requested?: boolean | null
     cancellation_note?: string | null
     failure_code?: string | null
-    reserved_credits?: number | null
-    settled_credits?: number | null
-    released_credits?: number | null
     recovery_required?: boolean | null
     recovery_state?: string | null
     transcription_absence_verified_at?: string
@@ -893,9 +882,6 @@ function mergeGenStudioReconciliationEvidence(
     cancellation_requested: _priorCancellationRequested,
     cancellation_note: _priorCancellationNote,
     failure_code: _priorFailureCode,
-    reserved_credits: _priorReservedCredits,
-    settled_credits: _priorSettledCredits,
-    released_credits: _priorReleasedCredits,
     transcription_absence_verified_at: _priorTranscriptionAbsenceVerifiedAt,
     ...priorWithoutSyntheticAbsenceFields
   } = prior
@@ -924,9 +910,6 @@ function mergeGenStudioReconciliationEvidence(
     ...(provider.cancellation_requested !== undefined ? { cancellation_requested: provider.cancellation_requested } : {}),
     ...(provider.cancellation_note !== undefined ? { cancellation_note: provider.cancellation_note } : {}),
     ...(provider.failure_code !== undefined ? { failure_code: provider.failure_code } : {}),
-    ...(typeof provider.reserved_credits === 'number' && Number.isFinite(provider.reserved_credits) ? { reserved_credits: provider.reserved_credits } : {}),
-    ...(typeof provider.settled_credits === 'number' && Number.isFinite(provider.settled_credits) ? { settled_credits: provider.settled_credits } : {}),
-    ...(typeof provider.released_credits === 'number' && Number.isFinite(provider.released_credits) ? { released_credits: provider.released_credits } : {}),
     ...(provider.transcription_absence_verified_at ? { transcription_absence_verified_at: provider.transcription_absence_verified_at } : {}),
     updated_at: new Date().toISOString(),
   }
@@ -1312,6 +1295,8 @@ export async function recheckJobProviderStatus(projectSlug: string, jobId: strin
   if (!job || job.project_slug !== projectSlug) {
     throw Object.assign(new Error('Job not found'), { status: 404, expose: true })
   }
+  // A local worker still owns the episode; a check must never release its fence.
+  if (activeRunJobRecords.has(jobId) && TERMINAL_JOB_STATUSES.has(job.status)) return serializeJob(job)
   // Boot refresh publishes an intermediate `unreachable` result before its
   // persistence finishes. A manual check in that window must wait, then issue
   // its own provider read instead of returning as if it had checked.
@@ -1735,7 +1720,7 @@ function clearQuotaWaitTimer(jobId: string): void {
 function quotaWaitingMessage(job: Job, retryAt: string): string {
   const model = writingModelOf(job) || 'The writing model'
   return `${model} has used up its allowance for now. Story Studio will try this job again at `
-    + `${new Date(retryAt).toLocaleString()} — nothing was charged and finished work is kept. `
+    + `${new Date(retryAt).toLocaleString()} — finished work is kept. `
     + 'To fall back across several models, choose a pool from GatewayKH as this step\'s writing model.'
 }
 
@@ -2263,7 +2248,6 @@ const PAID_IMAGE_REPLACEMENT_PUBLIC_CAUSE: Record<NonNullable<PaidImageReplaceme
   original_failure_not_eligible: 'its earlier Gateway task failed in a way that is not safe to resubmit automatically',
   not_verified: 'Story Studio could not verify its earlier Gateway task',
   replacement_disabled: 'automatic replacement of a failed paid image is off',
-  budget_limit: "this job's extra-credit limit for replacements is used up",
 }
 
 /** The public message with its allow-listed cause, so a refusal says why (EP0092 thumbnails, 2026-10-10). */
@@ -2312,9 +2296,7 @@ function streamSource(job: Job): Job {
   slim.genstudio_jobs_updated_at = entries.reduce((latest, entry) => (
     typeof entry.updated_at === 'string' && entry.updated_at > latest ? entry.updated_at : latest), '') || undefined
   slim.genstudio_settlement_open = !isFreeFleetWork(entries) && entries.some((entry: GenStudioEvidence) => (
-    !['succeeded', 'failed'].includes(String(entry.state))
-    || !settledNumber(entry.reserved_credits) || !settledNumber(entry.settled_credits) || !settledNumber(entry.released_credits)
-    || entry.settled_credits + entry.released_credits !== entry.reserved_credits))
+    !['succeeded', 'failed'].includes(String(entry.state))))
   return slim
 }
 
@@ -2407,6 +2389,16 @@ function serializeJob(job: Job, view: JobView = 'full'): RendererJob {
     }
     rendererJob.controls = [hold]
     rendererJob.control = hold
+  }
+  if (activeRunJobRecords.has(job.job_id) && TERMINAL_JOB_STATUSES.has(job.status)
+    && !chainHandoffJobIds.has(job.job_id)) {
+    const settling: JobControl = {
+      action: 'recheck-provider-status', enabled: true, label: 'Check again',
+      reason: `${job.status === 'cancelled' ? 'Cancellation is saved.' : 'This job has ended.'} Story Studio is still stopping its local worker. Retry becomes available when it releases this episode. Check again safely; this sends no new generation request.`,
+      code: 'JOB_NOT_AT_SAFE_LOCAL_STOP', financial_effect: 'none',
+    }
+    rendererJob.controls = [settling]
+    rendererJob.control = settling
   }
   if (view === 'row') trimToHistoryRow(rendererJob)
   return rendererJob
@@ -4455,7 +4447,6 @@ export function getValidPaidImageWait(job: Job): { attempt: PaidImageReplacement
   const policy = job.paid_image_replacement
   if (
     policy?.enabled !== true || policy.wait_minutes !== 30 || policy.max_replacements_per_asset !== 1
-    || !Number.isSafeInteger(policy.additional_credit_ceiling) || (policy.additional_credit_ceiling || 0) <= 0
     || !isNonEmptyString(policy.snapshotted_at) || !Number.isFinite(Date.parse(policy.snapshotted_at))
   ) return null
   const attempts = job.paid_image_replacement_attempts || []
@@ -4483,9 +4474,6 @@ export function getValidPaidImageWait(job: Job): { attempt: PaidImageReplacement
       isNonEmptyString(reference.role) && isNonEmptyString(reference.path) && isSha256(reference.sha256)
     ))
   ) return null
-  if (![attempt.reserved_credits, attempt.settled_credits, attempt.released_credits].every(value => (
-    typeof value === 'number' && Number.isFinite(value) && value >= 0
-  )) || attempt.reserved_credits !== attempt.settled_credits + attempt.released_credits || attempt.settled_credits <= 0) return null
   const observedAtMs = Date.parse(attempt.terminal_observed_at)
   const dueAtMs = Date.parse(attempt.eligible_at)
   if (!Number.isFinite(observedAtMs) || !Number.isFinite(dueAtMs) || dueAtMs !== observedAtMs + PAID_IMAGE_WAIT_MS) return null
@@ -6640,6 +6628,7 @@ async function runJob(type: JobType, job: Job): Promise<void> {
   } finally {
     activeRunJobIds.delete(job.job_id)
     activeRunJobRecords.delete(job.job_id)
+    if (jobs.has(job.job_id) && TERMINAL_JOB_STATUSES.has(job.status)) emitUpdate(job)
     if (!jobs.has(job.job_id)) {
       cancelled.delete(job.job_id)
       clearPaidImageWaitTimer(job.job_id)
@@ -7190,7 +7179,6 @@ function hasSafeTerminalStallEvidence(job: Job): boolean {
     ) return false
     if (isNeverCreatedProviderTask(entry)) {
       return Boolean(entry.request?.idempotency_key)
-        && entry.reserved_credits === 0 && entry.settled_credits === 0 && entry.released_credits === 0
     }
     if (entry.id.startsWith('pending:')) return false
     if (entry.state === 'succeeded') return true
@@ -8656,10 +8644,14 @@ export async function queryJobHistory(
   // the scope, read the channel's own saved jobs file once, read-only.
   if (!scopeJobs.length) {
     for (const scope of scopes) {
+      // Rows removed but not yet flushed to disk stay removed on read, the
+      // same filter the durable write applies (a just-cleared row must never
+      // resurrect from the stale file).
+      const removedIds = projectPersistence.get(scope)?.deletedIds
       try {
         const saved = JSON.parse(await fs.readFile(jobsPath(scope), 'utf-8')) as { jobs?: Job[] }
         for (const job of Array.isArray(saved.jobs) ? saved.jobs : []) {
-          if (job && job.project_slug === scope) scopeJobs.push(job)
+          if (job && job.project_slug === scope && !removedIds?.has(job.job_id)) scopeJobs.push(job)
         }
       } catch { /* no saved history is an empty history */ }
     }
@@ -8923,14 +8915,23 @@ function chatEntries(job: Job): NonNullable<Job['genstudio_jobs']> {
   return (job.genstudio_jobs || []).filter(entry => entry.operation === 'chat.response')
 }
 
-function isPreDispatchCreditRefusal(entry: NonNullable<Job['genstudio_jobs']>[number]): boolean {
-  return entry.state === 'failed'
-    && entry.dispatch_state === 'pre_dispatch'
-    && entry.queue_state === 'waiting_credits'
+/**
+ * A submission the Gateway refused BEFORE dispatch. No provider job was ever
+ * created for it, so there is nothing to look up by idempotency key and a
+ * by-key recovery can only ever find nothing.
+ *
+ * This predicate used to be keyed on the retired `waiting_credits` queue state.
+ * The property that mattered was never the credit: it was that the work never
+ * reached the Gateway at all. Stating it in dispatch terms keeps the same
+ * guarantee without Story knowing anything about credits, and old records
+ * written under `waiting_credits` still satisfy it unchanged.
+ */
+function isPreDispatchRefusal(entry: NonNullable<Job['genstudio_jobs']>[number]): boolean {
+  return entry.state === 'failed' && entry.dispatch_state === 'pre_dispatch'
 }
 
 function isResolvedChatEntry(entry: NonNullable<Job['genstudio_jobs']>[number]): boolean {
-  return isPreDispatchCreditRefusal(entry) || (typeof entry.id === 'string'
+  return isPreDispatchRefusal(entry) || (typeof entry.id === 'string'
     && !!entry.id
     && !entry.id.startsWith('pending:')
     && (entry.state === 'succeeded' || entry.state === 'failed'))
@@ -8940,10 +8941,10 @@ function chapterChatRetryMode(job: Job): ChapterChatRetryMode | undefined {
   const chats = chatEntries(job)
   if (chats.length === 0) return undefined
   const terminalFailure = chats.find(entry =>
-    isPreDispatchCreditRefusal(entry) || (entry.state === 'failed'
-    && typeof entry.id === 'string'
-    && !!entry.id
-    && !entry.id.startsWith('pending:')),
+    isPreDispatchRefusal(entry) || (entry.state === 'failed'
+      && typeof entry.id === 'string'
+      && !!entry.id
+      && !entry.id.startsWith('pending:')),
   )
   // A Story retry may replace the provider key only after every chat batch is
   // resolved. Any pending preview or unknown/nonterminal state can still be
@@ -8956,10 +8957,10 @@ function chapterChatRetryMode(job: Job): ChapterChatRetryMode | undefined {
 
 function terminalChatRetryScope(job: Job): string | undefined {
   if (chapterChatRetryMode(job) !== 'fresh-replacement') return undefined
-  const creditRefusal = chatEntries(job).find(isPreDispatchCreditRefusal)
-  if (creditRefusal) {
-    const key = creditRefusal.request?.idempotency_key?.trim() || creditRefusal.id.replace(/^pending:/, '')
-    return `credit-refused:${key}:${job.job_id}`
+  const refusal = chatEntries(job).find(isPreDispatchRefusal)
+  if (refusal) {
+    const key = refusal.request?.idempotency_key?.trim() || String(refusal.id).replace(/^pending:/, '')
+    return `pre-dispatch:${key}:${job.job_id}`
   }
   const terminalFailure = chatEntries(job).find(entry => entry.state === 'failed' && !entry.id.startsWith('pending:'))
   return terminalFailure ? `terminal:${terminalFailure.id}:${job.job_id}` : undefined
@@ -9997,7 +9998,8 @@ export function isJobHidden(job: Pick<Job, 'hidden_at'>): boolean {
  */
 export async function hideTerminalJob(projectSlug: string, jobId: string): Promise<boolean> {
   const job = jobs.get(jobId)
-  if (!job || job.project_slug !== projectSlug) return false
+  if (!job) return setSavedJobHidden(projectSlug, jobId, true)
+  if (job.project_slug !== projectSlug) return false
   if (hasFinalRenderFence(job)) return false
   if (!TERMINAL_JOB_STATUSES.has(job.status)) return false
   if (!job.force_abandoned && (hasUnsettledProviderEvidence(job) || job.music_results_awaiting_import?.length)) return false
@@ -10011,11 +10013,96 @@ export async function hideTerminalJob(projectSlug: string, jobId: string): Promi
 /** Put a hidden row back on the list. Its error details and Retry/Recover are still there. */
 export async function unhideTerminalJob(projectSlug: string, jobId: string): Promise<boolean> {
   const job = jobs.get(jobId)
-  if (!job || job.project_slug !== projectSlug) return false
+  if (!job) return setSavedJobHidden(projectSlug, jobId, false)
+  if (job.project_slug !== projectSlug) return false
   if (!job.hidden_at) return true
   delete job.hidden_at
   await persistJob(job)
   emitPublicUpdate(job)
+  return true
+}
+
+/**
+ * Hide or restore a row that exists only in the scope's saved jobs file.
+ *
+ * The history read falls back to that file, so a row the queue no longer holds
+ * is still on the customer's list. Hiding must reach it there too — otherwise
+ * Hide answers "Job not found" for a row that is visibly on screen.
+ */
+async function setSavedJobHidden(projectSlug: string, jobId: string, hidden: boolean): Promise<boolean> {
+  const durable = (await savedHistoryRows(projectSlug)).find(job => job?.job_id === jobId)
+  if (!durable || durable.project_slug !== projectSlug) return false
+  if (hidden) {
+    if (hasFinalRenderFence(durable)) return false
+    if (!TERMINAL_JOB_STATUSES.has(durable.status)) return false
+    if (!durable.force_abandoned && (hasUnsettledProviderEvidence(durable) || durable.music_results_awaiting_import?.length)) return false
+    if (durable.hidden_at) return true
+  } else if (!durable.hidden_at) return true
+  const hiddenAt = hidden ? new Date().toISOString() : ''
+  await persistProjectMutation(projectSlug, {
+    kind: 'transform',
+    jobId,
+    transform: current => {
+      if (!current) return null
+      if (!hidden) {
+        const next = { ...current }
+        delete next.hidden_at
+        return next
+      }
+      return { ...current, hidden_at: hiddenAt }
+    },
+  })
+  return true
+}
+
+/**
+ * Is this job still in the scope's SAVED history (jobs.json)?
+ *
+ * The queue's memory map and the saved file are two different stores: a scope
+ * the queue has not loaded keeps its rows only on disk. The history read
+ * falls back to the file, so the customer sees a row the memory map does not
+ * hold. This is how the removal path finds the scope that owns such a row.
+ */
+export async function savedJobExists(projectSlug: string, jobId: string): Promise<boolean> {
+  return (await savedHistoryRows(projectSlug)).some(job => job.job_id === jobId)
+}
+
+/** The scope's saved history rows, read straight from its jobs file. */
+async function savedHistoryRows(projectSlug: string): Promise<Job[]> {
+  try {
+    const parsed = JSON.parse(await fs.readFile(jobsPath(projectSlug), 'utf-8')) as { jobs?: Job[] }
+    return Array.isArray(parsed.jobs) ? parsed.jobs : []
+  } catch { return [] }
+}
+
+/**
+ * Remove a terminal row from the list, whether the queue still holds it in
+ * memory or only the project's saved jobs do.
+ *
+ * A scope whose jobs file the queue never loaded leaves the saved rows in the
+ * file and out of the memory map. The history read falls back to the file, so
+ * the customer sees those rows; the removal paths read the memory map, so they
+ * answer "Job not found" and the row can never be cleared. This removes the
+ * row from wherever it still lives. Files, provider evidence and billing
+ * records are never touched — only the list entry goes.
+ */
+export async function removeTerminalJobRow(projectSlug: string, jobId: string): Promise<boolean> {
+  const live = jobs.get(jobId)
+  if (live) {
+    if (live.project_slug !== projectSlug) return false
+    return removeTerminalJob(projectSlug, jobId)
+  }
+  let durable: Job | undefined
+  try {
+    const parsed = JSON.parse(await fs.readFile(jobsPath(projectSlug), 'utf-8')) as { jobs?: Job[] }
+    durable = (Array.isArray(parsed.jobs) ? parsed.jobs : []).find(job => job?.job_id === jobId)
+  } catch { return false }
+  if (!durable || durable.project_slug !== projectSlug) return false
+  if (!TERMINAL_JOB_STATUSES.has(durable.status)) return false
+  if (hasFinalRenderFence(durable)) return false
+  if (!durable.force_abandoned && (hasUnsettledProviderEvidence(durable) || durable.music_results_awaiting_import?.length)) return false
+  await persistProjectMutation(projectSlug, { kind: 'delete', jobId })
+  emitCleared(projectSlug, [jobId])
   return true
 }
 
@@ -10106,6 +10193,23 @@ export async function clearFinished(projectSlug: string, status?: JobHistoryClea
       if (job.type === 'continuity_render') clearedSceneRenderJobs.push(job)
       count++
     }
+  }
+  // Rows the memory map does not hold but the saved history still has: the
+  // list shows them (the history read falls back to the file), so the bulk
+  // clear must take them too. Same rule as the single-row removal. Rows whose
+  // delete is already in flight (deletedIds) are not counted again: an earlier
+  // clear's file write may not have landed, and re-counting it would inflate
+  // the number the customer sees.
+  const alreadyRemovedIds = projectPersistence.get(projectSlug)?.deletedIds
+  for (const job of await savedHistoryRows(projectSlug)) {
+    if (jobs.has(job.job_id) || clearedIds.includes(job.job_id)) continue
+    if (alreadyRemovedIds?.has(job.job_id)) continue
+    if (job.project_slug !== projectSlug) continue
+    if (hasFinalRenderFence(job)) continue
+    if (!matchesHistoryClearStatus(job, status)) continue
+    if (!job.force_abandoned && (hasUnsettledProviderEvidence(job) || job.music_results_awaiting_import?.length)) continue
+    clearedIds.push(job.job_id)
+    count++
   }
   void Promise.all(clearedSceneRenderJobs.map(job => (
     deactivateSceneRenderStatus(projectSlug, job.episode_id, job.job_id).catch(() => {})

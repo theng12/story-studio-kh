@@ -207,7 +207,6 @@ describe('useContentStore explicit commerce state machine', () => {
     ['CONTENT_PACK_TOO_LARGE_FOR_THIS_APP', 'This archive is too large to install safely'],
     ['CONTENT_PACK_REQUIRES_NEWER_APP', 'A newer Story Studio version is needed'],
     ['incompatible_story_version', 'A newer Story Studio version is needed'],
-    ['insufficient_credits', 'Not enough balance for this request'],
     ['quote_expired', 'This quote can no longer be used'],
     ['quote_rejected', 'This quote can no longer be used'],
     ['CONTENT_PURCHASE_OUTCOME_UNCERTAIN', 'GenStudio’s answer is uncertain'],

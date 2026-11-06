@@ -250,6 +250,9 @@ test('the exact preview is deterministic and is what the upload would send', asy
   assert.equal(first.body.status.containsSyntheticMedia, true)
   assert.equal(Array.isArray(first.body.modifications), true)
   assert.equal(Array.isArray(first.body.warnings), true)
+  assert.equal(first.body.checklist.length, 8)
+  assert.equal(first.body.checklist.find((item: any) => item.field === 'title')?.state, 'present')
+  assert.equal(first.body.checklist.find((item: any) => item.field === 'schedule')?.state, 'missing')
 })
 
 test('preview exposes the resolver-selected thumbnail and upload pins that filename into the job', async () => {

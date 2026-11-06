@@ -1,0 +1,77 @@
+{
+  "kind": "subtitle-style",
+  "schema_version": 1,
+  "id": "com.storystudio.subtitle-style.single-word-focus",
+  "name": "Single Word Focus",
+  "description": "Exactly one large word on screen at a time, centred in frame.",
+  "style": {
+    "schema_version": 2,
+    "typography": {
+      "font_family": "Arial Black",
+      "font_size_px": 78,
+      "bold": true,
+      "italic": false,
+      "letter_spacing_px": 0,
+      "line_spacing_px": 0,
+      "all_caps": true,
+      "max_chars_per_line": 20,
+      "max_lines": 1,
+      "wrap_style": "engine"
+    },
+    "color": {
+      "primary_hex": "#FFFFFF",
+      "primary_opacity": 1,
+      "secondary_hex": null,
+      "secondary_opacity": 1,
+      "outline_hex": "#000000",
+      "outline_opacity": 1,
+      "shadow_hex": "#000000",
+      "shadow_opacity": 1,
+      "box_hex": "#000000",
+      "box_opacity": 1
+    },
+    "box": {
+      "mode": "none",
+      "padding_px": null,
+      "corner_radius_px": 12
+    },
+    "edge": {
+      "outline_px": 6,
+      "shadow_px": 0,
+      "shadow_offset_x_px": 0,
+      "shadow_offset_y_px": 0,
+      "blur_px": 0
+    },
+    "placement": {
+      "position": "center",
+      "align": "center",
+      "position_x_pct": null,
+      "position_y_pct": null,
+      "safe_margin_pct": 8,
+      "margin_px": 40
+    },
+    "animation": {
+      "type": "none",
+      "in_ms": 0,
+      "out_ms": 0,
+      "transform_ms": 0,
+      "pop_from_pct": 72,
+      "travel_px": 36
+    },
+    "word": {
+      "mode": "single",
+      "active_color_hex": "#FFFFFF",
+      "active_opacity": 1,
+      "inactive_color_hex": null,
+      "inactive_opacity": 1,
+      "active_scale_pct": 118,
+      "transition_ms": 90,
+      "active_outline_hex": null,
+      "active_outline_opacity": 1,
+      "highlight_box": false,
+      "highlight_box_hex": "#FFD400",
+      "highlight_box_opacity": 1,
+      "highlight_box_px": 14
+    }
+  }
+}

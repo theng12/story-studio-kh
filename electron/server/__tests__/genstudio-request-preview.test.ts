@@ -396,7 +396,7 @@ describe('job-queue adopts the pre-submit preview', () => {
         state: 'failed',
         dispatch_state: 'pre_dispatch',
         model_id: 'credit-writer',
-        queue_state: 'waiting_credits',
+        queue_state: 'failed',
         failure_code: null,
         updated_at: job?.genstudio_jobs?.[0]?.updated_at,
         request: job?.genstudio_jobs?.[0]?.request,

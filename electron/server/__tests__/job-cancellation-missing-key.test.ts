@@ -163,7 +163,9 @@ test('missing key: one bounded waiting statement, no provider or claim spend, an
       'the waiting cadence must notice a restored key within one interval',
     )
     assert.equal(settled.remote_cancellations?.['voice.tts:provider-1']?.provider_job_id, 'provider-1')
-    assert.equal(settled.remote_cancellations?.['voice.tts:provider-1']?.released_credits, 4)
+    assert.equal(settled.remote_cancellations?.['voice.tts:provider-1']?.released_credits, undefined,
+      'cancellation evidence no longer stores the Gateway’s credit settlement')
+    assert.equal('released_credits' in (settled.remote_cancellations?.['voice.tts:provider-1'] ?? {}), false)
     assert.deepEqual(calls, [
       { method: 'GET', path: '/v1/jobs/provider-1' },
       { method: 'POST', path: '/v1/jobs/provider-1/cancel' },

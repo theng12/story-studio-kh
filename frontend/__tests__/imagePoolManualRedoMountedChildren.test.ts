@@ -23,6 +23,7 @@ async function loadPicker(path: string, id: string): Promise<Component> {
   const script = compileScript(descriptor, { id, inlineTemplate: true })
   const vueUrl = await import.meta.resolve('vue')
   const replacements = new Map([
+    ['../../electron/server/contracts/genstudio-image-modes.js', await import.meta.resolve('../../electron/server/contracts/genstudio-image-modes.ts')],
     ['../utils/live-genstudio-model-selection.js', await import.meta.resolve('../utils/live-genstudio-model-selection.ts')],
     ['../utils/genstudio-credit-cost.js', await import.meta.resolve('../utils/genstudio-credit-cost.ts')],
     ['../utils/genstudio-output-options.js', await import.meta.resolve('../utils/genstudio-output-options.ts')],
@@ -32,7 +33,7 @@ async function loadPicker(path: string, id: string): Promise<Component> {
   let content = script.content
   for (const [from, to] of replacements) content = content.replaceAll(from, to)
   const support = `
-    import { computed, onMounted, ref, watch } from ${JSON.stringify(vueUrl)}
+    import { computed, onMounted, ref, useId, watch } from ${JSON.stringify(vueUrl)}
     const useGenStudioImageModels = () => globalThis.__mountedImagePickerCatalog
     // The picker reads Settings → Default models on mount; this harness supplies its own.
     const useApi = () => ({ get: async () => ({}) })
@@ -62,6 +63,7 @@ function model(id: string, options = [
     aspect_ratios: ['16:9', '1:1'],
     default_aspect_ratio: '16:9',
     supports_seed: true,
+    image_modes: [{ id: 'txt2img', label: 'Text to image', available: true }],
     supports_reference_images: false,
     min_reference_images: 0,
     max_reference_images: 0,

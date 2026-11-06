@@ -84,6 +84,18 @@ export async function stopChild(child, { exited, graceMs = TERM_GRACE_MS, pollMs
 }
 
 /**
+ * The app's own `[shutdown]` stage lines from captured stdout — the bounded
+ * evidence a TERM failure may print. Never the raw tail: it carries URLs and
+ * unrelated logs.
+ *
+ * @param {string} output
+ * @returns {string[]}
+ */
+export function shutdownMarkerLines(output) {
+  return String(output).split('\n').map((line) => line.trim()).filter((line) => line.startsWith('[shutdown]')).slice(-20)
+}
+
+/**
  * Retain the isolated sandbox under the project's disposable `_trash/`, but only
  * once the app has actually exited. An unsettled sandbox is left exactly where
  * it is and named in the warning — nothing is moved or deleted while a process
@@ -267,22 +279,34 @@ export async function smokeLaunch(appPath, { timeoutMs = 120_000, log = () => {}
     return { ok: true, errors, port, health, uploadCenter, ms: Date.now() - started }
   }
 
+  let termStage = 'launch proof did not complete'
+  let evidence = null
   let outcome
   try {
     outcome = await launchAndProve()
+    termStage = 'launch proof completed'
   } finally {
+    const shutdownStarted = Date.now()
     const settled = await stopChild(child, { exited: () => exited !== null })
+    log(`  shutdown: ${settled ? 'exited' : 'still running'} after ${Date.now() - shutdownStarted}ms; exit=${JSON.stringify(exited)}`)
+    evidence = {
+      stage: `SIGTERM requested after ${termStage}`,
+      pid: Number.isInteger(child.pid) ? child.pid : null,
+      exitObserved: exited !== null,
+    }
     finalizeLaunchSandbox(sandbox, { settled })
     if (!settled) {
+      const markers = shutdownMarkerLines(output)
       outcome = {
         ok: false,
         errors: [
           ...(outcome?.errors ?? []),
-          `the packaged app did not exit after SIGTERM within ${TERM_GRACE_MS}ms; it was left running and no SIGKILL was sent (sandbox retained at ${sandbox})`,
+          `the packaged app did not exit after SIGTERM within ${TERM_GRACE_MS}ms (child pid ${evidence.pid}, stage: ${evidence.stage}, exit observed: ${evidence.exitObserved}; no SIGKILL was sent; sandbox retained at ${sandbox}). Shutdown markers: ${markers.length ? markers.join(' | ') : '(none)'}`,
         ],
       }
     }
   }
+  if (evidence) outcome.evidence = evidence
   return outcome
 }
 

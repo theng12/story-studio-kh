@@ -1,0 +1,12 @@
+{
+ "kind": "lettering-style",
+ "schema_version": 1,
+ "id": "com.storystudio.lettering.text-ice",
+ "name": "Ice",
+ "description": "cool icy blue tones, frosted crystalline texture, cold shimmer",
+ "axis": "text",
+ "phrase": "cool icy blue tones, frosted crystalline texture, cold shimmer",
+ "preview_assets": [
+  "assets/text-ice.webp"
+ ]
+}

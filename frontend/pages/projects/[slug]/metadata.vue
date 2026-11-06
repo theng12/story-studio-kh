@@ -612,7 +612,9 @@ interface Section { id: string; label: string; type: 'builtin' | 'custom'; enabl
 // `apply` function in usePresets so existing presets transparently upgrade.
 // Neutral compatibility baseline for old saved presets. New sessions are
 // immediately replaced by the selected Formula's publishing blueprint.
-const NEUTRAL_AI_DISCLOSURE = 'Created with the help of AI tools and reviewed before publishing.'
+// Empty on purpose: the server writes only the AI steps this episode's own records prove
+// (generators/metadata.ts episodeAiDisclosureSections). Saved text stays as the owner left it.
+const NEUTRAL_AI_DISCLOSURE = ''
 const defaultSections: Section[] = [
   { id: 'hook', label: 'Hook / Intro Paragraph', type: 'builtin', enabled: true, config: { characters: 220, starting_format: '' } },
   { id: 'narrator', label: 'Narrator Credit', type: 'builtin', enabled: false, config: { name: '' } },

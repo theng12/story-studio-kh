@@ -15,6 +15,8 @@
 import { test, before, after, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 import { useTempDataDir } from './_helpers.js'
 import { saveYouTubeChannelGrantForTest } from './_youtube-connection-test-helper.js'
@@ -662,4 +664,184 @@ test('no production ETA is invented anywhere in the payload', async () => {
   assert.ok('confirmed' in channel && 'planned' in channel && 'readiness' in channel)
   // And the next action is a real, existing route.
   assert.match(channel.next_action.url, /^\/projects\/shape-channel\//)
+})
+
+// ── Brief A: the owner-set channel status label, and the two new figures ────
+
+test('an absent channel_status is Unclassified, an unknown word is refused, and clearing lands on absent', async () => {
+  const now = Date.now()
+  const created = await projectWithCadence('Status Channel', 'SC')
+
+  // New channels start unlabelled. Nothing infers a label from the cadence
+  // they were given or from anything else on the payload.
+  let channel = (await svc.readPublishingOverview({ now })).channels[0]!
+  assert.equal(channel.channel_status, null)
+
+  const { UpdateProjectSchema, CreateProjectSchema } = await import('../contracts/index.js')
+  assert.equal(UpdateProjectSchema.parse({ channel_status: 'testing' }).channel_status, 'testing')
+  assert.equal(UpdateProjectSchema.parse({ channel_status: null }).channel_status, null)
+  // A word outside the vocabulary is a typo, not a label: refused at the
+  // boundary rather than stored as a chip the page cannot name.
+  assert.throws(() => UpdateProjectSchema.parse({ channel_status: 'live-ish' }), /Invalid enum value/)
+  // And it is not a creation-time field: a new channel cannot be born labelled.
+  assert.throws(() => CreateProjectSchema.parse({ name: 'x', channel_status: 'live' }))
+
+  await pm.updateProject(created.slug, { channel_status: 'testing' })
+  channel = (await svc.readPublishingOverview({ now })).channels[0]!
+  assert.equal(channel.channel_status, 'testing', 'Komsan-style day-one marking works for any channel')
+
+  // Reversible: null clears it, and the cleared state is the absent state.
+  await pm.updateProject(created.slug, { channel_status: null })
+  channel = (await svc.readPublishingOverview({ now })).channels[0]!
+  assert.equal(channel.channel_status, null)
+})
+
+test('setting a label changes nothing in upload or publishing', async () => {
+  const now = Date.now()
+  const created = await connectedProject('Unchanged Channel', 'UC')
+  const expected = plans.computeSlots(SCHEDULE, svc.PLANNED_SLOT_HORIZON, { notBefore: new Date(now) })
+  await seedConfirmed(created.slug, [
+    { video_id: 'vid-uc', scheduled_for: expected[0]!, episode_code: 'UC0001', checked_at: new Date(now - 60_000).toISOString() },
+  ])
+  await pm.updateConfig(created.slug, { upload_item_schedule: { 'import:local': expected[2]! } } as any)
+  await acceptedEpisode(created.slug, 'UC0001', 'Ready One')
+
+  const before = await svc.readPublishingOverview({ now })
+  const withoutLabel = (response: typeof before) => response.channels.map(({ channel_status: _dropped, ...rest }) => rest)
+
+  await pm.updateProject(created.slug, { channel_status: 'live' })
+  const after = await svc.readPublishingOverview({ now })
+
+  assert.equal(after.channels[0]!.channel_status, 'live')
+  assert.deepEqual(withoutLabel(after), withoutLabel(before),
+    'the label is the ONLY fact that changed — schedule, coverage, readiness, priority and calendar are identical')
+
+  // …and clearing it puts the whole payload back exactly where it started.
+  await pm.updateProject(created.slug, { channel_status: null })
+  assert.deepEqual(await svc.readPublishingOverview({ now }), before)
+})
+
+test('only the settings write path and the overview read channel_status — no upload or publishing code', async () => {
+  const root = fileURLToPath(new URL('../../../', import.meta.url))
+  const allowed = new Set([
+    'electron/server/contracts/index.ts',
+    'electron/server/contracts/publishing-overview.ts',
+    'electron/server/models/types.ts',
+    'electron/server/services/publishing-overview.ts',
+    'frontend/pages/publishing.vue',
+  ])
+  const skip = new Set(['node_modules', '__tests__', '.nuxt', '.output', 'dist', '_trash', '.git'])
+  const found = new Set<string>()
+
+  for (const tree of ['electron/server', 'frontend']) {
+    const base = path.join(root, tree)
+    const entries = await fs.readdir(base, { recursive: true, withFileTypes: true })
+    for (const entry of entries) {
+      if (!entry.isFile()) continue
+      const full = path.join(entry.parentPath ?? entry.path, entry.name)
+      const relative = path.relative(root, full).split(path.sep).join('/')
+      if ([...skip].some(part => relative.includes(`/${part}/`))) continue
+      if (!/\.(ts|vue|mjs|js)$/.test(entry.name)) continue
+      const text = await fs.readFile(full, 'utf-8')
+      if (text.includes('channel_status')) found.add(relative)
+    }
+  }
+
+  assert.deepEqual(
+    [...found].sort(),
+    [...allowed].sort(),
+    'a status label must not be read by any upload, schedule or publish path — '
+    + 'it is the settings write and the Overview read, nothing else',
+  )
+})
+
+test('missing slots are counted at the channel’s OWN cadence — a real 0, and unknown when it cannot be known', async () => {
+  const now = Date.now()
+  const created = await connectedProject('Window Channel', 'WC')
+  const expected = plans.computeSlots(SCHEDULE, svc.PLANNED_SLOT_HORIZON, { notBefore: new Date(now) })
+  // The four-week window for this cadence: the next twelve slots, all of them
+  // inside 28 days. Computed here from the public planner so the assertion does
+  // not restate the service's own walk.
+  const windowSlots = expected.filter(at => Date.parse(at) < now + 28 * 24 * 60 * 60 * 1000)
+  assert.ok(windowSlots.length >= 3, 'fixture needs slots inside the window')
+
+  // No plan yet: there is no cadence of its own to count against, so this is
+  // unknown — not 0, which would read as "every slot is covered".
+  let channel = (await svc.readPublishingOverview({ now })).channels[0]!
+  assert.equal(channel.plan_set, true, 'the cadence is stored')
+  await seedConfirmed(created.slug, [{ video_id: 'vid-wc-0', scheduled_for: windowSlots[0]! }], { outcome: 'complete' })
+  channel = (await svc.readPublishingOverview({ now })).channels[0]!
+  assert.equal(channel.confirmed.freshness, 'fresh')
+  assert.equal(channel.coverage.missing_slots_4w, windowSlots.length - 1,
+    'one confirmed slot leaves the rest of the window missing')
+
+  // Every slot in the window confirmed: a real 0, kept apart from every unknown above.
+  await seedConfirmed(created.slug, windowSlots.map((at, index) => ({
+    video_id: `vid-wc-all-${index}`, scheduled_for: at,
+  })), { outcome: 'complete' })
+  channel = (await svc.readPublishingOverview({ now })).channels[0]!
+  assert.equal(channel.coverage.missing_slots_4w, 0, 'every slot in the window is confirmed')
+  assert.notEqual(channel.coverage.missing_slots_4w, null)
+})
+
+test('missing slots are unknown while coverage is stale or was never checked — never a number', async () => {
+  const now = Date.now()
+  const created = await connectedProject('Stale Window Channel', 'SW')
+  const expected = plans.computeSlots(SCHEDULE, svc.PLANNED_SLOT_HORIZON, { notBefore: new Date(now) })
+  const old = new Date(now - pub.PUBLICATION_CACHE_TTL_MS * 2).toISOString()
+
+  // A complete listing whose only observation is past the TTL: the count would
+  // be built on an answer we no longer trust, so it is unknown.
+  await seedConfirmed(created.slug, [
+    { video_id: 'vid-sw', scheduled_for: expected[0]!, checked_at: old },
+  ], { outcome: 'complete' })
+  let channel = (await svc.readPublishingOverview({ now })).channels[0]!
+  assert.equal(channel.confirmed.freshness, 'stale')
+  assert.equal(channel.coverage.missing_slots_4w, null, 'stale coverage is unknown, never 0')
+
+  // And a channel with no plan has no cadence of its own to count at.
+  const unplanned = await projectWithCadence('No Cadence Window', 'NC')
+  await pm.updateConfig(unplanned.slug, { publish_cadence: null } as any)
+  const unplannedChannel = (await svc.readPublishingOverview({ now }))
+    .channels.find(entry => entry.slug === unplanned.slug)!
+  assert.equal(unplannedChannel.plan_set, false)
+  assert.equal(unplannedChannel.coverage.missing_slots_4w, null, 'no plan is no answer, not 0')
+})
+
+test('the oldest checked time is the OLDEST observation, and is unknown when it is absent or stale', async () => {
+  const now = Date.now()
+  const created = await connectedProject('Oldest Channel', 'OC2')
+  const expected = plans.computeSlots(SCHEDULE, svc.PLANNED_SLOT_HORIZON, { notBefore: new Date(now) })
+  const older = new Date(now - 6 * 60 * 60 * 1000).toISOString()
+  const newer = new Date(now - 60_000).toISOString()
+
+  // Two observations with different ages: the page must see the OLD one, not
+  // the newest — the newest is the one that hides how long this has been true.
+  await seedConfirmed(created.slug, [
+    { video_id: 'vid-older', scheduled_for: expected[0]!, checked_at: older },
+    { video_id: 'vid-newer', scheduled_for: expected[1]!, checked_at: newer },
+  ], { outcome: 'complete' })
+  let channel = (await svc.readPublishingOverview({ now })).channels[0]!
+  assert.equal(channel.coverage.oldest_checked_at, older)
+  assert.equal(channel.coverage.oldest_checked_stale, false)
+  assert.notEqual(channel.coverage.oldest_checked_at, channel.confirmed.last_checked_at,
+    'the newest check is a different fact from the oldest one')
+
+  // No schedule carrying a check time: unknown, never "checked never" and never 0.
+  const unchecked = await projectWithCadence('Unchecked Channel', 'UC2')
+  const uncheckedChannel = (await svc.readPublishingOverview({ now }))
+    .channels.find(entry => entry.slug === unchecked.slug)!
+  assert.equal(uncheckedChannel.coverage.oldest_checked_at, null)
+  assert.equal(uncheckedChannel.coverage.oldest_checked_stale, false)
+
+  // A stale oldest observation is reported as stale, so the page can refuse to
+  // present it as a confident date.
+  const staleOld = new Date(now - pub.PUBLICATION_CACHE_TTL_MS * 2).toISOString()
+  await seedConfirmed(created.slug, [
+    { video_id: 'vid-stale-old', scheduled_for: expected[2]!, checked_at: staleOld },
+    { video_id: 'vid-fresh-new', scheduled_for: expected[3]!, checked_at: newer },
+  ], { outcome: 'complete' })
+  channel = (await svc.readPublishingOverview({ now })).channels.find(entry => entry.slug === created.slug)!
+  assert.equal(channel.coverage.oldest_checked_at, staleOld)
+  assert.equal(channel.coverage.oldest_checked_stale, true)
 })
