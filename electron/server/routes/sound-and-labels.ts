@@ -349,10 +349,15 @@ router.post('/projects/:slug/sound-and-labels/:episodeId/accept-moves', async (r
  */
 router.post('/projects/:slug/sound-and-labels/:episodeId/labels/repair', async (req, res) => {
   try {
+    const action = req.body?.action
+    // Answer for the action we were asked. Guessing `snap` for a typo would
+    // move an approved label in a way nobody chose (AGENTS.md §4).
+    if (action !== 'snap' && action !== 'flag') {
+      return res.status(400).json({ detail: 'action must be either "snap" or "flag".' })
+    }
     const { planPath, plan, anchored, rawLabels } = await loadEpisode(req.params.slug, req.params.episodeId)
     if (!rawLabels) return res.status(404).json({ detail: 'There are no labels on this episode yet.' })
     const cueId = String(req.body?.cue_id || '')
-    const action = req.body?.action === 'flag' ? 'flag' : 'snap'
     const cue = rawLabels.cues.find(row => row.id === cueId)
     if (!cue) return res.status(404).json({ detail: 'That label is no longer on this episode.' })
     const escape = findSceneEscapes(rawLabels, plan, anchored.subtitles).find(item => item.cue_id === cueId)
