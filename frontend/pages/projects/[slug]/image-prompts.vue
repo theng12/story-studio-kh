@@ -539,6 +539,7 @@ type SelectedThumbnailRecipe = {
   id: string
   name: string
   recipe?: {
+    titleMode?: 'ai'
     defaultTextStyle?: string
     defaultFontStyle?: string
     defaultTextPosition?: 'top' | 'center' | 'bottom' | 'bottom-left'
