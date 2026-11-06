@@ -1,0 +1,28 @@
+{
+  "kind": "visual-style",
+  "schema_version": 1,
+  "id": "com.storystudio.style.painterly-prehistoric-life",
+  "name": "Painterly Prehistoric Life",
+  "description": "Earthy painterly illustration with warm low light, ochre and umber earth tones, textured hand-painted brushwork and realistic proportions; clearly painted, never cartoonish.",
+  "category": "Illustration",
+  "tags": [
+    "painterly",
+    "hand-painted",
+    "textured brush",
+    "ochre",
+    "umber",
+    "earthy",
+    "warm low light",
+    "realistic proportions",
+    "visible brushwork",
+    "layered depth"
+  ],
+  "style_bible": "A hand-painted illustration made with visible, textured brushwork. Medium and surface: loaded, dry and scumbled strokes that show the bristle and the tooth underneath, with the paint left visibly handled rather than blended away; edges are painterly and soft, with a few firm passages where the low warm light catches a face. Palette: ochre, umber, warm earth red, cream and charcoal, with cool notes reserved for shadow and distance so the warm light keeps the temperature of the picture. Lighting: one low, warm, localised source inside the frame, pooling on the figures and the ground around them and letting the rest of the place fall into deep but legible shade. Figures: drawn with realistic adult proportions, believable posture and simple dress suited to the scene; faces are shaped and individual, never caricatured, and they are shown doing something — working, carrying, resting, watching. Setting: a fully realised place with foreground, middle distance and background, painted convincingly rather than decoratively as a backdrop. Composition: one clear activity as the focal subject, layered depth and room around it. Not cartoonish. Content-independent: no fixed person, era, place or copied composition.",
+  "negative_prompt": "photoreal, photograph, photorealistic, 3D render, CGI, glossy, cartoon, cartoonish, anime, manga, chibi, caricature, exaggerated proportions, mascot, sticker art, flat vector, cel shading, thick ink outline, comic contour, neon, saturated colour, pastel candy palette, cool teal colour lock, misty monochrome, white background, tissue or wound texture, suffering, cruelty, lettering, captions, signature, watermark, logo, border, frame, copied reference composition",
+  "preview_assets": [
+    "assets/painterly-prehistoric-life.webp",
+    "assets/painterly-prehistoric-life-scene.webp",
+    "assets/painterly-prehistoric-life-hardest.webp"
+  ],
+  "compatible_formula_ids": []
+}

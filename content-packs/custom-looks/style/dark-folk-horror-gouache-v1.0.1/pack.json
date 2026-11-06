@@ -1,0 +1,15 @@
+{
+  "pack_format": 1,
+  "pack_id": "com.storystudio.pack.style.dark-folk-horror-gouache",
+  "publisher_id": "com.storystudio",
+  "key_id": "{{KEY_ID}}",
+  "version": "1.0.1",
+  "min_app_version": "{{MIN_APP_VERSION}}",
+  "lifecycle": "active",
+  "changelog": "Text-only neutral patch: removed subject, era, prop and mood wording from the rendered description, style bible, negative prompt and tags. Technique and all three previews are unchanged from 1.0.0.",
+  "entitlement": {
+    "sku": "com.storystudio.sku.style.dark-folk-horror-gouache",
+    "family": "com.storystudio.family.style.dark-folk-horror-gouache"
+  },
+  "dependencies": []
+}

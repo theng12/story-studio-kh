@@ -1,5 +1,5 @@
 {
-  "revision": 435,
+  "revision": 438,
   "batches": [
     {
       "revision": 2,
@@ -8976,6 +8976,64 @@
           }
         ]
       }
+    },
+    {
+      "revision": 436,
+      "receipt_ref": "authoring:a2ee7eb3b6a7eeab7fa7358ed2b8f6e0485cacf03c14ffa0505733e8fab99d17",
+      "request": {
+        "expected_revision": 435,
+        "coordinator": {
+          "task": "style-subject-neutralization",
+          "branch": "release/1.4.384"
+        },
+        "proposal_ref": "Owner 2026-11-01: all art style must be neutral and only apply style. Text-only 1.0.1 patches for the two installed identities dark-folk-horror-gouache and painterly-prehistoric-life; published 1.0.0 sources and previews stay byte-identical.",
+        "records": [
+          {
+            "pack_id": "com.storystudio.pack.style.dark-folk-horror-gouache",
+            "item_id": "com.storystudio.style.dark-folk-horror-gouache",
+            "version": "1.0.1",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "visual-style",
+            "source_path": "content-packs/custom-looks/style/dark-folk-horror-gouache-v1.0.1",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.style.dark-folk-horror-gouache",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.style.dark-folk-horror-gouache",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.style.painterly-prehistoric-life",
+            "item_id": "com.storystudio.style.painterly-prehistoric-life",
+            "version": "1.0.1",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "visual-style",
+            "source_path": "content-packs/custom-looks/style/painterly-prehistoric-life-v1.0.1",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.style.painterly-prehistoric-life",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.style.painterly-prehistoric-life",
+                "status": "proposed"
+              }
+            }
+          }
+        ]
+      }
     }
   ],
   "transitions": [
@@ -15243,6 +15301,40 @@
         "receipt_ref": "authoring:ef2b0f115ed9fb53528843267204c588b7c7d05fa014fe4c600ecd3e58654fcb",
         "pack_id": "com.storystudio.pack.style.bold-illustrated-history",
         "version": "1.0.4",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 437,
+      "transition_ref": "lifecycle:ba787116f94c4af68bd70ce8a257451cca47374120608981d5e4c2ff235fb132",
+      "request": {
+        "expected_revision": 436,
+        "coordinator": {
+          "task": "style-subject-neutralization",
+          "branch": "release/1.4.384"
+        },
+        "receipt_ref": "authoring:a2ee7eb3b6a7eeab7fa7358ed2b8f6e0485cacf03c14ffa0505733e8fab99d17",
+        "pack_id": "com.storystudio.pack.style.dark-folk-horror-gouache",
+        "version": "1.0.1",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 438,
+      "transition_ref": "lifecycle:6f7dac1520cf06e363f1c9d623b63f86473c9e1b059b39741fb7beed0f43f2c4",
+      "request": {
+        "expected_revision": 437,
+        "coordinator": {
+          "task": "style-subject-neutralization",
+          "branch": "release/1.4.384"
+        },
+        "receipt_ref": "authoring:a2ee7eb3b6a7eeab7fa7358ed2b8f6e0485cacf03c14ffa0505733e8fab99d17",
+        "pack_id": "com.storystudio.pack.style.painterly-prehistoric-life",
+        "version": "1.0.1",
         "changes": {
           "status": "authored"
         }
@@ -25148,6 +25240,52 @@
         },
         "sku": {
           "id": "com.storystudio.sku.style.bold-illustrated-history",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:a2ee7eb3b6a7eeab7fa7358ed2b8f6e0485cacf03c14ffa0505733e8fab99d17",
+      "pack_id": "com.storystudio.pack.style.dark-folk-horror-gouache",
+      "item_id": "com.storystudio.style.dark-folk-horror-gouache",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "visual-style",
+      "source_path": "content-packs/custom-looks/style/dark-folk-horror-gouache-v1.0.1",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.style.dark-folk-horror-gouache",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.style.dark-folk-horror-gouache",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:a2ee7eb3b6a7eeab7fa7358ed2b8f6e0485cacf03c14ffa0505733e8fab99d17",
+      "pack_id": "com.storystudio.pack.style.painterly-prehistoric-life",
+      "item_id": "com.storystudio.style.painterly-prehistoric-life",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "visual-style",
+      "source_path": "content-packs/custom-looks/style/painterly-prehistoric-life-v1.0.1",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.style.painterly-prehistoric-life",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.style.painterly-prehistoric-life",
           "status": "proposed"
         }
       }
