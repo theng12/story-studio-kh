@@ -8450,6 +8450,8 @@ export async function countJobs(projectSlug: string): Promise<JobStats> {
   const stats: JobStats = { running: 0, queued: 0, paused: 0, done: 0, error: 0, total: 0 }
   for (const job of jobs.values()) {
     if (job.project_slug !== projectSlug) continue
+    // Hidden rows are off the list, so they are in no badge (see getQueueStats).
+    if (isJobHidden(job)) continue
     stats.total += 1
     if (job.status === 'running') stats.running += 1
     else if (job.status === 'queued') stats.queued += 1
@@ -8511,6 +8513,12 @@ export interface JobHistoryFilter {
   controls?: readonly string[]
   /** Only rows that finished at or after this ISO timestamp. */
   since?: string
+  /**
+   * Read the rows the owner HID rather than the ones on the list. Absent (the
+   * default) and `false` both mean "visible rows only", which is every job
+   * saved before hiding shipped — none of them carry `hidden_at`.
+   */
+  hidden?: boolean
 }
 
 export interface JobHistoryOptions {
@@ -8563,6 +8571,10 @@ function matchesHistoryBase(job: Job, filter: JobHistoryFilter): boolean {
 
 function matchesHistoryFilter(job: Job, filter: JobHistoryFilter): boolean {
   if (!matchesHistoryBase(job, filter)) return false
+  // Hidden rows are off the list, and only a reader that asks for them by name
+  // gets them back. The two answers must not collapse into one: "hidden" is a
+  // deliberate state the owner chose, not an empty result (AGENTS.md §6).
+  if (isJobHidden(job) !== Boolean(filter.hidden)) return false
   if (filter.since && (Date.parse(job.finished_at || '') || 0) < Date.parse(filter.since)) return false
   const wanted = filter.statuses?.length ? filter.statuses : HISTORY_STATUS_BUCKETS
   if (!wanted.includes(rawDisplayStatus(job))) return false
@@ -8575,7 +8587,12 @@ function historyFacets(scopeJobs: readonly Job[], filter: JobHistoryFilter): Job
   const active_by_type: Record<string, number> = {}
   const status: Record<string, number> = {}
   const clearable = { finished: 0, failed: 0 }
+  let hidden = 0
   for (const job of scopeJobs) {
+    // A hidden row is not on the list, so it is in no badge, no chip and no
+    // bulk-action count — and it is never a silent zero: `hidden` below is the
+    // one number that says how many records are being kept out of sight.
+    if (isJobHidden(job)) { hidden += 1; continue }
     const display = rawDisplayStatus(job)
     stats.total += 1
     if (display === 'recovered') stats.recovered += 1
@@ -8588,7 +8605,7 @@ function historyFacets(scopeJobs: readonly Job[], filter: JobHistoryFilter): Job
     if (bucket === 'finished') clearable.finished += 1
     else if (bucket === 'failed') clearable.failed += 1
   }
-  return { stats, active_by_type, status, clearable }
+  return { stats, active_by_type, status, clearable, hidden }
 }
 
 export function encodeHistoryCursor(job: Job | RendererJob): string {
@@ -9964,6 +9981,80 @@ export function removeTerminalJob(projectSlug: string, jobId: string): boolean {
   return true
 }
 
+/** A row the owner took off the list. Absent `hidden_at` means visible (AGENTS.md §6: never a silent zero). */
+export function isJobHidden(job: Pick<Job, 'hidden_at'>): boolean {
+  return Boolean(job.hidden_at)
+}
+
+/**
+ * The owner took this row off the Jobs list WITHOUT deleting anything (owner,
+ * 2026-11-02: nothing deleted for good). Error details, `output_lines`,
+ * Retry admission and every provider receipt stay on the record exactly as
+ * they were; only the read path stops returning it.
+ *
+ * Refuses exactly what `removeTerminalJob` refused, so a row that was never
+ * free to leave the list cannot be hidden either — the evidence holds and the
+ * owner still sees the row explaining why.
+ */
+export async function hideTerminalJob(projectSlug: string, jobId: string): Promise<boolean> {
+  const job = jobs.get(jobId)
+  if (!job) return setSavedJobHidden(projectSlug, jobId, true)
+  if (job.project_slug !== projectSlug) return false
+  if (hasFinalRenderFence(job)) return false
+  if (!TERMINAL_JOB_STATUSES.has(job.status)) return false
+  if (!job.force_abandoned && (hasUnsettledProviderEvidence(job) || job.music_results_awaiting_import?.length)) return false
+  if (job.hidden_at) return true
+  job.hidden_at = new Date().toISOString()
+  await persistJob(job)
+  emitPublicUpdate(job)
+  return true
+}
+
+/** Put a hidden row back on the list. Its error details and Retry/Recover are still there. */
+export async function unhideTerminalJob(projectSlug: string, jobId: string): Promise<boolean> {
+  const job = jobs.get(jobId)
+  if (!job) return setSavedJobHidden(projectSlug, jobId, false)
+  if (job.project_slug !== projectSlug) return false
+  if (!job.hidden_at) return true
+  delete job.hidden_at
+  await persistJob(job)
+  emitPublicUpdate(job)
+  return true
+}
+
+/**
+ * Hide or restore a row that exists only in the scope's saved jobs file.
+ *
+ * The history read falls back to that file, so a row the queue no longer holds
+ * is still on the customer's list. Hiding must reach it there too — otherwise
+ * Hide answers "Job not found" for a row that is visibly on screen.
+ */
+async function setSavedJobHidden(projectSlug: string, jobId: string, hidden: boolean): Promise<boolean> {
+  const durable = (await savedHistoryRows(projectSlug)).find(job => job?.job_id === jobId)
+  if (!durable || durable.project_slug !== projectSlug) return false
+  if (hidden) {
+    if (hasFinalRenderFence(durable)) return false
+    if (!TERMINAL_JOB_STATUSES.has(durable.status)) return false
+    if (!durable.force_abandoned && (hasUnsettledProviderEvidence(durable) || durable.music_results_awaiting_import?.length)) return false
+    if (durable.hidden_at) return true
+  } else if (!durable.hidden_at) return true
+  const hiddenAt = hidden ? new Date().toISOString() : ''
+  await persistProjectMutation(projectSlug, {
+    kind: 'transform',
+    jobId,
+    transform: current => {
+      if (!current) return null
+      if (!hidden) {
+        const next = { ...current }
+        delete next.hidden_at
+        return next
+      }
+      return { ...current, hidden_at: hiddenAt }
+    },
+  })
+  return true
+}
+
 /**
  * Is this job still in the scope's SAVED history (jobs.json)?
  *
@@ -10069,6 +10160,9 @@ export async function noteOnFinishedJob(
  * page, but it is an error row and only the failed subset removes it.
  */
 function historyClearBucket(job: Job): JobHistoryClearStatus | null {
+  // Already off the list — a bulk hide must not count it a second time, and it
+  // must not be the reason a visible row's count reads differently.
+  if (isJobHidden(job)) return null
   if (!isFinishedStatus(job.status) || hasFinalRenderFence(job)) return null
   if (!job.force_abandoned && (hasUnsettledProviderEvidence(job) || job.music_results_awaiting_import?.length)) return null
   if (!jobControlsOf(job).some(control => control.enabled && control.action === 'clear-history')) return null
@@ -10130,9 +10224,50 @@ export async function clearFinished(projectSlug: string, status?: JobHistoryClea
   return count
 }
 
+/**
+ * The bulk counterpart of `hideTerminalJob`: take a whole terminal subset off
+ * the list, keeping every record. Same subset rule as the clear it replaced, so
+ * the button's count is still the number of rows that disappear — and a row the
+ * owner already hid is skipped rather than counted twice.
+ *
+ * Never deletes. Persisted in soft mode behind the response, the same
+ * fire-and-forget the clear used, so an iCloud-backed project cannot freeze the
+ * button.
+ */
+export async function hideFinished(projectSlug: string, status?: JobHistoryClearStatus): Promise<number> {
+  await loadPersistedJobs(projectSlug)
+  let count = 0
+  const hiddenIds: string[] = []
+  for (const [id, job] of jobs.entries()) {
+    if (job.project_slug !== projectSlug || isJobHidden(job) || hasFinalRenderFence(job)) continue
+    if (!matchesHistoryClearStatus(job, status)) continue
+    if (!job.force_abandoned && (hasUnsettledProviderEvidence(job) || job.music_results_awaiting_import?.length)) continue
+    job.hidden_at = new Date().toISOString()
+    hiddenIds.push(id)
+    count++
+  }
+  if (count > 0) {
+    for (const id of hiddenIds) {
+      const job = jobs.get(id)
+      if (job) emitPublicUpdate(job)
+    }
+    void Promise.all(hiddenIds.map(async (jobId) => {
+      const job = jobs.get(jobId)
+      if (job) await persistJob(job, true)
+    })).catch((e) => {
+      console.warn('[job-queue] failed to persist hidden history', { projectSlug, error: e?.message })
+    })
+  }
+  return count
+}
+
 export function getQueueStats(projectSlug?: string): JobStats {
   let jobList = Array.from(jobs.values())
   if (projectSlug) jobList = jobList.filter(j => j.project_slug === projectSlug)
+  // Hidden rows are off the list, so they are in no badge. They are not lost —
+  // the history read's `hidden` facet and the page's Hidden filter both count
+  // them — they simply do not add to "Needs attention" or "Done".
+  jobList = jobList.filter(j => !isJobHidden(j))
   return {
     running: jobList.filter(j => j.status === 'running').length,
     queued: jobList.filter(j => j.status === 'queued').length,

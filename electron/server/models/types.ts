@@ -3319,6 +3319,17 @@ export interface Job {
    */
   resolved?: { at: string; reason: string }
   /**
+   * 2026-11-02 — the restorable replacement for "Remove From List".
+   *
+   * A timestamp, not a boolean: `undefined` (or any job saved before this
+   * shipped) means VISIBLE, so every old stored job loads unchanged. Setting it
+   * takes the row off the list without touching the record — error details,
+   * `output_lines`, Retry admission and provider evidence all stay exactly as
+   * they were. Clearing it restores the row. Nothing ever sets this on its own;
+   * only the Hide actions do (AGENTS.md §8 by analogy — no automatic hiding).
+   */
+  hidden_at?: string
+  /**
    * This step did not run because the channel's own settings switch it off
    * (`lib/optional-steps.ts`). AGENTS.md §8: "Optional steps are skipped only
    * through explicit project configuration. A skipped optional step is not

@@ -671,7 +671,7 @@ describe('remote cancellation checkpoints', () => {
     assert.equal(pending?.status, 'running')
     assert.equal(pending?.finished_at, null)
     assert.ok(['queued', 'submitting', 'requested', 'reconciling', 'unknown'].includes(pending?.remote_cancellations?.['voice.tts:pending-target']?.status || ''))
-    const remove = await request(app).delete(`/api/projects/${project.slug}/jobs/${job.job_id}`)
+    const remove = await request(app).post(`/api/projects/${project.slug}/jobs/${job.job_id}/hide`)
     assert.equal(remove.status, 409)
     const repeated = await request(app).post(`/api/projects/${project.slug}/jobs/${job.job_id}/cancel`)
     assert.equal(repeated.status, 200)
@@ -717,7 +717,7 @@ describe('remote cancellation checkpoints', () => {
     assert.ok(['queued', 'submitting', 'requested', 'reconciling', 'unknown'].includes(pending?.remote_cancellations?.['voice.tts:pending-failure-target']?.status || ''))
     assert.match(pending?.error || '', /local executor failed while cancellation was pending/)
     assert.match(pending?.output_lines.join('\n') || '', /local executor failed while cancellation was pending/)
-    const remove = await request(app).delete(`/api/projects/${project.slug}/jobs/${job.job_id}`)
+    const remove = await request(app).post(`/api/projects/${project.slug}/jobs/${job.job_id}/hide`)
     assert.equal(remove.status, 409)
     const repeated = await request(app).post(`/api/projects/${project.slug}/jobs/${job.job_id}/cancel`)
     assert.equal(repeated.status, 200)
@@ -765,7 +765,7 @@ describe('remote cancellation checkpoints', () => {
     assert.equal(publicPending?.control?.action, 'return-later')
     assert.ok(['queued', 'submitting', 'requested', 'reconciling', 'unknown'].includes(pending?.remote_cancellations?.['voice.tts:pending-pause-target']?.status || ''))
     assert.match(pending?.output_lines.join('\n') || '', /pause/i)
-    const remove = await request(app).delete(`/api/projects/${project.slug}/jobs/${job.job_id}`)
+    const remove = await request(app).post(`/api/projects/${project.slug}/jobs/${job.job_id}/hide`)
     assert.equal(remove.status, 409)
     const repeated = await request(app).post(`/api/projects/${project.slug}/jobs/${job.job_id}/cancel`)
     assert.equal(repeated.status, 200)
@@ -1057,7 +1057,7 @@ describe('job route controls', () => {
     })
 
     try {
-      const activeDelete = await request(app).delete(`/api/projects/${project.slug}/jobs/${job.job_id}`)
+      const activeDelete = await request(app).post(`/api/projects/${project.slug}/jobs/${job.job_id}/hide`)
       assert.equal(activeDelete.status, 409)
       assert.equal(jq.getJob(job.job_id)?.status, 'queued')
 
@@ -1065,7 +1065,7 @@ describe('job route controls', () => {
       assert.equal(wrongCancel.status, 404)
       assert.equal(jq.getJob(job.job_id)?.status, 'queued')
 
-      const wrongDelete = await request(app).delete(`/api/projects/${wrongProject.slug}/jobs/${job.job_id}`)
+      const wrongDelete = await request(app).post(`/api/projects/${wrongProject.slug}/jobs/${job.job_id}/hide`)
       assert.equal(wrongDelete.status, 404)
       assert.equal(jq.getJob(job.job_id)?.status, 'queued')
 
@@ -1078,10 +1078,21 @@ describe('job route controls', () => {
       assert.equal(terminalCancel.body.control.action, 'clear-history')
       assert.equal(typeof terminalCancel.body.detail, 'string')
 
-      const remove = await request(app).delete(`/api/projects/${project.slug}/jobs/${job.job_id}`)
+      const remove = await request(app).post(`/api/projects/${project.slug}/jobs/${job.job_id}/hide`)
       assert.equal(remove.status, 200)
-      assert.equal(jq.getJob(job.job_id), null)
+      const hidden = jq.getJob(job.job_id)
+      assert.ok(hidden, 'hide retains the terminal record')
+      assert.equal(hidden.status, 'cancelled')
+      assert.equal(hidden.finished_at, cancel.body.job.finished_at)
+      assert.deepEqual(hidden.output_lines, cancel.body.job.output_lines)
+      assert.ok(hidden.hidden_at, 'the retained row is marked hidden')
       assert.equal(await fs.readFile(output, 'utf8'), 'generated output stays')
+
+      const restore = await request(app).post(`/api/projects/${project.slug}/jobs/${job.job_id}/unhide`)
+      assert.equal(restore.status, 200)
+      const restored = jq.getJob(job.job_id)
+      assert.equal(restored?.hidden_at, undefined, 'unhide clears the mark, not the record')
+      assert.equal(restored?.status, 'cancelled')
     } finally {
       await jq.setQueuePaused(false)
     }
@@ -1100,9 +1111,18 @@ describe('job route controls', () => {
       const cancel = await request(app).post(`/api/jobs/all/${job.job_id}/cancel`)
       assert.equal(cancel.status, 200)
       assert.equal(cancel.body.job.status, 'cancelled')
-      const remove = await request(app).delete(`/api/jobs/all/${job.job_id}`)
+      const remove = await request(app).post(`/api/jobs/all/${job.job_id}/hide`)
       assert.equal(remove.status, 200)
-      assert.equal(jq.getJob(job.job_id), null)
+      const hidden = jq.getJob(job.job_id)
+      assert.ok(hidden, 'hide retains the terminal record')
+      assert.equal(hidden.status, 'cancelled')
+      assert.ok(hidden.hidden_at, 'the retained row is marked hidden')
+
+      const restore = await request(app).post(`/api/jobs/all/${job.job_id}/unhide`)
+      assert.equal(restore.status, 200)
+      const restored = jq.getJob(job.job_id)
+      assert.equal(restored?.hidden_at, undefined, 'unhide clears the mark, not the record')
+      assert.equal(restored?.status, 'cancelled')
     } finally {
       await jq.setQueuePaused(false)
     }

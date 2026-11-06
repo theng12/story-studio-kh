@@ -275,8 +275,8 @@ function classifyProviderJobControl(
   // removing the row, and the reason says so.
   if (job.force_abandoned && isFinishedJob(job.status)) {
     return control(
-      'clear-history', true, 'Remove from history',
-      'You abandoned this job, so Story Studio is no longer waiting on it. Removing the row leaves its files, its provider evidence and its billing record untouched.',
+      'clear-history', true, 'Hide from list',
+      'You abandoned this job, so Story Studio is no longer waiting on it. Hiding the row takes it off the list only: its files, its provider evidence, its log and its billing record all stay, and Restore puts it back.',
       'READY', 'history-only',
     )
   }
@@ -303,7 +303,7 @@ function classifyProviderJobControl(
     )
   }
   if (job.status === 'done' || job.status === 'error' || job.status === 'cancelled') {
-    return control('clear-history', true, 'Remove from history', 'This finished job can be removed from the job list. Its files and provider evidence stay intact.', 'READY', 'history-only')
+    return control('clear-history', true, 'Hide from list', 'Hide this finished job from the list. Nothing is deleted: its error details, log, files, provider evidence and Retry/Recover all stay, and Restore puts it back.', 'READY', 'history-only')
   }
 
   if ((job.status === 'queued' || job.status === 'paused') && !evidence.length && !Object.keys(job.remote_cancellations || {}).length) {
@@ -420,7 +420,7 @@ function classifyProviderJobControl(
  * Neither action is allowed to impersonate the other.
  */
 export function classifyJobControls(
-  job: Pick<Job, 'status' | 'type' | 'params' | 'genstudio_jobs' | 'remote_cancellations' | 'reconciliation_error' | 'history_evidence_check' | 'force_abandoned' | 'music_results_awaiting_import'>
+  job: Pick<Job, 'status' | 'type' | 'params' | 'genstudio_jobs' | 'remote_cancellations' | 'reconciliation_error' | 'history_evidence_check' | 'force_abandoned' | 'music_results_awaiting_import' | 'hidden_at'>
     & Partial<Pick<Job, 'job_id' | 'final_render_remote_wait'>>
     & Partial<Pick<Job, 'pause_requested' | 'resume_after_pause'>>,
   capabilities: JobControlCapabilities,
@@ -472,11 +472,17 @@ export function classifyJobControls(
   // unfinished job is never offered `clear-history`, so this stays a strict
   // superset of the old rule — nothing that used to be offered stops being
   // offered. A job already abandoned does not offer it again.
-  const canLeave = controls.some(candidate => candidate.enabled && candidate.action === 'clear-history')
-  if (!job.force_abandoned && !canLeave) {
-    controls.push(forceAbandonControl())
+  // A row the owner already hid offers no way to hide it a second time: the
+  // page's Restore is the only action that changes its visibility. Without
+  // this the card would show a live "Hide from list" button that does nothing.
+  const live = job.hidden_at
+    ? controls.filter(candidate => candidate.action !== 'clear-history')
+    : controls
+  const canLeave = live.some(candidate => candidate.enabled && candidate.action === 'clear-history')
+  if (!job.force_abandoned && !job.hidden_at && !canLeave) {
+    live.push(forceAbandonControl())
   }
-  return controls
+  return live
 }
 
 /** Backwards-compatible primary control; public snapshots also include all controls. */

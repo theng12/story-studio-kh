@@ -69,7 +69,7 @@ describe('force-abandon route', () => {
     // Establish the dead end before proving the way out of it.
     const cancel = await request(app).post(`/api/projects/${project.slug}/jobs/wedged-route-job/cancel`).send({})
     assert.equal(cancel.status, 409)
-    const remove = await request(app).delete(`/api/projects/${project.slug}/jobs/wedged-route-job`)
+    const remove = await request(app).post(`/api/projects/${project.slug}/jobs/wedged-route-job/hide`)
     assert.equal(remove.status, 409)
 
     const abandon = await request(app).post(`/api/projects/${project.slug}/jobs/wedged-route-job/abandon`).send({})
@@ -83,7 +83,7 @@ describe('force-abandon route', () => {
     assert.equal(abandon.body.job.genstudio_jobs[0].state, 'accepted')
 
     // And the row is now removable, which it was not sixty milliseconds ago.
-    const removeAgain = await request(app).delete(`/api/projects/${project.slug}/jobs/wedged-route-job`)
+    const removeAgain = await request(app).post(`/api/projects/${project.slug}/jobs/wedged-route-job/hide`)
     assert.equal(removeAgain.status, 200)
   })
 

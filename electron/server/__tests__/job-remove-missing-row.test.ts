@@ -4,16 +4,15 @@
  * The owner, 2026-11-04: "i can't clear this 8 jobs, so i hid it. and i still
  * can't clear it. it's still there. so annoying. it keep saying job not
  * found." Eight finished Video Assembly rows on Wonder in Ink, and both the
- * row's own "Remove From List" and the bulk "Remove Finished From List (8)"
- * answered "Job not found" and left the rows.
+ * row's own Hide and the bulk hide answered "Job not found" and left the rows.
  *
- * The root cause is that the LIST and the REMOVAL read two different stores:
+ * The root cause is that the LIST and the mutation read two different stores:
  * the list is served by the history read, which falls back to the scope's
- * saved jobs file, while the removal read the queue's in-memory map. A row
- * the map no longer holds is on screen and cannot be removed.
+ * saved jobs file, while the mutation read the queue's in-memory map. A row
+ * the map no longer holds is on screen and cannot be hidden or restored.
  *
- * The rule this test pins: when the job is gone, the row goes anyway. The
- * customer's goal — that row off the list — is what the removal is for.
+ * The rule this test pins: the saved-history row hides and restores like any
+ * other, and it is never deleted.
  */
 import { test, describe, before, after } from 'node:test'
 import assert from 'node:assert/strict'
@@ -66,49 +65,53 @@ async function seedSavedOnlyRow(projectSlug: string, jobId: string): Promise<voi
   await fs.writeFile(jobsFile, JSON.stringify({ ...parsed, jobs: rows }))
 }
 
-describe('removing a row whose job is gone', () => {
-  test('the row comes off the list instead of answering "Job not found"', async () => {
+function listed(body: { jobs?: Array<{ job_id: string }> }, jobId: string): boolean {
+  return (body.jobs || []).some(job => job.job_id === jobId)
+}
+
+describe('hiding a row whose job is gone', () => {
+  test('the row hides and restores instead of answering "Job not found"', async () => {
     const project = await pm.createProject({ name: 'Stale Row' })
     await seedSavedOnlyRow(project.slug, 'stale-row-job')
 
     // The history read is what puts the row on screen.
     const history = await request(app).get(`/api/projects/${project.slug}/jobs/history?all=1`)
     assert.equal(history.status, 200)
-    assert.ok(
-      (history.body.jobs || []).some((job: { job_id: string }) => job.job_id === 'stale-row-job'),
-      'the finished row is on the list',
-    )
+    assert.equal(listed(history.body, 'stale-row-job'), true, 'the finished row is on the list')
 
-    // The removal answers with the row gone, not with a refusal.
-    const removed = await request(app).delete(`/api/projects/${project.slug}/jobs/stale-row-job`)
-    assert.equal(removed.status, 200)
-    assert.equal(removed.body.ok, true)
+    const hidden = await request(app).post(`/api/projects/${project.slug}/jobs/stale-row-job/hide`)
+    assert.equal(hidden.status, 200)
+    assert.equal(hidden.body.ok, true)
 
-    // And it is gone: not on the list, and not in the scope's saved history.
-    // The list must be correct immediately — the removal's file write is
-    // fire-and-forget, so the read must not resurrect the row from the stale
-    // file while it is still in flight.
-    const after = await request(app).get(`/api/projects/${project.slug}/jobs/history?all=1`)
-    assert.equal(after.status, 200)
-    assert.equal(
-      (after.body.jobs || []).some((job: { job_id: string }) => job.job_id === 'stale-row-job'),
-      false,
-      'the leftover row is off the list',
-    )
+    // The row leaves the visible list and comes back through the Hidden read.
+    const afterHide = await request(app).get(`/api/projects/${project.slug}/jobs/history?all=1`)
+    assert.equal(listed(afterHide.body, 'stale-row-job'), false, 'the row is off the visible list')
+    const hiddenRead = await request(app).get(`/api/projects/${project.slug}/jobs/history?all=1&hidden=1`)
+    assert.equal(listed(hiddenRead.body, 'stale-row-job'), true, 'the Hidden read still holds the record')
+
     await jq._waitForJobPersistenceForTesting()
     const jobsFile = path.join(pm.getProjectDir(project.slug)!, 'jobs.json')
-    const saved = JSON.parse(await fs.readFile(jobsFile, 'utf-8')) as { jobs?: Array<{ job_id: string }> }
-    assert.equal(
-      (saved.jobs || []).some(job => job.job_id === 'stale-row-job'),
-      false,
-      'the saved history no longer holds the row',
-    )
+    const saved = JSON.parse(await fs.readFile(jobsFile, 'utf-8')) as { jobs?: Array<{ job_id: string; hidden_at?: string }> }
+    const row = (saved.jobs || []).find(job => job.job_id === 'stale-row-job')
+    assert.ok(row, 'the record is still saved, not deleted')
+    assert.ok(row!.hidden_at, 'the saved row carries the hide')
+
+    const restored = await request(app).post(`/api/projects/${project.slug}/jobs/stale-row-job/unhide`)
+    assert.equal(restored.status, 200)
+    const afterRestore = await request(app).get(`/api/projects/${project.slug}/jobs/history?all=1`)
+    assert.equal(listed(afterRestore.body, 'stale-row-job'), true, 'Restore puts the row back')
+
+    await jq._waitForJobPersistenceForTesting()
+    const afterFile = JSON.parse(await fs.readFile(jobsFile, 'utf-8')) as { jobs?: Array<{ job_id: string; hidden_at?: string }> }
+    const restoredRow = (afterFile.jobs || []).find(job => job.job_id === 'stale-row-job')
+    assert.ok(restoredRow, 'the record is still saved after Restore')
+    assert.equal(restoredRow!.hidden_at, undefined, 'the hide is cleared, not left as a false')
   })
 
   test('a job nobody holds is still a real "not found"', async () => {
     const project = await pm.createProject({ name: 'Never Existed' })
-    const removed = await request(app).delete(`/api/projects/${project.slug}/jobs/never-existed`)
-    assert.equal(removed.status, 404)
-    assert.equal(removed.body.detail, 'Job not found')
+    const hidden = await request(app).post(`/api/projects/${project.slug}/jobs/never-existed/hide`)
+    assert.equal(hidden.status, 404)
+    assert.equal(hidden.body.detail, 'Job not found')
   })
 })

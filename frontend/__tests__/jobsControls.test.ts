@@ -63,7 +63,7 @@ test('Jobs presents one primary control and keeps alternatives in an accessible 
   assert.match(jobs, /control\.action === 'request-remote-cancel'/)
   assert.match(jobs, /await post\(`\$\{jobQueuePath\(job\)\}\/cancel`, \{\}\)/)
   assert.match(jobs, /control\.action === 'clear-history'/)
-  assert.match(jobs, /await del\(jobQueuePath\(job\)\)/)
+  assert.match(jobs, /await post\(`\$\{jobQueuePath\(job\)\}\/hide`, \{\}\)/)
   assert.match(jobs, /:disabled="!control\.enabled \|\| controlBusy\.has\(job\.job_id\)"/)
   assert.doesNotMatch(jobs, /COST_INCURRING_TYPES/)
   assert.doesNotMatch(jobs, /REMOTE_CANCELLABLE_TYPES/)
@@ -149,8 +149,8 @@ test('Jobs keeps all toolbar actions available, disabled when their scoped count
 
 test('toolbar scope uses only the selected project; hiding affects cards but never bulk actions', () => {
   assert.match(jobs, /const projectScopedJobs = computed\(\(\) => \{[\s\S]{0,240}job\.project_slug === projectFilter\.value/)
-  assert.match(jobs, /const presentationScopedJobs = computed\(\(\) => showHidden\.value[\s\S]{0,180}projectScopedJobs\.value\.filter\(job => !isJobHidden\(job\)\)/)
-  assert.match(jobs, /const typeScopedJobs = computed\(\(\) => activeFilter\.value === 'all'[\s\S]{0,160}presentationScopedJobs\.value\.filter\(job => job\.type === activeFilter\.value\)/)
+  assert.match(jobs, /const presentationScopedJobs = computed\(\(\) =>\s*projectScopedJobs\.value\.filter\(job => !isJobHidden\(job\)\)/)
+  assert.match(jobs, /const typeScopedJobs = computed\(\(\) => statusFilter\.value === 'hidden'[\s\S]{0,120}hiddenTypeScopedJobs\.value[\s\S]{0,80}: visibleTypeScopedJobs\.value\)/)
   for (const name of ['repairableFailedJobs', 'failedJobsForRetryAll', 'recoverableEpisodes', 'pausedJobCount', 'removableJobs']) {
     assert.match(jobs, new RegExp(`const ${name}[\\s\\S]{0,360}projectScopedJobs\\.value`), `${name} must ignore type and status filters`)
   }
@@ -159,8 +159,8 @@ test('toolbar scope uses only the selected project; hiding affects cards but nev
 test('history cleanup uses distinct finished and failed requests while preserving files and billing evidence', () => {
   assert.match(jobs, /function clearFinished\(\) \{ return clearHistory\('finished'\) \}/)
   assert.match(jobs, /function clearFailed\(\) \{ return clearHistory\('failed'\) \}/)
-  assert.match(jobs, /await del<\{ cleared: number \}>\(`\$\{endpoint\}\?status=\$\{status\}`\)/)
-  assert.match(jobs, /Files and billing records are unchanged/)
+  assert.match(jobs, /await post<\{ hidden: number \}>\(`\$\{endpoint\}\/hide\?status=\$\{status\}`\)/)
+  assert.match(jobs, /Nothing was deleted/)
 })
 
 test('toolbar history cleanup reloads the authoritative history, even when the clear removes nothing', () => {
@@ -216,7 +216,7 @@ test('Gateway batch ledger keeps customer cancellations neutral instead of faile
 test('Jobs keeps a requested cancellation active and explains it in plain words', () => {
   assert.match(jobs, /control\.label/)
   assert.match(jobs, /Story Studio is confirming the cancellation with the Gateway/)
-  assert.match(jobs, /files or billing records/i)
+  assert.match(jobs, /nothing is deleted/i)
 })
 
 test('Jobs contracts carry all six remote operations and published cancellation settlement without invented release copy', () => {
@@ -248,7 +248,7 @@ test('Jobs retries every non-episode job through the durable queue without repos
   )
   const retryStart = jobs.indexOf('async function retryJob(')
   const retry = jobs.slice(retryStart, jobs.indexOf('async function autoRepairScenePrompts', retryStart))
-  assert.doesNotMatch(retry, /await del\(jobQueuePath\(job\)\)/)
+  assert.doesNotMatch(retry, /\/hide/)
   assert.doesNotMatch(retry, /endpointMap|pipeline\/run-batch|\/generate\//)
   assert.match(retry, /isConfirmedRetryReplacement\(job, next\)/)
   const replacement = jobs.slice(jobs.indexOf('function isConfirmedRetryReplacement('), retryStart)
@@ -502,7 +502,7 @@ test('Paused status uses the same project and type scope for counts and visible 
   )
   assert.match(jobs, /const typeScopedJobs = computed\(\(\) =>/)
   assert.match(jobs, /\{ key: 'paused', label: 'Paused' \}/)
-  assert.match(jobs, /count: s\.key === 'all'\s*\? typeScopedJobs\.value\.length\s*:\s*typeScopedJobs\.value\.filter\(j => jobDisplayStatus\(j\) === s\.key\)\.length/)
+  assert.match(jobs, /count: s\.key === 'hidden'[\s\S]{0,80}hiddenTypeScopedJobs\.value\.length[\s\S]{0,120}visibleTypeScopedJobs\.value\.filter\(j => jobDisplayStatus\(j\) === s\.key\)\.length/)
   assert.match(jobs, /filterJobsForView\(typeScopedJobs\.value, \{[\s\S]*?project: 'all'/)
 })
 

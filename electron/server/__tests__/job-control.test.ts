@@ -67,9 +67,9 @@ describe('server-owned job controls', () => {
         code: 'CANCELLATION_STATUS_UNKNOWN',
         reason: 'Story Studio is waiting for the Gateway to confirm the cancellation result. The provider work may still settle.',
       },
-      { name: 'done', input: { status: 'done' }, action: 'clear-history', code: 'READY', reason: 'This finished job can be removed from the job list. Its files and provider evidence stay intact.' },
-      { name: 'error', input: { status: 'error' }, action: 'clear-history', code: 'READY', reason: 'This finished job can be removed from the job list. Its files and provider evidence stay intact.' },
-      { name: 'cancelled', input: { status: 'cancelled' }, action: 'clear-history', code: 'READY', reason: 'This finished job can be removed from the job list. Its files and provider evidence stay intact.' },
+      { name: 'done', input: { status: 'done' }, action: 'clear-history', code: 'READY', reason: 'Hide this finished job from the list. Nothing is deleted: its error details, log, files, provider evidence and Retry/Recover all stay, and Restore puts it back.' },
+      { name: 'error', input: { status: 'error' }, action: 'clear-history', code: 'READY', reason: 'Hide this finished job from the list. Nothing is deleted: its error details, log, files, provider evidence and Retry/Recover all stay, and Restore puts it back.' },
+      { name: 'cancelled', input: { status: 'cancelled' }, action: 'clear-history', code: 'READY', reason: 'Hide this finished job from the list. Nothing is deleted: its error details, log, files, provider evidence and Retry/Recover all stay, and Restore puts it back.' },
     ]
 
     for (const item of cases) {
