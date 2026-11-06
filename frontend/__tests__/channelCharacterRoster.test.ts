@@ -210,9 +210,11 @@ async function mountEditor(props: Record<string, unknown>) {
 
   const vueUrl = await import.meta.resolve('vue')
   const component = await compileSfc(editorFile, 'character-record-editor', editorSupport(vueUrl))
-  const { createApp, reactive } = await import('vue')
+  const { createApp, reactive, h } = await import('vue')
   const propsState = reactive({ ...props })
-  const app = createApp(component, propsState)
+  // A wrapper forwards the reactive props; root props of createApp are not
+  // themselves reactive, so a direct mount would never see props.visible change.
+  const app = createApp({ setup: () => () => h(component, propsState) })
   const host = document.body.appendChild(document.createElement('div'))
   app.mount(host)
   await flush()
