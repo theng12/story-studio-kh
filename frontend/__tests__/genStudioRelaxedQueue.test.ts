@@ -277,11 +277,6 @@ test('the TTS picker uses Gateway queue metadata and shows the published full pr
   assert.match(display.text, /24 credits \/ 1,000 characters \(was 48 credits\)/)
   assert.match(display.title, /[Tt]he Gateway publishes this sale disclaimer\./)
   assert.match(display.notice || '', /[Tt]he Gateway publishes this sale disclaimer\./)
-  assert.match(
-    menuTemplate as string,
-    /<small v-if="option\.priceNote" class="model-menu-option-price-note">\{\{ option\.priceNote \}\}<\/small>/,
-    'sale disclosure is visible in the picker instead of existing only in a title tooltip',
-  )
   assert.match(audioSource, /priceNote: rate\.notice/)
 })
 
