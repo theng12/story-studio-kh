@@ -1,0 +1,32 @@
+{
+  "kind": "visual-style",
+  "schema_version": 1,
+  "id": "com.storystudio.style.dark-regal-portrait",
+  "name": "Dark Regal Portrait",
+  "description": "The cover look for stately biography — a painted figure held at chest height under one warm source, with an architectural ground dissolving into shadow behind and gold and crimson the only colour in the dark.",
+  "category": "Illustration",
+  "tags": [
+    "oil painting",
+    "chiaroscuro",
+    "warm key light",
+    "biography",
+    "umber",
+    "gold",
+    "crimson",
+    "cover art",
+    "low-key",
+    "figure"
+  ],
+  "style_bible": "Dark cinematic painted portraiture in oil. Medium and surface: painted rather than photographed, with a visible oil skin — soft blended transitions through the flesh, a drier drag of pigment through cloth and hair, restrained impasto reserved for the brightest fold of a collar or the brightest point of the light, fine craquelure and a warm varnish bloom sitting over the whole surface. Edges and shapes: modelled by tone rather than outline, the lit side of a head crisply resolved and the shadow side allowed to lose its edge entirely into the ground, so the silhouette is broken and only partly readable. Subject grammar: one subject only, held at chest height and turned toward the camera, shoulders squared or slightly angled, hands out of frame or barely entering it at the lower edge; period dress appropriate to the subject's own century, with the weight of the cloth, the weave of the braid, the tarnish on metal, and the wear at a seam all painted honestly. Behind the subject, an architectural or landscape ground, legible for perhaps a third of its depth and then dissolving into unlit shadow without a hard boundary between the two. Lighting: a single warm source, low and to one side, falling on the near cheek, the brow, and the near shoulder, with a thin gold rim tracing the far edge of the head and the far shoulder against the dark. Nothing else in the frame is lit. No fill, no second key, no modern studio softbox, no cold light anywhere. Palette: deep umber, bitumen brown and near-black through nine tenths of the canvas, with aged gold and a single deep crimson permitted as the only saturated notes — a gold chain, a crown edge, a crimson mantle, an ember. Flesh stays warm and low-key; whites are never white but bone, ivory, or dusty linen. Texture: canvas tooth through the thin darks, granular smoke, dust caught in the light path, a faint bloom around the brightest light. Framing: sixteen by nine with the head placed off-centre so that a title column stays open on the opposite side; eyes at or just above the upper third; the ground behind kept dark, quiet, and free of detail on that open side. Atmosphere: still, weighted, and unhurried — a figure at rest, not a moment of action. Keep the contract content-independent: no fixed individual, dynasty, regalia set, event, or copied composition.",
+  "negative_prompt": "bright daylight, blue sky, open sunlit exterior, flat vector, hard digital edges, cel shading, anime, manga, comic ink, cartoon, 3D render, CGI, photograph, photorealistic camera render, HDR look, modern studio lighting, softbox, ring light, cold key light, rim light in blue or white, lens flare, bokeh, neon, saturated modern colour, pastel palette, modern clothing on a pre-modern subject, suits, sunglasses, wristwatches, printed logos, crowds, two or more figures, full-length figure, action pose, raised objects, gore, readable lettering, captions, signatures, watermarks, frames, borders, UI elements, copied reference composition",
+  "preview_assets": [
+    "assets/dark-regal-portrait-hero.webp",
+    "assets/dark-regal-portrait-scene.webp",
+    "assets/dark-regal-portrait-face.webp"
+  ],
+  "compatible_formula_ids": [
+    "com.storystudio.formula.sleep-history-compilation",
+    "com.storystudio.formula.history-explained",
+    "com.storystudio.formula.sleep-story"
+  ]
+}

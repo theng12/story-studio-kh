@@ -1,0 +1,35 @@
+{
+  "kind": "visual-style",
+  "schema_version": 1,
+  "id": "com.storystudio.style.bold-gory-cartoon",
+  "name": "Bold Gory Cartoon",
+  "description": "Thick black outlines and flat saturated fills, one subject per panel on a plain coloured backdrop, faces pushed all the way into shock and disgust, and comic-book extreme effects played for laughs rather than for horror — bright red shapes and pale flat forms, never rendered injury.",
+  "category": "Illustration",
+  "tags": [
+    "cartoon",
+    "comic book",
+    "thick outlines",
+    "flat colour",
+    "saturated palette",
+    "cel shadows",
+    "exaggerated expression",
+    "shock face",
+    "disgust face",
+    "slapstick effects",
+    "listicle",
+    "countdown explainer",
+    "plain backdrop",
+    "high contrast"
+  ],
+  "style_bible": "Drawn cartoon illustration in the register of a loud printed comic, made of outline and flat colour and nothing else. Line: every shape is closed by a thick black outline of even, confident weight — heaviest on the outer silhouette, one step lighter inside the form, and lighter again on small interior detail — so the whole picture reads as black shapes at card size before any colour is seen. Fill: flat saturated colour, one hue per surface, laid inside the outline with no gradient, no airbrush, no blur, no texture and no rendered specular anywhere. Shadow: a single hard cel shadow per object, a darker flat version of the same hue with a straight or simply curved boundary, thrown consistently from one implied direction; highlights, where used at all, are one flat lighter shape, never a soft bloom. Palette: hot and unafraid — pillar-box red, sun yellow, cadmium orange, grass green, hard cyan, bone white and black, at full strength, with skin kept a flat warm tone that stays legible against the red. Faces: this look lives on expression. Eyes are enormous, wide and round with tiny pupils, sometimes crossed or popping forward off the face; mouths open far wider than a jaw allows, showing a black interior, a flat pink tongue and simple square teeth; brows push up into deep folds of shock or slam down into disgust; sweat beads fly off the head as small flat teardrops, and short straight motion lines radiate from the head to say the reaction is sudden. Extreme-effect grammar: intense red in this style is flat cartoon colour, not rendered injury — bright pillar-box red drawn as clean rounded splats and thick drips with a black outline around each one, and any pale hard forms are simple smooth cartoon shapes with rounded ends and neat dark hollows, and never any tissue, texture, wetness, pooling realism, agony or anatomical detail. Nothing in this style hurts; everything in it is funny and slightly appalling. Subject grammar: exactly one subject per panel, centred or set slightly off centre, drawn whole and readable from head to foot or cropped deliberately at the chest, with its props and its one gag held close to it rather than scattered. Backdrop: a plain flat field of a single colour, or the simplest possible setting — one flat horizon band, one flat wall with a single doorway, one flat table edge — kept a clear step away in hue and value from the subject so the silhouette pops. Depth is implied by overlap and by outline weight only, never by perspective haze or blur. Framing: sixteen by nine, camera level or very slightly low, generous flat ground around the subject so nothing crowds the edges. Mood: loud, bright, exaggerated, cheerfully energetic. Keep the contract content-independent: no fixed individual, era, place, insignia, wordmark or copied composition.",
+  "negative_prompt": "photoreal, photorealistic, photograph, film still, camera render, 3D render, clay render, plastic surfaces, soft painterly, painterly brushwork, oil painting, watercolour, gouache wash, sketchy pencil rendering, pastel palette, muted palette, desaturated wash, washed out colour, chibi, super deformed, cute mascot proportions, kawaii, tiny simplified features, tissue or wound texture, anatomical injury detail, suffering, agony, torture, cruelty, smooth gradient shading, airbrush, ambient occlusion, soft shadow, glow bloom, lens flare, depth of field blur, motion blur, film grain, halftone noise, atmospheric haze, cluttered background, detailed scenery, crowd of figures, multiple subjects in one panel, readable lettering, captions, subtitles, signatures, watermarks, speech balloons, comic panel gutters, page borders, frames, UI elements, printed logos, invented insignia, recognisable living individuals, copied reference composition",
+  "preview_assets": [
+    "assets/bold-gory-cartoon-hero.webp",
+    "assets/bold-gory-cartoon-scene.webp",
+    "assets/bold-gory-cartoon-face.webp"
+  ],
+  "compatible_formula_ids": [
+    "com.storystudio.formula.counted-explainer",
+    "com.storystudio.formula.pov-your-life-as"
+  ]
+}

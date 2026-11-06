@@ -1,0 +1,15 @@
+{
+  "pack_format": 1,
+  "pack_id": "com.storystudio.pack.thumbnail.hands-on-pov-moment",
+  "publisher_id": "com.storystudio",
+  "key_id": "{{KEY_ID}}",
+  "version": "1.0.1",
+  "min_app_version": "{{MIN_APP_VERSION}}",
+  "lifecycle": "active",
+  "entitlement": {
+    "sku": "com.storystudio.sku.thumbnail.hands-on-pov-moment",
+    "family": "com.storystudio.family.thumbnail.hands-on-pov-moment"
+  },
+  "dependencies": [],
+  "changelog": "Text-only neutral patch: removed subject, era, genre, mood and prop wording from rendered fields. Technique, names and all previews are unchanged from 1.0.0."
+}

@@ -1,0 +1,33 @@
+{
+  "kind": "visual-style",
+  "schema_version": 1,
+  "id": "com.storystudio.style.naturalist-sketchbook",
+  "name": "Naturalist Sketchbook",
+  "description": "A field guide's page: one clear subject drawn in fine cross-hatched pen and ink under a light warm tint, sitting on bright cream paper with a great deal of empty space around it, anatomically honest enough to identify from and loose enough to carry one quiet joke.",
+  "category": "Illustration",
+  "tags": [
+    "pen and ink",
+    "cross-hatching",
+    "field guide",
+    "natural history illustration",
+    "cream paper",
+    "warm tint",
+    "high key",
+    "single subject",
+    "generous white space",
+    "scientific accuracy",
+    "gentle humour",
+    "sketchbook"
+  ],
+  "style_bible": "A naturalist's working page rather than a finished plate. Medium: pen and ink on bright cream paper, drawn with a fine nib at a consistent small gauge, then tinted. Line: contours are drawn once, confidently, in a thin dark brown-black ink, with a slightly living weight — a touch heavier where a form turns away, a touch lighter where it turns into the light — and occasional construction marks left visible rather than erased. Shading is built entirely from fine cross-hatching: parallel strokes laid at a shallow angle for the first value, a second set crossed over them for the second, a third only in the deepest crevices, with the stroke direction following the form's own surface — along a feather's vane, around a stem, with the curve of a shell. Nothing is smudged, blended, stippled into softness or filled solid black. Tint: over the ink sits one light warm wash — a thin honeyed ochre, a pale rust, a soft olive or a muted terracotta, chosen for the subject — applied in a few broad transparent passes that stay well inside the paper's brightness. The tint never becomes the drawing: the ink still carries every value, the wash only warms it. At most one accent hue may appear on a single small feature. This look is high-key throughout — the paper is the lightest thing in the picture and it stays bright, the whole tonal range sits in the upper half, and there is no dim room, no small warm light, no dusk, no vignette and no dark ground anywhere. Subject: exactly one creature or one plant per page, drawn whole, at rest, from the angle a field guide would choose to make it identifiable — a clear profile, a wing or leaf spread if that is where the diagnostic detail lives, feet and mouthparts or roots and stem visible. Anatomy is scientifically accurate: real segment counts, real leg and wing counts, real leaf arrangement, real proportions, real posture for the species. Nothing is cartooned into a shape it does not have. Comic touch: optionally, and never more than once per page, one small human note may be introduced beside the accurate drawing — an oversized googly eye pasted onto an otherwise correct head, a shoe looming into frame above the subject, a rolled newspaper resting nearby, a pencil laid alongside for scale. It is drawn in the same ink and the same hatching as everything else, it is small, it never distorts the creature's anatomy, and it is played completely straight. Composition: sixteen by nine, the subject placed off centre with a great deal of empty cream paper around it — at least half the frame carries nothing at all — and the page kept flat and frontal with no perspective, no horizon, no scenery and no background object. Texture: the faint tooth of good cream paper and nothing else; no canvas weave, no digital noise, no halftone, no visible brush marks. Mood: attentive, unhurried, affectionate towards the subject, the tone of somebody who has been looking at it for an hour and likes it. Keep the contract content-independent: no fixed character, story, name, place, era, insignia or copied composition.",
+  "negative_prompt": "dim lighting, lamplight, candlelight, dusk, night, moody atmosphere, dark background, vignette, low key, heavy ink wash, solid black fills, saturated watercolour bleed, wet-in-wet blooms, gouache, oil paint, impasto, painterly rendering, thick brush strokes, airbrush, smooth digital gradient, cel shading, photoreal, photorealistic, macro photography, photograph, film still, 3D render, clay render, anime, manga, chibi, kawaii, cute mascot, big cartoon eyes, plush toy, distorted anatomy, invented body plan, wrong leg count, wrong wing count, humanised posture, clothing on the subject, neon, saturated candy colour, busy background, landscape backdrop, scenery, horizon line, two subjects, a swarm, a crowd, text, lettering, handwritten notes, labels, captions, numerals, scale bars, watermarks, signatures, borders, frames, UI elements, logos, invented insignia, tissue or wound texture, pinned specimen board, copied reference composition",
+  "preview_assets": [
+    "assets/naturalist-sketchbook-hero.webp",
+    "assets/naturalist-sketchbook-scene.webp",
+    "assets/naturalist-sketchbook-face.webp"
+  ],
+  "compatible_formula_ids": [
+    "com.storystudio.formula.sleep-history-compilation",
+    "com.storystudio.formula.natural-world-explained"
+  ]
+}

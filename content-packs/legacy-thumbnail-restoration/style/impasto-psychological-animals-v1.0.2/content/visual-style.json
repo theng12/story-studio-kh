@@ -1,0 +1,25 @@
+{
+  "kind": "visual-style",
+  "schema_version": 1,
+  "id": "com.storystudio.style.impasto-psychological-animals",
+  "name": "Impasto Psychological Animals",
+  "description": "A melancholy editorial figurative style rendered with tactile oil-paint depth and one readable human-scale action.",
+  "category": "Illustration",
+  "tags": [
+    "psychology",
+    "impasto",
+    "oil paint",
+    "figurative",
+    "editorial"
+  ],
+  "style_bible": "Render thick impasto oil paint with visible palette-knife ridges, dry-brush edges, matte pigment, and muted melancholy. Give one clear subject a psychologically legible human-scale activity or gesture, with anatomically coherent limbs, species-defining features, and a calm, editorial expression. Use parchment cream, smoky umber, charcoal, muted rust, and restrained dusty color. Maintain strong figure-ground separation, one dominant subject, and generous breathing room. When the retained thumbnail recipe calls for it, leave an optional opposing title-safe band rather than painting text into the image.",
+  "negative_prompt": "Reject cute mascot design, photoreal stock photography, glossy CGI, neon color, copied trade dress, episode text, watermarks/logos, malformed limbs, malformed anatomy, malformed text, dense collage, crowd scenes, and duplicate captions.",
+  "preview_assets": [
+    "assets/impasto-psychological-animals.webp",
+    "assets/impasto-psychological-animals-scene.webp",
+    "assets/impasto-psychological-animals-face.webp"
+  ],
+  "compatible_formula_ids": [
+    "com.storystudio.formula.human-behavior-explained"
+  ]
+}

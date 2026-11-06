@@ -1,0 +1,30 @@
+{
+  "kind": "visual-style",
+  "schema_version": 1,
+  "id": "com.storystudio.style.inked-fable-cartoon",
+  "name": "Inked Fable Cartoon",
+  "description": "Thick confident ink outlines and soft cel shading over textured brush fills, one warm amber key against deep shadow, and heavy-limbed figures with small glowing white eyes — a fable told as a cartoon with weight and menace in it.",
+  "category": "Illustration",
+  "tags": [
+    "inked cartoon",
+    "fable illustration",
+    "heavy-limbed figures",
+    "thick outlines",
+    "cel shading",
+    "brush texture",
+    "warm key light",
+    "warm amber",
+    "deep shadow",
+    "crowd scene",
+    "tilted camera",
+    "storybook"
+  ],
+  "style_bible": "An inked cartoon with the weight of a fable rather than the lightness of a gag. Line: every shape is closed by a thick, confident black ink outline of visibly variable weight, laid down as if with a loaded brush — swelling on the underside and the shadow side of a form, tapering to a dry hairline where the surface turns into the light, and breaking entirely at the brightest edge so the fill runs out into the paper. Nothing is drawn twice, nothing is corrected, and no contour is even in width from end to end. Fill and shading: flat brush fills that are not flat on inspection — visible bristle drag, uneven loading, a slightly lighter core and a dirty edge — with cel shading over them in two soft-edged steps, one shadow and one deeper occlusion, never more. Colour is mixed rather than pure: earth reds, ochres, moss and bark greens, dulled blues, all sitting low against black. Light: exactly one warm key inside or just beyond the frame, and it is amber, umber or sunset gold. It hits one plane of each form and dies immediately; everything out of its reach is deep shadow with only the ink line to describe it, and the ground behind is nearly black. No fill light, no rim light, no ambient blue. Subject design: expressive figures built for bulk — exaggerated shoulders, heavy hands, thick necks, small heads on wide bodies, cloth that hangs with real weight — standing and gesturing rather than posing like toys. Eyes are small and set deep, drawn as points of glowing white in the shadow of the brow, which is where the menace lives; muzzles, ears and hands do the acting instead of large cartoon eyes. Framing: sixteen by nine, and never a level eye-line camera — tilt the horizon, look down from above the crowd, or look up past a shoulder, so the composition carries unease of its own. Crowd grammar: where a crowd appears it is a mass of dark inked silhouettes with only their small white eyes catching light, and exactly one figure is lifted out of it — raised on a crate, a step, a cart, a table — and is the only body the key light fully reaches. Texture: a dry paper grain across the whole frame and a slight ink bleed where a heavy line meets a wet fill. Mood: a fable being told to adults, warm at its centre and dark at its edges. Keep the contract content-independent: no fixed character, story, name, place, era, insignia or copied composition.",
+  "negative_prompt": "flat explainer colour, corporate flat illustration, infographic style, pure unmodulated fills, chibi, cute mascot, kawaii, big shiny cartoon eyes, baby proportions, plush toy, photoreal, photorealistic fur, rendered hair, fur groom, 3D render, clay render, subsurface scattering, photograph, film still, neon, neon signage, glowing magenta and cyan, saturated candy colour, pastel palette, clean vector lines, uniform line weight, minimalist line art, thin even outline, no outline, smooth digital gradient, airbrush, soft focus, blur, bloom, lens flare, bright even lighting, daylight ambience, fill light, rim light from behind, blue ambient shadow, readable lettering, captions, signatures, watermarks, speech balloons, frames, borders, UI elements, printed logos, invented insignia, recognisable living individuals, tissue or wound texture, copied reference composition",
+  "preview_assets": [
+    "assets/inked-fable-cartoon-hero.webp",
+    "assets/inked-fable-cartoon-scene.webp",
+    "assets/inked-fable-cartoon-face.webp"
+  ],
+  "compatible_formula_ids": []
+}

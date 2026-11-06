@@ -1,0 +1,33 @@
+{
+  "kind": "visual-style",
+  "schema_version": 1,
+  "id": "com.storystudio.style.flat-cartoon-wildlife",
+  "name": "Flat Cartoon Wildlife",
+  "description": "One calm subject at a time, drawn with a thick clean outline and flat muted fills, set against a backdrop reduced to a horizon band and one or two simple shapes, with a soft glow behind it as the only gradient anywhere in the frame.",
+  "category": "Illustration",
+  "tags": [
+    "flat cartoon",
+    "flat illustration",
+    "thick outline",
+    "muted palette",
+    "single subject",
+    "simple backdrop",
+    "soft glow",
+    "calm expression",
+    "explainer",
+    "calm framing",
+    "no gradients",
+    "vector-adjacent"
+  ],
+  "style_bible": "A calm flat cartoon built around one clear subject, so a viewer reads that shape and nothing else. Line: every shape is closed by a thick clean outline of even weight, laid down as one smooth confident contour rather than a sketched or scratched one, slightly heavier on the outer silhouette than on the interior detail and never varying inside a single stroke. Contours always close; nothing is left open and nothing is drawn twice. Fill and shading: every surface is one flat muted colour, and the palette stays low in saturation throughout — dusty sage, warm sand, clay brown, faded ochre, muted teal, soft slate, chalky cream — so no area of the picture shouts louder than the subject's face. Where a form needs a second value, it is a second flat shape of a slightly darker muted tone with a hard edge, never a blend, never a soft airbrush and never a rendered highlight. There is exactly one gradient permitted anywhere in this style and it is the glow described below; every other surface in the frame is flat. Subject: one clear subject per frame, drawn whole or cropped no closer than the chest, standing or sitting in a settled resting pose with its weight on the ground. Anatomy is simplified but honest — real proportions, real limb count, real posture for the species — so the drawing still teaches while it charms. Expressions are calm: the eyes are simple, open and level, the mouth is a short relaxed line, and nothing in the face is pushed to comedy, alarm or pleading. No subject in this style is ever shown frightened, injured, hunting, bleeding or in distress. Backdrop: a simple backdrop reduced to as few shapes as the scene can survive on — a low horizon line, one flat band of ground, one flat band of sky, and at most two or three simple silhouette shapes. Every backdrop element is flat, outlined the same way as the subject, and set behind it with no overlap that would crowd the silhouette. Glow: behind the subject sits one soft radial glow in a lighter tint of the sky colour, centred on the subject and fading out well before the frame edge. It is the only gradient in the style, it never carries a second hue, it never becomes a halo ring or a rim light, and it exists to lift the silhouette off the ground band rather than to suggest a light source. Framing: sixteen by nine, camera level and at the subject's own height, the subject placed on or near the centre with generous flat space above and to the sides, and the horizon kept low so the sky band does most of the empty work. Texture: none. No paper grain, no noise, no brush marks, no halftone, no visible strokes of any kind — the finish is smooth and even everywhere. Mood: unhurried, warm and factual, the look of a good field poster rather than a gag cartoon. Keep the contract content-independent: no fixed character, story, name, place, era, insignia or copied composition.",
+  "negative_prompt": "photoreal fur, rendered fur, individual hairs, fur groom, photorealistic, photograph, film still, macro photography, 3D render, clay render, subsurface scattering, painterly, oil paint texture, brush strokes, watercolour bleed, gouache texture, impasto, sketchy line, scratchy hatching, crosshatching, pencil texture, chibi, kawaii, big baby eyes, plush toy, mascot logo, super-deformed proportions, neon, neon glow, saturated candy colour, high-saturation palette, gradient background, smooth digital gradient shading, airbrush, ambient occlusion, drop shadow, bloom, lens flare, blur, depth of field, rim light, halo ring, detailed scenery, cluttered environment, a crowd, hunting, prey, tissue or wound texture, distress, bared teeth, text, lettering, captions, numerals, watermarks, signatures, speech balloons, borders, frames, UI elements, logos, invented insignia, copied reference composition",
+  "preview_assets": [
+    "assets/flat-cartoon-wildlife-hero.webp",
+    "assets/flat-cartoon-wildlife-scene.webp",
+    "assets/flat-cartoon-wildlife-face.webp"
+  ],
+  "compatible_formula_ids": [
+    "com.storystudio.formula.natural-world-explained",
+    "com.storystudio.formula.counted-explainer"
+  ]
+}

@@ -1,0 +1,25 @@
+{
+  "kind": "visual-style",
+  "schema_version": 1,
+  "id": "com.storystudio.style.hand-drawn-hardship-cartoon",
+  "name": "Hand-Drawn Hardship Cartoon",
+  "description": "An expressive figurative illustration language using uneven ink, limited flat color, and sparse annotated paper-like space.",
+  "category": "Natural world",
+  "tags": [
+    "hand-drawn",
+    "figure illustration",
+    "ink",
+    "flat color",
+    "annotation"
+  ],
+  "style_bible": "Draw with uneven black ink contours, flat limited fills, and sparse paper-like backgrounds. Make anatomically coherent figures expressive, with clear eyes, limbs, posture, and species-defining details. Use a tactile hand-drawn annotation texture only where the selected thumbnail recipe asks for it; keep one readable focal subject and avoid crowding the frame. Favor warm moss, muted leaf green, cream, charcoal, faded gold, and quiet water or earth tones over glossy dramatic lighting.",
+  "negative_prompt": "Reject photoreal stock imagery, glossy CGI, copied channel branding, duplicate captions, watermarks/logos, violent cruelty, malformed anatomy, malformed text, dense collage, cluttered labels, neon colors, and copied trade dress.",
+  "preview_assets": [
+    "assets/hand-drawn-hardship-cartoon.webp",
+    "assets/hand-drawn-hardship-cartoon-scene.webp",
+    "assets/hand-drawn-hardship-cartoon-face.webp"
+  ],
+  "compatible_formula_ids": [
+    "com.storystudio.formula.natural-world-explained"
+  ]
+}

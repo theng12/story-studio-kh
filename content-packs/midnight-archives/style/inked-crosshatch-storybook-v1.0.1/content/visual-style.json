@@ -1,0 +1,34 @@
+{
+  "kind": "visual-style",
+  "schema_version": 1,
+  "id": "com.storystudio.style.inked-crosshatch-storybook",
+  "name": "Inked Crosshatch Storybook",
+  "description": "The scene look for dark history — thick-line pen and ink with dense cross-hatching, the way an engraved graphic novel prints, held to dark teal and amber and lit by one small warm source in the room. Built to survive on a cheaper image model, because line art either lands or does not.",
+  "category": "Illustration",
+  "tags": [
+    "ink illustration",
+    "cross-hatching",
+    "engraving",
+    "graphic novel",
+    "line art",
+    "dark teal and amber",
+    "warm-lit interior",
+    "layered depth",
+    "paper surface",
+    "interior depth",
+    "single light source",
+    "low-key",
+    "scene art",
+    "low-fidelity tolerant"
+  ],
+  "style_bible": "Thick-line pen and ink illustration printed the way an engraved graphic novel prints. Medium and surface: every form is drawn first in confident black line of uneven weight — heavy on the contour and on the shadow side, thinning to a hairline where a surface turns into the light — and every value inside those contours is built from hatching rather than from paint: single hatch for a half tone, cross-hatch for a deep one, and a third crossing layer only in the darkest recesses, with the strokes following the form the way an engraver's burin would rather than lying flat. Stipple is permitted for grain, plaster and old paper; a smooth airbrushed gradient is not, anywhere, at any size. Colour is laid under the ink as flat, slightly uneven washes with visible edges, never as rendering: the whole image is held to dark teal and slate blue for everything the light has not reached and warm amber and ochre for everything it has, with the paper's own bone-white left bare for the brightest accents and no third hue given any real area. Subject grammar: one clear focal subject, with any further figure small, incidental, and turned away or seen at a distance; the setting is built in layered depth around it. A figure may appear but is small, incidental, and turned away or seen at a distance; the room is the subject. Lighting: exactly one light source inside the scene, placed so the hatching can radiate from it, with the pool of light drawn as bare paper and thinning hatch, the mid-ground crossed once, and the corners crossed twice and going to solid black. No second source, no ambient lift, no glow bloom. Framing: sixteen by nine, a deliberate one-point or two-point perspective with a clear near edge — a desk lip, a stair tread, a table corner — so the eye enters at the bottom of the frame and travels to the lit thing; one third of the frame left as quiet dark so a title can sit on it. Robustness: the look is deliberately line-first so that it survives a cheaper or lower-fidelity image model — the drawing carries it, and no part of the contract depends on subtle rendering, correct skin, or fine facial detail. Keep the contract content-independent: no fixed individual, era, institution, room, event or copied composition.",
+  "negative_prompt": "photoreal, photograph, photorealistic camera render, film still, 3D render, octane render, ray tracing, soft airbrush, smooth gradient, digital gloss, glossy highlights, blurred edges, soft focus, bokeh, depth of field blur, glow bloom, lens flare, saturated colour, candy colour, neon, magenta and cyan, rainbow palette, pastel palette, flat vector with no line weight variation, cel shading, anime, manga, chibi, cartoon mascot, watercolour bleed, oil impasto, readable lettering, captions, signatures, watermarks, frames, borders, UI elements, large face close to camera, head-and-shoulders crop, crowd, tissue or wound texture, anachronistic objects, vehicles, power lines, printed logos, copied reference composition",
+  "preview_assets": [
+    "assets/inked-crosshatch-storybook-hero.webp",
+    "assets/inked-crosshatch-storybook-scene.webp",
+    "assets/inked-crosshatch-storybook-face.webp"
+  ],
+  "compatible_formula_ids": [
+    "com.storystudio.formula.history-explained"
+  ]
+}

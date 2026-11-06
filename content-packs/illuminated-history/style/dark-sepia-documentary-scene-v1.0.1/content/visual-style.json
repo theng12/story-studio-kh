@@ -1,0 +1,33 @@
+{
+  "kind": "visual-style",
+  "schema_version": 1,
+  "id": "com.storystudio.style.dark-sepia-documentary-scene",
+  "name": "Dark Sepia Documentary Scene",
+  "description": "Dark, misty, painterly scenes held in sepia and slate and lit by exactly one warm source inside the frame. Depth comes from mist rather than from detail, figures stay small and far off, and no face is ever close enough to read.",
+  "category": "Illustration",
+  "tags": [
+    "atmospheric scene",
+    "sepia and slate",
+    "single warm light",
+    "warm light",
+    "atmospheric depth",
+    "mist",
+    "distant figures",
+    "no close faces",
+    "painterly",
+    "documentary",
+    "sleep",
+    "long documentary"
+  ],
+  "style_bible": "A dark painterly period scene, held in two colour families and lit by one warm thing. Medium. Oil on canvas, brushed rather than rendered — thin scumbled darks that let the canvas tooth show through, softer blended passages in the mist, and loaded paint only where the one light source sits and on the few surfaces it strikes directly. Edges are soft nearly everywhere; the only crisp edge in the frame is the near rim of whatever is lit. Palette. Sepia and slate, and almost nothing else. The lit half of the picture runs through warm sepia, umber, bistre and old-varnish brown; everything away from the light falls into cool slate, blue-grey and green-black. Saturation is very low throughout and the two families are allowed to meet only in a narrow band where the warmth gives out. A third hue may enter as one small accent — a dull red, a faded blue — and never as a field. Light. Exactly one warm source, and it stands inside the picture rather than outside it, falling off quickly and honestly so the far side of the room or the yard is genuinely dark. It is small, it is warm, and it is the brightest thing in the frame by a wide margin. Its falloff is quick and honest, so the far side of the room or the far side of the yard is genuinely dark. There is no fill, no rim light from behind, no second light source and no light from the camera's side. Air. The scene is misty and the mist does the work of distance. Every band further back is paler, cooler and lower in contrast than the one in front of it, until the furthest band is barely separable from the sky; where the one warm source is strong enough, the mist takes a visible cone or wash of warmth out of it. Figures. Small and far off. People appear at full length or smaller, never cropped by the frame, never closer than the middle distance, and no face is ever legible — a figure is a silhouette, a coat, a stoop, a direction of travel. One to a handful of figures is the range; a crowd reads as a dark mass rather than as individuals. Every figure is fully clothed for weather and century, and there is no nudity anywhere in this look. Setting. Period exterior or period interior, built from plain material: stone, plaster, brick, timber, thatch, mud, ice, cobble, sailcloth, iron. Architecture and landscape are described by their masses and their damp, not by their ornament. Framing. Wide and calm. The camera stands back at eye level or a little above; the horizon sits well off the middle; a large part of the frame is deliberately empty dark or empty mist, and the one warm source is placed off centre with room around it. Texture. Canvas tooth, soft varnish, a fine even craquelure. Nothing digital, no grain overlay, no vignette painted on top of a picture that did not earn it. Mood. Quiet, cold, and documentary rather than dramatic. Nothing is happening at its climax; the picture is the hour before or the hour after. Keep the contract content-independent: no fixed character, story, name, place, era, insignia or copied composition.",
+  "negative_prompt": "bright daylight, midday sun, clear blue sky, sunlit meadow, high-key lighting, saturated colour, vivid colour, wide colour range, cartoon, comic, cel shading, flat vector, flat colour, anime, chibi, caricature, photograph, photorealistic, film still, DSLR, 3D render, CGI, neon, neon glow, close-up face, head-and-shoulders crop, face filling the frame, legible facial features, eye contact, cropped figure at the frame edge, two light sources, a second key, rim light, fill light, studio lighting, on-camera light, lens flare, bloom, modern objects, contemporary clothing, electric light, motor vehicle, printed text, lettering, captions, numerals, watermarks, signatures, speech balloons, borders, frames, UI elements, logos, invented insignia, recognisable individual, living person, nudity, bare skin, tissue or wound texture, injury detail, cluttered foreground, copied reference composition",
+  "preview_assets": [
+    "assets/dark-sepia-documentary-scene-hero.webp",
+    "assets/dark-sepia-documentary-scene-scene.webp",
+    "assets/dark-sepia-documentary-scene-hardest.webp"
+  ],
+  "compatible_formula_ids": [
+    "com.storystudio.formula.sleep-history-compilation",
+    "com.storystudio.formula.history-explained"
+  ]
+}

@@ -1,0 +1,70 @@
+{
+  "kind": "thumbnail-recipe",
+  "schema_version": 1,
+  "id": "com.storystudio.thumbnail.two-tone-hook-portrait-right",
+  "name": "Two-Tone Hook, Portrait Right",
+  "description": "A two-word hook sits bottom-left in two colours — the first word white, the second gold — while a figure cut at the chest holds the right of the frame under a single warm light. A second variant flips it: an engraved figure left, the title right on parchment. No wordmark, no badges, no borders.",
+  "layout": "hero",
+  "category": "History",
+  "tags": [
+    "biography",
+    "two-tone title",
+    "figure right",
+    "two-word hook",
+    "warm light",
+    "gold and white",
+    "sleep",
+    "documentary",
+    "calm"
+  ],
+  "aspect_ratio": "16:9",
+  "title_mode": "ai",
+  "composition_guidance": "Build the 16:9 canvas as one figure and one two-word hook, in exactly one of two variants per image, never combined. Variant A, the default: the subject occupies the right half, cut at the chest, turned toward the camera with the eyes meeting it, lit by a single warm source low and to one side so the near cheek and near shoulder carry the light and the far edge takes a thin gold rim; the ground behind the subject falls away into unlit shadow, and the left half stays dark, quiet, and free of detail. The hook is rendered directly in the image in the lower left, on one line if it fits or stacked on two tight lines if it does not, at most two words in total, with the first word in bone white and the second in aged gold, both set in heavy condensed serif capitals of the same width with very tight leading and one soft dark drop shadow. Set the hook large enough to read at card size and keep a clear margin of dark between the last letter and both the left and bottom edges. Variant B, the engraved two-tone: the figure moves to the left half and is rendered as an engraving or a painted bust against a plain dark ground, still cut at the chest with the eyes to camera; the right half is a plain aged parchment panel carrying the title in tall narrow Roman inscriptional capitals, stacked and centred within that panel, the first word in dense ink black and the second in a deep oxide red, with thin even tracking and no shadow. In both variants the frame carries exactly one face, one hook, and nothing else — no wordmark, no channel name, no logo, no badge, no ribbon, no numeral bug, no border, no arrow, and no second line of copy beyond the two-word hook. The active Visual Style remains the final authority for medium, palette, texture, and lighting; this recipe controls only the split, the subject's crop and gaze, the single warm source, and the hook's position, colour, and word count.",
+  "composition_rules": [
+    "Exactly one variant per image: A, hook bottom-left with the figure right; or B, engraved figure left with the title right on a parchment panel.",
+    "The hook is two words, rendered in the image, with the first word white and the second gold in variant A, or ink black and deep red in variant B.",
+    "The figure is cut at the chest, turned toward the camera, with the eyes meeting it — never full length, never in profile, never looking away.",
+    "One warm source only, low and to one side, with a thin gold rim on the far edge and unlit shadow behind; no fill light and no second key.",
+    "The half of the frame that carries the hook stays dark, quiet, and free of architectural or costume detail behind the letters.",
+    "Vary the dress, the forms and the background between episodes; keep the split, the crop, the gaze, the light, and the two-word hook fixed."
+  ],
+  "required_elements": [
+    "A two-word hook rendered directly in the image, its two words carrying different colours",
+    "One figure cut at the chest, turned toward the camera with the eyes to camera",
+    "A single warm light source with a thin gold rim on the far edge of the head and shoulder",
+    "An unlit, uncluttered ground behind the half of the frame that carries the hook"
+  ],
+  "avoid_elements": [
+    "A wordmark, channel name, logo, badge, ribbon, numeral bug, or border of any kind",
+    "Both variants in one image, or more than one face anywhere in the frame",
+    "A hook longer than two words, a subtitle, a date line, or any caption beyond the hook",
+    "Architectural detail, drapery, or regalia crossing behind the letters of the hook",
+    "Arrows, emoji, circles, price tags, red rings, or reaction marks",
+    "Bright daylight, flat even lighting, a second key light, or a cold rim",
+    "Post-render typography compositing, watermarks, or copied trade dress",
+    "Recognisable modern individuals, living people, or invented insignia presented as real"
+  ],
+  "headline_mode": "curiosity-hook",
+  "headline_guidance": "Write a hook of exactly two words and render it directly in the image. Name the subject or the turn plainly rather than teasing it — a listener settling toward sleep should read it as a label on a documentary, not a dare. Prefer a name plus an epithet, or a plain noun pair, and never a question, a number, or an exclamation. Colour the first word and the second differently as the variant requires, and fail closed on misspelling, clipping, or any text beyond the two words.",
+  "default_text_style": "first word bone white, second word aged gold, both matte with one soft dark drop shadow and no outline or glow",
+  "default_font_style": "heavy condensed serif capitals with strong thick-to-thin stroke contrast and crisp bracketed serifs, stacked on two lines with very tight leading so the lines almost touch and both are set to the same width, the first line in clean bone white and the second in aged gold, each letter carrying one soft dark drop shadow just far enough to lift it off the ground, with no outline, no bevel and no glow",
+  "default_text_position": "bottom-left",
+  "headline_formats": [
+    "{SUBJECT}",
+    "{SUBJECT} {EPITHET}",
+    "The {EPITHET}",
+    "{SUBJECT} Alone",
+    "Last {SUBJECT}"
+  ],
+  "visual_style_guidance": "This recipe is built for the dark painted figure look — a single warm source, umber and near-black through most of the frame, and gold and crimson as the only saturated notes — and the unlit ground it needs behind the hook comes from that style rather than from this recipe. The recipe governs only the left/right split, the chest crop and the gaze, the placement and two-colour treatment of the two-word hook, and the parchment panel in variant B; every rendering choice of medium, palette, texture, and lighting stays with the active Visual Style. When the subject calls for it, swap the hook's letterform to a plain extra-bold grotesque with a hard dark edge and leave everything else in this recipe unchanged.",
+  "preview_assets": [
+    "assets/two-tone-hook-portrait-right-1.webp",
+    "assets/two-tone-hook-portrait-right-2.webp",
+    "assets/two-tone-hook-portrait-right-3.webp",
+    "assets/two-tone-hook-portrait-right-4.webp"
+  ],
+  "compatible_formula_ids": [
+    "com.storystudio.formula.sleep-history-compilation",
+    "com.storystudio.formula.history-explained"
+  ]
+}

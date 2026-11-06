@@ -1,0 +1,80 @@
+{
+  "kind": "thumbnail-recipe",
+  "schema_version": 1,
+  "id": "com.storystudio.thumbnail.labelled-caricature-trio",
+  "name": "Labelled Caricature Trio",
+  "description": "Three caricatured figures of one shared visual family standing side by side on plain white, each with a single hand-printed word above it naming what that one is like. A Flags variant keeps the three figures but swaps the words for one small flag above each, so the frame reads as three distinct entries instead of three personalities.",
+  "layout": "annotated-collage",
+  "category": "Explainer",
+  "tags": [
+    "caricature",
+    "trio",
+    "white background",
+    "hand-printed labels",
+    "one word labels",
+    "shared family",
+    "flags variant",
+    "flat outlines",
+    "cartoon",
+    "high contrast",
+    "card legibility"
+  ],
+  "aspect_ratio": "16:9",
+  "title_mode": "ai",
+  "composition_guidance": "Build the frame in three fixed parts and never move them.\n\nThe white. The whole background is plain flat white, edge to edge, with nothing on it: no landscape, no horizon, no glow, no texture, no panel divisions, no rules and no colour wash. The three figures and their labels are the only marks in the frame, and the white is what makes them read at card size.\n\nThe trio. Three related figures stand side by side across the lower two thirds of the canvas, evenly spaced, each one whole and standing on the same invisible ground line so their feet align. All three read as one shared visual family, and the whole point of the frame is that they are visibly three different individuals: different build, different markings, different posture, different set of the head, so a viewer counts three before reading a word. Each one is drawn as a caricature — more inked and more exaggerated than a figure would be inside the video, with a heavier outline, bolder simplified shapes, and one trait per figure pushed well past life so the personality is legible in the drawing alone. Nothing overlaps: the three silhouettes stay clear of each other with white between them, and no figure is cropped by the frame or by a neighbour. The middle figure is not larger, closer or more central in treatment than the other two; the three are co-equal.\n\nThe labels. Directly above each figure, and only above it, sits exactly one word in casual hand-printed capitals, centred on that figure, set in a dark ink colour on the white with nothing behind it — no box, no badge, no band and no underline. The three words are the same size as each other and sit on the same horizontal line, and each one names what that figure is like in a single ordinary adjective or noun a viewer already knows. No word is repeated, no word runs onto a second line, and there is no fourth line of copy anywhere in the frame.\n\nThe variant. In the Flags variant the three figures carry three different simple flag motifs instead of being three temperaments, and the word above each is replaced by one small simple flag on a short pole, drawn flat in the same outlined cartoon manner, sitting where the word would have been. There are exactly three flags, one per figure, all the same size, and no other mark appears: no word, no caption, no country name, no continent name and no map. In the base variant there is no flag at all and only the three words appear.\n\nThe active Visual Style remains the final authority for medium, palette, line and shading everywhere except the three caricatures' extra exaggeration and heavier ink, which this recipe fixes; the recipe controls the white ground, the three-across arrangement, the alignment, the labels and the variant.",
+  "composition_rules": [
+    "The background is plain flat white across the entire frame, with no landscape, horizon, glow, texture, panel, rule, border or colour wash anywhere on it.",
+    "Exactly three related figures stand side by side, evenly spaced, whole, upright and aligned on one invisible ground line.",
+    "The three are visibly different individuals — build, markings, posture and head angle all differ — so a viewer counts three before reading anything.",
+    "Each figure is drawn as a caricature: a heavier outline and bolder, simpler shapes than the in-video style uses, with exactly one trait per figure pushed past life.",
+    "No figure overlaps, touches or crops another, and none is cropped by the frame; clear white separates all three silhouettes.",
+    "No figure is larger, nearer, brighter or more central in treatment than the other two; the trio is co-equal with no hero.",
+    "In the base variant exactly one word sits directly above each figure, in casual hand-printed capitals, dark on the white, centred on its figure, with all three words the same size and on the same horizontal line.",
+    "Each label is one ordinary word only, never repeated between the three, never wrapping to a second line, and never enclosed in a box, badge, band or underline.",
+    "In the Flags variant the three figures carry three different simple flag motifs, and one small simple flag on a short pole replaces the word above each, three flags in total and all the same size.",
+    "The Flags variant carries no words at all: no country name, no continent name, no caption, no map and no second mark of any kind.",
+    "Vary the figures, the three individuals, the three words and the choice of variant between episodes; keep the white ground, the three-across arrangement, the shared ground line, the label position and the label count fixed."
+  ],
+  "required_elements": [
+    "A plain flat white background occupying the whole frame with nothing else on it",
+    "Three related figures, side by side, whole and aligned on a single ground line",
+    "Three visibly different individuals, each drawn as a caricature with one exaggerated trait",
+    "In the base variant, exactly one hand-printed capitalised word centred above each figure",
+    "In the Flags variant, exactly one small simple flag on a short pole above each figure and no words at all"
+  ],
+  "avoid_elements": [
+    "A channel wordmark, logo, badge, ribbon, subscribe mark, numeral bug or border anywhere in the frame",
+    "A headline, subtitle, caption, date line or any copy other than the three one-word labels",
+    "A background of any kind behind the figures — landscape, horizon, glow, gradient, texture, colour wash or photographic ground",
+    "A fourth figure, a second visual family, a herd, a crowd, a human figure or a hand",
+    "Overlapping figures, a cropped figure, unequal sizes, or one figure treated as the hero of the three",
+    "Arrows, circles, red rings, emoji, price tags, speech balloons or reaction marks stuck over the picture",
+    "A frightened, injured, hunting, bleeding or distressed figure, or any figure shown in real suffering",
+    "A real organisation's emblem, a corporate mark, a sports crest, or any invented insignia presented as a genuine one",
+    "A country name, continent name, map, globe or second flag per figure in the Flags variant",
+    "Post-render typography compositing, watermarks, or copied trade dress"
+  ],
+  "headline_mode": "curiosity-hook",
+  "headline_guidance": "Write each label as one word and nothing more. Take the single most ordinary word a viewer would use for that individual's temperament — the plain human adjective or noun, not a technical or behavioural term — and set it in capitals above its figure. The three words must work as a set read left to right in about a second: they should sound like three people being described, they must contrast with each other rather than being three shades of one idea, and none of them may repeat a word already used in the set. One word is the rule and there is no exception: no two-word phrase, no hyphenated compound, no article, no punctuation of any kind, no question mark and no exclamation. Never use a word that judges the subject cruelly, never use a word about danger, death or attack, and never use a word the episode does not actually support. Because a row of these sits together on a channel page, keep the same part of speech across all three within one thumbnail and prefer the same grammatical shape down a series so the set reads as a family. In the Flags variant write nothing at all: the flags carry the whole idea and any word added beside them is a defect. Fail closed on a misspelling, on a label that clips at either edge, on a label that wraps to a second line, on a label that sits over or below its figure rather than above it, and on any text beyond the three words.",
+  "default_text_style": "dark ink capitals sitting directly on the plain white ground with nothing behind them — no box, badge, band, plate, outline, bevel, gradient, drop shadow or glow of any kind",
+  "default_font_style": "fat chisel-tip marker letterforms drawn in single confident strokes, blunt square stroke ends, slightly uneven thickness, heavy and immediate — the Marker Slab lettering shape, set as casual hand-printed capitals on one line above each figure",
+  "default_text_position": "top",
+  "headline_formats": [
+    "{TRAIT} / {TRAIT} / {TRAIT}",
+    "{TEMPERAMENT} / {TEMPERAMENT} / {TEMPERAMENT}",
+    "{ROLE} / {ROLE} / {ROLE}",
+    "{MOOD} / {MOOD} / {MOOD}",
+    "(no text — Flags variant)"
+  ],
+  "visual_style_guidance": "This recipe is built for a drawn, flat, cleanly outlined figurative look of the kind the Flat Cartoon Wildlife style supplies, and it needs four things from whatever style is active. First, a thick closed outline, because three figures on plain white at card size are three silhouettes and there is nothing else holding them apart. Second, flat fill, so each figure reads as one shape against white rather than dissolving into modelled detail a viewer cannot resolve at that size. Third, honest anatomy, because the frame promises three related individuals and a style that invents proportions makes them read as three different creatures instead. Fourth, a look that can be pushed: the three subjects here are caricatures with a heavier line and one exaggerated trait each, so the style must survive being taken past its usual restraint without changing medium.\n\nA style that works in photoreal fur, painterly texture, heavy gradient shading or a dark background will break this recipe: the white ground stops being white, the three silhouettes stop separating, and the hand-printed words lose their contrast. A style that refuses figures entirely cannot run this recipe at all, and a style that renders scenery will fight the empty ground the frame is built on.",
+  "preview_assets": [
+    "assets/labelled-caricature-trio-1.webp",
+    "assets/labelled-caricature-trio-2.webp",
+    "assets/labelled-caricature-trio-3.webp",
+    "assets/labelled-caricature-trio-4.webp"
+  ],
+  "compatible_formula_ids": [
+    "com.storystudio.formula.natural-world-explained",
+    "com.storystudio.formula.counted-explainer"
+  ]
+}

@@ -1,0 +1,75 @@
+{
+  "kind": "thumbnail-recipe",
+  "schema_version": 1,
+  "id": "com.storystudio.thumbnail.framed-subject-with-dates",
+  "name": "Framed Subject with Dates",
+  "description": "The subject of the episode sits inside an ornate gold frame that fills most of the card, with the title in gold serif capitals, a small-cap tagline under it, and the span of years — a life, a reign, a war, an age — set as a short third line. The title block sits beside the frame or below it, and never on top of the painting.",
+  "layout": "hero",
+  "category": "History",
+  "tags": [
+    "gold frame",
+    "framed figure",
+    "life dates",
+    "reign dates",
+    "gold serif title",
+    "small-cap tagline",
+    "whole story",
+    "sleep",
+    "long documentary",
+    "calm",
+    "painted panel",
+    "card legibility"
+  ],
+  "aspect_ratio": "16:9",
+  "title_mode": "ai",
+  "composition_guidance": "Build the card in two fixed parts and never let them overlap.\n\nThe frame. One ornate gold frame stands inside the card with a clear margin of dark ground on every side, so the card reads as a framed object photographed against a wall rather than as a picture with a border drawn on it. The frame is upright or square, holds between half and two thirds of the card's width, and sits on one side of the canvas — left or right — chosen per episode and alternated down a channel so a row of cards never reads as one repeated image. Its moulding is deep and worked: scrollwork, beading and a heavier ornament at each of the four corners, in burnished gold that carries a warm highlight on every raised edge. Inside it, one painted subject and nothing else — a figure at half length or one whole simple form — painted in the active Visual Style, filling the opening and cropped by the frame rather than floating in it.\n\nThe title block. The remaining side of the card carries the whole of the type and holds nothing else. It is three lines, always in this order and always this shape. The first line is the title, the largest thing on the card, in serif capitals of burnished gold, set on one or two lines and no more. Directly beneath it, one tagline in much smaller widely spaced small capitals, in a paler cream or bronze rather than gold. Beneath that, one short line of years with an en dash between the two numbers and nothing else on the line. The three lines share one axis, are set left or centred as a group, and hold a clear margin from the card edge and from the frame. Where the frame takes the whole width of the card instead, the same three lines sit in the band of dark ground beneath it, in the same order and the same relative sizes.\n\nThe ground. Behind both, one quiet dark surface — a plain quiet surface — unlit except for a soft fall of light from the same side as the light inside the painting. Nothing on that wall competes with the type: no second frame, no shelf, no small light, no drapery crossing the letters.\n\nThe active Visual Style remains the final authority for medium, palette, lighting and texture inside the frame and on the wall behind it; this recipe controls the frame's presence and placement, the side split, the title block's three lines and their order, and the empty margin that keeps them apart.",
+  "composition_rules": [
+    "Exactly one ornate gold frame appears, standing clear of the card edges with dark ground visible on all four sides of it.",
+    "The frame holds between half and two thirds of the card's width and sits on one side; the side alternates from episode to episode across a channel.",
+    "One painted subject fills the frame's opening and is cropped by the frame rather than floating inside it, with nothing else in the opening.",
+    "The title block is exactly three lines: the title in gold serif capitals, one small-cap tagline beneath it, and one short line of years beneath that.",
+    "The line of years carries two numbers and an en dash and nothing else — no word, no bracket, no label and no question mark.",
+    "No line of type ever crosses the frame or the painting inside it; the type sits on bare ground beside the frame, or in the band beneath it when the frame runs full width.",
+    "The ground behind everything is one quiet dark surface with a soft fall of light from the same side as the light inside the painting.",
+    "Vary the subject, the period, the frame's ornament and the side it stands on between episodes; keep the frame, the three-line block, the line order and the clear margins fixed."
+  ],
+  "required_elements": [
+    "One ornate gold frame standing clear of the card edges with dark ground on all four sides",
+    "One painted subject filling the frame's opening, cropped by the frame",
+    "A three-line title block: gold serif capitals, a small-cap tagline, and a short line of years",
+    "A quiet dark ground behind both, lit softly from the same side as the painting"
+  ],
+  "avoid_elements": [
+    "A channel wordmark, logo, badge, ribbon, subscribe mark, numeral bug or outer border on the card itself",
+    "Any line of type crossing the frame, the moulding, or the painting inside it",
+    "A fourth line of copy, a question mark, an exclamation mark, or a word set beside the years",
+    "A second frame, a stacked pair of frames, or a frame cropped by the card edge",
+    "Arrows, circles, red rings, emoji, price tags, speech balloons or reaction marks",
+    "A bright, flat, or evenly lit ground behind the frame, or a busy wall that competes with the type",
+    "A recognisable modern individual, a living person, or an invented coat of arms presented as genuine",
+    "Post-render typography compositing, watermarks, or copied trade dress"
+  ],
+  "headline_mode": "episode-title",
+  "headline_guidance": "Write the block as three lines and render all three inside the image. The first line names the subject the episode tells whole — the person, the war, the treaty, the age, the expedition — in as few words as its ordinary name honestly takes, and it is set larger than anything else on the card. The second line is one tagline of at most six words that says what the whole thing was: the shape of the story, the claim of the arc, the thing that was decided. The third line is the span of years and nothing else, two numbers with an en dash between them, using the years the episode actually covers rather than a rounded century. Never a question, never a countdown, never a tease, never an exclamation; a listener settling toward sleep should read the card as the spine of a documentary. Where a span is disputed or approximate, choose the narrower of the two attested spans rather than inventing a precise one, and never print a year the episode does not support. Fail closed on a misspelling, on a clipped or wrapped line, on a fourth line, and on any text that lands on the frame or the painting.",
+  "default_text_style": "the title in burnished gold with a warm highlight along the top of each stroke, the tagline in pale cream, the years in the same pale cream at half the tagline's weight, all three flat and matte with no outline, no bevel, no gradient, no drop shadow and no glow",
+  "default_font_style": "tall condensed serif capitals with fine bracketed serifs and moderate stroke contrast, set with even tracking on one or two lines, and beneath them a much smaller line of the same serif as widely spaced small capitals, and beneath that a short line of lining numerals in the same serif at the tagline's size or smaller",
+  "default_text_position": "center",
+  "headline_formats": [
+    "{SUBJECT} / {TAGLINE} / {YEARS}",
+    "{SUBJECT} / The Whole Story / {YEARS}",
+    "{SUBJECT} / {CLAIM} / {YEARS}",
+    "{EVENT} / {OUTCOME} / {YEARS}",
+    "{ERA} / {SPAN} / {YEARS}"
+  ],
+  "visual_style_guidance": "This recipe is built for a painted look with real gold in it — the Illuminated Frame Painting style supplies the frame this card is named for, and the Dark Sepia Documentary Scene style supplies the quiet dark wall the frame stands against. It needs three things from whatever style is active. First, a painted medium, because a frame standing on a wall only reads as an object when the picture inside it reads as paint. Second, gold that behaves like burnished metal rather than yellow fill, since the moulding and the title are the two brightest things on the card and both are gold. Third, a dark, quiet, unevenly lit ground, because the title block sits directly on it with nothing behind the letters.\n\nA style that renders in flat colour, in bright even light, or against a white ground will break this recipe: the frame flattens into a drawn border, the gold stops being metal, and the three lines of type lose the dark they are legible on. A style that refuses painted figures can still run this recipe on a simple object or a building, but a style that refuses costume cannot carry the figure case at all.",
+  "preview_assets": [
+    "assets/framed-subject-with-dates-1.webp",
+    "assets/framed-subject-with-dates-2.webp",
+    "assets/framed-subject-with-dates-3.webp",
+    "assets/framed-subject-with-dates-4.webp"
+  ],
+  "compatible_formula_ids": [
+    "com.storystudio.formula.sleep-history-compilation",
+    "com.storystudio.formula.history-explained"
+  ]
+}

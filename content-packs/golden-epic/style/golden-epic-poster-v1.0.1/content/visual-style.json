@@ -1,0 +1,36 @@
+{
+  "kind": "visual-style",
+  "schema_version": 1,
+  "id": "com.storystudio.style.golden-epic-poster",
+  "name": "Golden Epic Poster",
+  "description": "The cover look for a grand-scale epic — a full-length figure on one side, a vast layered vista behind them under a sunset sky, and a palette locked to gold, amber, bronze and deep crimson with cool shadow.",
+  "category": "Illustration",
+  "tags": [
+    "cinematic poster",
+    "painterly digital illustration",
+    "hyper-detailed",
+    "grand figure",
+    "layered vista",
+    "sunset",
+    "light rays",
+    "gold",
+    "amber",
+    "bronze",
+    "crimson",
+    "volumetric haze",
+    "epic",
+    "cover art"
+  ],
+  "style_bible": "Hyper-detailed painterly digital illustration built to read as a cinematic history poster. Medium and surface: painted, not photographed — a high-finish digital painting with the confident blended handling of concept art rather than the tooth of canvas, no visible impasto and no craquelure, every form carried by tone and edge control instead of texture. Detail contract: everything in the frame is sharp and finished, from the smallest near detail to the most distant form; nothing is left as a suggestion, and depth is made by haze and scale rather than by softening or by blur. Subject grammar: one figure only, in the full regalia of their own century, held at three-quarter length so the waist or the hip is the lower cut, standing on one side of the frame and turned slightly inward toward the centre, weight settled, hands at rest or holding one object of office; the dress, the metal, the cloth and the wear on all three painted honestly for the period. Behind and around them, a vast layered vista sprawls away in one continuous sweep, arranged in receding bands so a viewer reads the near plane, then the middle distance, then the far distance, and understands that an enormous span is being shown at once. Lighting: a low sunset sun behind the vista, throwing broad god-rays through cloud and dust across the whole width of the frame, backlighting the figure with a hot bronze rim along the shoulder and the near arm, and lifting warm bounce into the shadow side of the face so nothing goes black. Palette: locked to gold, amber, bronze and deep crimson, with cool blue-grey and slate reserved for the shadow side and the deepest recesses, and no other hue permitted to take any real area of the frame. Atmosphere: volumetric haze layered through every distance band, dust and smoke standing in the light shafts, the far vista dissolving into warm gold rather than into grey. Framing: sixteen by nine with the figure held to one side and the opposite upper quadrant deliberately kept quiet — sky, haze, and the smallest architecture — so a title has clean ground to sit on; the horizon low, the sky given the upper third, the eye line at or just above the upper third of the frame. Mood: monumental, warm and settled, a civilisation seen whole from a great distance rather than a moment of action inside it. Keep the contract content-independent: no fixed individual, dynasty, regalia set, skyline, event, or copied composition.",
+  "negative_prompt": "flat colour, flat vector, cel shading, anime, manga, comic ink, cartoon, caricature, chibi, sketch, unfinished background, photograph, photorealistic camera render, film still, HDR photo look, lens flare, bokeh, shallow depth of field, motion blur, muted grey palette, desaturated monochrome, cold overcast light, blue-hour palette, pastel palette, neon, modern objects, cars, aircraft, power lines, wristwatches, sunglasses, printed logos, modern clothing on a pre-modern subject, two or more figures in the foreground, crowd pressed against the camera, face close to camera, action pose, raised objects, combat action, gore, readable lettering, captions, signatures, watermarks, frames, borders, UI elements, copied reference composition",
+  "preview_assets": [
+    "assets/golden-epic-poster-hero.webp",
+    "assets/golden-epic-poster-scene.webp",
+    "assets/golden-epic-poster-face.webp"
+  ],
+  "compatible_formula_ids": [
+    "com.storystudio.formula.sleep-history-compilation",
+    "com.storystudio.formula.history-explained",
+    "com.storystudio.formula.sleep-story"
+  ]
+}

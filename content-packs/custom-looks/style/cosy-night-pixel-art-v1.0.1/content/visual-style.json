@@ -1,0 +1,28 @@
+{
+  "kind": "visual-style",
+  "schema_version": 1,
+  "id": "com.storystudio.style.cosy-night-pixel-art",
+  "name": "Cosy Night Pixel Art",
+  "description": "Soft cosy bedtime pixel art: crisp visible square pixels in a gentle limited palette of night blues, lavender and warm light, low contrast, and calm uncluttered rooms to fall asleep in.",
+  "category": "Digital",
+  "tags": [
+    "pixel art",
+    "16-bit",
+    "night blues",
+    "lavender",
+    "warm light",
+    "low contrast",
+    "cosy",
+    "bedtime",
+    "restful",
+    "uncluttered"
+  ],
+  "style_bible": "Pixel art built at a low logical resolution and scaled up, so that every pixel is a visible square. Medium and surface: hand-placed pixels on a regular grid; diagonals show clean aliased stair-stepping, every edge is hard, and there is no anti-aliasing, no smoothing and no soft gradient anywhere — values change in discrete steps and, where two steps need bridging, a small amount of ordered dithering does it. Palette: one small fixed ramp — three or four night blues from the mid-blue down to blue-violet, two lavenders, and two or three warm lamplight tones — used consistently so the whole picture reads as one coherent set of colours. Value: deliberately low contrast. The lightest tone stays a soft cream rather than pure white and the darkest a deep blue-violet rather than black, so nothing on the screen glares. Lighting: one or two small warm pools from a single light source, with the rest of the frame staying cool and quiet; light falls in stepped pixel bands rather than as a gradient. Composition: calm, simple and uncluttered — one room, one window, one quiet view, with generous areas of flat pixel colour and detail concentrated where the light is. This is a bedtime register, restful rather than playful. No game interface of any kind: no HUD, no health bar, no inventory grid, no dialogue box, no tileset, no side-scrolling platform arrangement, no character sprite in action. No lettering, numbers or captions.",
+  "negative_prompt": "photoreal, photograph, photorealistic, 3D render, CGI, anti-aliasing, smooth gradient, soft shading, airbrush, high resolution detail, single-pixel noise, dithering noise everywhere, high contrast, pure black, pure white, neon, saturated colour, rainbow palette, game UI, HUD, health bar, inventory, dialogue box, tileset grid, side-scrolling level, platformer, character sprite in action, combat, menu text, pixel font, lettering, numbers, captions, signature, watermark, logo, border, frame, copied reference composition",
+  "preview_assets": [
+    "assets/cosy-night-pixel-art.webp",
+    "assets/cosy-night-pixel-art-scene.webp",
+    "assets/cosy-night-pixel-art-hardest.webp"
+  ],
+  "compatible_formula_ids": []
+}

@@ -1,0 +1,38 @@
+{
+  "kind": "visual-style",
+  "schema_version": 1,
+  "id": "com.storystudio.style.academic-classical-oil-v2",
+  "name": "Academic Classical Oil",
+  "description": "The calm in-video scene look for sleep narration — academic oil-painting brushwork, smooth blended transitions, warm golden-hour light, and a deliberately still, incident-free composition.",
+  "category": "Illustration",
+  "tags": [
+    "academic painting",
+    "smooth brushwork",
+    "soft tonal modelling",
+    "golden hour",
+    "oil painting",
+    "low stimulation",
+    "sleep",
+    "ivory",
+    "amber",
+    "low contrast",
+    "oil",
+    "painterly",
+    "blended tones",
+    "restrained",
+    "warm light"
+  ],
+  "style_bible": "Nineteenth-century academic and classical oil painting of the antiquarian school, painted for stillness. Medium and surface: old-master technique with rich layered glazes slowly built over primed ground, smooth blended brushwork with visible impasto brushwork reserved for tactile highlights on wet marble, a metal rim, or a petal edge, revealing fine canvas texture beneath a soft even sheen across the whole canvas; fine craquelure, painterly edges, and a warm museum varnish tone over everything. Edges and shapes: firm and carefully drawn where the light falls on stone or cloth, softening in the shadows, with reflected light carried up into every shadow so that nothing goes truly black; distance rendered by warm aerial haze rather than by loss of drawing. Palette: warm ivory, bleached marble white, honey, amber, old gold and sun-warmed rose, set against restrained sea-blue, olive, and dusty terracotta accents; low saturation, high key, and no colour permitted to shout. Lighting: broad Mediterranean sunlight arriving late in the day, entering through a colonnade, an open loggia, or a high clerestory, laying long soft-edged bars of warm light across polished floors; no hard-edged theatrical spotlight, no cold light, no night, no dramatic chiaroscuro. Texture: tactile impasto accents on bright surfaces, woven canvas texture showing through translucent layered glazes, veined and polished marble, sun-bleached limestone, sheer linen and heavy woven drapery, bronze with a soft patina, still water in a basin or an inlet, and the fine grain of dust in a shaft of light. Subject grammar: one clear focal subject at rest, in calm seated or reclining poses and with a deliberate absence of incident; or, alternatively, a deep golden-hour vista seen from a height, with the sky and haze given most of the canvas. Figures are anonymous and never recognisable individuals, are always at ease, and are shown at middle distance or further so that no face carries the frame. Framing: eye level or slightly raised, horizontals kept level and calm, generous empty floor, sky, or wall left open, the subject placed off-centre and small, and the composition resolved rather than dynamic. Low stimulation is the contract: nothing is beginning or ending, no incident, no motion, no confrontation, no crowd pressing forward, no face close to camera, and no strong tonal contrast anywhere. Keep the contract content-independent: no fixed city, monument, deity, event, or copied composition.",
+  "negative_prompt": "action, movement, running, fighting, combat action, tissue or wound texture, screaming faces, close-up faces, head-and-shoulders crop, crowds pressing forward, riot, mob, panic, dramatic chiaroscuro, hard black shadows, night scene, storm, modern objects, modern clothing, electric light, cars, machinery, plastics, printed signage, saturated neon, acid colour, high contrast, HDR look, heavy vignette, photograph, photorealistic camera render, 3D render, CGI, flat vector, cel shading, anime, cartoon, comic ink, readable lettering, captions, logos, watermarks, signatures, frames, borders, UI elements, copied reference composition, pixel art, neon colours, 3D CGI render, hard digital edges, lowres, modern clip-art, text, watermark",
+  "preview_assets": [
+    "assets/academic-classical-oil-hero.webp",
+    "assets/academic-classical-oil-scene.webp",
+    "assets/academic-classical-oil-face.webp"
+  ],
+  "compatible_formula_ids": [
+    "com.storystudio.formula.sleep-history-compilation-v2",
+    "com.storystudio.formula.sleep-story-v2",
+    "com.storystudio.formula.history-explained-v2",
+    "com.storystudio.formula.human-behavior-explained-v2"
+  ]
+}

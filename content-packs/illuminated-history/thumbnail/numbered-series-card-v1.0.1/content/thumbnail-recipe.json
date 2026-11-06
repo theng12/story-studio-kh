@@ -1,0 +1,78 @@
+{
+  "kind": "thumbnail-recipe",
+  "schema_version": 1,
+  "id": "com.storystudio.thumbnail.numbered-series-card",
+  "name": "Numbered Series Card",
+  "description": "A title runs across the top of the card with the episode's years in parentheses after it, a painted figure holds the left half and an old map holds the right. Built for a series that runs in order, so that a shelf of cards reads as one set counted through from the first to the last.",
+  "layout": "hero",
+  "category": "History",
+  "tags": [
+    "series card",
+    "numbered series",
+    "title band",
+    "years in parentheses",
+    "figure left",
+    "old map",
+    "in order",
+    "sequence",
+    "instalment",
+    "sleep",
+    "long documentary",
+    "card legibility"
+  ],
+  "aspect_ratio": "16:9",
+  "title_mode": "ai",
+  "composition_guidance": "Build the card in three fixed bands and never move them.\n\nThe title band. The top fifth to top quarter of the card is the type and holds nothing else. The title runs across it on one line where it fits and on two where it does not, in serif capitals, ranged left or centred as a group and kept the same way down a whole series. The episode's years follow the title in ordinary parentheses at roughly two thirds of its height, on the same line where there is room and directly beneath it where there is not. The ground behind the band is the darkest part of the card, either a plain painted field or the top of the picture dimmed for the purpose, so the letters sit on quiet and nothing crosses behind them.\n\nThe figure half. The left of the card below the band carries one painted figure at half length or head and shoulders, turned slightly inward toward the centre, lit from the outer side so the near cheek and shoulder are the brightest thing in that half. The figure is cropped by the bottom edge of the card and never by the title band, and there is exactly one of them.\n\nThe map half. The right of the card below the band carries an old map — a coastline, a river system, a province, a route drawn as a thin line, a compass rose, hatched relief, ruled borders — drawn as an aged sheet with a visible edge or curl on at least one side, laid flat or pinned, and held lower in contrast than the figure so the eye reads the face first. The map carries no legible place name, no title cartouche and no lettering of any kind; it is read as a map by its shapes.\n\nWhere the two halves meet, they meet on a soft seam — a fall of shadow, a fold of cloth, an edge of the map sheet, a shift into mist — rather than on a hard graphic line, and neither half crosses more than a little way into the other.\n\nThe active Visual Style remains the final authority for medium, palette, lighting and texture in both halves; this recipe controls the three bands, the side each occupies, the parenthesised years, and the empty quiet the title band must keep.",
+  "composition_rules": [
+    "The top fifth to quarter of the card is a title band holding all the type and nothing else, on the darkest ground on the card.",
+    "The episode's years appear in ordinary parentheses at roughly two thirds of the title's height, following the title on its line or set directly beneath it.",
+    "One painted figure holds the left half below the band, at half length or head and shoulders, turned slightly inward and lit from the outer side.",
+    "The figure is cropped by the bottom edge of the card, never by the title band, and there is exactly one figure on the card.",
+    "An old map holds the right half below the band, drawn as an aged sheet with a visible edge or curl, and held lower in contrast than the figure.",
+    "The map carries no legible place name, no cartouche and no lettering of any kind; it reads as a map by its coastlines, routes, hatching and compass rose alone.",
+    "The two halves meet on a soft seam of shadow, cloth, sheet edge or mist rather than on a hard graphic line or a ruled divider.",
+    "Nothing crosses behind the letters of the title band — no roofline, no map edge, no hair, no shoulder and no compass rose.",
+    "Vary the subject, the forms and the scene between episodes; keep the band, the two halves, their sides, and the parenthesised years fixed down a whole series."
+  ],
+  "required_elements": [
+    "A title band across the top of the card carrying the title and the episode's years in parentheses",
+    "One painted figure at half length or head and shoulders holding the left half, turned inward",
+    "An old map sheet holding the right half, lower in contrast than the figure and carrying no lettering",
+    "A soft seam where the two halves meet, rather than a ruled divider"
+  ],
+  "avoid_elements": [
+    "A channel wordmark, logo, badge, ribbon, subscribe mark, numeral bug or border of any kind",
+    "Any word, place name, cartouche or legend printed on the map",
+    "A second figure, a face in the map half, or a figure cropped by the title band",
+    "A third block of copy, a question mark, an exclamation mark, or a subtitle beneath the years",
+    "A hard ruled line, a graphic split, a gutter or a panel edge between the two halves",
+    "Anything crossing behind the letters of the title band, or a bright ground beneath them",
+    "Arrows, circles, red rings, emoji, price tags, speech balloons or reaction marks",
+    "A modern map, a printed atlas page, a satellite view, a real modern border line, or an invented insignia presented as genuine",
+    "A recognisable modern individual or a living person",
+    "Post-render typography compositing, watermarks, or copied trade dress"
+  ],
+  "headline_mode": "episode-title",
+  "headline_guidance": "Write the title as the one thing this episode covers, named the way the series names every other instalment, so that a shelf of these cards reads as one set counted through in order. Where the series is numbered, the number belongs inside the title itself as an ordinary word or numeral — the second of a sequence, the fourth of a sequence — and never as a separate badge, bug or corner mark. Follow the title with the years the episode actually covers, in ordinary parentheses, two numbers with an en dash between them; use the span the episode supports rather than a rounded century, and where a span is disputed choose the narrower attested one rather than inventing a precise one. Keep the wording of every card in a series parallel: the same order, the same length of phrase, the same grammatical shape, so the only thing that changes down the shelf is the instalment and its years. Never a question, never a countdown, never an exclamation, never a tease. Fail closed on a misspelling, on a clipped or wrapped line that runs out of the band, on a missing or malformed parenthesis, and on any copy beyond the title and its years.",
+  "default_text_style": "flat matte cream letters on the dark ground of the band with nothing behind them — no box, plate, band, rule, outline, bevel, gradient, drop shadow or glow — and the parenthesised years in the same cream at roughly two thirds of the title's height",
+  "default_font_style": "tall condensed serif capitals with fine bracketed serifs and moderate stroke contrast, set with even tracking on one line where the title fits and two where it does not, with the parenthesised years in lining numerals of the same serif at roughly two thirds of the capital height",
+  "default_text_position": "top",
+  "headline_formats": [
+    "{SUBJECT} ({YEARS})",
+    "{ORDINAL} {SERIES} ({YEARS})",
+    "{EVENT} ({YEARS})",
+    "{SUBJECT}: {STAGE} ({YEARS})",
+    "{ERA} ({YEARS})"
+  ],
+  "visual_style_guidance": "This recipe is built for a painted look that can hold a figure and a paper map in the same frame without either turning into a graphic — the Illuminated Frame Painting style supplies the painted half-length figure and the Dark Sepia Documentary Scene style supplies the dim ground the title band needs. It needs three things from whatever style is active. First, a painted medium in both halves, because a photographic figure beside a drawn map splits the card into two pictures. Second, a dark, quiet top edge, since the whole of the type sits there with nothing behind it. Third, a style that can render an aged paper sheet — a curl, a soft edge, hatched relief, a thin drawn route — as part of the same picture rather than as an overlay.\n\nA style that renders in flat colour, in bright even light, or against a white ground will break this recipe: the band loses its dark, the map reads as a modern graphic, and the seam between the halves turns into a hard edge. A style that refuses figures cannot run this recipe, because the figure half is half the card.",
+  "preview_assets": [
+    "assets/numbered-series-card-1.webp",
+    "assets/numbered-series-card-2.webp",
+    "assets/numbered-series-card-3.webp",
+    "assets/numbered-series-card-4.webp"
+  ],
+  "compatible_formula_ids": [
+    "com.storystudio.formula.sleep-history-compilation",
+    "com.storystudio.formula.history-explained"
+  ]
+}

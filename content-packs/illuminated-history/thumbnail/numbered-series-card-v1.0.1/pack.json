@@ -1,0 +1,15 @@
+{
+  "pack_format": 1,
+  "pack_id": "com.storystudio.pack.thumbnail.numbered-series-card",
+  "publisher_id": "com.storystudio",
+  "key_id": "{{KEY_ID}}",
+  "version": "1.0.1",
+  "min_app_version": "{{MIN_APP_VERSION}}",
+  "lifecycle": "active",
+  "changelog": "Text-only neutral patch: removed subject, era, genre, mood and prop wording from rendered fields. Technique, names and all previews are unchanged from 1.0.0.",
+  "entitlement": {
+    "sku": "com.storystudio.sku.thumbnail.numbered-series-card",
+    "family": "com.storystudio.family.thumbnail.numbered-series-card"
+  },
+  "dependencies": []
+}

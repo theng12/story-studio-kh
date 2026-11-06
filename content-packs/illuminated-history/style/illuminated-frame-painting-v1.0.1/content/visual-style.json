@@ -1,0 +1,33 @@
+{
+  "kind": "visual-style",
+  "schema_version": 1,
+  "id": "com.storystudio.style.illuminated-frame-painting",
+  "name": "Illuminated Frame Painting",
+  "description": "A richly painted scene or single figure held inside an ornate gold filigree border with gilt corner ornaments, the way a miniature sits on an illuminated page or a woven panel sits inside its tapestry edge. Deep jewel colour inside the frame, burnished gold around it, and the soft varnish sheen of an old panel over everything.",
+  "category": "Illustration",
+  "tags": [
+    "illuminated manuscript",
+    "gold filigree border",
+    "gilt corner ornament",
+    "tapestry edge",
+    "painted panel",
+    "jewel palette",
+    "varnish sheen",
+    "craquelure",
+    "ceremonial figure",
+    "storybook",
+    "long documentary",
+    "sleep history"
+  ],
+  "style_bible": "A painted picture set inside a painted frame, so that every image reads as a page from an illuminated manuscript or a panel cut from a woven hanging rather than as a bare scene. The border. An ornate gold filigree band runs the whole way round the image and is never absent, taking between a twelfth and an eighth of the frame's shorter side in width. It is built from interlaced vine scrollwork, beaded fillets, small punched dots and a repeating leaf or acanthus rhythm, and it carries a heavier gilt ornament at each of the four corners — a rosette, a knot, a leaf boss or a quatrefoil — the same ornament repeated at all four so the border reads as one made object. The gold is burnished metal leaf and not yellow paint. It takes a warm specular highlight along the raised edge of every scroll, a deep brown-gold in the recesses, and a slight unevenness where the leaf has worn thin and the red bole shows beneath. The border never overlaps the picture and the picture never spills over the border. The two meet on a clean inner edge, usually with one thin dark rule between them. Inside the border. One painted scene or one figure and nothing else, worked in the oil-and-tempera manner of a prepared panel — soft blended half-tones through faces and hands, a drier drag through cloth and hair, restrained impasto only on the brightest fold or the lit edge of metal, and a fine even craquelure over the whole painted surface. Palette. Deep and jewelled inside the frame and nowhere else: lapis and ultramarine blue, crimson lake, emerald and bottle green, ochre and old gold, wine, and a warm brown that closes every shadow. Colours are saturated but never bright; a soft varnish sheen lies over all of them, warming the lights and sinking the darks so no area of the picture glares. Light. One soft source, usually high on the left, modelling the subject fully on its lit side and leaving the shadow side coloured rather than black. There is no second light, no rim light and no glow. Figures. Where the picture has them they are fully clothed in the dress of their own century, with only faces and hands uncovered, and they are painted as anonymous types rather than as any identifiable individual. There is no nudity anywhere in this look. Depth. Shallow and decorative. A middle ground of architecture, a cloth of honour, low hills or a patterned ground sits behind the subject with very little atmospheric recession, because the border has already told the eye how far back the picture is allowed to go. Framing. Sixteen by nine overall. The border holds the outer band on all four sides and the painted picture holds the whole of the remaining rectangle, centred, with the subject placed off the exact centre and a comfortable margin between the subject and the inner edge of the gold. Text. There is none. The reference is to the ornament of an illuminated page and never to its writing, so no letter, numeral, initial or line of script appears inside the border or on it. Texture. The varnish sheen and craquelure of an old panel, the tooth of gesso beneath the gold, and nothing else — no grain overlay, no digital noise, no visible pixel edge. Mood. Ceremonial, still and unhurried, the look of an object that was made to be kept rather than read quickly. Keep the contract content-independent: no fixed character, story, name, place, era, insignia or copied composition.",
+  "negative_prompt": "flat vector, vector art, flat colour, cel shading, hard graphic shapes, photograph, photorealistic, film still, DSLR, macro photography, 3D render, CGI, clay render, neon, neon glow, fluorescent colour, saturated candy palette, high-key lighting, modern objects, contemporary clothing, wristwatch, modern spectacles, telephone, motor car, aeroplane, electric light, plastic, printed text, lettering, script, calligraphy, initials, captions, numerals, watermarks, signatures, speech balloons, UI elements, logos, invented insignia, coat of arms presented as genuine, recognisable individual, living person, nudity, bare skin beyond faces and hands, bare shoulders, bare torso, undraped figure, border overlapping the picture, picture spilling over the border, second frame, drop shadow, bloom, lens flare, depth of field, motion blur, cluttered ornament, copied reference composition",
+  "preview_assets": [
+    "assets/illuminated-frame-painting-hero.webp",
+    "assets/illuminated-frame-painting-scene.webp",
+    "assets/illuminated-frame-painting-face.webp"
+  ],
+  "compatible_formula_ids": [
+    "com.storystudio.formula.sleep-history-compilation",
+    "com.storystudio.formula.history-explained"
+  ]
+}

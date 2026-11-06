@@ -1,0 +1,34 @@
+{
+  "kind": "visual-style",
+  "schema_version": 1,
+  "id": "com.storystudio.style.baroque-mythological-sky",
+  "name": "Baroque Mythological Sky",
+  "description": "High-baroque manner — long diagonal compositions, banks of cloud, drapery billowing in crimson, gold and slate, and fully robed figures lit against a stormy or gilded sky, painted as oil on canvas or as fresco.",
+  "category": "Illustration",
+  "tags": [
+    "baroque painting",
+    "cloud bank",
+    "figure group",
+    "cloud bank",
+    "diagonal composition",
+    "billowing drapery",
+    "crimson and gold",
+    "small figures",
+    "held objects",
+    "chiaroscuro",
+    "oil on canvas",
+    "fresco",
+    "stormy sky",
+    "sleep narration"
+  ],
+  "style_bible": "High-baroque figure painting of the seventeenth century, in the high-baroque manner of grand ceiling and altarpiece decoration rather than after any named painter — worked as oil on a coarse primed canvas or as fresco on lime plaster, always painted and never photographed. Ground and surface: the canvas weave or the plaster tooth shows through the thinner darks, the paint is laid warm over a russet ground, faces and hands are built in soft blended half-tones with a loaded impasto only on the brightest turn of a cheekbone or a fold of cloth, and the whole surface carries a fine craquelure under a warm varnish bloom. Composition: everything moves on a long diagonal. Figures are arranged in a rising or falling sweep from one lower corner toward the opposite upper corner, foreshortened as though seen from below, with limbs and drapery crossing the diagonal to hold the eye inside the frame; nothing is centred, nothing is symmetrical, and no figure stands square to the viewer. Cloud: the ground the figures rest on is cloud itself — dense sunlit banks piled like carded wool at the top, dissolving into slate and violet shadow beneath, thick enough to bear weight where a body touches it and thin enough at the edges to let a limb pass through. Drapery: cloth is a character. Great lengths of it billow and snap around the figures in deep crimson, in gold and ochre, and in cool slate, falling in heavy sculptural folds with a broad lit face, a deep shadow trough and a warm reflected light at the return; it is never still and never neatly arranged. Palette: warm skin tones in the uncovered faces and hands — cream, rose and umber — carried against a sky that is either stormy in slate, bruised violet and grey-green, or gilded in amber, honey and pale gold. Crimson and gold are the only fully saturated notes; the darks are warm browns rather than black, and the whites are linen and cloud rather than paper. Light: strong chiaroscuro from a single high source outside the frame, so one side of every figure is fully lit and the other falls into a warm shadow that keeps its colour; a shaft or opening of brighter sky sits behind the principal figure, and the darkest mass of the picture is placed against it. Figures and attendants: adult gods and heroes are built heavy and physical, and every one of them is fully draped in heavy robes from the neck to the ankle so that only faces, hands and feet are ever uncovered — there is no nudity anywhere in this look, no bare torso and no bare shoulder, and the weight of a body is read through the fall of cloth rather than through skin. Small winged cherubs cluster at the edges of the group, tumbling, carrying and reaching, always subordinate and never the subject; they are clothed in the same way, and a picture may leave them out entirely. Attributes: any held object stays plainly readable at small size and is drawn as a real object rather than as a symbol floating free. Mood: elevated, weightless, unhurried, and calm even in motion; this look is used for long quiet narration, so the drama sits in the composition and the light rather than in a face. Keep the contract content-independent: no named deity, no fixed episode, no insignia, no wordmark and no copied composition.",
+  "negative_prompt": "photograph, photoreal, photorealistic, film still, camera render, HDR, lens flare, bokeh, depth of field blur, motion blur, flat vector, corporate flat illustration, infographic style, clean vector lines, uniform line weight, cel shading, heavy black outlines, comic book inking, anime, manga, chibi, cute mascot, caricature, cartoon proportions, modern objects, contemporary clothing, wristwatch, spectacles, machinery, vehicles, wires, printed paper, muted grey palette, desaturated wash, pastel palette, cool grey shadows, monochrome, flat even lighting, three-point lighting, fill light, overcast daylight, close cropped screaming face, open screaming mouth, face filling the frame in terror, agony, tissue or wound texture, nudity, bare skin, undraped figures, bare shoulders, bare torso, text, lettering, captions, subtitles, signatures, watermarks, page borders, frames, UI elements, printed logos, invented insignia, recognisable living individuals, copied reference composition",
+  "preview_assets": [
+    "assets/baroque-mythological-sky-hero.webp",
+    "assets/baroque-mythological-sky-scene.webp",
+    "assets/baroque-mythological-sky-face.webp"
+  ],
+  "compatible_formula_ids": [
+    "com.storystudio.formula.sleep-history-compilation"
+  ]
+}

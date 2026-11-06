@@ -1,0 +1,31 @@
+{
+  "kind": "visual-style",
+  "schema_version": 1,
+  "id": "com.storystudio.style.maritime-oil-painting",
+  "name": "Maritime Oil Painting",
+  "description": "Marine oil-painting look for covers and hero scenes — loose visible brushwork, a pale ivory sky left open for a title, and sepia, ochre and gold weather over navy water.",
+  "category": "Illustration",
+  "tags": [
+    "marine painting",
+    "oil painting",
+    "visible brushwork",
+    "marine forms",
+    "atmosphere",
+    "sepia",
+    "brushwork",
+    "cover art",
+    "atmospheric depth"
+  ],
+  "style_bible": "Nineteenth-century marine oil painting on primed canvas. Medium and surface: loose visible brushwork, oil laid in directional strokes that stay readable as paint, thin scumbled glazes in the sky and thicker impasto reserved for spray, cloud edges, and the lit crests of water, with fine craquelure and a warm varnish bloom over the whole surface. Edges and shapes: painterly and soft almost everywhere, sails and hulls held together by tone rather than outline, rigging suggested with a few dry-brushed hairlines rather than drawn thread by thread, horizon slightly broken and never ruler-straight. Palette: sepia, ochre, raw and burnt sienna, aged gold and warm ivory through the sky, moving to deep navy, slate green and cold grey in the water, with oxblood and a single muted vermilion reserved for the smallest accents. Lighting: soft diffused daylight from a low overcast sun, light entering from one side and passing through cloud rather than striking hard; luminous sky, no hard modern key light, no rim light, no artificial glow. Texture: canvas tooth visible through thin passages, dry-brush drag on rope and spar, granular sea spray, torn cloud with light behind it. Subject grammar: one clear focal subject held against a low horizon and a wide sky, with a single anonymous figure or a large object form at three-quarter length, weather in the coat and hair, face lit softly and never a recognisable individual. Framing: hold the sky pale, open and largely empty across the upper third to two-fifths of the canvas as deliberate negative space where a title can sit; place the vessel or figure low and to one side on a clear diagonal, keep the waterline below centre, and let atmosphere rather than detail carry the distance. Keep the contract content-independent: no fixed vessel, port, era detail, event, or copied composition.",
+  "negative_prompt": "photograph, photorealistic render, digital smoothness, airbrushed gradients, 3D render, CGI, vector art, flat cartoon, anime, neon, saturated modern colours, hard modern studio lighting, lens flare, bokeh, motion blur, anachronistic forms, industrial machinery, modern equipment, modern clothing, cluttered text, readable lettering, captions, logos, watermarks, signatures, frames, borders, UI elements, copied reference composition",
+  "preview_assets": [
+    "assets/maritime-oil-painting.webp",
+    "assets/maritime-oil-painting-2.webp",
+    "assets/maritime-oil-painting-3.webp"
+  ],
+  "compatible_formula_ids": [
+    "com.storystudio.formula.sleep-history-compilation",
+    "com.storystudio.formula.history-explained",
+    "com.storystudio.formula.sleep-story"
+  ]
+}

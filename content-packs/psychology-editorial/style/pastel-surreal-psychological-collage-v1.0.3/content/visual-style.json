@@ -1,0 +1,25 @@
+{
+  "kind": "visual-style",
+  "schema_version": 1,
+  "id": "com.storystudio.style.pastel-surreal-psychological-collage",
+  "name": "Pastel Surreal Psychological Collage",
+  "description": "A restrained matte mixed-media collage language for symbolic psychological subjects and editorial emotional imagery.",
+  "category": "Editorial psychology",
+  "tags": [
+    "pastel",
+    "surreal",
+    "psychology",
+    "mixed media",
+    "symbolic"
+  ],
+  "style_bible": "Build a matte mixed-media psychological collage with painterly and sculptural traces, subtle grain, restrained blur or erosion, and strong low-saturation figure-ground separation. Work from dusty peach, mauve, lavender, pale blue, cream, charcoal, and warm gray; use ember orange only as a restrained accent. Favor fragmented, eroded or doubled forms, mask-like shapes, silhouettes, shallow relief, and abstract emotional shapes. Keep the atmosphere sparse, tactile, and psychologically suggestive rather than literal.",
+  "negative_prompt": "Reject glossy CGI, photoreal stock imagery, neon color, crowded scenes, tiny typography, logos, watermarks, copied trade dress, malformed anatomy, and malformed text.",
+  "preview_assets": [
+    "assets/pastel-surreal-psychological-collage.webp",
+    "assets/pastel-surreal-psychological-collage-scene.webp",
+    "assets/pastel-surreal-psychological-collage-face.webp"
+  ],
+  "compatible_formula_ids": [
+    "com.storystudio.formula.human-behavior-explained"
+  ]
+}

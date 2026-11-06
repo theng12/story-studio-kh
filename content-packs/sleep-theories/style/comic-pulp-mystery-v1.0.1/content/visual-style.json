@@ -1,0 +1,32 @@
+{
+  "kind": "visual-style",
+  "schema_version": 1,
+  "id": "com.storystudio.style.comic-pulp-mystery",
+  "name": "Comic Pulp Mystery",
+  "description": "Graphic-novel cel shading with heavy black outlines and one glowing focus at the centre of the frame — saturated teal and orange burning out of a rain-soaked night, lit by lightning, drawn with the energy of a pulp cover.",
+  "category": "Illustration",
+  "tags": [
+    "graphic novel",
+    "comic illustration",
+    "cel shading",
+    "heavy outlines",
+    "pulp cover",
+    "teal and orange",
+    "night scene",
+    "rain and lightning",
+    "glowing focus",
+    "mystery",
+    "unsolved cases",
+    "high contrast"
+  ],
+  "style_bible": "Graphic-novel illustration in the register of a pulp paperback cover, drawn rather than photographed and printed rather than rendered. Line: every form is closed by a heavy black outline of confident, slightly uneven weight — thickest on the silhouette and on the shadow side, thinner inside the form, and thinnest on the details closest to the light — so the picture reads at card size as a set of black shapes before any colour is seen. Shading: flat cel shading only, two or at most three steps per surface with hard-edged boundaries between them, plus a single hard black shadow shape per object; no soft gradient, no airbrush, no blur, and no rendered specular. Colour: a night palette built from two saturated hues held against near-black — a cold teal that owns the wet street, the sky, the glass and every shadow, and a hot orange that owns light itself: the object's glow, the reflections it throws, the sodium of distant light, the bounce on a face. The two never mix into a muddy middle; where they meet they meet on a hard edge. Ground and unlit mass go to a dense blue-black, and the paper's own white is spent only on the very hottest core of the glow and on rain. Subject grammar: one thing in the frame is glowing and everything else is reacting to it — an object, a doorway, a screen, a light in water, a shape at the far end of a corridor. That glow is the only true light source and it is placed inside the frame, so figures and architecture are lit from a single low or central position with long hard-edged shadows thrown away from it. Weather and air: rain falls as long straight streaks of pale teal drawn at a consistent angle across the whole frame, breaking into small hard splash marks where it lands; standing water reflects the glow as a broken vertical smear; lightning breaks from behind the scene as one flat white-blue shape that silhouettes the skyline and leaves everything in front of it black. Texture: an even halftone or coarse dot screen laid over the flat colour, plus fine print grain and a faint misregistration on one channel, so the frame reads as something that came off a press. Framing: sixteen by nine, low or slightly tilted camera, strong diagonals, generous dark ground in one part of the frame so the composition has somewhere quiet, and a deliberate depth order of near silhouette, lit middle ground, black background. Mood: charged, wet, late, and one second before somebody understands what they are looking at. Keep the contract content-independent: no fixed individual, case, place, era, insignia or copied composition.",
+  "negative_prompt": "photoreal, photorealistic, photograph, film still, camera render, HDR, lens flare, bokeh, depth of field blur, motion blur, soft focus, pastel palette, muted palette, desaturated wash, watercolour, pale washed colour, flat explainer vector, corporate flat illustration, infographic style, clean vector lines, uniform line weight, minimalist line art, daylight, sunlight, overcast daylight, blue-hour daylight, bright even lighting, three-point lighting, fill light, dry ground, clear sky, smooth gradient shading, airbrush, soft rendered specular, 3D render, clay render, plastic surfaces, anime, chibi, cute mascot, caricature, readable lettering, captions, subtitles, signatures, watermarks, speech balloons, comic panel gutters, page borders, frames, UI elements, printed logos, invented insignia, recognisable living individuals, tissue or wound texture, copied reference composition",
+  "preview_assets": [
+    "assets/comic-pulp-mystery-hero.webp",
+    "assets/comic-pulp-mystery-scene.webp",
+    "assets/comic-pulp-mystery-face.webp"
+  ],
+  "compatible_formula_ids": [
+    "com.storystudio.formula.sleep-history-compilation"
+  ]
+}

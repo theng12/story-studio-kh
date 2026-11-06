@@ -1,0 +1,32 @@
+{
+  "kind": "visual-style",
+  "schema_version": 1,
+  "id": "com.storystudio.style.gothic-candlelight-portrait",
+  "name": "Gothic Candlelight Portrait",
+  "description": "The cover look for dark history — one face filling half the frame at the moment it understands something, lit by a single small warm light and nothing else, painted in amber against teal shadow over heavy ink texture.",
+  "category": "Illustration",
+  "tags": [
+    "gothic illustration",
+    "painterly digital illustration",
+    "close-up figure",
+    "extreme emotion",
+    "warm key light",
+    "single light source",
+    "teal and amber",
+    "ink texture",
+    "chiaroscuro",
+    "low-key",
+    "cover art",
+    "hook thumbnail"
+  ],
+  "style_bible": "Dark gothic painterly illustration built to carry a face at card size. Medium and surface: a painted illustration, never a photograph — brushed forms with confident edge control, laid over a heavy ink texture that reads like etching grain or the bite of a printing plate, so that hatching and stipple show through the shadow side and along every hard edge while the lit planes stay smoothly painted. Subject grammar: one face and one face only, held close — cut at the shoulders or the upper chest, filling roughly half the frame — caught in an extreme state rather than at rest: fear with the whites of the eyes showing above the iris, shock with the mouth open and the jaw slack, grief with the eyes wet and the lashes clumped, dread with the brow drawn hard together and the lower lip going. The expression is the subject; the costume, the period and the setting are secondary and may be reduced to a collar, a hood, a shoulder and a suggestion of stone. Skin is painted honestly at close range — pores, damp on the forehead, the wet line along the lower lid, colour pooling in the nose and the ears where the light passes through. Lighting: exactly one small warm light, held low and close and inside the frame or just outside its edge, so that the light climbs the face from beneath the cheekbone and throws the eye sockets, the underside of the brow and the hollow of the throat into deep shadow. No fill, no second key, no bounce card; the falloff is steep and everything more than an arm's length behind the face goes to unlit ground. Palette: the lit side runs amber, honey, ember orange and warm bone; every shadow, every reflected edge and the whole ground behind the figure runs cold teal, blue-green and slate, and the picture holds no third hue at any real size. Texture: ink grain across the entire frame at an even weight, heaviest in the shadow and in the transition where the light dies, so the image reads as printed rather than rendered. Framing: sixteen by nine, the face held to one side with the eyeline on or just above the upper third, and the opposite half of the frame kept as unlit ground — no architecture, no drapery, no second subject — so a hook has somewhere clean to sit. Mood: airless, close and about to go wrong, the instant after something has been understood and before anything has been said. Keep the contract content-independent: no fixed individual, era, costume, room, event or copied composition.",
+  "negative_prompt": "daylight, sunlight, overcast light, blue-hour light, bright even lighting, flat lighting, three-point lighting, a second key light, fill light, rim light from behind, calm expression, neutral expression, smiling, serene face, sleeping face, eyes closed in rest, photograph, photorealistic camera render, film still, posed studio photography, formal headshot, HDR, lens flare, bokeh, shallow depth of field, neon, neon signage, magenta and cyan lighting, saturated candy colour, pastel palette, flat vector, cel shading, anime, manga, cartoon, caricature, chibi, clean digital gloss, airbrushed skin, beauty retouching, plastic skin, readable lettering, captions, signatures, watermarks, frames, borders, UI elements, two or more faces, full-length figure, crowd, tissue or wound texture, anachronistic accessories, printed logos, copied reference composition",
+  "preview_assets": [
+    "assets/gothic-candlelight-portrait-hero.webp",
+    "assets/gothic-candlelight-portrait-scene.webp",
+    "assets/gothic-candlelight-portrait-face.webp"
+  ],
+  "compatible_formula_ids": [
+    "com.storystudio.formula.history-explained"
+  ]
+}
