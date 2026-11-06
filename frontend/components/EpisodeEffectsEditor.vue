@@ -560,13 +560,19 @@ const previewHint = computed(() => !scenes.value.length
   : targetScene.value ? 'Follows the scene you are adding to.' : 'Any scene, to judge the effect on a real picture.')
 
 const sceneImage = ref<HTMLImageElement | null>(null)
-watch([previewScene, episodeId], () => {
+watch([previewScene, episodeId, slug], () => {
   const scene = previewScene.value
   if (!scene || !scene.has_image || !episodeId.value) { sceneImage.value = null; return }
+  // Scene ids repeat across episodes/channels, so the answer is only this
+  // preview's while the channel, episode and scene it was asked for still stand.
+  const channel = slug.value
+  const episode = episodeId.value
   const img = new Image()
-  img.onload = () => { if (previewScene.value?.id === scene.id) sceneImage.value = img }
-  img.onerror = () => { sceneImage.value = null }
-  img.src = `/api/projects/${encodeURIComponent(slug.value)}/scene-review/${encodeURIComponent(episodeId.value)}/image/${encodeURIComponent(scene.id)}`
+  img.onload = () => {
+    if (slug.value === channel && episodeId.value === episode && previewScene.value?.id === scene.id) sceneImage.value = img
+  }
+  img.onerror = () => { if (slug.value === channel && episodeId.value === episode) sceneImage.value = null }
+  img.src = `/api/projects/${encodeURIComponent(channel)}/scene-review/${encodeURIComponent(episode)}/image/${encodeURIComponent(scene.id)}`
 })
 
 // ── Selection and editing ──────────────────────────────────────────────────
@@ -1085,6 +1091,7 @@ async function loadAnalysis(): Promise<void> {
   } catch { /* the card stays as it was */ }
 }
 function queueSwitch(key: 'depth' | 'vision', value: boolean): void {
+  if (applying.value) return
   const next = { ...shownSwitches.value, [key]: value }
   pendingSwitches.value = next
   ops.value = [...ops.value.filter(op => op.kind !== 'switches'), { kind: 'switches', switches: next }]
@@ -1110,9 +1117,14 @@ const presetOpts = {
   builtInPresets: BUILT_IN_EFFECT_STACKS.map(stack => ({ id: stack.id, name: stack.name, data: { effects: stack.effects, description: stack.description }, builtin: true, type: 'effect-stack' as const })),
 }
 const stackPresets = usePresets<{ effects: Array<{ id: string; params?: Record<string, unknown> }> }>(presetOpts)
-// usePresets reads opts.slug when it runs: keep it on the live channel and
-// re-read that channel's presets when the host points the panel elsewhere.
+// usePresets reads opts.slug when it persists, and a save can be in flight
+// during Apply. Hold a channel switch back until no preset write is running.
+const deferredPresetSlug = ref('')
 watch(slug, value => {
+  if (applying.value) {
+    deferredPresetSlug.value = value
+    return
+  }
   presetOpts.slug = value
   void stackPresets.load()
 })
@@ -1182,10 +1194,12 @@ async function runWriteOp(op: EpisodeEffectsWriteOp, dest: { slug: string; episo
     return
   }
   if (op.kind === 'preset-save') {
+    presetOpts.slug = dest.slug
     presetDraft.value = op.effects
     await stackPresets.saveAs(op.name)
     return
   }
+  presetOpts.slug = dest.slug
   await stackPresets.setActive(op.preset_id)
   await stackPresets.remove()
 }
@@ -1248,6 +1262,15 @@ async function apply(): Promise<{ ok: boolean; error?: string }> {
     if (episode) {
       await put(`/projects/${destSlug}/effects-library/${episode}`, applyFilePayload(file))
       if (scope !== scopeSeq || !alive) return { ok: false, error: 'the episode changed while applying' }
+      // The file on disk is this draft now. Mark it clean before the side-writes:
+      // a later failure must not let Cancel restore an older file. A failed
+      // outline upload never reaches here, so nothing unsent is marked saved.
+      const droppedOutlines = Object.keys(pendingOutlineLabels.value)
+      if (droppedOutlines.length) outlines.value = outlines.value.filter(name => !droppedOutlines.includes(name))
+      baseline.value = cloneEffectsFile(file)
+      loadedOutlines.value = [...outlines.value]
+      pendingOutlineLabels.value = {}
+      ops.value = [...plan.writes]
     }
     // 3. The remaining writes, in planOps' fixed order.
     const ran = new Set<EpisodeEffectsWriteOp['kind']>()
@@ -1258,12 +1281,6 @@ async function apply(): Promise<{ ok: boolean; error?: string }> {
       ops.value = ops.value.filter(queued => queued !== op)
     }
     if (scope !== scopeSeq || !alive) return { ok: false, error: 'the episode changed while applying' }
-    // An upload the file stopped referencing never happened — take its name back out of the list.
-    const droppedOutlines = Object.keys(pendingOutlineLabels.value)
-    if (droppedOutlines.length) outlines.value = outlines.value.filter(name => !droppedOutlines.includes(name))
-    baseline.value = cloneEffectsFile(file)
-    loadedOutlines.value = [...outlines.value]
-    pendingOutlineLabels.value = {}
     pendingSwitches.value = null
     pendingDeletes.value = []
     ops.value = []
@@ -1278,6 +1295,12 @@ async function apply(): Promise<{ ok: boolean; error?: string }> {
     return { ok: false, error: message }
   } finally {
     applying.value = false
+    // No preset write can be in flight now: follow the channel that is open.
+    if (deferredPresetSlug.value) {
+      presetOpts.slug = deferredPresetSlug.value
+      deferredPresetSlug.value = ''
+      void stackPresets.load()
+    }
   }
 }
 

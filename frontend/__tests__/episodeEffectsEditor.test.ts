@@ -150,6 +150,8 @@ async function loadEditor(): Promise<Component> {
 interface HarnessOptions {
   /** Hold the first call whose method and path match, until resolveHeld(). */
   holdCall?: { method: 'GET' | 'PUT' | 'POST'; path: string }
+  /** Hold a queued preset save inside the panel's apply, until resolvePresetHeld(). */
+  holdPresetSave?: boolean
   /** User presets the panel lists (the delete side-write needs one). */
   presetList?: any[]
   /** The first preset delete fails, so a later retry has to run it again. */
@@ -182,9 +184,10 @@ async function mountEditor(options: HarnessOptions = {}) {
   const toasts: string[] = []
   const dirtyEvents: boolean[] = []
   const loadingEvents: boolean[] = []
-  const presetSaves: string[] = []
+  const presetSaves: Array<{ name: string; slug: string }> = []
   const presetLoads: string[] = []
   let held: { resolve?: (value: any) => void } | null = null
+  let heldPreset: { resolve?: () => void } | null = null
   let heldMatched = false
   let removeFailed = false
   let putFailed = false
@@ -242,7 +245,11 @@ async function mountEditor(options: HarnessOptions = {}) {
       presets: { value: options.presetList || [] },
       // Recorded at call time: proves the composable is pointed at the live channel.
       load: async () => { presetLoads.push(opts.slug) },
-      saveAs: async (name: string) => { presetSaves.push(name) },
+      saveAs: async (name: string) => {
+        // The real composable reads opts.slug when it persists, after awaits.
+        if (options.holdPresetSave) await new Promise<void>(resolve => { heldPreset = { resolve: () => resolve() } })
+        presetSaves.push({ name, slug: opts.slug })
+      },
       setActive: async () => undefined,
       remove: async () => {
         if (options.failRemoveOnce && !removeFailed) {
@@ -285,6 +292,7 @@ async function mountEditor(options: HarnessOptions = {}) {
     setEpisode: async (next: string) => { episode.value = next; await flush() },
     setSlug: async (next: string) => { channel.value = next; await flush() },
     resolveHeld: async (value: any) => { held?.resolve?.(value); await flush() },
+    resolvePresetHeld: async () => { heldPreset?.resolve?.(); await flush() },
     unmount: () => {
       if (unmounted) return
       unmounted = true
@@ -403,6 +411,38 @@ describe('the panel drafts until apply', () => {
     }
   })
 
+  test('cancel after a partly failed apply keeps the file that was already saved', async () => {
+    const mounted = await mountEditor({
+      presetList: [{ id: 'p-user', name: 'My night stack', data: { effects: [{ id: BASELINE_ID }] }, type: 'effect-stack' }],
+      failRemoveOnce: true,
+    })
+    try {
+      targetSelect(mounted.host).value = 'episode'
+      targetSelect(mounted.host).dispatchEvent(new Event('change'))
+      await flush()
+      await addSelectedEffect(mounted.host)
+      button(mounted.host, /^Delete$/).click()
+      await flush()
+
+      const result = await mounted.panel.value.apply()
+      assert.equal(result.ok, false, 'the preset delete failed after the file had been written')
+      assert.equal(
+        mounted.writes().filter(c => c.method === 'PUT' && c.path === `/projects/${SLUG}/effects-library/ep1`).length,
+        1,
+        'the file was saved before the side-write failed',
+      )
+
+      // Cancel is not "nothing was saved": the file write above is real.
+      mounted.panel.value.cancel()
+      await flush()
+      assert.equal(mounted.host.querySelectorAll('.fx-row').length, 2, 'the saved addition is still in the stack')
+      assert.equal(mounted.dirtyEvents.at(-1), false, 'the panel now matches the saved file')
+      assert.equal(mounted.writes().length, 1, 'cancel adds no write')
+    } finally {
+      mounted.unmount()
+    }
+  })
+
   test('a scope change discards the draft and says so; a late answer from the old episode is dropped', async () => {
     const mounted = await mountEditor({ holdCall: { method: 'GET', path: `/projects/${SLUG}/effects-library/ep1` } })
     try {
@@ -499,6 +539,38 @@ describe('the panel fences late answers', () => {
     }
   })
 
+  test('a channel switch during a preset save writes that preset to the captured channel', async () => {
+    const mounted = await mountEditor({ holdPresetSave: true })
+    try {
+      button(mounted.host, /Save Stack as Preset/).click()
+      await flush()
+      const nameInput = mounted.host.querySelector<HTMLInputElement>('.fx-save-preset input')
+      assert.ok(nameInput, 'expected the preset name field')
+      nameInput.value = 'Night rain'
+      nameInput.dispatchEvent(new Event('input'))
+      await flush()
+      button(mounted.host, /^Save$/).click()
+      await flush()
+
+      const applying = mounted.panel.value.apply()
+      await flush()
+      // The preset save is in flight when the channel changes.
+      await mounted.setSlug('second-channel')
+      await mounted.resolvePresetHeld()
+      const result = await applying
+
+      assert.equal(result.ok, false, 'the changed scope stops the rest of the run')
+      assert.deepEqual(
+        mounted.presetSaves,
+        [{ name: 'Night rain', slug: SLUG }],
+        'the preset stayed with the channel Apply captured, not the one open now',
+      )
+      assert.ok(mounted.presetLoads.includes('second-channel'), 'the preset list follows the live channel once Apply is over')
+    } finally {
+      mounted.unmount()
+    }
+  })
+
   test('an exact preview that lands after the preview scene changed is not shown', async () => {
     const mounted = await mountEditor({ holdCall: { method: 'POST', path: `/projects/${SLUG}/effects-library/ep1/exact-preview` } })
     try {
@@ -566,11 +638,11 @@ describe('the panel fences late answers', () => {
       const first = await mounted.panel.value.apply()
       assert.equal(first.ok, false, 'the failed side-write is reported to the host')
       assert.ok(text(mounted.host).includes('Not applied'), 'the failure is visible in the panel')
-      assert.deepEqual(mounted.presetSaves, ['Night rain'], 'the save before the failure ran once')
+      assert.deepEqual(mounted.presetSaves, [{ name: 'Night rain', slug: SLUG }], 'the save before the failure ran once')
 
       const retry = await mounted.panel.value.apply()
       assert.deepEqual(retry, { ok: true })
-      assert.deepEqual(mounted.presetSaves, ['Night rain'], 'the succeeded save is not duplicated by the retry')
+      assert.deepEqual(mounted.presetSaves, [{ name: 'Night rain', slug: SLUG }], 'the succeeded save is not duplicated by the retry')
       assert.equal(mounted.dirtyEvents.at(-1), false, 'the retry leaves the draft clean')
     } finally {
       mounted.unmount()
