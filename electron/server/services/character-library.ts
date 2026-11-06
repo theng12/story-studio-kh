@@ -189,6 +189,33 @@ export async function listChannelCharacters(channelSlug: string): Promise<Charac
   return out.sort((a, b) => a.name.localeCompare(b.name))
 }
 
+/** Merge a patch into a channel record. The caller holds the record lock. */
+async function writeChannelRecordLocked(
+  file: string,
+  channelSlug: string,
+  patch: Partial<Character>,
+): Promise<Character> {
+  const current = JSON.parse(await fs.readFile(file, 'utf-8')) as Character
+  const merged: Character = {
+    ...current,
+    name: patch.name?.trim() ?? current.name,
+    archetype: typeof patch.archetype === 'string' ? (patch.archetype.trim() || undefined) : current.archetype,
+    description: patch.description?.trim() ?? current.description,
+    speech: patch.speech !== undefined ? patch.speech : current.speech,
+    references: patch.references !== undefined ? patch.references : current.references,
+    id: current.id,
+    scope: 'project',
+    episode_codes: undefined,
+    projects: [validateChannelSlug(channelSlug)],
+    channel_profiles: undefined,
+    source: current.source,
+    created_at: current.created_at,
+    schemaVersion: current.schemaVersion,
+  }
+  await writeJsonAtomic(file, merged)
+  return merged
+}
+
 /** Update a channel-owned character. Legacy records are refused by callers. */
 export async function updateChannelCharacter(
   channelSlug: string,
@@ -196,28 +223,10 @@ export async function updateChannelCharacter(
   patch: Partial<Character>,
 ): Promise<Character | null> {
   const file = channelCharacterJsonPath(channelSlug, characterId)
-  if (!existsSync(file)) return null
   let result: Character | null = null
   await withLock(file, async () => {
-    const current = JSON.parse(await fs.readFile(file, 'utf-8')) as Character
-    const merged: Character = {
-      ...current,
-      name: patch.name?.trim() ?? current.name,
-      archetype: typeof patch.archetype === 'string' ? (patch.archetype.trim() || undefined) : current.archetype,
-      description: patch.description?.trim() ?? current.description,
-      speech: patch.speech !== undefined ? patch.speech : current.speech,
-      references: patch.references !== undefined ? patch.references : current.references,
-      id: current.id,
-      scope: 'project',
-      episode_codes: undefined,
-      projects: [validateChannelSlug(channelSlug)],
-      channel_profiles: undefined,
-      source: current.source,
-      created_at: current.created_at,
-      schemaVersion: current.schemaVersion,
-    }
-    await writeJsonAtomic(file, merged)
-    result = merged
+    if (!existsSync(file)) return
+    result = await writeChannelRecordLocked(file, channelSlug, patch)
   })
   return result
 }
@@ -225,23 +234,17 @@ export async function updateChannelCharacter(
 /** Delete a channel-owned character to Story's Trash. */
 export async function deleteChannelCharacter(channelSlug: string, characterId: string): Promise<boolean> {
   const dir = channelCharacterDir(channelSlug, characterId)
-  if (!existsSync(dir)) return false
-  moveToTrashSync(
-    dir,
-    path.join(libraryTrashDir(pm.projectsRoot()), CHARACTER_TRASH, validateChannelSlug(channelSlug), validateId(characterId)),
-    'character',
-  )
-  return true
-}
-
-async function replaceChannelReferences(
-  channelSlug: string,
-  characterId: string,
-  references: Character['references'],
-): Promise<Character> {
-  const updated = await updateChannelCharacter(channelSlug, characterId, { references })
-  if (!updated) throw new Error(`Channel character '${characterId}' not found`)
-  return updated
+  let deleted = false
+  await withLock(path.join(dir, 'character.json'), async () => {
+    if (!existsSync(dir)) return
+    moveToTrashSync(
+      dir,
+      path.join(libraryTrashDir(pm.projectsRoot()), CHARACTER_TRASH, validateChannelSlug(channelSlug), validateId(characterId)),
+      'character',
+    )
+    deleted = true
+  })
+  return deleted
 }
 
 /** Save a reference image beside the channel-owned record. */
@@ -251,19 +254,23 @@ export async function addChannelReferenceImage(
   buf: Buffer,
   filename: string,
 ): Promise<{ relativePath: string; absolutePath: string }> {
-  const current = await getChannelCharacter(channelSlug, characterId)
-  if (!current) throw new Error(`Channel character '${characterId}' not found`)
   const safe = sanitizeFilename(filename)
   const dir = channelCharacterDir(channelSlug, characterId)
-  await fs.mkdir(dir, { recursive: true })
+  const file = path.join(dir, 'character.json')
   const absolutePath = path.join(dir, safe)
-  await fs.writeFile(absolutePath, buf)
-  const images = new Set(current.references?.images || [])
-  images.add(safe)
-  await replaceChannelReferences(channelSlug, characterId, {
-    images: [...images],
-    style_keywords: current.references?.style_keywords,
+  let updated: Character | null = null
+  await withLock(file, async () => {
+    if (!existsSync(file)) return
+    const current = JSON.parse(await fs.readFile(file, 'utf-8')) as Character
+    const images = new Set(current.references?.images || [])
+    images.add(safe)
+    await fs.mkdir(dir, { recursive: true })
+    await fs.writeFile(absolutePath, buf)
+    updated = await writeChannelRecordLocked(file, channelSlug, {
+      references: { images: [...images], style_keywords: current.references?.style_keywords },
+    })
   })
+  if (!updated) throw new Error(`Channel character '${characterId}' not found`)
   return { relativePath: safe, absolutePath }
 }
 
@@ -273,24 +280,32 @@ export async function removeChannelReferenceImage(
   characterId: string,
   filename: string,
 ): Promise<Character> {
-  const current = await getChannelCharacter(channelSlug, characterId)
-  if (!current) throw new Error(`Channel character '${characterId}' not found`)
-  const images = current.references?.images || []
-  if (path.basename(filename) !== filename || !images.includes(filename)) {
-    throw new Error(`Reference image '${filename}' not found`)
-  }
-  const updated = await replaceChannelReferences(channelSlug, characterId, {
-    images: images.filter(f => f !== filename),
-    style_keywords: current.references?.style_keywords,
+  const dir = channelCharacterDir(channelSlug, characterId)
+  const file = path.join(dir, 'character.json')
+  let updated: Character | null = null
+  await withLock(file, async () => {
+    if (!existsSync(file)) return
+    const current = JSON.parse(await fs.readFile(file, 'utf-8')) as Character
+    const images = current.references?.images || []
+    if (path.basename(filename) !== filename || !images.includes(filename)) {
+      throw new Error(`Reference image '${filename}' not found`)
+    }
+    updated = await writeChannelRecordLocked(file, channelSlug, {
+      references: {
+        images: images.filter(f => f !== filename),
+        style_keywords: current.references?.style_keywords,
+      },
+    })
+    const refFile = path.join(dir, filename)
+    if (existsSync(refFile)) {
+      moveToTrashSync(
+        refFile,
+        path.join(libraryTrashDir(pm.projectsRoot()), CHARACTER_TRASH, validateChannelSlug(channelSlug), validateId(characterId), filename),
+        'character-picture',
+      )
+    }
   })
-  const file = path.join(channelCharacterDir(channelSlug, characterId), filename)
-  if (existsSync(file)) {
-    moveToTrashSync(
-      file,
-      path.join(libraryTrashDir(pm.projectsRoot()), CHARACTER_TRASH, validateChannelSlug(channelSlug), validateId(characterId), filename),
-      'character-picture',
-    )
-  }
+  if (!updated) throw new Error(`Channel character '${characterId}' not found`)
   return updated
 }
 
@@ -306,23 +321,23 @@ export async function saveToLibrary(
 
   const id = validateId(String(opts?.libraryId || source.id))
   const targetDir = channelCharacterDir(slug, id)
-  const existing = await getChannelCharacter(slug, id)
-  if (existing && !opts?.overwrite) {
-    const e = new Error(`Channel character id '${id}' already exists on '${slug}'. Pass overwrite:true to replace.`)
-    ;(e as any).status = 409
-    throw e
-  }
-
   const record = channelRecord({ ...source, id }, slug)
-  await fs.mkdir(targetDir, { recursive: true })
-  if (source.references?.images?.length) {
-    const sourceDir = path.join(pm.getProjectDir(slug) || path.join(pm.projectsRoot(), slug), 'characters', source.id)
-    for (const filename of source.references.images) {
-      try { await fs.copyFile(path.join(sourceDir, filename), path.join(targetDir, filename)) }
-      catch (e: any) { console.warn(`[character-library] reference image copy failed (${filename}): ${e.message}`) }
-    }
-  }
   await withLock(path.join(targetDir, 'character.json'), async () => {
+    // Re-check under the record lock: migration may publish between the caller's
+    // read and this write.
+    if (!opts?.overwrite && existsSync(path.join(targetDir, 'character.json'))) {
+      const e = new Error(`Channel character id '${id}' already exists on '${slug}'. Pass overwrite:true to replace.`)
+      ;(e as any).status = 409
+      throw e
+    }
+    await fs.mkdir(targetDir, { recursive: true })
+    if (source.references?.images?.length) {
+      const sourceDir = path.join(pm.getProjectDir(slug) || path.join(pm.projectsRoot(), slug), 'characters', source.id)
+      for (const filename of source.references.images) {
+        try { await fs.copyFile(path.join(sourceDir, filename), path.join(targetDir, filename)) }
+        catch (e: any) { console.warn(`[character-library] reference image copy failed (${filename}): ${e.message}`) }
+      }
+    }
     await writeJsonAtomic(path.join(targetDir, 'character.json'), record)
   })
   return record
@@ -692,25 +707,32 @@ async function migrateEntry(entry: MigrationEntry): Promise<CharacterMigrationCo
 
     await fs.mkdir(path.dirname(entry.target_dir), { recursive: true })
     let appeared = false
-    // Take the same per-record lock create/update use, so neither can win a race.
+    let verifyFailure = ''
+    // Hold the record lock through publish verification and cleanup: a save
+    // cannot slip between the rename and the checks and be mistaken for corruption.
     await withLock(path.join(entry.target_dir, 'character.json'), async () => {
       if (existsSync(entry.target_dir)) { appeared = true; return }
       await fs.rename(stageDir, entry.target_dir)
+
+      if (await sha256File(path.join(entry.target_dir, 'character.json')) !== entry.target_record_sha) {
+        await discardStaging(entry.target_dir, entry.channel, entry.character_id)
+        verifyFailure = 'Published record failed verification and was moved to Trash.'
+        return
+      }
+      for (const [filename, expected] of Object.entries(entry.source_files)) {
+        if (await sha256File(path.join(entry.target_dir, filename)) !== expected) {
+          await discardStaging(entry.target_dir, entry.channel, entry.character_id)
+          verifyFailure = `Published reference '${filename}' failed verification and the copy was moved to Trash.`
+          return
+        }
+      }
     })
     if (appeared) {
       await discardStaging(stageDir, entry.channel, entry.character_id)
       return { character_id: entry.character_id, channel: entry.channel, reason: 'target_changed', detail: 'Channel copy appeared during migration; nothing was overwritten.' }
     }
-
-    if (await sha256File(path.join(entry.target_dir, 'character.json')) !== entry.target_record_sha) {
-      await discardStaging(entry.target_dir, entry.channel, entry.character_id)
-      return { character_id: entry.character_id, channel: entry.channel, reason: 'publish_verify_failed', detail: 'Published record failed verification and was moved to Trash.' }
-    }
-    for (const [filename, expected] of Object.entries(entry.source_files)) {
-      if (await sha256File(path.join(entry.target_dir, filename)) !== expected) {
-        await discardStaging(entry.target_dir, entry.channel, entry.character_id)
-        return { character_id: entry.character_id, channel: entry.channel, reason: 'publish_verify_failed', detail: `Published reference '${filename}' failed verification and the copy was moved to Trash.` }
-      }
+    if (verifyFailure) {
+      return { character_id: entry.character_id, channel: entry.channel, reason: 'publish_verify_failed', detail: verifyFailure }
     }
     return null
   } catch (e: any) {

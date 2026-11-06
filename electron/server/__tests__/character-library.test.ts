@@ -10,6 +10,7 @@ import assert from 'node:assert/strict'
 import fs from 'fs/promises'
 import path from 'path'
 import { useTempDataDir } from './_helpers.js'
+import { withLock, __pendingLockWaitersForTests } from '../lib/atomic-store.js'
 
 let cl: typeof import('../services/character-library.js')
 let cm: typeof import('../services/character-manager.js')
@@ -47,6 +48,14 @@ function manifestFile(runId: string): string {
 
 async function exists(file: string): Promise<boolean> {
   return fs.access(file).then(() => true, () => false)
+}
+
+async function waitForLockWaiters(key: string, count: number): Promise<void> {
+  for (let i = 0; i < 10_000; i++) {
+    if (__pendingLockWaitersForTests(key) >= count) return
+    await new Promise(resolve => setImmediate(resolve))
+  }
+  throw new Error(`lock ${key} never reached ${count} waiter(s)`)
 }
 
 describe('character-library channel ownership', () => {
@@ -237,5 +246,26 @@ describe('character-library channel ownership', () => {
     const rejected = results.find(r => r.status === 'rejected') as PromiseRejectedResult
     assert.equal((rejected.reason as { status?: number }).status, 409)
     assert.ok(['One', 'Two'].includes((await cl.getChannelCharacter(SLUG_A, 'race'))?.name || ''))
+  })
+
+  test('migration publish cannot discard a concurrent reference edit', async () => {
+    await writeLegacy('race-ref', { id: 'race-ref', name: 'Race', description: 'd', projects: [SLUG_A] })
+    const targetJson = path.join(channelRoot(), SLUG_A, 'race-ref', 'character.json')
+    let releaseHold!: () => void
+    const held = new Promise<void>(resolve => { releaseHold = resolve })
+    const hold = withLock(targetJson, () => held)
+
+    const migration = cl.applyChannelMigration()
+    await waitForLockWaiters(targetJson, 1)
+    const add = cl.addChannelReferenceImage(SLUG_A, 'race-ref', Buffer.from('edited-bytes'), 'edit.png')
+    await waitForLockWaiters(targetJson, 2)
+    releaseHold()
+    await hold
+
+    const [report, added] = await Promise.all([migration, add])
+    assert.equal(report.copies_created, 1)
+    assert.equal(added.relativePath, 'edit.png')
+    assert.deepEqual((await cl.getChannelCharacter(SLUG_A, 'race-ref'))?.references?.images, ['edit.png'])
+    assert.equal(await fs.readFile(path.join(cl.channelCharacterDir(SLUG_A, 'race-ref'), 'edit.png'), 'utf8'), 'edited-bytes')
   })
 })
