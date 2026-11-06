@@ -197,12 +197,16 @@ test('the recipe filter row shows that more formats are reachable off-screen', (
 
 test('thumbnail prompts can choose a catalog recipe without replacing visual art style', () => {
   const page = source('../pages/projects/[slug]/image-prompts.vue')
-  assert.match(page, /ThumbnailRecipePicker/)
+  const optionEditor = source('../components/PromptReviewOptionEditor.vue')
+  // The recipe picker is owned by the per-prompt option editor the page mounts
+  // through PromptReviewPanel; the page's own picker selects a Shell.
+  assert.match(page, /<PromptReviewPanel/)
+  assert.match(optionEditor, /<ThumbnailRecipePicker/)
   assert.match(page, /thumbnail_template_id/)
   assert.match(page, /<label>Visual art style<\/label>/)
   // The page's own headline-mode field (b6e156cd replaced the old `thumb_title_mode: 'ai'`).
   assert.match(page, /thumb_headline_mode: 'short-hook'/)
-  assert.match(page, /if \(recipe\?\.headlineMode\) form\.thumbnail\.thumb_headline_mode = recipe\.headlineMode/)
+  assert.match(page, /form\.thumbnail\.thumb_headline_mode = effective\.template\.recipe\?\.headlineMode \|\| 'episode-title'/)
   assert.match(page, /The episode title is drawn directly into every thumbnail/i)
   assert.match(page, /its own short text, written to suit it/i)
   assert.match(page, /thumbnailHeadlineMode/)
