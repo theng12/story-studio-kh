@@ -24,6 +24,7 @@ import {
   listProjectSlugsPinningContentPackVersionLocked,
   planProjectContentUpgrade,
   planProjectContentUpgradeToActive,
+  undoProjectContentPinBackup,
   resolveProjectContentPins,
   setProjectContentPin,
   snapshotProjectContentPackProvenance,
@@ -32,6 +33,7 @@ import {
   createProjectWithContentSelections,
 } from '../content-packs/project-pins.js'
 import { getContentPackRuntimePaths } from '../content-packs/runtime-paths.js'
+import { resolveCatalogPackVersion } from '../content-packs/registry.js'
 import { mutateContentPackState, readContentPackState } from '../content-packs/state.js'
 import type { ContentPackDocument, ContentPackItemKind } from '../content-packs/types.js'
 import * as jobQueue from '../services/job-queue.js'
@@ -1053,9 +1055,13 @@ describe('Content Pack version exposure', () => {
     assert.equal((await projectManager.getProject(project.slug))?.content_pack_versions?.[PACK_ID], '1.0.0',
       'a plan must not move the pin')
 
-    await applyProjectContentUpgradeToActive(project.slug, PACK_ID, options)
+    const applied = await applyProjectContentUpgradeToActive(project.slug, PACK_ID, options)
     assert.equal((await projectManager.getProject(project.slug))?.content_pack_versions?.[PACK_ID], '1.1.0')
     assert.equal(await fs.readFile(episodeInfo, 'utf8'), before, 'existing episode selections stay untouched')
+    assert.ok(applied.backup, 'apply returns a durable backup')
+    await fs.stat(applied.backup.project_meta)
+    await undoProjectContentPinBackup(project.slug, applied.backup.backup_dir)
+    assert.equal((await projectManager.getProject(project.slug))?.content_pack_versions?.[PACK_ID], '1.0.0')
   })
 
   test('refuses an active version that is retired', async () => {
@@ -1065,6 +1071,7 @@ describe('Content Pack version exposure', () => {
     await setProjectContentPin(project.slug, { pack_id: PACK_ID, version: '1.0.0', archive_sha256: v1.archive_sha256 }, options)
     const retiredBytes = await buildArchive('1.1.0', 'retired', false, 'retired')
     await installContentPack({ archiveBytes: retiredBytes, source: 'local-import', expectedArchiveSha256: sha256(retiredBytes) }, options)
+    assert.equal(await resolveCatalogPackVersion(PACK_ID, '1.1.0', options), null, 'retired resolves nowhere at the shared exact-version reader')
     await assert.rejects(planProjectContentUpgradeToActive(project.slug, PACK_ID, options), /no active installed version/i)
   })
 

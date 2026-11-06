@@ -1,5 +1,10 @@
 import { randomUUID } from 'node:crypto'
+import { existsSync } from 'node:fs'
 import fs from 'node:fs/promises'
+import path from 'node:path'
+
+import { withLock, writeJsonAtomic } from '../lib/atomic-store.js'
+import { copyToTrashSync, trashRootFor } from '../lib/trash-move.js'
 
 import type { CreateProjectRequest, JobType, ProjectMeta, UpdateConfigRequest } from '../models/types.js'
 import * as projectManager from '../services/project-manager.js'
@@ -24,12 +29,20 @@ import { isContentStoreRevalidationRequired } from '../content-store/commerce-st
 export { ContentPackMissingError } from './missing-error.js'
 export type { ContentPackMissingRequirement } from './missing-error.js'
 
+export interface ContentPackPinBackup {
+  backup_dir: string
+  project_meta: string
+  config: string | null
+}
+
 export interface ContentPackUpgradePlan {
   pack_id: string
   from: ContentPackVersionRef
   to: ContentPackVersionRef
   changed_item_ids: string[]
   affected_generation_types: JobType[]
+  /** Durable pre-write copy; present on apply, absent on plan. */
+  backup?: ContentPackPinBackup
 }
 
 export interface LegacyContentMigrationSelection {
@@ -1038,6 +1051,9 @@ async function applyProjectContentUpgradeLocked(
   options: ContentPackProjectPinOptions,
 ): Promise<ContentPackUpgradePlan> {
   const { plan, target } = await planProjectContentUpgradeLocked(slug, packId, targetVersion, options)
+  // Snapshot first: duplicate project.json and config.json into Story's Trash
+  // journal and verify the copies before the pin write is allowed to start.
+  const backup = await preservePinState(slug)
   await options.hooks?.beforeProjectWrite?.()
   const updated = await projectManager.mutateProjectMetaConsistently(slug, project => {
     const selectedIds = new Set(itemRefsForPack(project, packId).map(item => item.id))
@@ -1049,7 +1065,68 @@ async function applyProjectContentUpgradeLocked(
     project.content_pack_items = items
   })
   if (!updated) throw Object.assign(new Error(`Project not found: ${slug}`), { statusCode: 404, expose: true })
-  return plan
+  return { ...plan, backup }
+}
+
+/** Durable config + pin-state copy under the project's Trash root. */
+async function preservePinState(slug: string): Promise<ContentPackPinBackup> {
+  const projectDir = projectManager.getProjectDir(slug)
+  if (!projectDir) throw Object.assign(new Error(`Project not found: ${slug}`), { statusCode: 404, expose: true })
+  const metaSource = path.join(projectDir, 'project.json')
+  if (!existsSync(metaSource)) throw Object.assign(new Error(`Project not found: ${slug}`), { statusCode: 404, expose: true })
+  const stamp = new Date().toISOString().replace(/[-:.TZ]/g, '')
+  const backupDir = path.join(trashRootFor(projectDir, projectDir, slug), 'pin-move', stamp)
+  const projectMeta = copyToTrashSync(metaSource, path.join(backupDir, 'project.json'), 'content-pack-pin-backup')
+  const configSource = path.join(projectDir, 'config.json')
+  const config = existsSync(configSource)
+    ? copyToTrashSync(configSource, path.join(backupDir, 'config.json'), 'content-pack-pin-backup')
+    : null
+  const files = [
+    { source: metaSource, backup: projectMeta },
+    ...(config ? [{ source: configSource, backup: config }] : []),
+  ]
+  await writeJsonAtomic(path.join(backupDir, 'journal.json'), {
+    version: 1,
+    project_slug: slug,
+    created_at: new Date().toISOString(),
+    files,
+  })
+  // No mutation starts unless every copy exists, is a file, and matches its
+  // source's byte count exactly.
+  for (const entry of files) {
+    const [source, backup] = await Promise.all([fs.stat(entry.source), fs.stat(entry.backup)])
+    if (!backup.isFile() || source.size !== backup.size) {
+      throw new Error(`Content Pack pin backup could not be verified: ${path.basename(entry.source)}`)
+    }
+  }
+  return { backup_dir: backupDir, project_meta: projectMeta, config }
+}
+
+/** Put the journaled project.json/config.json back. */
+export async function undoProjectContentPinBackup(slug: string, backupDir: string): Promise<void> {
+  const projectDir = projectManager.getProjectDir(slug)
+  if (!projectDir) throw Object.assign(new Error(`Project not found: ${slug}`), { statusCode: 404, expose: true })
+  const journalRoot = path.resolve(trashRootFor(projectDir, projectDir, slug), 'pin-move')
+  const resolved = path.resolve(backupDir)
+  const relative = path.relative(journalRoot, resolved)
+  if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) {
+    throw Object.assign(new Error('That folder is not a Content Pack pin backup for this channel.'), { statusCode: 409, expose: true })
+  }
+  const journal = JSON.parse(await fs.readFile(path.join(resolved, 'journal.json'), 'utf8')) as {
+    project_slug?: unknown
+    files?: Array<{ source?: unknown; backup?: unknown }>
+  }
+  if (journal.project_slug !== slug || !Array.isArray(journal.files)) {
+    throw Object.assign(new Error('That Content Pack pin backup journal is invalid.'), { statusCode: 409, expose: true })
+  }
+  for (const entry of journal.files) {
+    if (typeof entry.source !== 'string' || typeof entry.backup !== 'string'
+      || path.dirname(path.resolve(entry.backup)) !== resolved) {
+      throw Object.assign(new Error('That Content Pack pin backup journal is invalid.'), { statusCode: 409, expose: true })
+    }
+    const document = JSON.parse(await fs.readFile(entry.backup, 'utf8'))
+    await withLock(entry.source, () => writeJsonAtomic(entry.source, document))
+  }
 }
 
 export async function snapshotProjectContentPackProvenance(

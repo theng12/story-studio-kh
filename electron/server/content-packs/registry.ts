@@ -161,13 +161,16 @@ export async function resolveCatalogPackVersion(
   expectedArchiveSha256?: string,
 ): Promise<CatalogPackVersion | null> {
   const installed = await verifiedInstalled({ pack_id: packId, version }, options, expectedArchiveSha256)
-  if (installed) return catalogPackVersion(installed)
+  // Owner ruling: `retired` resolves nowhere. This is the shared exact-version
+  // reader, so selection, pinning, reinstall and the pin-move wrapper all stop
+  // here instead of each caller remembering the rule.
+  if (installed) return installed.manifest.lifecycle === 'retired' ? null : catalogPackVersion(installed)
   const recovery = (await recoveryPacks(options)).find(pack => (
     pack.manifest.pack_id === packId
     && pack.manifest.version === version
     && (!expectedArchiveSha256 || pack.archiveSha256 === expectedArchiveSha256)
   ))
-  return recovery ? catalogPackVersion(recovery) : null
+  return recovery && recovery.manifest.lifecycle !== 'retired' ? catalogPackVersion(recovery) : null
 }
 
 /**
