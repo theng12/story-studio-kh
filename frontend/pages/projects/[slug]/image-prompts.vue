@@ -102,7 +102,8 @@
             </div>
             <p class="text-muted">Pick a layout. Your channel art style, lettering and episode words stay yours.</p>
             <button v-if="channelShellAsset" type="button" class="shell-card" @click="selectChannelShell">
-              <img :src="`/api/projects/${slug}/thumbnail-reference/image`" alt="This channel’s saved Shell" class="shell-card-media" />
+              <img v-if="!channelReferenceImageMissing" :src="`/api/projects/${slug}/thumbnail-reference/image`" alt="This channel’s saved Shell" class="shell-card-media" @error="channelReferenceImageMissing = true" />
+              <span v-else class="shell-card-media text-muted text-xs">Shell image unavailable</span>
               <span class="shell-card-copy"><strong>This channel’s reference</strong><span class="text-muted text-xs">{{ channelShellAsset.reframing_prompt }}</span></span>
             </button>
             <ThumbnailTemplatePicker :key="shellLibraryRevision" v-model="form.thumbnail.thumbnail_shell_id" @change="applyThumbnailShell" />
@@ -556,6 +557,7 @@ const channelShellAsset = ref<ThumbnailReferenceAsset | null>(null)
 // The channel's own reference picture has its own GET route; a 404 there means
 // no stored picture, which falls back to the placeholder tile (empty state).
 const channelImageMissing = ref(false)
+const channelReferenceImageMissing = ref(false)
 const activeShellId = computed(() => form.thumbnail.thumbnail_shell_id)
 const referenceStrengthOptions = [
   { id: 'loose', label: 'Loose', hint: 'Take the mood and framing, rearrange the rest.' },

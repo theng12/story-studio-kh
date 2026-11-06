@@ -241,7 +241,11 @@ router.post(
       }
       const textFree = project.content_language === 'km' || req.body.thumb_text_style === 'none'
       if (textFree) req.body.thumb_text_style = 'none'
-      const shell = await resolveThumbnailShell(slug, req.body, config)
+      const shell = await resolveThumbnailShell(slug, req.body, config).catch((error: any) => {
+        res.status(400).json({ detail: error?.message || 'The selected Shell is unavailable. Choose another Shell.' })
+        return null
+      })
+      if (!shell) return
       let recipeGuidance = ''
       if (shell.template) {
         recipeGuidance = buildThumbnailDirective({ thumbs: 1, title: currentTitle, fmt: shell.template.recipe,
@@ -827,7 +831,11 @@ router.post(
       }
 
       const projectDir = pm.getProjectDir(slug) || path.join(pm.projectsRoot(), slug)
-      const shell = await resolveThumbnailShell(slug, req.body, config)
+      const shell = await resolveThumbnailShell(slug, req.body, config).catch((error: any) => {
+        res.status(400).json({ detail: error?.message || 'The selected Shell is unavailable. Choose another Shell.' })
+        return null
+      })
+      if (!shell) return
       const referenceGuidance = savedThumbnailReferenceGuidanceFor(projectDir, shell.guidanceAsset)
       const cast = await episodeCast(slug, episodeId)
       const extraDetails = typeof req.body.extra_details === 'string' ? req.body.extra_details.trim() : ''

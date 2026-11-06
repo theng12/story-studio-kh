@@ -206,7 +206,7 @@ test('Thumbnail Prompts: explicit replace-all, honest toast, choices survive a r
   assert.match(page, /seedThumb\('thumb_count'\)/)
   assert.match(page, /if \(startingStyle && seedThumb\('style_tag'\)\) \{/)
   // The click brief: never restored, never in a preset, cleared + announced on switch.
-  assert.match(page, /excludeKeys: \[\.\.\.DEFAULT_EXCLUDE_KEYS, 'thumb_creative_direction'\]/)
+  assert.match(page, /excludeKeys: \[\.\.\.DEFAULT_EXCLUDE_KEYS, 'thumb_creative_direction', 'thumb_reference_asset', 'thumb_reference_style'\]/)
   assert.match(page, /useRememberedForm\('image-prompts'[\s\S]{0,400}form\.thumbnail\.thumb_creative_direction = ''/)
   assert.match(page, /if \(oldEp && form\.thumbnail\.thumb_creative_direction\.trim\(\)\) \{\s*form\.thumbnail\.thumb_creative_direction = ''\s*showInfo\(/)
   assert.match(page, /✨ Shuffle &amp; Generate/)
@@ -254,7 +254,10 @@ test('Thumbnail templates: plain wording, failed load with Retry, unsaved-change
   assert.match(editor, /from '@shared\/thumbnail-overlay'/)
   assert.match(editor, /buildOverlaySvg\(workingTemplate\.value, previewText\.value\)/)
   assert.match(editor, /layoutTextZone\(zone, canvas, previewText\.value\)/, 'drag boxes use the shared layout')
-  assert.doesNotMatch(editor, /preview\.png/, 'no server round-trip for the editor preview')
+  // The Shell picture itself is served by preview.png (managed path → server);
+  // the live canvas still composites the local overlay over it.
+  assert.match(editor, /:src="canvasBgSrc"/)
+  assert.match(editor, /:src="overlaySrc"/)
   assert.doesNotMatch(editor, /v-html/, 'overlay is an <img> data URL, never injected markup')
   assert.match(editor, /gallery card may differ slightly/)
   // The editor's text settings only draw the gallery preview card (composeThumbnail is

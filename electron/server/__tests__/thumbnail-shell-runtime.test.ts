@@ -89,6 +89,13 @@ test('missing source channels and path-traversing legacy assets are refused', as
   }), /unavailable/)
 })
 
+test('a missing Shell template is refused before any render work', async () => {
+  await assert.rejects(
+    resolveThumbnailShell(slug, { thumbnail_shell_id: 'missing-shell-template' }, {}),
+    /unavailable/,
+  )
+})
+
 test('a preset selecting another channel uses that channel’s real Shell explicitly', async () => {
   const pm = await import('../services/project-manager.js')
   const sourceConfig = await pm.getConfig(slug)
