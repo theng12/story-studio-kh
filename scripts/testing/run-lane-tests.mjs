@@ -152,8 +152,10 @@ async function exactCoverage(discovered, records) {
       || ['tests', 'suites', 'failed'].some(key => !Number.isSafeInteger(record[key]) || record[key] < 0)) {
       throw new Error(`malformed coverage counts: ${canonical}`)
     }
-    if (!record.success || record.failed !== 0 || record.tests === 0) {
-      throw new Error(`coverage file failed or reported zero tests: ${canonical}`)
+    // A file with failing tests still reached its own summary, so it completed.
+    // Test failure is the summary's and the exit code's job, not the floor's.
+    if (record.tests === 0) {
+      throw new Error(`coverage file reported zero tests: ${canonical}`)
     }
     seen.add(canonical)
   }

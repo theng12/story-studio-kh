@@ -147,6 +147,33 @@ test('a whole lane reports one completed file per discovered file', async () => 
   }
 })
 
+test('a failing file still counts as completed coverage, and the lane still fails', async () => {
+  // A failing test is the summary's business. The file ran to completion and
+  // emitted its own file-scoped summary, so the floor must count it — and the
+  // run must still fail loudly rather than reporting a covered, green lane.
+  const dir = await fixtureDir('lane-coverage-failing-')
+  try {
+    await fs.writeFile(path.join(dir, 'passing.test.mjs'),
+      'import { test } from "node:test"\n'
+      + 'test("p1", () => {})\n')
+    await fs.writeFile(path.join(dir, 'failing.test.mjs'),
+      'import { test } from "node:test"\n'
+      + 'import assert from "node:assert/strict"\n'
+      + 'test("f1", () => {})\n'
+      + 'test("f2", () => { assert.equal(1, 2) })\n')
+
+    const { exitCode, out } = await runFixtureLane(dir)
+
+    assert.notEqual(exitCode, 0, `a failing test must fail the lane:\n${out}`)
+    assert.match(out, /fixture suite coverage: 2\/2 file\(s\) completed/,
+      'the failing file finished, so coverage must count it')
+    assert.doesNotMatch(out, /BELOW FLOOR/, 'a completed file is not a missing file')
+    assert.match(out, /1 of 3 test\(s\) failed/, 'the summary must still report the failure')
+  } finally {
+    await retainSandbox(dir, undefined, 'lane-contract')
+  }
+})
+
 test('a file that dies mid-run fails the lane, however green node reports it', async () => {
   // `process.exit(0)` inside a test is the smallest form of every way a file
   // ends early. Node reports the FILE as passing and counts none of its tests,
