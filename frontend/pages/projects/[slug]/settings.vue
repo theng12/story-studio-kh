@@ -65,6 +65,33 @@
             <div class="button-row"><SaveIndicator v-bind="savedHintProps('niche')" /></div>
           </section>
 
+          <section class="card settings-panel" data-setting="pack-versions">
+            <header class="settings-card-head">
+              <h3>Content pack versions</h3>
+              <p>A pin moves only to this Mac's active installed version of the same pack. Existing episodes, images and prompts are not rewritten.</p>
+            </header>
+            <p v-if="pinMoveNotice" :class="['pack-pin-notice', pinMoveNotice.tone]" role="status" aria-live="polite">{{ pinMoveNotice.detail }}</p>
+            <ul v-if="Object.keys(projectContentPackVersions).length" class="pack-pin-list">
+              <li v-for="(version, packId) in projectContentPackVersions" :key="packId">
+                <div><strong>{{ packId }}</strong><span>pinned at {{ version }}</span></div>
+                <button type="button" class="btn btn-secondary" :disabled="pinMoveBusy === packId" @click="planPinMove(String(packId))">
+                  {{ pinMoveBusy === packId ? 'Reading…' : 'Move to installed version' }}
+                </button>
+              </li>
+            </ul>
+            <p v-else class="text-muted text-sm">No pack versions are pinned for this channel.</p>
+            <div v-if="pinMovePlan" class="pack-pin-confirm" role="status">
+              <p>
+                Move <strong>{{ pinMovePlan.pack_id }}</strong> from {{ pinMovePlan.from.version }} to {{ pinMovePlan.to.version }}.
+                {{ pinMovePlan.changed_item_ids.length }} selected item{{ pinMovePlan.changed_item_ids.length === 1 ? '' : 's' }} change.
+              </p>
+              <div class="button-row">
+                <button type="button" class="btn btn-primary" :disabled="pinMoveBusy !== ''" @click="applyPinMove">Move pin</button>
+                <button type="button" class="btn btn-secondary" :disabled="pinMoveBusy !== ''" @click="pinMovePlan = null">Cancel</button>
+              </div>
+            </div>
+          </section>
+
           <section class="card settings-panel" data-setting="idea-quality">
             <IdeaQualitySettings :slug="slug" />
           </section>
@@ -1522,6 +1549,7 @@ import { projectSettingsSavePlan, type ProjectSettingsSaveSection } from '~/util
 // Reactive installed Content Pack catalog used by the per-project selector.
 // Project-local saved styles remain independent compatibility data.
 import { useVisualStyleCatalog } from '~/composables/useVisualStyleCatalog'
+import { useContentStore, type ContentPackPinMovePlan } from '~/composables/useContentStore'
 import type { AudioQualityMode } from '~/types/audio-quality'
 import { genstudioStaleNote } from '~/utils/genstudio-freshness'
 import { CONTENT_LANGUAGE_OPTIONS } from '~/utils/content-language'
@@ -1772,6 +1800,50 @@ const selectedTopicPackLabel = computed(() => {
   return names.length > 2 ? `${names.slice(0, 2).join(', ')} +${names.length - 2}` : names.join(', ')
 })
 const projectContentPackVersions = computed<Record<string, string>>(() => (project.value as any)?.content_pack_versions || {})
+const contentStore = useContentStore()
+const pinMoveBusy = ref('')
+const pinMovePlan = ref<ContentPackPinMovePlan | null>(null)
+const pinMoveNotice = ref<{ tone: 'success' | 'warning'; detail: string } | null>(null)
+
+/** Read the move first; the server writes nothing on the plan call. */
+async function planPinMove(packId: string): Promise<void> {
+  if (pinMoveBusy.value) return
+  pinMoveBusy.value = packId
+  pinMoveNotice.value = null
+  try {
+    pinMovePlan.value = await contentStore.planPinMove(packId, slug.value)
+    if (pinMovePlan.value.from.version === pinMovePlan.value.to.version) {
+      pinMoveNotice.value = { tone: 'success', detail: `${packId} is already on this Mac's active installed version.` }
+      pinMovePlan.value = null
+    }
+  } catch (cause: any) {
+    pinMoveNotice.value = { tone: 'warning', detail: pinMoveFailure(cause) }
+  } finally {
+    pinMoveBusy.value = ''
+  }
+}
+
+async function applyPinMove(): Promise<void> {
+  const plan = pinMovePlan.value
+  if (!plan || pinMoveBusy.value) return
+  pinMoveBusy.value = plan.pack_id
+  try {
+    const applied = await contentStore.applyPinMove(plan.pack_id, slug.value)
+    const current = project.value as any
+    if (current) current.content_pack_versions = { ...(current.content_pack_versions || {}), [applied.pack_id]: applied.to.version }
+    pinMoveNotice.value = { tone: 'success', detail: `${applied.pack_id} now pins ${applied.to.version}. New images use it; existing images and prompts were not touched.` }
+    pinMovePlan.value = null
+  } catch (cause: any) {
+    pinMoveNotice.value = { tone: 'warning', detail: pinMoveFailure(cause) }
+  } finally {
+    pinMoveBusy.value = ''
+  }
+}
+
+function pinMoveFailure(cause: any): string {
+  const data = cause?.data || cause?.response?._data || {}
+  return typeof data.detail === 'string' && data.detail ? data.detail : cause?.message || 'This pin move was refused.'
+}
 const selectedProductionKit = computed(() => selectedNicheProfile.value?.productionKit || null)
 const humanizeCatalogId = (value?: string) => (value || 'Not specified')
   .replace(/^com\.storystudio\.(?:style|thumbnail|formula|topic)\./, '')

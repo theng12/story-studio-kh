@@ -9,13 +9,18 @@ import { z } from 'zod'
 
 import { getFirstPartyContentPackVerificationPolicy } from '../content-packs/keyring.js'
 import { assertContentPackAppCompatible, installContentPack, verifyInstalledContentPackClosure } from '../content-packs/installer.js'
-import { setContentPackDiscoveryDisabled } from '../content-packs/lifecycle.js'
+import { setContentPackDiscoveryDisabled, uninstallContentPackVersion } from '../content-packs/lifecycle.js'
 import {
   ContentPackRemovalError,
   readContentPackRemovalStatus,
   removeContentPack,
   restoreContentPack,
 } from '../content-packs/removal.js'
+import {
+  applyProjectContentUpgradeToActive,
+  listProjectSlugsPinningContentPackVersionLocked,
+  planProjectContentUpgradeToActive,
+} from '../content-packs/project-pins.js'
 import { listVerifiedRecoveryPacks } from '../content-packs/recovery.js'
 import type { ContentPackRegistryOptions } from '../content-packs/registry.js'
 import {
@@ -42,6 +47,7 @@ const PackIdSchema = ContentPackVersionRefSchema.shape.pack_id
 const VersionSchema = ContentPackVersionRefSchema.shape.version
 const AssetIdSchema = ContentPackVersionRefSchema.shape.archive_sha256
 const RecoveryIncidentIdSchema = z.string().uuid()
+const ProjectPinMoveSchema = z.object({ project_slug: z.string().trim().min(1).max(200) }).strict()
 
 type LocalContentPackOptions = ContentPackRegistryOptions
 
@@ -256,6 +262,97 @@ router.post('/content-packs/:packId/restore', async (req, res) => {
     removalFailure(res, error, 'This Content Pack could not be restored from Story Studio Trash.')
   }
 })
+
+/**
+ * Move one channel's pin to this Mac's active installed version of the same
+ * pack. Plan writes nothing; apply is the explicit second request.
+ */
+for (const [action, apply] of [['plan', false], ['apply', true]] as const) {
+  router.post(`/content-packs/:packId/pin-move/${action}`, async (req, res) => {
+    let packId: string
+    try { packId = parseParam(PackIdSchema, firstParam(req.params.packId), 'pack ID') } catch (error) {
+      lifecycleFailure(res, error, 'Invalid Content Pack ID.')
+      return
+    }
+    const body = ProjectPinMoveSchema.safeParse(req.body)
+    if (!body.success) {
+      res.status(400).json({ code: 'CONTENT_PACK_PIN_MOVE_REQUEST_INVALID', detail: 'A channel is required.' })
+      return
+    }
+    try {
+      const options = routeOptions(req)
+      const plan = apply
+        ? await applyProjectContentUpgradeToActive(body.data.project_slug, packId, options)
+        : await planProjectContentUpgradeToActive(body.data.project_slug, packId, options)
+      res.json({ ok: true, ...plan })
+    } catch (error) {
+      pinMoveFailure(res, error)
+    }
+  })
+}
+
+/** Uninstall one non-active, unpinned installed version. Bytes move to Trash. */
+router.post('/content-packs/:packId/versions/:version/uninstall', async (req, res) => {
+  let packId: string
+  let version: string
+  try {
+    packId = parseParam(PackIdSchema, firstParam(req.params.packId), 'pack ID')
+    version = parseParam(VersionSchema, firstParam(req.params.version), 'version')
+  } catch (error) {
+    lifecycleFailure(res, error, 'Invalid Content Pack version.')
+    return
+  }
+  try {
+    await uninstallContentPackVersion(packId, version, listProjectSlugsPinningContentPackVersionLocked, routeOptions(req))
+    res.json({ ok: true, pack_id: packId, version })
+  } catch (error) {
+    versionUninstallFailure(res, error)
+  }
+})
+
+function pinnedChannelSlugs(message: string): string[] {
+  const match = /pinned by projects:\s*(.*)$/i.exec(message)
+  return match ? match[1].split(',').map(slug => slug.trim()).filter(Boolean) : []
+}
+
+function pinMoveFailure(res: Response, error: unknown): void {
+  const message = error instanceof Error ? error.message : ''
+  if (/Project not found/i.test(message)) {
+    res.status(404).json({ code: 'PROJECT_NOT_FOUND', detail: 'This channel no longer exists.' })
+    return
+  }
+  const status = Number((error as { statusCode?: unknown })?.statusCode) || 409
+  const code = typeof (error as { code?: unknown })?.code === 'string'
+    ? (error as { code: string }).code
+    : 'CONTENT_PACK_PIN_MOVE_REFUSED'
+  res.status(status).json({ code, detail: message || 'This channel pin could not be moved.' })
+}
+
+function versionUninstallFailure(res: Response, error: unknown): void {
+  const message = error instanceof Error ? error.message : ''
+  if (/Content Pack is not installed/i.test(message)) {
+    res.status(404).json({ code: 'CONTENT_PACK_VERSION_NOT_INSTALLED', detail: 'This Content Pack version is not installed on this Mac.' })
+    return
+  }
+  if (/active version cannot be uninstalled/i.test(message)) {
+    res.status(409).json({ code: 'CONTENT_PACK_VERSION_ACTIVE', detail: 'The active version cannot be uninstalled. Activate another installed version first.' })
+    return
+  }
+  const channels = pinnedChannelSlugs(message)
+  if (channels.length) {
+    res.status(409).json({
+      code: 'CONTENT_PACK_VERSION_PINNED',
+      detail: `This version is still pinned by: ${channels.join(', ')}.`,
+      channels,
+    })
+    return
+  }
+  if (/required by installed dependent packs/i.test(message)) {
+    res.status(409).json({ code: 'CONTENT_PACK_VERSION_REQUIRED_BY_OTHERS', detail: message })
+    return
+  }
+  lifecycleFailure(res, error, 'This Content Pack version could not be uninstalled.')
+}
 
 async function snapshotDirectoryChain(root: string, target: string): Promise<DirectoryIdentity[]> {
   const resolvedRoot = path.resolve(root)

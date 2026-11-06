@@ -171,6 +171,25 @@ export async function resolveCatalogPackVersion(
 }
 
 /**
+ * The one version an existing project pin may move to: the pack's own active
+ * installed release, verified and still `active`. A retired, replaced,
+ * recalled, disabled-away or missing active version returns null, so a pin
+ * move can never land on bytes that discovery already refuses.
+ */
+export async function resolveActiveInstalledPackVersion(
+  packId: string,
+  options: ContentPackRegistryOptions = {},
+): Promise<CatalogPackVersion | null> {
+  const paths = options.paths ?? getContentPackRuntimePaths()
+  const state = await readContentPackState(paths)
+  const version = state.packs[packId]?.active_version
+  if (!version) return null
+  const verified = await verifiedInstalled({ pack_id: packId, version }, options, undefined, state)
+  if (!verified || verified.manifest.lifecycle !== 'active') return null
+  return catalogPackVersion(verified)
+}
+
+/**
  * List immutable clones in deterministic precedence order. Discovery never
  * exposes retired/replaced packs; disabled installed packs require an exact pin.
  */

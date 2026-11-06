@@ -9,6 +9,7 @@
     <template v-else>
       <p v-if="removals?.unreadable" class="removal-notice warning" role="status">Story Studio could not read its Content Pack removal records, so it cannot say which channels use a pack or what it removed before.</p>
       <p v-if="removalNotice" :class="['removal-notice', removalNotice.tone]" role="status" aria-live="polite">{{ removalNotice.detail }}</p>
+      <p v-if="versionNotice" :class="['removal-notice', versionNotice.tone]" role="status" aria-live="polite">{{ versionNotice.detail }}</p>
       <ul v-if="installed.length" class="installed-list">
         <li v-for="pack in installed" :key="`${pack.packId}@${pack.version}`">
           <div><h3>{{ pack.title }}</h3><p>{{ pack.packId }} · {{ pack.version }}</p></div>
@@ -17,6 +18,13 @@
           <p class="usage">{{ usageLabel(pack.packId) }}</p>
           <p v-if="removalNote(pack.packId)" class="removal-notice warning">{{ removalNote(pack.packId) }}</p>
           <button type="button" class="btn btn-secondary remove-action" :disabled="removalBusy === pack.packId" @click="$emit('remove', pack.packId)">{{ removalBusy === pack.packId ? 'Removing…' : 'Remove from this Mac' }}</button>
+          <button
+            v-if="!pack.active"
+            type="button"
+            class="btn btn-secondary remove-action"
+            :disabled="versionBusy === versionKey(pack)"
+            @click="uninstallVersion(pack)"
+          >{{ versionBusy === versionKey(pack) ? 'Uninstalling…' : 'Uninstall this version' }}</button>
         </li>
       </ul>
       <div v-else class="library-empty" role="status"><h3>No installed packs yet</h3><p>Install a pack from the library to use it on this Mac.</p></div>
@@ -35,9 +43,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { splitPackUsage } from '~/content-store/library-organisation'
-import type { ContentPackRemovalEntry, ContentPackRemovalState, ContentStoreInstalledPack } from '~/composables/useContentStore'
+import { useContentStore, type ContentPackRemovalEntry, type ContentPackRemovalState, type ContentStoreInstalledPack } from '~/composables/useContentStore'
 
 const props = withDefaults(defineProps<{
   installed: readonly ContentStoreInstalledPack[]
@@ -48,6 +56,28 @@ const props = withDefaults(defineProps<{
 }>(), { installsResolved: true, removals: null, removalBusy: '', removalNotice: null })
 
 defineEmits<{ remove: [packId: string]; restore: [packId: string] }>()
+
+const store = useContentStore()
+const versionBusy = ref('')
+const versionNotice = ref<{ tone: 'success' | 'warning'; detail: string } | null>(null)
+
+function versionKey(pack: ContentStoreInstalledPack): string { return `${pack.packId}@${pack.version}` }
+
+/** One retained version only; active, pinned and dependent versions are refused by the server. */
+async function uninstallVersion(pack: ContentStoreInstalledPack): Promise<void> {
+  if (versionBusy.value) return
+  versionBusy.value = versionKey(pack)
+  versionNotice.value = null
+  try {
+    await store.uninstallPackVersion(pack.packId, pack.version)
+    versionNotice.value = { tone: 'success', detail: `${pack.packId} ${pack.version} is off this Mac. Its files are in Story Studio's Trash.` }
+  } catch (cause: any) {
+    const data = cause?.data || cause?.response?._data || {}
+    versionNotice.value = { tone: 'warning', detail: typeof data.detail === 'string' && data.detail ? data.detail : cause?.message || 'This version could not be uninstalled.' }
+  } finally {
+    versionBusy.value = ''
+  }
+}
 
 function missing(pack: ContentStoreInstalledPack): string { return pack.missingDependencies.map(dependency => `${dependency.packId} ${dependency.version} (${dependency.reason})`).join(', ') }
 

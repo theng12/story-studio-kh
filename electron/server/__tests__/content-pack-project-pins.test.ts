@@ -18,10 +18,12 @@ import {
 import {
   applyProjectContentBundle,
   applyProjectContentUpgrade,
+  applyProjectContentUpgradeToActive,
   ContentPackMissingError,
   isProjectContentPackVersionPinnedLocked,
   listProjectSlugsPinningContentPackVersionLocked,
   planProjectContentUpgrade,
+  planProjectContentUpgradeToActive,
   resolveProjectContentPins,
   setProjectContentPin,
   snapshotProjectContentPackProvenance,
@@ -39,6 +41,7 @@ import * as formatLoader from '../services/format-loader.js'
 import { resolveProjectArtStyle } from '../services/art-style-resolver.js'
 import { errorBoundary } from '../lib/error-boundary.js'
 import { router as settingsRouter } from '../routes/settings.js'
+import { router as contentPacksRouter } from '../routes/content-packs.js'
 import { useTempDataDir } from './_helpers.js'
 
 const PUBLISHER_ID = 'com.storystudio'
@@ -115,7 +118,7 @@ function documents(label: string, includeCreativeSelections = false): ContentPac
   return base
 }
 
-async function buildArchive(version: string, label: string, includeCreativeSelections = false): Promise<Uint8Array> {
+async function buildArchive(version: string, label: string, includeCreativeSelections = false, lifecycle: 'active' | 'retired' = 'active'): Promise<Uint8Array> {
   const docs = documents(label, includeCreativeSelections)
   const content = docs.map((document, index) => ({
     path: `content/item-${index}.json`,
@@ -129,7 +132,7 @@ async function buildArchive(version: string, label: string, includeCreativeSelec
     key_id: KEY_ID,
     version,
     min_app_version: '1.0.0',
-    lifecycle: 'active',
+    lifecycle,
     entitlement: { sku: `${PACK_ID}.sku`, family: `${PACK_ID}.family` },
     bundles: [],
     items: content.map(item => ({ id: item.document.id, kind: item.document.kind, schema_version: 1, path: item.path })),
@@ -1029,5 +1032,78 @@ describe('exact project Content Pack pins', () => {
     await assert.rejects(uninstall, /pinned by projects: pin-write-barrier/i)
     assert.deepEqual(await prune, [])
     assert.ok((await readContentPackState(options.paths)).packs[PACK_ID].versions['1.0.0'])
+  })
+})
+
+describe('Content Pack version exposure', () => {
+  test('plan writes nothing and apply moves the pin to the active installed version without touching episode files', async () => {
+    const { temp, options } = await isolated()
+    const v1 = await install('1.0.0', 'v1', options)
+    const project = await projectManager.createProject({ name: 'Pin Move' })
+    await setProjectContentPin(project.slug, { pack_id: PACK_ID, version: '1.0.0', archive_sha256: v1.archive_sha256 }, options)
+    const episodeInfo = path.join(temp.dir, 'projects', project.slug, 'episodes', 'S1', 'EP001', 'episode_info.json')
+    await fs.mkdir(path.dirname(episodeInfo), { recursive: true })
+    await fs.writeFile(episodeInfo, '{"topic_pack_ids":["kept"]}\n')
+    const before = await fs.readFile(episodeInfo, 'utf8')
+
+    await install('1.1.0', 'v1.1', options)
+    const plan = await planProjectContentUpgradeToActive(project.slug, PACK_ID, options)
+    assert.equal(plan.from.version, '1.0.0')
+    assert.equal(plan.to.version, '1.1.0')
+    assert.equal((await projectManager.getProject(project.slug))?.content_pack_versions?.[PACK_ID], '1.0.0',
+      'a plan must not move the pin')
+
+    await applyProjectContentUpgradeToActive(project.slug, PACK_ID, options)
+    assert.equal((await projectManager.getProject(project.slug))?.content_pack_versions?.[PACK_ID], '1.1.0')
+    assert.equal(await fs.readFile(episodeInfo, 'utf8'), before, 'existing episode selections stay untouched')
+  })
+
+  test('refuses an active version that is retired', async () => {
+    const { options } = await isolated()
+    const v1 = await install('1.0.0', 'v1', options)
+    const project = await projectManager.createProject({ name: 'Retired Move' })
+    await setProjectContentPin(project.slug, { pack_id: PACK_ID, version: '1.0.0', archive_sha256: v1.archive_sha256 }, options)
+    const retiredBytes = await buildArchive('1.1.0', 'retired', false, 'retired')
+    await installContentPack({ archiveBytes: retiredBytes, source: 'local-import', expectedArchiveSha256: sha256(retiredBytes) }, options)
+    await assert.rejects(planProjectContentUpgradeToActive(project.slug, PACK_ID, options), /no active installed version/i)
+  })
+
+  test('routes expose plan/apply and refuse active or pinned versions', async () => {
+    const { options } = await isolated()
+    const v1 = await install('1.0.0', 'v1', options)
+    await install('1.1.0', 'v1.1', options)
+    await install('1.2.0', 'v1.2', options)
+    const project = await projectManager.createProject({ name: 'Route Pins' })
+    await setProjectContentPin(project.slug, { pack_id: PACK_ID, version: '1.0.0', archive_sha256: v1.archive_sha256 }, options)
+    const app = express()
+    app.use(express.json())
+    app.locals.contentPackOptions = options
+    app.use('/api', contentPacksRouter)
+
+    const planned = await request(app)
+      .post(`/api/content-packs/${PACK_ID}/pin-move/plan`)
+      .send({ project_slug: project.slug })
+      .expect(200)
+    assert.equal(planned.body.to.version, '1.2.0')
+    assert.equal((await projectManager.getProject(project.slug))?.content_pack_versions?.[PACK_ID], '1.0.0')
+
+    await request(app)
+      .post(`/api/content-packs/${PACK_ID}/pin-move/apply`)
+      .send({ project_slug: project.slug })
+      .expect(200)
+    assert.equal((await projectManager.getProject(project.slug))?.content_pack_versions?.[PACK_ID], '1.2.0')
+
+    const active = await request(app)
+      .post(`/api/content-packs/${PACK_ID}/versions/1.2.0/uninstall`)
+      .expect(409)
+    assert.equal(active.body.code, 'CONTENT_PACK_VERSION_ACTIVE')
+
+    const other = await projectManager.createProject({ name: 'Still Pinned' })
+    await setProjectContentPin(other.slug, { pack_id: PACK_ID, version: '1.0.0', archive_sha256: v1.archive_sha256 }, options)
+    const pinned = await request(app)
+      .post(`/api/content-packs/${PACK_ID}/versions/1.0.0/uninstall`)
+      .expect(409)
+    assert.equal(pinned.body.code, 'CONTENT_PACK_VERSION_PINNED')
+    assert.deepEqual(pinned.body.channels, [other.slug])
   })
 })

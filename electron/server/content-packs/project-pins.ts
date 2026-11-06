@@ -6,6 +6,7 @@ import * as projectManager from '../services/project-manager.js'
 import { verifyInstalledContentPackClosure } from './installer.js'
 import { getFirstPartyContentPackVerificationPolicy } from './keyring.js'
 import {
+  resolveActiveInstalledPackVersion,
   resolveCatalogItem,
   resolveCatalogPackVersion,
   type CatalogPackVersion,
@@ -990,21 +991,65 @@ export async function applyProjectContentUpgrade(
   targetVersion: string,
   options: ContentPackProjectPinOptions = {},
 ): Promise<ContentPackUpgradePlan> {
+  return withContentPackCoordinationLock(pathsFor(options), () => (
+    applyProjectContentUpgradeLocked(slug, packId, targetVersion, options)
+  ))
+}
+
+/** Move a pin to this Mac's active installed version of the same pack identity. */
+export async function planProjectContentUpgradeToActive(
+  slug: string,
+  packId: string,
+  options: ContentPackProjectPinOptions = {},
+): Promise<ContentPackUpgradePlan> {
   return withContentPackCoordinationLock(pathsFor(options), async () => {
-    const { plan, target } = await planProjectContentUpgradeLocked(slug, packId, targetVersion, options)
-    await options.hooks?.beforeProjectWrite?.()
-    const updated = await projectManager.mutateProjectMetaConsistently(slug, project => {
-      const selectedIds = new Set(itemRefsForPack(project, packId).map(item => item.id))
-      project.content_pack_versions = { ...(project.content_pack_versions ?? {}), [packId]: targetVersion }
-      const items = { ...(project.content_pack_items ?? {}) }
-      for (const item of target.items) {
-        if (selectedIds.has(item.id)) items[item.id] = { pack_id: packId, kind: item.kind }
-      }
-      project.content_pack_items = items
-    })
-    if (!updated) throw Object.assign(new Error(`Project not found: ${slug}`), { statusCode: 404, expose: true })
-    return plan
+    const target = await activeTargetForPin(packId, options)
+    return (await planProjectContentUpgradeLocked(slug, packId, target.ref.version, options)).plan
   })
+}
+
+/** Apply the same move only after the caller has shown the plan. */
+export async function applyProjectContentUpgradeToActive(
+  slug: string,
+  packId: string,
+  options: ContentPackProjectPinOptions = {},
+): Promise<ContentPackUpgradePlan> {
+  return withContentPackCoordinationLock(pathsFor(options), async () => {
+    const target = await activeTargetForPin(packId, options)
+    return applyProjectContentUpgradeLocked(slug, packId, target.ref.version, options)
+  })
+}
+
+async function activeTargetForPin(
+  packId: string,
+  options: ContentPackProjectPinOptions,
+): Promise<CatalogPackVersion> {
+  const target = await resolveActiveInstalledPackVersion(packId, options)
+  if (!target) {
+    throw Object.assign(new Error(`Content Pack has no active installed version: ${packId}`), { statusCode: 409, expose: true })
+  }
+  return target
+}
+
+async function applyProjectContentUpgradeLocked(
+  slug: string,
+  packId: string,
+  targetVersion: string,
+  options: ContentPackProjectPinOptions,
+): Promise<ContentPackUpgradePlan> {
+  const { plan, target } = await planProjectContentUpgradeLocked(slug, packId, targetVersion, options)
+  await options.hooks?.beforeProjectWrite?.()
+  const updated = await projectManager.mutateProjectMetaConsistently(slug, project => {
+    const selectedIds = new Set(itemRefsForPack(project, packId).map(item => item.id))
+    project.content_pack_versions = { ...(project.content_pack_versions ?? {}), [packId]: targetVersion }
+    const items = { ...(project.content_pack_items ?? {}) }
+    for (const item of target.items) {
+      if (selectedIds.has(item.id)) items[item.id] = { pack_id: packId, kind: item.kind }
+    }
+    project.content_pack_items = items
+  })
+  if (!updated) throw Object.assign(new Error(`Project not found: ${slug}`), { statusCode: 404, expose: true })
+  return plan
 }
 
 export async function snapshotProjectContentPackProvenance(

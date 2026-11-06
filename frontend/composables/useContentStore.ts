@@ -128,6 +128,15 @@ export interface ContentStoreInstalledPack {
   kind: ContentStoreProductKind | 'unknown'
 }
 
+/** What a channel pin move would change, read before anything is written. */
+export interface ContentPackPinMovePlan {
+  pack_id: string
+  from: { pack_id: string; version: string; archive_sha256: string }
+  to: { pack_id: string; version: string; archive_sha256: string }
+  changed_item_ids: string[]
+  affected_generation_types: string[]
+}
+
 /**
  * One part of the Studio Library, as the server could or could not answer it.
  *
@@ -713,6 +722,9 @@ export function useContentStore(): {
   refreshRemovals: () => Promise<void>
   removePack: (packId: string) => Promise<void>
   restorePack: (packId: string) => Promise<void>
+  planPinMove: (packId: string, projectSlug: string) => Promise<ContentPackPinMovePlan>
+  applyPinMove: (packId: string, projectSlug: string) => Promise<ContentPackPinMovePlan>
+  uninstallPackVersion: (packId: string, version: string) => Promise<void>
   installRelease: (releaseId: string, options?: { refreshOverview?: boolean; onProgress?: (operation: ContentStoreInstallOperation) => void }) => Promise<{ pack_id: string; version: string; activated: boolean }>
   importPack: (archive: ArrayBuffer) => Promise<LocalContentPackInstall>
   listGatewayArchives: () => Promise<GatewayContentArchive[]>
@@ -901,6 +913,29 @@ export function useContentStore(): {
     ])
   }
 
+  /** Read the move first; this writes nothing. */
+  async function planPinMove(packId: string, projectSlug: string): Promise<ContentPackPinMovePlan> {
+    return post<ContentPackPinMovePlan>(
+      `/content-packs/${encodeURIComponent(packId)}/pin-move/plan`,
+      { project_slug: projectSlug },
+    )
+  }
+
+  async function applyPinMove(packId: string, projectSlug: string): Promise<ContentPackPinMovePlan> {
+    return post<ContentPackPinMovePlan>(
+      `/content-packs/${encodeURIComponent(packId)}/pin-move/apply`,
+      { project_slug: projectSlug },
+    )
+  }
+
+  async function uninstallPackVersion(packId: string, version: string): Promise<void> {
+    await post(`/content-packs/${encodeURIComponent(packId)}/versions/${encodeURIComponent(version)}/uninstall`)
+    await Promise.all([
+      refreshRemovals().catch(() => {}),
+      refresh({ background: true }).catch(() => {}),
+    ])
+  }
+
   async function installRelease(
     releaseId: string,
     options: { refreshOverview?: boolean; onProgress?: (operation: ContentStoreInstallOperation) => void } = {},
@@ -1019,6 +1054,9 @@ export function useContentStore(): {
     refreshRemovals,
     removePack,
     restorePack,
+    planPinMove,
+    applyPinMove,
+    uninstallPackVersion,
     installRelease,
     importPack,
     listGatewayArchives,
