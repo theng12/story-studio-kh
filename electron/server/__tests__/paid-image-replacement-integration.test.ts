@@ -2696,10 +2696,24 @@ test('a successful legacy thumbnail commitment records the completed task', asyn
   }
 })
 
-test('a configured thumbnail reference missing before the original manifest exists blocks the real generator before POST', async () => {
+test('a configured Shell image missing before the original manifest exists blocks the real generator before POST', async () => {
   const temp = await useTempDataDir()
   const service = await startMockGenStudioService()
+  const originalFetch = globalThis.fetch
   try {
+    // The guard only applies when the model would actually send a reference;
+    // a reference-free model deliberately falls back to the written layout.
+    globalThis.fetch = async (input, init) => {
+      const response = await originalFetch(input, init)
+      const url = String(input)
+      if (url.startsWith(`${service.baseUrl}/v1/image/models`) && response.headers.get('content-type')?.includes('application/json')) {
+        const models = await response.clone().json() as Array<Record<string, any>>
+        return Response.json(models.map(model => ({
+          ...model, supports_image_to_image: true, supports_reference_images: true, max_reference_images: 1,
+        })))
+      }
+      return response
+    }
     const settings = await import('../services/app-settings.js')
     const secrets = await import('../services/app-secrets-store.js')
     const client = await import('../lib/genstudio-client.js')
@@ -2728,10 +2742,11 @@ test('a configured thumbnail reference missing before the original manifest exis
     const jobsFile = path.join(pm.projectsRoot(), project.slug, 'jobs.json')
     await writeAuthoritativeFixture(job)
     const { generateImages } = await import('../generators/images.js')
-    await assert.rejects(generateImages(job), /saved thumbnail reference is unavailable locally/i)
+    await assert.rejects(generateImages(job), /selected Shell image is unavailable locally/i)
     assert.equal(service.providerSubmissionCount('image'), 0)
     assert.equal(JSON.parse(await fs.readFile(jobsFile, 'utf8')).jobs[0].paid_image_replacement_attempts, undefined)
   } finally {
+    globalThis.fetch = originalFetch
     await service.close()
     await temp.cleanup()
   }
