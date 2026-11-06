@@ -49,7 +49,9 @@ const typingDialogs: Array<[string, string]> = [
   ['pages/projects/[slug]/ideas.vue', 'importOpen'],
   ['pages/projects/[slug]/ideas.vue', 'pasteOpen'],
   ['pages/projects/[slug]/ideas.vue', 'editorOpen'],
-  ['pages/character-library.vue', 'editorOpen'],
+  // 1.4.384: the Channel Characters dialog moved into the shared
+  // CharacterRecordEditor, which the Character Sheet roster hosts.
+  ['components/CharacterRecordEditor.vue', 'visible'],
 ]
 
 test('dialogs where the owner types do not close on a stray backdrop click', () => {
@@ -59,7 +61,7 @@ test('dialogs where the owner types do not close on a stray backdrop click', () 
 })
 
 test('multi-field editors close on Escape only while nothing has been typed', () => {
-  for (const [file, visible] of typingDialogs.filter(([, v]) => ['createModalOpen', 'editModalOpen', 'importOpen', 'pasteOpen', 'editorOpen'].includes(v))) {
+  for (const [file, visible] of typingDialogs.filter(([, v]) => ['createModalOpen', 'editModalOpen', 'importOpen', 'pasteOpen', 'editorOpen', 'visible'].includes(v))) {
     assert.match(modalTag(file, visible), /:close-on-escape="[^"]+"/, `${file} ${visible}`)
   }
 })

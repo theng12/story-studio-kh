@@ -72,7 +72,8 @@ describe('focused workspace UX', () => {
 
   test('shared libraries retain the active project navigation context', () => {
     assert.match(dashboard, /projectSlug\(route\.query\.project\)/)
-    assert.match(dashboard, /path: '\/character-library', query: \{ channel: slug, project: slug \}/)
+    assert.match(dashboard, /:to="slug \? `\/projects\/\$\{slug\}\/character-sheet` : '\/'"/)
+    assert.doesNotMatch(dashboard, /path: '\/character-library'/, 'the retired Channel Characters page is no longer a sidebar target')
     assert.match(dashboard, /path: '\/broll-library', query: \{ project: slug \}/)
   })
 

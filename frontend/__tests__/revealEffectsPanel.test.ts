@@ -72,17 +72,22 @@ test('the animation preset carries the reveal look and never the seed', () => {
     'the seed is per episode: a preset that restored one would make two episodes share a randomisation')
 })
 
-test('the panel shows the render\'s own plan rather than a second opinion', () => {
+test('the panel shows the render\'s own plan and asks for it through the same payload', () => {
   assert.match(page, /video-editor\/reveals\/plan/)
-  // The plan route is the engine's resolver; the page renders what it returns.
+  // The request is built from the same payload the assembly uses, and the page renders what comes back.
+  assert.match(page, /scene_reveal: revealPayload\(\)/)
   assert.match(page, /revealPlan\.value = r\.plan \|\| null/)
   assert.match(page, /entry\.hold\.reveal_seconds/)
   assert.match(page, /entry\.source === 'override'/)
 })
 
-test('the panel says what the saving is and that it renders locally', () => {
+test('the moved panel saves only on Apply and the page says the render is local', () => {
+  // Reveal settings now live in the Title, motion & chapters draft popup.
+  assert.match(page, /v-model="titleMotion\.timeline\.scene_reveal\.enabled"/)
+  assert.match(page, /Saved for this episode only — Video Assembly uses it on the next render/)
+  // The slow pace still explains where the image saving comes from.
   assert.match(page, /One image carries a whole narration line/)
-  assert.match(page, /It runs on this Mac, with no AI model and no extra cost/)
+  assert.match(page, /Final FFmpeg assembly runs on this Mac and does not spend GenStudio credits\./)
   // And the family's own approximation is shown where a pack carries one.
   assert.match(page, /preset\.approximation/)
 })

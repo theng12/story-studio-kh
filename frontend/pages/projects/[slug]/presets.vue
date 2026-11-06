@@ -299,7 +299,7 @@ const groupsMeta: Omit<PresetGroup, 'items'>[] = [
     hint: 'Saved effect stacks (rain, fog, grade…) to add to a scene or a whole episode.',
     configKey: 'effect_stack',
     typeFilter: 'effect-stack',
-    editLink: '/effects-library',
+    editLink: '/video-assembly?step=4',
   },
   {
     key: 'subtitles',

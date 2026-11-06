@@ -41,6 +41,7 @@ import { MERGED_AUDIO_FILENAME } from '../lib/merged-audio-selection.js'
 import { assertDecodableImage, isDecodableImage } from '../lib/image-validation.js'
 import { getFFmpegPath } from '../services/ffmpeg-manager.js'
 import { bundledFontsFilterOption } from '../lib/subtitle-font-dir.js'
+import { stageChapterTitleFont, escapeChapterFontfile, layoutChapterTitle, chapterTitleAppearance, assertChapterTitleCovers } from '../lib/chapter-title-font.js'
 import { assertValidMedia, getMediaInfo, summarizeMedia, fileExistsNonEmpty } from '../lib/ffmpeg-validation.js'
 import { checkPictureLength } from '../lib/final-duration-guard.js'
 import { planTransitions, buildXfadeFilterComplex, buildVariableXfadeFilterComplex, buildEngineTransitionFilterComplex, fallbackXfadeKeywords, hasTransitionEngine } from '../lib/transition-filters.js'
@@ -5364,7 +5365,7 @@ export async function prepareSceneClips(
       // fraction in portrait, but `h/18` is nearly twice too big there.
       const fontSize = getFontSize(chapterTitles.font_size, frameTextUnit(w, h))
       const yPos = getTextPosition(chapterTitles.position, h)
-      const fontColor = getStyleColor(chapterTitles.style)
+      let fontColor = getStyleColor(chapterTitles.style)
       const titleDur = chapterTitles.duration || 3
       const anim = chapterTitles.animation || 'none'
       // Cap the transition at duration/2 — a 1s fade-in plus 1s
@@ -5374,43 +5375,95 @@ export async function prepareSceneClips(
         chapterTitles.animation_duration ?? 0.5,
         titleDur / 2,
       ))
-      const drawCommon = `text='${escapeDrawtext(scene.title)}':fontsize=${fontSize}:fontcolor=${fontColor}:enable='lt(t,${titleDur})':borderw=2:bordercolor=black@0.6`
-      let drawXY = `x=(w-text_w)/2:y=${yPos}`
-      let drawAlpha = ''
-      switch (anim) {
-        case 'fade-in-out': {
-          // alpha 0→1 over animDur, hold, 1→0 over animDur. The
-          // `enable=` gate above kills the drawtext past titleDur so
-          // we don't have to worry about negative alpha clamping.
-          drawAlpha = `:alpha='if(lt(t,${animDur.toFixed(3)}),t/${animDur.toFixed(3)},if(lt(t,${(titleDur - animDur).toFixed(3)}),1,(${titleDur.toFixed(3)}-t)/${animDur.toFixed(3)}))'`
-          break
-        }
-        case 'slide-from-left': {
-          // Start offscreen-left (x = -text_w), lerp to centered.
-          // After animDur, hold at center until enable= hides it.
-          drawXY = `x='if(lt(t,${animDur.toFixed(3)}),-text_w+((w+text_w)/2)*(t/${animDur.toFixed(3)}),(w-text_w)/2)':y=${yPos}`
-          break
-        }
-        case 'slide-from-right': {
-          // Start offscreen-right (x = w), lerp to centered.
-          drawXY = `x='if(lt(t,${animDur.toFixed(3)}),w-((w+text_w)/2)*(t/${animDur.toFixed(3)}),(w-text_w)/2)':y=${yPos}`
-          break
-        }
-        case 'slide-up': {
-          // Start below the frame (y = h), lerp upward to yPos.
-          // yPos may be a literal (e.g. '86') or an expression (e.g.
-          // '(h-text_h)/2') — both substitute fine.
-          drawXY = `x=(w-text_w)/2:y='if(lt(t,${animDur.toFixed(3)}),h-(h-(${yPos}))*(t/${animDur.toFixed(3)}),${yPos})'`
-          break
-        }
-        case 'none':
-        default:
-          // No animation — leave drawXY at static center+yPos and
-          // drawAlpha empty so the emitted string matches the
-          // pre-v1.0.56 output exactly.
-          break
+      // 1.4.384 — an EXPLICIT chapter font changes the emitted graph, and only then.
+      // Nothing selected (no presentation, or no face resolved) leaves the string
+      // below exactly as it was, byte for byte — appearance rides the face and
+      // never reaches the graph on its own.
+      const staged = await stageChapterTitleFont(chapterTitles.chapter_title_presentation, tempDir)
+      const appearance = chapterTitleAppearance(chapterTitles.chapter_title_presentation)
+      let fontfileOpt = ''
+      let borderColor = 'black@0.6'
+      let borderWidth = 2
+      if (staged && appearance?.color) fontColor = normalizeDrawtextColor(appearance.color)
+      if (staged && typeof appearance?.outline === 'number' && Number.isFinite(appearance.outline)) {
+        borderWidth = Math.max(0, Math.min(12, Math.round(appearance.outline)))
       }
-      vfParts.push(`drawtext=${drawCommon}:${drawXY}${drawAlpha}`)
+      if (borderWidth === 0) borderColor = 'black@0'
+      let lines = [String(scene.title)]
+      // The size drawtext is actually told: the style's own until a picked face fits it.
+      let drawFontSize = fontSize
+      if (staged) {
+        await assertChapterTitleCovers(staged, String(scene.title), `Chapter title "${scene.title}"`)
+        fontfileOpt = `:fontfile=${escapeChapterFontfile(staged.fontfile)}`
+        const layout = await layoutChapterTitle({
+          text: String(scene.title),
+          fontSize,
+          frameWidth: w,
+          frameHeight: h,
+          family: staged.family,
+          wrap: appearance?.wrap === true,
+          automaticFit: chapterTitles.chapter_title_presentation?.automatic_fit === true,
+        })
+        if (layout.fontSize !== fontSize) {
+          job.output_lines.push(`Chapter title: auto-fit ${fontSize}px → ${layout.fontSize}px for "${scene.title}".`)
+        }
+        drawFontSize = layout.fontSize
+        lines = layout.lines
+      }
+      const drawCommon = (line: string) => `text='${escapeDrawtext(line)}':fontsize=${drawFontSize}:fontcolor=${fontColor}:enable='lt(t,${titleDur})':borderw=${borderWidth}:bordercolor=${borderColor}${fontfileOpt}`
+      // A wrapped heading is ONE block. Each line used to take the single-line
+      // position for itself and then step down, so a centred block hung below
+      // centre and a bottom block walked straight off the frame; the position
+      // now anchors the whole measured block and the lines step within it.
+      const lineStepPx = Math.round(drawFontSize * 1.18)
+      const yForLine = (lineIndex: number): string => {
+        if (lines.length === 1) return yPos
+        const offset = lineIndex * lineStepPx
+        if (chapterTitles.position === 'top') return String(Math.round(h * 0.08) + offset)
+        if (chapterTitles.position === 'bottom') {
+          return String(Math.round(h * 0.85) - (lines.length - 1) * lineStepPx + offset)
+        }
+        return `((h-${lines.length * lineStepPx})/2)+${offset}`
+      }
+      lines.forEach((line, lineIndex) => {
+        const shiftedY = yForLine(lineIndex)
+        let drawXY = `x=(w-text_w)/2:y=${shiftedY}`
+        let drawAlpha = ''
+        switch (anim) {
+          case 'fade-in-out': {
+            // alpha 0→1 over animDur, hold, 1→0 over animDur. The
+            // `enable=` gate above kills the drawtext past titleDur so
+            // we don't have to worry about negative alpha clamping.
+            drawAlpha = `:alpha='if(lt(t,${animDur.toFixed(3)}),t/${animDur.toFixed(3)},if(lt(t,${(titleDur - animDur).toFixed(3)}),1,(${titleDur.toFixed(3)}-t)/${animDur.toFixed(3)}))'`
+            break
+          }
+          case 'slide-from-left': {
+            // Start offscreen-left (x = -text_w), lerp to centered.
+            // After animDur, hold at center until enable= hides it.
+            drawXY = `x='if(lt(t,${animDur.toFixed(3)}),-text_w+((w+text_w)/2)*(t/${animDur.toFixed(3)}),(w-text_w)/2)':y=${shiftedY}`
+            break
+          }
+          case 'slide-from-right': {
+            // Start offscreen-right (x = w), lerp to centered.
+            drawXY = `x='if(lt(t,${animDur.toFixed(3)}),w-((w+text_w)/2)*(t/${animDur.toFixed(3)}),(w-text_w)/2)':y=${shiftedY}`
+            break
+          }
+          case 'slide-up': {
+            // Start below the frame (y = h), lerp upward to yPos.
+            // yPos may be a literal (e.g. '86') or an expression (e.g.
+            // '(h-text_h)/2') — both substitute fine.
+            drawXY = `x=(w-text_w)/2:y='if(lt(t,${animDur.toFixed(3)}),h-(h-(${shiftedY}))*(t/${animDur.toFixed(3)}),${shiftedY})'`
+            break
+          }
+          case 'none':
+          default:
+            // No animation — leave drawXY at static center+yPos and
+            // drawAlpha empty so the emitted string matches the
+            // pre-v1.0.56 output exactly.
+            break
+        }
+        vfParts.push(`drawtext=${drawCommon(line)}:${drawXY}${drawAlpha}`)
+      })
     }
 
     vfParts.push('format=yuv420p')
@@ -7992,6 +8045,12 @@ function getStyleColor(style: string): string {
     'minimal': 'white@0.8',
   }
   return map[style] || 'white'
+}
+
+/** `#RRGGBB` (what the editor writes) → drawtext's `0xRRGGBB`; anything else passes through unchanged. */
+function normalizeDrawtextColor(color: string): string {
+  const value = String(color || '').trim()
+  return /^#[0-9a-f]{6}$/i.test(value) ? `0x${value.slice(1).toLowerCase()}` : value
 }
 
 /**

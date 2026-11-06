@@ -83,7 +83,10 @@ const PRESET_PAGES = [
   'audio-merge.vue',
   'broll.vue',
   'character-sheet.vue',
-  'effects-library.vue',
+  // 1.4.384: the Effects Library page is a redirect adapter; the client editor
+  // that owns the effect-stack preset now lives in Video Assembly Step 4, as
+  // this component. Kept in the audit there rather than on the dead route.
+  'components/EpisodeEffectsEditor.vue',
   'episode-builder.vue',
   'ideas.vue',
   'image-prompts.vue',
@@ -176,7 +179,7 @@ const CLASSIFIED: Record<string, Record<string, Classification>> = {
     'row.cue.label': { verdict: 'episode', reason: 'one sound in this episode\'s timeline' },
     'row.cue.gain_db': { verdict: 'episode', reason: 'one sound\'s level in this episode' },
   },
-  'effects-library.vue': {
+  'components/EpisodeEffectsEditor.vue': {
     'file.custom_order': { verdict: 'episode', reason: 'this episode\'s effect ordering, saved with the episode\'s effects file' },
     targetKey: { verdict: 'transient', reason: 'which scope (episode / scene / theme) the editor is adding to' },
     previewSceneId: { verdict: 'transient', reason: 'which scene the preview is showing' },
@@ -334,6 +337,53 @@ const CLASSIFIED: Record<string, Record<string, Classification>> = {
   },
   'video-assembly.vue': {
     visualSource: { verdict: 'saved-elsewhere', reason: 'saved per episode at /visual-source, not in a preset' },
+    // Detached popup aliases write the episode's own settings on Apply; the
+    // existing preset snapshots continue to carry the applied reusable look.
+    ...Object.fromEntries([
+      'outroEdit.background_media_path', 'outroEdit.duration', 'outroEdit.enabled', 'outroEdit.style', 'outroEdit.text',
+      'subtitleEdit.enabled', 'subtitleEdit.hide_during_intro',
+      'titleMotion.effects.chapter_titles.animation', 'titleMotion.effects.chapter_titles.animation_duration',
+      'titleMotion.effects.chapter_titles.chapter_title_presentation', 'titleMotion.effects.chapter_titles.duration',
+      'titleMotion.effects.chapter_titles.enabled', 'titleMotion.effects.chapter_titles.font_size',
+      'titleMotion.effects.chapter_titles.position', 'titleMotion.effects.chapter_titles.style',
+      'titleMotion.effects.title_card.background', 'titleMotion.effects.title_card.background_media_path',
+      'titleMotion.effects.title_card.duration', 'titleMotion.effects.title_card.enabled', 'titleMotion.effects.title_card.style',
+      'titleMotion.effects.title_card.subtitle', 'titleMotion.effects.title_card.text',
+      'titleMotion.timeline.scene_animation.breathe_amplitude', 'titleMotion.timeline.scene_animation.breathe_base_zoom',
+      'titleMotion.timeline.scene_animation.parallax_direction', 'titleMotion.timeline.scene_animation.parallax_speed',
+      'titleMotion.timeline.scene_animation.zoom_end', 'titleMotion.timeline.scene_animation.zoom_start',
+      'titleMotion.timeline.scene_reveal.cap_per_effect', 'titleMotion.timeline.scene_reveal.coherence',
+      'titleMotion.timeline.scene_reveal.enabled', 'titleMotion.timeline.scene_reveal.pace', 'titleMotion.timeline.scene_reveal.seed',
+      'titleMotion.timeline.title_image.duration', 'titleMotion.timeline.title_image.enabled',
+      'titleMotion.timeline.title_image.transition_duration', 'titleMotion.timeline.title_image.transition_type',
+      'renderAppearanceEdit.logo.enabled', 'renderAppearanceEdit.logo.image_path', 'renderAppearanceEdit.logo.position',
+      'renderAppearanceEdit.logo.custom_x', 'renderAppearanceEdit.logo.custom_y', 'renderAppearanceEdit.logo.opacity',
+      'renderAppearanceEdit.logo.scale', 'renderAppearanceEdit.logo.shape', 'renderAppearanceEdit.logo.corner_radius_pct',
+      'renderAppearanceEdit.logo.margin', 'renderAppearanceEdit.logo.hide_during_intro',
+      'renderAppearanceEdit.colorGrading.enabled', 'renderAppearanceEdit.colorGrading.brightness',
+      'renderAppearanceEdit.colorGrading.contrast', 'renderAppearanceEdit.colorGrading.saturation',
+      'renderAppearanceEdit.colorGrading.warmth', 'renderAppearanceEdit.colorGrading.tint',
+      'renderAppearanceEdit.agedArchiveFilm.enabled', 'renderAppearanceEdit.agedArchiveFilm.strength',
+      'renderAppearanceEdit.frame.enabled', 'renderAppearanceEdit.frame.inset_pct', 'renderAppearanceEdit.frame.border_width',
+      'renderAppearanceEdit.frame.corner_radius', 'renderAppearanceEdit.frame.border_color',
+      'renderAppearanceEdit.frame.background_color', 'renderAppearanceEdit.frame.fit', 'renderAppearanceEdit.frame.background_path',
+      'renderAppearanceEdit.chromaKey.enabled', 'renderAppearanceEdit.chromaKey.source_path', 'renderAppearanceEdit.chromaKey.color',
+      'renderAppearanceEdit.chromaKey.similarity', 'renderAppearanceEdit.chromaKey.blend', 'renderAppearanceEdit.overlays.enabled',
+      'renderAppearanceEdit.sceneEffects', 'renderAppearanceEdit.excludeIntroFromEffects', 'renderAppearanceEdit.compilationLayout.foregroundDefaults.scale_pct',
+      'renderAppearanceEdit.compilationLayout.foregroundDefaults.position',
+      'renderAppearanceEdit.compilationLayout.foregroundDefaults.chroma_key',
+      'renderAppearanceEdit.compilationLayout.foregroundDefaults.chroma_key.color',
+      'renderAppearanceEdit.compilationLayout.foregroundDefaults.chroma_key.similarity',
+      'renderAppearanceEdit.compilationLayout.foregroundDefaults.chroma_key.blend',
+    ].map(path => [path, {
+      verdict: 'saved-elsewhere',
+      reason: 'a detached editor draft; Apply saves this field in the captured episode’s video_assembly_last_used settings',
+    }])),
+    // 1.4.384 — the Step 3 outro video & timeline clips popup. Apply merges the
+    // draft into `base.intro` (outro + timeline_clips) for the captured episode,
+    // the same episode-settings write the sibling drafts use.
+    'outroTimeline.outro.enabled': { verdict: 'saved-elsewhere', reason: 'a detached editor draft; Apply saves this field in the captured episode’s video_assembly_last_used settings' },
+    'outroTimeline.outro.video_path': { verdict: 'saved-elsewhere', reason: 'a detached editor draft; Apply saves this field in the captured episode’s video_assembly_last_used settings' },
     'clip.anchor': { verdict: 'saved-by-preset', reason: 'one row of `timeline_clips` in the Intro preset', via: 'timeline_clips' },
     'clip.enabled': { verdict: 'saved-by-preset', reason: 'one row of `timeline_clips`', via: 'timeline_clips' },
     'clip.video_path': { verdict: 'saved-by-preset', reason: 'one row of `timeline_clips`', via: 'timeline_clips' },
@@ -354,7 +404,11 @@ const CLASSIFIED: Record<string, Record<string, Classification>> = {
 
 const escapeRegex = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 const EDIT_HANDLERS = new Set(['click', 'change', 'input', 'blur', 'update'])
-const pageSource = (name: string) => readFileSync(new URL(`../pages/projects/[slug]/${name}`, import.meta.url), 'utf8')
+/** Pages by name under pages/projects/[slug]/; a `components/…` name reads that file. */
+const pageSource = (name: string) => readFileSync(
+  new URL(name.includes('/') ? `../${name}` : `../pages/projects/[slug]/${name}`, import.meta.url),
+  'utf8',
+)
 
 interface TemplateNode {
   type?: number

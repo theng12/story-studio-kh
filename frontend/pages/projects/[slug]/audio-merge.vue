@@ -338,6 +338,21 @@
       </div>
     </div>
 
+    <!-- The channel intro has one editing home: Video Assembly. This page only
+         links there and chooses nothing on the customer's behalf. -->
+    <div class="audio-mix-section">
+      <div class="audio-mix-section-heading">
+        <div>
+          <h3>Channel intro music</h3>
+          <p class="text-muted text-sm">Edited in Video Assembly, with this episode's visuals and opening.</p>
+        </div>
+        <NuxtLink
+          class="btn btn-sm btn-secondary"
+          :to="`/projects/${slug}/video-assembly?step=2&episode_id=${encodeURIComponent(episodeId)}`"
+        >Open in Video Assembly</NuxtLink>
+      </div>
+    </div>
+
     <!-- The voice controls are one compact group: gain and normalization are
          both choices about the narration master, not two unrelated panels. -->
     <div class="audio-mix-section audio-mix-section--voice">

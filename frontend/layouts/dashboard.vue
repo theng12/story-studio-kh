@@ -142,12 +142,15 @@
 
           <div class="nav-group">
             <span class="nav-section-label">Manage</span>
-            <NuxtLink :to="{ path: '/character-library', query: { channel: slug, project: slug } }" class="nav-item" active-class="active">
+            <!-- Channel Characters lives on the Character Sheet's roster since
+                 1.4.384; the old /character-library address redirects there.
+                 With no channel selected there is no sheet to open — the
+                 chooser takes over rather than a guessed slug. -->
+            <NuxtLink :to="slug ? `/projects/${slug}/character-sheet` : '/'" class="nav-item" active-class="active">
               <span class="nav-item-main"><span aria-hidden="true">🎭</span>Channel Characters</span>
             </NuxtLink>
-            <NuxtLink :to="`/projects/${slug}/effects-library`" class="nav-item" active-class="active">
-              <span class="nav-item-main"><span aria-hidden="true">✨</span>Effects Library</span>
-            </NuxtLink>
+            <!-- Effects Library removed from the sidebar (1.4.384): the
+                 editor is Video Assembly Step 4, the single editing home. -->
             <NuxtLink :to="`/projects/${slug}/presets`" class="nav-item" active-class="active">
               <span class="nav-item-main"><span aria-hidden="true">📋</span>Presets</span>
             </NuxtLink>

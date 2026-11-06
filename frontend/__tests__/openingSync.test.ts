@@ -46,7 +46,11 @@ test('nothing to say when sync is unaffected or not yet known', () => {
 
 test('Video Assembly shows the note in the opening step and next to Generate', () => {
   const page = readFileSync(new URL('../pages/projects/[slug]/video-assembly.vue', import.meta.url), 'utf8')
+  // Two placements: beside the Step 2 intro summary and beside Generate. The
+  // note is incumbent user-visible safety context — losing either before a
+  // render is the 2026-10-03 incident again.
   assert.equal(page.match(/v-if="openingSyncNote"/g)?.length, 2)
+  assert.match(page, /openingSyncNote\.text/)
   assert.match(page, /plan_opening_reserved_sec/)
   // Loaded on first paint too, not only after the episode or intro changes.
   assert.match(page, /watch\(\[\(\) => episodeId\.value, \(\) => intro\.enabled, \(\) => intro\.video_path\], \(\) => \{ loadIntroHold\(\) \}, \{ immediate: true \}\)/)

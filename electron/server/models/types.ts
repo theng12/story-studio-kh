@@ -3621,6 +3621,50 @@ export interface VideoChapterTitles {
    *  hard-cut at `duration` end. Default 0.5; clamped at runtime to
    *  `duration / 2` so a fade can never overlap itself. */
   animation_duration?: number
+  /**
+   * 1.4.384 — optional font presentation for chapter titles.
+   *
+   * Absent (every preset and episode saved before this release) renders the
+   * legacy chapter drawtext byte-identically — no face, colour, wrap or fit
+   * is assigned from any other channel setting. Output changes only when a
+   * face is explicitly picked here (an explicit `font_id`, or a deliberately
+   * selected `channel_look` whose pool resolved into `resolved_font_id`).
+   */
+  chapter_title_presentation?: ChapterTitlePresentation
+}
+
+/**
+ * How one face is chosen for a chapter title. Both sources resolve to a
+ * concrete bundled font id and stay stable across preview and retry:
+ * an explicit pick IS the id; the channel-look policy writes its pool's
+ * decision into `resolved_font_id` once, when the choice is made.
+ */
+export interface ChapterTitlePresentation {
+  /** Explicit bundled font id — the FontPicker's choice. */
+  font_id?: string
+  /** Deliberately follow the channel's existing lettering font-pool policy
+   *  (the Still Posts pools) instead of one named face. Never implied from
+   *  any other text setting — the customer switches this on. */
+  channel_look?: boolean
+  /** The pool's face for THIS episode, written when the choice is made.
+   *  Absent while channel_look has not resolved yet — the render then keeps
+   *  the legacy chapter look rather than picking a face on its own. */
+  resolved_font_id?: string
+  /** Shrink the heading until it fits the frame width. Absent/false keeps
+   *  the fixed legacy size. */
+  automatic_fit?: boolean
+  /** Applied only when a face is selected (explicit or resolved). */
+  appearance?: ChapterTitleAppearance
+}
+
+/** Colour, outline and wrapping of the chapter heading — render and preview share these. */
+export interface ChapterTitleAppearance {
+  /** Drawtext fontcolor as RRGGBB hex. Absent = the style's own colour. */
+  color?: string
+  /** Drawtext border width in px. Absent = the legacy 2. */
+  outline?: number
+  /** Break long headings into lines that fit the frame. Absent/false = one line, as today. */
+  wrap?: boolean
 }
 
 export interface VideoBackgroundMusic {

@@ -131,6 +131,7 @@ describe('live preview', () => {
 
 describe('the page itself', () => {
   const page = fs.readFileSync(new URL('../pages/projects/[slug]/effects-library.vue', import.meta.url), 'utf-8')
+  const editor = fs.readFileSync(new URL('../components/EpisodeEffectsEditor.vue', import.meta.url), 'utf-8')
   const canvas = fs.readFileSync(new URL('../utils/effect-preview-canvas.ts', import.meta.url), 'utf-8')
 
   test('the live preview draws loops with the program that bakes them', () => {
@@ -138,44 +139,45 @@ describe('the page itself', () => {
   })
 
   test('an episode change replaces the stack, never carries it over (AGENTS.md §4)', () => {
-    assert.match(page, /watch\(episodeId, \(\) => \{ load\(\) \}\)/)
-    assert.match(page, /Object\.assign\(file, emptyEffectsFile\(\)\)/)
+    assert.match(editor, /watch\(\(\) => `[^`]*props\.projectSlug[^`]*props\.episodeId[^`]*`, \(\) => \{\s*void load\(\)/)
+    assert.match(editor, /function clearDraft\(\)[\s\S]*?Object\.assign\(file, emptyEffectsFile\(\)\)/)
     // A save addresses the episode the file was loaded from.
-    assert.match(page, /const episode = fileEpisode\.value/)
+    assert.match(editor, /const episode = fileEpisode\.value/)
   })
 
   test('every action button carries a visible hint', () => {
     for (const label of ['Render Exact 6 s Preview', 'Save as Preset…', 'Save Stack as Preset…']) {
-      const at = page.indexOf(label)
+      const at = editor.indexOf(label)
       assert.ok(at > 0, label)
-      assert.match(page.slice(at, at + 400), /class="hint"/, `${label} has no visible hint beside it`)
+      assert.match(editor.slice(at, at + 400), /class="hint"/, `${label} has no visible hint beside it`)
     }
   })
 
-  test('the page holds no copy of the effect list', () => {
-    for (const entry of library) assert.ok(!page.includes(`'${entry.id}'`), `${entry.id} named in the page`)
+  test('the editor holds no copy of the effect list', () => {
+    for (const entry of library) assert.ok(!editor.includes(`'${entry.id}'`), `${entry.id} named in the editor`)
   })
 
   test('the gallery: every card is a lazily loaded clip whose URL follows the effect, plus Camera motions', () => {
     const clip = fs.readFileSync(new URL('../components/GalleryClip.vue', import.meta.url), 'utf-8')
     assert.match(clip, /IntersectionObserver/)
-    assert.match(page, /clipUrl\('overlay', entry\.id, entry\.document\)/)
-    assert.match(page, /documentVersion\(doc\)/)
+    assert.match(editor, /clipUrl\('overlay', entry\.id, entry\.document\)/)
+    assert.match(editor, /documentVersion\(doc\)/)
     assert.notEqual(lib.documentVersion({ kind: 'letterbox', mode: 'fit' }), lib.documentVersion({ kind: 'letterbox', mode: 'cover' }))
     assert.ok(lib.CATEGORY_TABS.some((tab: any) => tab.key === 'motions'))
     // No overlay belongs to the motions tab, so it never lists effects.
     assert.deepEqual(lib.sectionFor(library, 'motions', ''), [])
     for (const label of ['Refresh Previews']) {
-      const at = page.indexOf(label)
+      const at = editor.indexOf(label)
       assert.ok(at > 0, label)
-      assert.match(page.slice(at, at + 300), /class="hint"/, `${label} has no visible hint beside it`)
+      assert.match(editor.slice(at, at + 300), /class="hint"/, `${label} has no visible hint beside it`)
     }
-    assert.match(page, /In use on this channel/)
+    assert.match(editor, /In use on this channel/)
   })
 
-  test('the sidebar and the Presets page reach it', () => {
-    const layout = fs.readFileSync(new URL('../layouts/dashboard.vue', import.meta.url), 'utf-8')
-    assert.match(layout, /effects-library`[^>]*>[\s\S]{0,120}Effects Library</)
+  test('the old address forwards to Video Assembly and the Presets page still reaches the stack', () => {
+    assert.match(page, /effectsLibraryRedirect\(\{/)
+    const redirect = fs.readFileSync(new URL('../utils/editor-redirect.ts', import.meta.url), 'utf-8')
+    assert.match(redirect, /path: `\/projects\/\$\{encodeURIComponent\(channel\)\}\/video-assembly`, query \}/)
     const presets = fs.readFileSync(new URL('../pages/projects/[slug]/presets.vue', import.meta.url), 'utf-8')
     assert.match(presets, /configKey: 'effect_stack'/)
   })

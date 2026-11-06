@@ -27,7 +27,7 @@
         <h4 class="sp-h4">Characters <span class="sp-count">{{ castDraft.length }}/10</span></h4>
         <p v-if="!workspace?.characters.length" class="sp-help">
           This channel has no characters yet. Create one on the
-          <NuxtLink :to="{ path: '/character-library', query: { channel: slug, project: slug } }" class="sp-link">Channel Characters</NuxtLink>
+          <NuxtLink :to="`/projects/${slug}/character-sheet`" class="sp-link">Channel Characters</NuxtLink>
           page with at least one reference image, then come back.
         </p>
         <div v-else class="sp-cast">

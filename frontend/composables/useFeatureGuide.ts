@@ -511,6 +511,9 @@ const suffixToGuide: Record<string, string> = {
   'audio-merge': 'audio-merge',
   subtitles: 'subtitles',
   'character-sheet': 'character-sheet',
+  // The Effects Library page redirects into Video Assembly Step 4 (1.4.384);
+  // its old address keeps resolving to the guide for the page that replaced it.
+  'effects-library': 'video-assembly',
   'scene-plan': 'scene-plan',
   'sound-and-labels': 'sound-and-labels',
   // The two old addresses redirect here; their keys still resolve to this guide.

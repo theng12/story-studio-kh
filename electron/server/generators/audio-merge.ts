@@ -49,6 +49,7 @@ import { closingTailRemixInProgress, CLOSING_TAIL_REMIX_IN_PROGRESS } from '../s
 import { requireJobCompletion } from '../services/job-completion.js'
 import { chapterKeyOf, inspectChapterAudioReadiness, type ChapterAudioReadiness } from '../services/audio-workflow-readiness.js'
 import { safetyGate, safetyMode } from '../services/safety-checks.js'
+import type { ChannelIntroSelection } from '../services/channel-intro-asset.js'
 import { hashSubtitleAudioSources } from '../services/subtitle-completion.js'
 import { recordSubtitleSourceEvidence } from '../services/subtitle-recovery.js'
 import { ensureStitchedSubtitle } from '../lib/subtitle-autostitch.js'
@@ -814,6 +815,14 @@ export async function generateAudioMerge(job: Job): Promise<void> {
     }
   }
   if (req.intro?.file) req.intro.file = tryResolve(req.intro.file, 'intro.file') || ''
+  // Job3 (1.4.384) — an EXPLICIT channel-owned intro, chosen by a person and
+  // frozen at the job boundary. Nothing here reads a channel intro from config;
+  // with no `channel_intro` on the request every line below runs exactly as in
+  // release/1.4.383. A frozen copy is already absolute and passes through.
+  const channelIntro = (req as AudioMergeRequest & { channel_intro?: ChannelIntroSelection }).channel_intro
+  if (channelIntro?.source && isPortablePath(channelIntro.source)) {
+    channelIntro.source = tryResolve(channelIntro.source, 'channel_intro.source') || ''
+  }
   if (Array.isArray(req.chapters)) {
     req.chapters = req.chapters
       .map((c, i) => tryResolve(c, `chapters[${i}]`) || '')
@@ -965,8 +974,23 @@ export async function generateAudioMerge(job: Job): Promise<void> {
     let introRecord: MergedAudioIntroRecord | null = null
     const introEnabled = req.intro?.enabled && !!req.intro?.file
     let introPath = introEnabled && req.intro ? unescapeShellPath(req.intro.file)! : ''
+    // Job3 — the channel selection and the episode clip are ALTERNATIVES:
+    // channel wins when a person chose one, otherwise the release/1.4.383
+    // lines above are the whole story. ONE intro and ONE gap either way —
+    // never both — and the video opening is a different offset that is
+    // counted nowhere in this block.
+    const channelIntroSelected = !!channelIntro && channelIntro.enabled !== false
+      && !!(channelIntro.file || channelIntro.source)
+    if (channelIntroSelected && channelIntro) {
+      // Frozen bytes win: pinned at the job boundary, so a mid-run edit of
+      // the channel asset cannot change this merge. After a successful freeze
+      // `source`/`name` are diagnostics only — if the frozen copy is lost the
+      // availability check below fails LOUDLY; it never falls back to the
+      // mutable channel source.
+      introPath = channelIntro.file || channelIntro.source || ''
+    }
     if (introPath) {
-      const avail = checkAssetAvailability(introPath, 'intro.file')
+      const avail = checkAssetAvailability(introPath, channelIntroSelected ? 'channel_intro.file' : 'intro.file')
       if (avail.status !== 'available') {
         // The user explicitly enabled an intro, and losing it silently would surprise them. The
         // message already tells them to trigger the iCloud download when that's the cause.
@@ -977,8 +1001,29 @@ export async function generateAudioMerge(job: Job): Promise<void> {
         introPath = ''
       }
     }
-    if (introPath && req.intro) {
-      const introVol = Math.max(0, Math.min(1, req.intro.volume ?? 1))
+    // Verify the FROZEN copy's sha256 before it is consumed: a same-size
+    // corrupt cache must fail through the same intro_audio safety mode with a
+    // clear reason — never reach the merge, never fall back to `source`.
+    if (introPath && channelIntroSelected && channelIntro?.sha256) {
+      let mismatch = ''
+      try {
+        const { createHash } = await import('node:crypto')
+        const frozenBytes = await fs.readFile(introPath)
+        const digest = createHash('sha256').update(frozenBytes).digest('hex')
+        if (digest !== channelIntro.sha256) mismatch = `frozen copy hash ${digest.slice(0, 12)} does not match queued ${channelIntro.sha256.slice(0, 12)}`
+      } catch (e: any) {
+        mismatch = `frozen copy could not be read (${e?.message || e})`
+      }
+      if (mismatch) {
+        const message = `Channel intro failed its integrity check for this run: ${mismatch}. The frozen copy is not the bytes this job was queued with.`
+        if (await safetyMode(project_slug, 'intro_audio') === 'block') throw new Error(message)
+        await safetyGate(project_slug, 'intro_audio', job, `${message} Story assembles the narration without the intro.`)
+        introPath = ''
+      }
+    }
+    if (introPath && (channelIntroSelected || req.intro)) {
+      const introVol = Math.max(0, Math.min(1,
+        channelIntroSelected ? channelIntro?.volume ?? 1 : req.intro?.volume ?? 1))
       // Re-encode the intro at the target volume so we can safely concat it
       const introStaged = path.join(tempDir, 'intro_staged.mp3')
       await runFfmpeg([
@@ -989,7 +1034,8 @@ export async function generateAudioMerge(job: Job): Promise<void> {
       ], { timeoutMs: audioMergeTimeoutMs() })
       concatLines.push(escPath(introStaged))
 
-      const introGap = Math.max(0, req.intro.gap_after ?? 2)
+      const introGap = Math.max(0,
+        channelIntroSelected ? channelIntro?.gap_after ?? 0 : req.intro?.gap_after ?? 2)
       if (introGap > 0) {
         const introGapFile = path.join(tempDir, 'intro_gap.mp3')
         await runFfmpeg([
@@ -1004,12 +1050,18 @@ export async function generateAudioMerge(job: Job): Promise<void> {
       // is what the customer chose. A failed probe records null rather than 0
       // — an unknown length must not read as a zero-length intro.
       const introDur = Number(await getAudioDuration(introPath).catch(() => undefined))
+      // Name the record after what the CUSTOMER chose — for a channel intro
+      // that is the source's own filename, not the frozen copy's hash.
+      const introLabel = channelIntroSelected ? channelIntro?.name || path.basename(introPath) : path.basename(introPath)
       introRecord = {
-        filename: path.basename(introPath),
+        filename: introLabel,
         duration_sec: Number.isFinite(introDur) && introDur > 0 ? Math.round(introDur * 1000) / 1000 : null,
         gap_after_sec: introGap,
       }
-      job.output_lines.push(`Intro prepended (${path.basename(introPath)}, volume ${Math.round(introVol * 100)}%, ${introGap}s gap)`)
+      job.output_lines.push(`Intro prepended (${introLabel}, volume ${Math.round(introVol * 100)}%, ${introGap}s gap)`)
+      if (channelIntroSelected && channelIntro?.sha256) {
+        job.output_lines.push(`Channel intro frozen: ${introLabel} (sha256 ${channelIntro.sha256.slice(0, 12)}, ${channelIntro.bytes ?? 0} bytes)`)
+      }
     }
 
     for (let i = 0; i < chapterFiles.length; i++) {

@@ -46,12 +46,16 @@ const creationPages = {
 const libraryPages = {
   audioAssembly: source('../pages/projects/[slug]/audio-merge.vue'),
   characterSheet: source('../pages/projects/[slug]/character-sheet.vue'),
-  channelCharacters: source('../pages/character-library.vue'),
   presets: source('../pages/projects/[slug]/presets.vue'),
   thumbnailTemplates: source('../pages/projects/[slug]/thumbnail-templates.vue'),
   metadataTemplate: source('../pages/projects/[slug]/metadata-template.vue'),
   assetsLibrary: source('../pages/broll-library.vue'),
 }
+
+// 1.4.384: the Channel Characters page is a redirect adapter now — the shared
+// record editor (which carries these two sections) lives on the Character
+// Sheet as a dialog, so it is checked where it lives rather than as a page.
+const characterRecordEditor = source('../components/CharacterRecordEditor.vue')
 
 describe('workspace design system', () => {
   test('loads after the compatibility stylesheet', () => {
@@ -144,8 +148,8 @@ describe('workspace design system', () => {
       assert.match(page, /<WorkspaceHero/, `${pageName} must use WorkspaceHero`)
       assert.doesNotMatch(page, /class="page-header"/, `${pageName} must not restore a one-off header`)
     }
-    assert.match(libraryPages.channelCharacters, /Channel voice profiles/)
-    assert.match(libraryPages.channelCharacters, /Channel labels/)
+    assert.match(characterRecordEditor, /Channel voice profiles/)
+    assert.match(characterRecordEditor, /Channel labels/)
   })
 
   test('the shared action bar uses named regions and accessible control sizing', () => {

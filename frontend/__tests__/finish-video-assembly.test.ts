@@ -9,8 +9,8 @@ const script = page.slice(page.indexOf('<script setup'))
 
 test('video layout picker preserves the saved layout values and shows both samples', () => {
   const section = template.slice(template.indexOf('<!-- ─── Video Layout'), template.indexOf('<!-- Background plate picker'))
-  assert.match(section, /<VisualOptionPicker[\s\S]*:model-value="compilationLayout\.layout"/)
-  assert.match(section, /@update:model-value="value => compilationLayout\.layout = value as 'standard' \| 'compilation'"/)
+  assert.match(section, /<VisualOptionPicker[\s\S]*:model-value="renderAppearanceEdit\.compilationLayout\.layout"/)
+  assert.match(section, /@update:model-value="value => renderAppearanceEdit\.compilationLayout\.layout = value as 'standard' \| 'compilation'"/)
   assert.match(section, /value: 'standard'/)
   assert.match(section, /value: 'compilation'/)
   assert.match(section, /#sample/)
@@ -103,15 +103,38 @@ test('2: the render panel keeps the terminal status instead of saying Finished f
   assert.match(script, /const activeJobStatus = computed\(/)
 })
 
-test('5: Reveal effects loads its library and plan, and the plan can be asked for', () => {
+test('5: Reveal effects loads its library and plan on the switch and on an episode change', () => {
   assert.match(script, /watch\(\(\) => sceneReveal\.enabled, \(enabled\) => \{[\s\S]*?void loadRevealLibrary\(\)[\s\S]*?void loadRevealPlan\(\)/)
   assert.match(script, /watch\(\[slug, episodeId\], \(\) => \{\s*revealPlan\.value = null/)
-  assert.match(template, /v-if="!revealPlan" class="mt-3">[\s\S]*?Show Planned Arrivals/)
+  // A failed library read names the problem and offers a retry; the pack's own approximation is shown.
   assert.match(template, /revealLibraryError && !revealLibrary\.length/)
+  assert.match(template, /@click="loadRevealLibrary">Try Again/)
+  assert.match(template, /reveal-approx/)
+  // The plan is the render's own resolver: ask for it, refresh it, and reroll per scene.
+  assert.match(template, /v-if="!revealPlan"[\s\S]*?Show Planned Arrivals/)
+  assert.match(template, /Refresh Plan/)
+  assert.match(template, /revealDraftPending[\s\S]*?saved reveal settings/)
+  assert.match(template, /stageRevealReroll\(entry\.scene_id\)/)
 })
 
-test('6: a failed animations load shows an error with Try Again, not Loading forever', () => {
-  assert.match(template, /v-if="animationsCatalogLoading"[\s\S]*?v-else-if="animationsCatalogError"[\s\S]*?@click="loadAnimationsCatalog">Try Again/)
+test('5b: rerolls stay detached until Apply writes them to the captured episode', () => {
+  const stage = fnSource('stageRevealReroll')
+  assert.doesNotMatch(stage, /\b(put|post)\(/)
+  const flush = fnSource('flushStagedRevealRerolls')
+  assert.match(flush, /video-editor\/reveals\/scene-choice/)
+  assert.match(flush, /const channel = scope\.channel/)
+  assert.match(flush, /const episode = scope\.episode/)
+  assert.match(flush, /episode_id: episode/)
+  assert.match(flush, /await put\(/)
+  assert.match(flush, /stagedRevealRerolls\.value = stagedRevealRerolls\.value\.filter/)
+  const apply = fnSource('applyTitleMotion')
+  assert.match(apply, /flushStagedRevealRerolls\(draft\.scope\)/)
+  assert.ok(apply.indexOf('flushStagedRevealRerolls') > apply.indexOf('applyAssemblyStepDraft'))
+  assert.match(fnSource('closeTitleMotionEditor'), /stagedRevealRerolls\.value = \[\]/)
+})
+
+test('6: a failed animations load shows an error with Retry, not Loading forever', () => {
+  assert.match(template, /v-if="animationsCatalogLoading"[\s\S]*?v-else-if="animationsCatalogError"[\s\S]*?@click="loadAnimationsCatalog">Retry/)
   assert.doesNotMatch(template, /v-if="!animationsCatalog\.length"/)
   assert.doesNotMatch(fnSource('loadAnimationsCatalog'), /catch \{ \/\* non-fatal \*\/ \}/)
   assert.match(fnSource('loadAnimationsCatalog'), /animationsCatalogError\.value = /)
@@ -127,7 +150,7 @@ test('8: preset save/delete/rename report success only after the save finished',
   assert.doesNotMatch(template, /\.overwrite\(\); success\(/)
   assert.doesNotMatch(template, /\.remove\(\); success\(/)
   assert.doesNotMatch(template, /\.then\(\(\) => success\(/)
-  assert.equal((template.match(/@overwrite="finishPreset\(/g) || []).length, 7)
+  assert.equal((template.match(/@overwrite="finishPreset\(/g) || []).length, 5)
 
   const { code } = await transform(`async ${fnSource('finishPreset')}`, { loader: 'ts', format: 'esm' })
   const make = () => {

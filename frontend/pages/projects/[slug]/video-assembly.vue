@@ -471,156 +471,46 @@
         @delete="finishPreset(introPresets.remove(), 'Intro preset deleted')"
       />
 
-      <!-- Intro Video -->
+      <!-- Intro Video: the editor is a detached popup. This card is only the
+           applied summary; opening, browsing or Cancel writes nothing. -->
       <div class="settings-section mt-2">
-        <div class="flex gap-2 items-center">
-          <label class="checkbox-label" @click.stop>
-            <input type="checkbox" v-model="intro.enabled" />
-          </label>
-          <h4>Intro Video</h4>
-        </div>
-
-        <div v-if="intro.enabled" class="mt-2">
-          <div class="form-group">
-            <label>Intro Video Path <span class="text-muted text-xs">(.mp4, .mov, .mkv, .webm)</span></label>
-            <FilePicker
-              v-model="intro.video_path"
-              placeholder="No intro video chosen"
-              :filters="[{ name: 'Videos', extensions: ['mp4', 'mov', 'mkv', 'webm'] }]"
-              title="Choose an intro video"
-              aria-label="Intro video path"
-              :episodes-root="episodesRoot"
-              clearable
-            />
+        <div class="flex gap-2 items-center justify-between flex-wrap">
+          <div>
+            <h4>Intro Video</h4>
+            <p class="text-muted text-sm mt-1">{{ introSummary }}</p>
           </div>
-          <p class="text-muted text-sm mt-1">The intro video will play before the title image and scenes</p>
+          <button type="button" class="btn btn-sm btn-primary" :disabled="!episodeId" @click="openIntroEditor">Edit intro</button>
         </div>
+        <span v-if="!episodeId" class="text-muted text-xs">Pick an episode in Step 1 first.</span>
+        <p v-if="openingSyncNote" :class="['opening-sync-note', 'mt-2', `opening-sync-note--${openingSyncNote.tone}`]" role="status">{{ openingSyncNote.text }}</p>
       </div>
 
-      <!-- Outro Video -->
-      <div class="settings-section mt-2">
-        <div class="flex gap-2 items-center">
-          <label class="checkbox-label" @click.stop>
-            <input type="checkbox" v-model="outro.enabled" />
-          </label>
-          <h4>Outro Video</h4>
-        </div>
-
-        <div v-if="outro.enabled" class="mt-2">
-          <div class="form-group">
-            <label>Outro Video Path <span class="text-muted text-xs">(.mp4, .mov, .mkv, .webm)</span></label>
-            <FilePicker
-              v-model="outro.video_path"
-              placeholder="No outro video chosen"
-              :filters="[{ name: 'Videos', extensions: ['mp4', 'mov', 'mkv', 'webm'] }]"
-              title="Choose an outro video"
-              aria-label="Outro video path"
-              :episodes-root="episodesRoot"
-              clearable
-            />
-          </div>
-          <p class="text-muted text-sm mt-1">
-            The outro clip plays at the very end — after the post-audio tail. It never receives
-            effects (no colour grading, vignette, or grain), so a pre-made black-screen or
-            branded clip slots in cleanly without bloating file size.
-          </p>
-        </div>
-      </div>
-
-      <!-- Timeline clips (user-supplied, multi-position) -->
-      <div class="settings-section mt-2">
-        <div class="flex gap-2 items-center justify-between">
-          <h4 class="m-0">Timeline Clips</h4>
-          <button class="btn btn-sm btn-secondary" @click="addTimelineClip">+ Add Clip</button>
-        </div>
-        <p class="text-muted text-sm mt-1">
-          Insert your own video clips at named positions in the final render — sponsor stings, credits,
-          black-screen padding, etc. Clips play in the order shown within each anchor. They're always
-          effect-free (no colour grade, vignette, or grain) and don't go through the scene transitions.
-          Use <strong>After outro (very end)</strong> for sleep-story black screens so the channel
-          "dark room" stays uninterrupted.
-        </p>
-        <div v-if="!timelineClips.length" class="text-muted text-sm mt-1 italic-empty">
-          No timeline clips yet. Use the button above to add one.
-        </div>
-        <div v-for="(clip, i) in timelineClips" :key="clip.id" class="timeline-clip-row mt-2">
-          <div class="flex gap-2 items-center timeline-clip-header">
-            <span class="text-muted text-xs timeline-clip-num">#{{ i + 1 }}</span>
-            <label class="checkbox-label m-0" :title="clip.enabled ? 'Click to disable this clip' : 'Click to enable this clip'">
-              <input type="checkbox" v-model="clip.enabled" />
-            </label>
-            <select
-              :value="clip.kind || 'video'"
-              class="select select-sm timeline-kind-select"
-              :title="TIMELINE_KIND_OPTIONS.find(o => o.value === (clip.kind || 'video'))?.hint"
-              @change="setTimelineClipKind(clip.id, ($event.target as HTMLSelectElement).value as TimelineClipKind)"
-            >
-              <option v-for="opt in TIMELINE_KIND_OPTIONS" :key="opt.value" :value="opt.value">
-                {{ opt.label }}
-              </option>
-            </select>
-            <select v-model="clip.anchor" class="select select-sm timeline-anchor-select" :title="TIMELINE_ANCHOR_OPTIONS.find(o => o.value === clip.anchor)?.hint">
-              <option v-for="opt in TIMELINE_ANCHOR_OPTIONS" :key="opt.value" :value="opt.value">
-                {{ opt.label }}
-              </option>
-            </select>
-            <div class="flex gap-1 ml-auto">
-              <button class="btn btn-sm btn-secondary" :disabled="i === 0" @click="moveTimelineClip(clip.id, -1)" title="Move up">▲</button>
-              <button class="btn btn-sm btn-secondary" :disabled="i === timelineClips.length - 1" @click="moveTimelineClip(clip.id, 1)" title="Move down">▼</button>
-              <button class="btn btn-sm btn-danger" @click="removeTimelineClip(clip.id)" title="Remove this clip">✕</button>
+      <Modal
+        :visible="introEditorOpen"
+        size="lg"
+        labelledby="assembly-intro-title"
+        :close-on-backdrop="false"
+        :close-on-escape="false"
+      >
+        <div>
+          <header style="display: flex; align-items: flex-start; gap: 12px; margin-bottom: 12px;">
+            <div style="flex: 1;">
+              <span class="text-muted text-xs">Saved for this episode only — Video Assembly uses it on the next render</span>
+              <h3 id="assembly-intro-title">Intro · {{ introEditorScope?.episode || 'no episode' }}</h3>
             </div>
-          </div>
-
-          <!-- Video kind: pick an .mp4/.mov/.mkv/.webm. -->
-          <FilePicker
-            v-if="(clip.kind || 'video') === 'video'"
-            v-model="clip.video_path"
-            placeholder="No video chosen"
-            :filters="[{ name: 'Videos', extensions: ['mp4', 'mov', 'mkv', 'webm'] }]"
-            title="Choose a timeline clip"
-            :aria-label="`Timeline clip ${i + 1} path`"
-            :episodes-root="episodesRoot"
-            clearable
+          </header>
+          <AssemblyIntroEditor
+            v-if="introEditorOpen && introEditorScope"
+            :key="`${introEditorScope.channel}/${introEditorScope.episode}`"
+            :slug="introEditorScope.channel || ''"
+            :episode-id="introEditorScope.episode || ''"
+            :fullsettings="introEditorSettings"
+            @applied="commitAppliedIntro"
+            @refresh="scanAssets"
+            @cancel="closeIntroEditor"
           />
-
-          <!-- Static kind: image picker + duration in minutes. Stored as
-               seconds on the clip; the UI converts for legibility (a 2-hour
-               sleep-story tail is much easier to enter as 120 min). -->
-          <template v-else>
-            <FilePicker
-              v-model="(clip as TimelineClipStatic).image_path"
-              placeholder="No still image chosen"
-              :filters="[{ name: 'Images', extensions: ['jpg', 'jpeg', 'png', 'webp'] }]"
-              title="Choose a still image for the static segment"
-              :aria-label="`Timeline clip ${i + 1} image path`"
-              :episodes-root="episodesRoot"
-              clearable
-            />
-            <div class="flex gap-2 mt-1 items-center">
-              <label class="dim-inline-label">Duration (min)</label>
-              <input
-                type="number"
-                class="input input-sm input-w-100"
-                min="0.1"
-                step="0.5"
-                :value="clipDurationMinutes(clip as TimelineClipStatic)"
-                @input="setClipDurationMinutes(clip as TimelineClipStatic, parseFloat(($event.target as HTMLInputElement).value))"
-              />
-              <span class="text-muted text-xs">
-                = {{ ((clip as TimelineClipStatic).duration_sec || 0).toFixed(0) }}s
-              </span>
-            </div>
-            <p class="text-muted text-xs mt-1">
-              Static segment — pipeline synthesises this from the single image at the channel's resolution + fps.
-              Audio (background music / ambient noise) comes from the Music tab in Step 4 and loops automatically across this duration.
-            </p>
-          </template>
-
-          <p class="text-muted text-xs mt-1">
-            {{ TIMELINE_ANCHOR_OPTIONS.find(o => o.value === clip.anchor)?.hint }}
-          </p>
         </div>
-      </div>
+      </Modal>
 
       <div class="step-nav mt-3">
         <button class="btn btn-secondary" @click="goToStep(1)">Back</button>
@@ -632,6 +522,460 @@
     <div v-if="currentStep === 3" class="card workspace-section assembly-step-panel">
       <h3>Step 3: Title &amp; Timeline</h3>
       <p class="text-muted mt-1">Configure title image, {{ visualSource === 'image_pool' ? 'Image Pool timing, ' : 'scene recycling, ' }}and transitions</p>
+
+      <!-- Per-episode step 3 editor (1.4.384): a detached draft of this step's
+           title, motion and chapter settings. Opening, browsing, Escape and close
+           write nothing; Apply is the only write and it lands on this episode. -->
+      <div class="settings-section mt-2">
+        <div class="flex gap-2 items-center justify-between flex-wrap">
+          <div>
+            <h4>Title, motion &amp; chapter settings</h4>
+            <p class="text-muted text-sm mt-1">{{ titleMotionSummary }}</p>
+          </div>
+          <button type="button" class="btn btn-sm btn-primary" :disabled="!episodeId" @click="openTitleMotionEditor">Edit title, motion &amp; chapters</button>
+        </div>
+        <span v-if="!episodeId" class="text-muted text-xs">Pick an episode in Step 1 first.</span>
+      </div>
+
+      <Modal
+        :visible="!!titleMotionDraft"
+        size="xxl"
+        labelledby="title-motion-title"
+        @close="closeTitleMotionEditor"
+      >
+        <div style="display: flex; flex-direction: column; min-height: 0; max-height: 78vh;">
+          <header style="display: flex; align-items: flex-start; gap: 12px; margin-bottom: 12px;">
+            <div style="flex: 1;">
+              <span class="text-muted text-xs">Saved for this episode only — Video Assembly uses it on the next render</span>
+              <h3 id="title-motion-title">Title, motion &amp; chapters · {{ titleMotionDraft?.scope.episode || 'no episode' }}</h3>
+            </div>
+            <button type="button" class="btn btn-sm btn-secondary" :disabled="titleMotionApplying" @click="closeTitleMotionEditor">Close</button>
+          </header>
+          <div :inert="titleMotionApplying ? true : undefined" style="flex: 1; min-height: 0; overflow-y: auto;">
+            <template v-if="titleMotion">
+              <!-- Title image -->
+              <div class="settings-section mt-2">
+                <label class="checkbox-label">
+                  <input v-model="titleMotion.timeline.title_image.enabled" type="checkbox" />
+                  Title image / cover frame
+                </label>
+                <div v-if="titleMotion.timeline.title_image.enabled" class="mt-2">
+                  <div v-if="scannedAssets?.thumbnails?.length" class="form-group">
+                    <label>Select thumbnail</label>
+                    <div class="thumb-picker-images mt-1">
+                      <div
+                        v-for="(thumb, i) in scannedAssets.thumbnails"
+                        :key="i"
+                        :class="['thumb-card-img', { selected: titleMotion.timeline.title_image.image_path === thumb.path }]"
+                        @click="pickTitleMotionImage(thumb.path)"
+                        :title="thumb.filename"
+                      >
+                        <ResilientImage :src="getImagePreviewUrl(thumb.path)" :alt="thumb.filename" class="thumb-preview" compact />
+                        <span v-if="titleMotion.timeline.title_image.image_path === thumb.path" class="thumb-check">✓</span>
+                        <span class="thumb-label">{{ thumb.filename.replace(/\.[^.]+$/, '') }}</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="form-group mt-1">
+                    <label>Custom image path</label>
+                    <FilePicker
+                      v-model="titleMotion.timeline.title_image.image_path"
+                      placeholder="No title image chosen"
+                      :filters="[{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp'] }]"
+                      title="Choose a title image"
+                      aria-label="Title image path"
+                      clearable
+                    />
+                  </div>
+                  <div class="grid-3 mt-1">
+                    <div class="form-group">
+                      <label>Duration ({{ titleMotion.timeline.title_image.duration }}s)</label>
+                      <SliderWithNumber v-model="titleMotion.timeline.title_image.duration" :min="0.5" :max="15" :step="0.5" :decimals="1" suffix="s" />
+                    </div>
+                    <div class="form-group">
+                      <label>Transition type</label>
+                      <VisualOptionPicker
+                        v-model="titleMotion.timeline.title_image.transition_type"
+                        :options="TITLE_IMAGE_TRANSITION_OPTIONS"
+                        title="Title image transition"
+                        description="How the title image hands over to scene 1."
+                      >
+                        <template #sample="{ option }"><TransitionSample :kind="option.value" /></template>
+                      </VisualOptionPicker>
+                    </div>
+                    <div class="form-group">
+                      <label>Transition duration ({{ titleMotion.timeline.title_image.transition_duration || titleMotion.timeline.transition.duration }}s)</label>
+                      <SliderWithNumber
+                        v-model="titleMotion.timeline.title_image.transition_duration"
+                        :min="0.5"
+                        :max="3.0"
+                        :step="0.1"
+                        :decimals="1"
+                        suffix="s"
+                        :disabled="titleMotion.timeline.title_image.transition_type === 'none'"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Scene transitions -->
+              <div class="settings-section mt-2">
+                <h4>Scene transitions</h4>
+                <p class="text-muted text-sm hint-line">One primary transition, optionally pooled for randomization.</p>
+                <div v-if="transitionsCatalogLoading" class="text-muted text-sm catalog-loading">Loading transitions…</div>
+                <div v-else-if="transitionsCatalogError" class="ffmpeg-warning" role="alert">
+                  <p class="text-muted text-md">We couldn't load the list of transitions.</p>
+                  <p class="text-muted text-xs">Technical details: <code>{{ transitionsCatalogError }}</code></p>
+                  <button type="button" class="btn btn-sm btn-secondary mt-1" @click="loadTransitionsCatalog">Retry</button>
+                </div>
+                <TransitionPicker
+                  v-else
+                  :slug="slug"
+                  :episode-id="episodeId"
+                  :aspect-ratio="exportSettings.aspect_ratio"
+                  :transitions="transitionsCatalog"
+                  :primary-id="titleMotion.timeline.transition.type"
+                  :pool="titleMotion.timeline.transition.pool"
+                  :duration="titleMotion.timeline.transition.duration"
+                  :randomize-mode="titleMotion.timeline.transition.randomize_mode"
+                  @update:primary-id="(id) => titleMotion.timeline.transition.type = id"
+                  @update:pool="(p) => titleMotion.timeline.transition.pool = p"
+                  @update:duration="(d) => titleMotion.timeline.transition.duration = d"
+                  @update:randomize-mode="(m) => titleMotion.timeline.transition.randomize_mode = m"
+                />
+              </div>
+
+              <!-- Scene motion -->
+              <div class="settings-section mt-2">
+                <h4>Scene motion</h4>
+                <div v-if="animationsCatalogLoading" class="text-muted text-sm catalog-loading">Loading animations…</div>
+                <div v-else-if="animationsCatalogError" class="ffmpeg-warning" role="alert">
+                  <p class="text-muted text-md">We couldn't load the animation list.</p>
+                  <p class="text-muted text-xs">{{ animationsCatalogError }}</p>
+                  <button type="button" class="btn btn-sm btn-secondary mt-1" @click="loadAnimationsCatalog">Retry</button>
+                </div>
+                <AnimationPicker
+                  v-else
+                  :slug="slug"
+                  :episode-id="episodeId"
+                  :aspect-ratio="exportSettings.aspect_ratio"
+                  :animations="animationsCatalog"
+                  :families="animationFamilies"
+                  :primary-id="titleMotion.timeline.scene_animation.type"
+                  :pool="titleMotion.timeline.scene_animation.pool"
+                  :randomize-mode="titleMotion.timeline.scene_animation.randomize_mode"
+                  @update:primary-id="(id) => titleMotion.timeline.scene_animation.type = id"
+                  @update:pool="(p) => titleMotion.timeline.scene_animation.pool = p"
+                  @update:randomize-mode="(m) => titleMotion.timeline.scene_animation.randomize_mode = m"
+                />
+                <div v-if="titleMotion.timeline.scene_animation.type === 'ken-burns'" class="mt-2">
+                  <div class="grid-2">
+                    <div class="form-group">
+                      <label>Start zoom ({{ titleMotion.timeline.scene_animation.zoom_start }}%)</label>
+                      <SliderWithNumber v-model="titleMotion.timeline.scene_animation.zoom_start" :min="90" :max="120" :step="1" suffix="%" />
+                    </div>
+                    <div class="form-group">
+                      <label>End zoom ({{ titleMotion.timeline.scene_animation.zoom_end }}%)</label>
+                      <SliderWithNumber v-model="titleMotion.timeline.scene_animation.zoom_end" :min="95" :max="130" :step="1" suffix="%" />
+                    </div>
+                  </div>
+                </div>
+                <div v-else-if="titleMotion.timeline.scene_animation.type === 'parallax-drift'" class="mt-2 grid-2">
+                  <div class="form-group">
+                    <label>Direction</label>
+                    <select v-model="titleMotion.timeline.scene_animation.parallax_direction" class="select">
+                      <option value="left">Left</option>
+                      <option value="right">Right</option>
+                      <option value="up">Up</option>
+                      <option value="down">Down</option>
+                    </select>
+                  </div>
+                  <div class="form-group">
+                    <label>Speed ({{ titleMotion.timeline.scene_animation.parallax_speed }})</label>
+                    <SliderWithNumber v-model="titleMotion.timeline.scene_animation.parallax_speed" :min="1" :max="5" :step="1" />
+                  </div>
+                </div>
+                <div v-else-if="titleMotion.timeline.scene_animation.type === 'breathe'" class="mt-2 grid-2">
+                  <div class="form-group">
+                    <label>Base zoom ({{ titleMotion.timeline.scene_animation.breathe_base_zoom }}%)</label>
+                    <SliderWithNumber v-model="titleMotion.timeline.scene_animation.breathe_base_zoom" :min="100" :max="110" :step="1" suffix="%" />
+                  </div>
+                  <div class="form-group">
+                    <label>Amplitude ({{ titleMotion.timeline.scene_animation.breathe_amplitude }}%)</label>
+                    <SliderWithNumber v-model="titleMotion.timeline.scene_animation.breathe_amplitude" :min="1" :max="5" :step="1" suffix="%" />
+                  </div>
+                </div>
+              </div>
+
+              <!-- Sketch Draw / reveal effects -->
+              <div class="settings-section mt-2 reveal-panel">
+                <label class="reveal-toggle">
+                  <input v-model="titleMotion.timeline.scene_reveal.enabled" type="checkbox">
+                  <span><strong>Sketch Draw reveal effects</strong> — each scene arrives in pieces, then holds and drifts.</span>
+                </label>
+                <template v-if="titleMotion.timeline.scene_reveal.enabled">
+                  <div class="grid-2 mt-2">
+                    <div class="form-group">
+                      <label>Pace</label>
+                      <select v-model="titleMotion.timeline.scene_reveal.pace" class="select">
+                        <option v-for="pace in revealPaces" :key="pace.id" :value="pace.id">{{ pace.name }}</option>
+                      </select>
+                      <small class="text-muted">{{ revealPaceHint }}</small>
+                    </div>
+                    <div class="form-group">
+                      <label>Look changes</label>
+                      <select v-model="titleMotion.timeline.scene_reveal.coherence" class="select">
+                        <option value="scene">Every scene</option>
+                        <option value="act">Once per act</option>
+                        <option value="episode">Once per episode</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div class="grid-2 mt-2">
+                    <div class="form-group">
+                      <label>Episode seed</label>
+                      <input v-model.number="titleMotion.timeline.scene_reveal.seed" type="number" class="input" min="0" step="1">
+                    </div>
+                    <div class="form-group">
+                      <label>Cap per effect</label>
+                      <input v-model.number="titleMotion.timeline.scene_reveal.cap_per_effect" type="number" class="input" min="0" step="1">
+                    </div>
+                  </div>
+                  <div class="form-group mt-2">
+                    <label>Pool — the looks this episode may draw from</label>
+                    <div v-if="revealLibraryError && !revealLibrary.length" class="ffmpeg-warning" role="alert">
+                      <p class="text-muted text-md">
+                        We couldn't load the list of reveal looks. Rendering still works and uses the standard looks.
+                      </p>
+                      <p class="text-muted text-xs">{{ revealLibraryError }}</p>
+                      <button type="button" class="btn btn-sm btn-secondary mt-1" @click="loadRevealLibrary">Try Again</button>
+                    </div>
+                    <div v-else-if="!revealLibrary.length" class="text-muted text-sm">Loading the reveal library…</div>
+                    <div v-else class="reveal-pool">
+                      <label v-for="preset in revealLibrary" :key="preset.id" class="reveal-pool-row">
+                        <input
+                          type="checkbox"
+                          :checked="titleMotion.timeline.scene_reveal.pool.includes(preset.id)"
+                          @change="toggleTitleMotionRevealPool(preset.id, ($event.target as HTMLInputElement).checked)"
+                        >
+                        <span>
+                          <strong>{{ preset.name }}</strong>
+                          <small class="text-muted"> · {{ preset.family }}</small>
+                          <small v-if="preset.approximation" class="reveal-approx"> · {{ preset.approximation }}</small>
+                        </span>
+                      </label>
+                    </div>
+                    <small class="text-muted">Nothing ticked uses the engine's default six wipes.</small>
+                  </div>
+
+                  <div class="mt-3">
+                    <p v-if="!sceneReveal.enabled" class="text-muted text-sm">
+                      Apply reveal effects to see the planned arrivals.
+                    </p>
+                    <template v-else>
+                      <button
+                        v-if="!revealPlan"
+                        class="btn btn-secondary btn-sm"
+                        :disabled="revealPlanLoading || !episodeId"
+                        @click="loadRevealPlan()"
+                      >
+                        {{ revealPlanLoading ? 'Planning…' : 'Show Planned Arrivals' }}
+                      </button>
+                      <div v-else>
+                        <div class="reveal-plan-head">
+                          <strong>Planned arrivals</strong>
+                          <button class="btn btn-secondary btn-sm" :disabled="revealPlanLoading" @click="loadRevealPlan()">
+                            {{ revealPlanLoading ? 'Planning…' : 'Refresh Plan' }}
+                          </button>
+                        </div>
+                        <p class="text-muted text-sm">
+                          Scene track {{ revealPlanTotal }}s across {{ revealPlan.scenes.length }} scene(s) —
+                          the lengths the render will use.
+                        </p>
+                        <p v-if="revealDraftPending" class="text-muted text-sm" role="status">
+                          This plan uses the episode's saved reveal settings. Apply saves your changes; then Refresh Plan.
+                        </p>
+                        <ul class="reveal-plan">
+                          <li v-for="entry in revealPlan.scenes" :key="entry.scene_id">
+                            <span class="reveal-plan-scene">{{ entry.scene_index + 1 }}</span>
+                            <span class="reveal-plan-name">{{ revealName(entry.preset_id) }}</span>
+                            <span class="text-muted">{{ entry.hold.reveal_seconds.toFixed(1) }}s + {{ entry.hold.hold_seconds.toFixed(1) }}s</span>
+                            <span v-if="entry.source === 'override'" class="reveal-plan-badge">your choice</span>
+                            <button class="btn btn-secondary btn-sm" :disabled="revealPlanLoading" @click="stageRevealReroll(entry.scene_id)">
+                              {{ stagedRevealRerolls.some(reroll => reroll.scene_id === entry.scene_id) ? 'Reroll on Apply' : 'Reroll' }}
+                            </button>
+                          </li>
+                        </ul>
+                        <p v-if="stagedRevealRerolls.length" class="text-muted text-sm" role="status">
+                          {{ stagedRevealRerolls.length }} reroll(s) will be saved when you Apply. Cancel leaves them unchanged.
+                        </p>
+                      </div>
+                    </template>
+                  </div>
+                </template>
+              </div>
+
+              <!-- Title card -->
+              <div class="settings-section mt-2">
+                <label class="checkbox-label">
+                  <input v-model="titleMotion.effects.title_card.enabled" type="checkbox" />
+                  Title card
+                </label>
+                <div v-if="titleMotion.effects.title_card.enabled" class="mt-2">
+                  <div class="grid-2 mt-1">
+                    <div class="form-group">
+                      <label>Title text</label>
+                      <input v-model="titleMotion.effects.title_card.text" class="input" placeholder="Episode title" />
+                    </div>
+                    <div class="form-group">
+                      <label>Subtitle (optional)</label>
+                      <input v-model="titleMotion.effects.title_card.subtitle" class="input" placeholder="Subtitle text" />
+                    </div>
+                  </div>
+                  <div class="grid-3 mt-1">
+                    <div class="form-group">
+                      <label>Duration ({{ titleMotion.effects.title_card.duration }}s)</label>
+                      <SliderWithNumber v-model="titleMotion.effects.title_card.duration" :min="1" :max="10" :step="1" suffix="s" />
+                    </div>
+                    <div class="form-group">
+                      <label>Style</label>
+                      <VisualOptionPicker
+                        v-model="titleMotion.effects.title_card.style"
+                        :options="TITLE_CARD_STYLE_OPTIONS"
+                        title="Title card style"
+                        description="The colour the episode title is drawn in."
+                      >
+                        <template #sample="{ option }">
+                          <span class="tc-style-sample" :class="`tc-style--${option.value}`">{{ option.label }}</span>
+                        </template>
+                      </VisualOptionPicker>
+                    </div>
+                    <div class="form-group">
+                      <label>Background</label>
+                      <VisualOptionPicker
+                        v-model="titleMotion.effects.title_card.background"
+                        :options="TITLE_CARD_BACKGROUND_OPTIONS"
+                        title="Title card background"
+                        description="The fill behind the title when no background media is picked."
+                      >
+                        <template #sample="{ option }">
+                          <span class="tc-bg-sample" :class="`tc-bg--${option.value}`">
+                            <code>{{ TITLE_CARD_BACKGROUND_COLORS[option.value as keyof typeof TITLE_CARD_BACKGROUND_COLORS] }}</code>
+                          </span>
+                        </template>
+                      </VisualOptionPicker>
+                    </div>
+                  </div>
+                  <div class="form-group mt-1">
+                    <label>Background image / looping video <span class="text-muted">(optional)</span></label>
+                    <FilePicker
+                      v-model="titleMotion.effects.title_card.background_media_path"
+                      placeholder="Use selected color style"
+                      :filters="[{ name: 'Media', extensions: ['png', 'jpg', 'jpeg', 'webp', 'mp4', 'mov', 'webm'] }]"
+                      title="Choose title card background media"
+                      aria-label="Title card background media"
+                      clearable
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <!-- Chapter titles -->
+              <div class="settings-section mt-2">
+                <label class="checkbox-label">
+                  <input v-model="titleMotion.effects.chapter_titles.enabled" type="checkbox" />
+                  Chapter titles
+                </label>
+                <div v-if="titleMotion.effects.chapter_titles.enabled" class="mt-2">
+                  <div class="grid-3 mt-1">
+                    <div class="form-group">
+                      <label>Style</label>
+                      <select v-model="titleMotion.effects.chapter_titles.style" class="select">
+                        <option value="gold">Gold</option>
+                        <option value="white">White</option>
+                        <option value="neon">Neon</option>
+                        <option value="minimal">Minimal</option>
+                      </select>
+                    </div>
+                    <div class="form-group">
+                      <label>Position</label>
+                      <select v-model="titleMotion.effects.chapter_titles.position" class="select">
+                        <option value="top">Top</option>
+                        <option value="center">Center</option>
+                        <option value="bottom">Bottom</option>
+                      </select>
+                    </div>
+                    <div class="form-group">
+                      <label>Font size</label>
+                      <select v-model="titleMotion.effects.chapter_titles.font_size" class="select">
+                        <option value="small">Small</option>
+                        <option value="medium">Medium</option>
+                        <option value="large">Large</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div class="form-group mt-1">
+                    <label>Duration ({{ titleMotion.effects.chapter_titles.duration }}s)</label>
+                    <SliderWithNumber v-model="titleMotion.effects.chapter_titles.duration" :min="1" :max="5" :step="1" suffix="s" />
+                  </div>
+                  <div class="grid-2 mt-1">
+                    <div class="form-group">
+                      <label>Animation</label>
+                      <select v-model="titleMotion.effects.chapter_titles.animation" class="select">
+                        <option value="none">None (static)</option>
+                        <option value="fade-in-out">Fade in + out</option>
+                        <option value="slide-from-left">Slide in · from left</option>
+                        <option value="slide-from-right">Slide in · from right</option>
+                        <option value="slide-up">Slide in · from below</option>
+                      </select>
+                    </div>
+                    <div v-if="titleMotion.effects.chapter_titles.animation && titleMotion.effects.chapter_titles.animation !== 'none'" class="form-group">
+                      <label>Transition ({{ (titleMotion.effects.chapter_titles.animation_duration ?? 0.5).toFixed(2) }}s)</label>
+                      <SliderWithNumber
+                        v-model="titleMotion.effects.chapter_titles.animation_duration"
+                        :min="0.1"
+                        :max="Math.max(0.1, titleMotion.effects.chapter_titles.duration / 2)"
+                        :step="0.05"
+                        :decimals="2"
+                        suffix="s"
+                      />
+                    </div>
+                  </div>
+                  <!-- Font choice. The sample is this episode's real heading over its
+                       own scene image; nothing is invented when neither exists. -->
+                  <div v-if="titleMotionChapterSample.text" class="mt-2">
+                    <ChapterTitleFontEditor
+                      v-model="titleMotion.effects.chapter_titles.chapter_title_presentation"
+                      :sample-text="titleMotionChapterSample.text"
+                      :background="titleMotionChapterSample.background"
+                      :style-color="titleMotion.effects.chapter_titles.style"
+                      :pool="titleMotionPool"
+                    />
+                  </div>
+                  <p v-else class="text-muted text-sm mt-2">
+                    This episode has no saved chapter heading to preview yet. Choose a chapter font
+                    only after its Scene Plan supplies one.
+                  </p>
+                </div>
+              </div>
+            </template>
+          </div>
+          <footer style="display: flex; align-items: center; gap: 12px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border);">
+            <p v-if="titleMotionError" class="text-danger text-sm" role="alert" style="margin: 0; flex: 1;">{{ titleMotionError }}</p>
+            <span v-else class="text-muted text-sm" style="margin: 0; flex: 1;">Your edits stay in this draft until Apply.</span>
+            <div style="display: flex; gap: 8px;">
+              <button type="button" class="btn btn-secondary" :disabled="titleMotionApplying" @click="closeTitleMotionEditor">Cancel</button>
+              <button
+                type="button"
+                class="btn btn-primary"
+                :disabled="titleMotionApplying || !episodeId"
+                @click="applyTitleMotion"
+              >{{ titleMotionApplying ? 'Applying…' : 'Apply' }}</button>
+            </div>
+          </footer>
+        </div>
+      </Modal>
 
       <PresetPicker
         label="Timeline preset"
@@ -645,112 +989,6 @@
         @rename="(n) => finishPreset(timelinePresets.rename(n), `Renamed to ${n}`)"
         @delete="finishPreset(timelinePresets.remove(), 'Timeline preset deleted')"
       />
-
-      <!-- Title Image / Cover Frame -->
-      <div class="settings-section mt-2">
-        <div class="flex gap-2 items-center">
-          <label class="checkbox-label" @click.stop>
-            <input type="checkbox" v-model="titleImage.enabled" />
-          </label>
-          <h4>Title Image / Cover Frame</h4>
-        </div>
-
-        <p class="text-muted text-xs hint-line mt-1">
-          An opening still shown before scenes begin. For vertical Shorts, this serves as the YouTube / TikTok cover frame. The selected image belongs to this episode and is never saved in presets (batch renders auto-use the episode thumbnail).
-        </p>
-
-        <div v-if="titleImage.enabled" class="mt-2">
-          <!-- Thumbnail picker with image previews -->
-          <div v-if="scannedAssets?.thumbnails?.length" class="form-group">
-            <label>Select Thumbnail ({{ scannedAssets.thumbnails.length }})</label>
-            <div class="thumb-picker-images mt-1">
-              <div
-                v-for="(thumb, i) in scannedAssets.thumbnails"
-                :key="i"
-                :class="['thumb-card-img', { selected: titleImage.image_path === thumb.path }]"
-                @click="pickTitleImage(thumb.path)"
-                :title="thumb.filename"
-              >
-                <ResilientImage
-                  :src="getImagePreviewUrl(thumb.path)"
-                  :alt="thumb.filename"
-                  class="thumb-preview"
-                  compact
-                />
-                <span v-if="titleImage.image_path === thumb.path" class="thumb-check">✓</span>
-                <span class="thumb-label">{{ thumb.filename.replace(/\.[^.]+$/, '') }}</span>
-              </div>
-            </div>
-          </div>
-
-          <div class="form-group mt-1">
-            <label>Custom Image Path</label>
-            <FilePicker
-              v-model="titleImage.image_path"
-              placeholder="No title image chosen (or pick one from thumbnails above)"
-              :filters="[{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp'] }]"
-              title="Choose a title image"
-              aria-label="Title image path"
-              :episodes-root="episodesRoot"
-              clearable
-            />
-          </div>
-
-          <!-- Title Image Preview -->
-          <div v-if="titleImage.enabled && titleImage.image_path" class="title-image-preview mt-2">
-            <label class="sub-section-label">Preview</label>
-            <div class="preview-frame mt-1">
-              <ResilientImage
-                :src="getImagePreviewUrl(titleImage.image_path)"
-                alt="Title image preview"
-                class="preview-img"
-              />
-            </div>
-            <p class="text-muted text-xs hint-line">This image will display for {{ titleImage.duration }}s before scenes begin</p>
-          </div>
-
-          <p v-if="openingSyncNote" :class="['opening-sync-note', 'mt-2', `opening-sync-note--${openingSyncNote.tone}`]" role="status">{{ openingSyncNote.text }}</p>
-
-          <!-- The staged Scene Plan owns branded-opening timing. -->
-          <div v-if="introHold?.opening_mode === 'branded-opening'" class="intro-hold-note mt-2">
-            <strong>Opening timing is controlled by Scene Plan.</strong>
-            The intro clip is trimmed or padded to the reserved opening window, then scene 1 starts immediately.
-          </div>
-
-          <div class="grid-3 mt-1">
-            <div class="form-group">
-              <label>Duration ({{ titleImage.duration }}s)</label>
-              <SliderWithNumber v-model="titleImage.duration" :min="0.5" :max="15" :step="0.5" :decimals="1" suffix="s" />
-              <p class="text-muted text-xs hint-line">
-                Adds {{ titleImage.duration }}s to total runtime. Cover frames on Shorts typically use 0.5–1s; sleep stories 3–5s.
-              </p>
-            </div>
-            <div class="form-group">
-              <label>Transition Type</label>
-              <VisualOptionPicker
-                v-model="titleImage.transition_type"
-                :options="TITLE_IMAGE_TRANSITION_OPTIONS"
-                title="Title image transition"
-                description="How the title image hands over to scene 1."
-              >
-                <template #sample="{ option }"><TransitionSample :kind="option.value" /></template>
-              </VisualOptionPicker>
-            </div>
-            <div class="form-group">
-              <label>Transition Duration ({{ titleImage.transition_duration || transition.duration }}s)</label>
-              <SliderWithNumber
-                v-model="titleImage.transition_duration"
-                :min="0.5"
-                :max="3.0"
-                :step="0.1"
-                :decimals="1"
-                suffix="s"
-                :disabled="titleImage.transition_type === 'none'"
-              />
-            </div>
-          </div>
-        </div>
-      </div>
 
       <div v-if="visualSource === 'scene_plan'" class="settings-section mt-2">
         <p class="text-muted text-sm hint-line">
@@ -766,251 +1004,6 @@
         </p>
         <p v-else class="text-muted text-sm hint-line">Pick an Image Pool sequence before rendering.</p>
         <p class="text-muted text-xs hint-line">Change the pool and seconds per image on the Image Pool page. Motion, transitions, and all presentation settings below still apply.</p>
-      </div>
-
-      <!-- Transition Settings -->
-      <div class="settings-section mt-2">
-        <div class="flex gap-2 items-center justify-between flex-wrap">
-          <h4>Scene Transitions</h4>
-          <div class="flex gap-2 items-center">
-            <button class="btn btn-sm btn-secondary" @click="transition.type = 'none'">Hard Cut</button>
-            <PresetPicker
-              v-if="transitionPresets"
-              label="Transition preset"
-              :presets="transitionPresets.presets.value"
-              :active-id="transitionPresets.activeId.value"
-              @update:active-id="transitionPresets.setActive"
-              @apply="transitionPresets.applyActive(); success('Transition preset applied')"
-              @overwrite="finishPreset(transitionPresets.overwrite(), 'Transition preset saved')"
-              @save-as="(n) => finishPreset(transitionPresets.saveAs(n), 'Transition preset saved')"
-              @rename="(n) => finishPreset(transitionPresets.rename(n), `Renamed to ${n}`)"
-              @delete="finishPreset(transitionPresets.remove(), 'Transition preset deleted')"
-            />
-          </div>
-        </div>
-        <p class="text-muted text-sm hint-line">
-          Pick one primary transition, optionally tick additional ones into a pool for randomization.
-        </p>
-
-        <div v-if="transitionsCatalogLoading" class="text-muted text-sm catalog-loading">Loading transitions…</div>
-        <div v-else-if="transitionsCatalogError" class="ffmpeg-warning" role="alert">
-          <p class="text-muted text-md">
-            We couldn't load the list of transitions.
-          </p>
-          <p class="text-muted text-xs">Technical details: <code>{{ transitionsCatalogError }}</code></p>
-          <button type="button" class="btn btn-sm btn-secondary mt-1" @click="loadTransitionsCatalog">Retry</button>
-        </div>
-        <TransitionPicker
-          v-else
-          :slug="slug"
-          :episode-id="episodeId"
-          :aspect-ratio="exportSettings.aspect_ratio"
-          :transitions="transitionsCatalog"
-          :primary-id="transition.type"
-          :pool="transition.pool"
-          :duration="transition.duration"
-          :randomize-mode="transition.randomize_mode"
-          @update:primary-id="(id) => transition.type = id"
-          @update:pool="(p) => transition.pool = p"
-          @update:duration="(d) => transition.duration = d"
-          @update:randomize-mode="(m) => transition.randomize_mode = m"
-        />
-      </div>
-
-      <!-- Scene Animation -->
-      <div class="settings-section mt-2">
-        <div class="flex gap-2 items-center justify-between flex-wrap">
-          <h4>Scene Animation</h4>
-          <PresetPicker
-            v-if="animationPresets"
-            label="Animation preset"
-            :presets="animationPresets.presets.value"
-            :active-id="animationPresets.activeId.value"
-            @update:active-id="animationPresets.setActive"
-            @apply="animationPresets.applyActive(); success('Animation preset applied')"
-            @overwrite="finishPreset(animationPresets.overwrite(), 'Animation preset saved')"
-            @save-as="(n) => finishPreset(animationPresets.saveAs(n), 'Animation preset saved')"
-            @rename="(n) => finishPreset(animationPresets.rename(n), `Renamed to ${n}`)"
-            @delete="finishPreset(animationPresets.remove(), 'Animation preset deleted')"
-          />
-        </div>
-        <p class="text-muted text-sm hint-line">
-          How each scene image moves — pick one, or tick a pool and turn on randomize.
-        </p>
-
-        <!-- Reveal effects. Off by default: a reveal changes how an episode looks, so it is never
-             a silent default. The panel says what the saving is and shows the plan the render will
-             use, because the plan is deterministic and the page should not be a guess at it. -->
-        <div class="reveal-panel mt-3">
-          <label class="reveal-toggle">
-            <input v-model="sceneReveal.enabled" type="checkbox">
-            <span><strong>Reveal effects</strong> — each scene arrives in pieces, then holds and drifts.</span>
-          </label>
-          <p class="text-muted text-sm hint-line">
-            One image carries a whole narration line instead of a few seconds, so an episode needs
-            fewer images. It runs on this Mac, with no AI model and no extra cost.
-          </p>
-
-          <template v-if="sceneReveal.enabled">
-            <div class="grid-2 mt-2">
-              <div class="form-group">
-                <label>Pace</label>
-                <select v-model="sceneReveal.pace" class="select">
-                  <option v-for="pace in revealPaces" :key="pace.id" :value="pace.id">{{ pace.name }}</option>
-                </select>
-                <small class="text-muted">{{ revealPaceHint }}</small>
-              </div>
-              <div class="form-group">
-                <label>Look changes</label>
-                <select v-model="sceneReveal.coherence" class="select">
-                  <option value="scene">Every scene</option>
-                  <option value="act">Once per act</option>
-                  <option value="episode">Once per episode</option>
-                </select>
-                <small class="text-muted">How often the arrival changes. Per act usually reads best.</small>
-              </div>
-            </div>
-            <div class="grid-2 mt-2">
-              <div class="form-group">
-                <label>Episode seed</label>
-                <input v-model.number="sceneReveal.seed" type="number" class="input" min="0" step="1">
-                <small class="text-muted">The same seed renders the same episode. Change it to redraw every look.</small>
-              </div>
-              <div class="form-group">
-                <label>Cap per effect</label>
-                <input v-model.number="sceneReveal.cap_per_effect" type="number" class="input" min="0" step="1">
-                <small class="text-muted">0 means no cap. A cap starts a new pass rather than repeating one look.</small>
-              </div>
-            </div>
-
-            <div class="form-group mt-2">
-              <label>Pool — the looks this episode may draw from</label>
-              <div v-if="revealLibraryError && !revealLibrary.length" class="ffmpeg-warning" role="alert">
-                <p class="text-muted text-md">
-                  We couldn't load the list of reveal looks. Rendering still works and uses the standard looks.
-                </p>
-                <p class="text-muted text-xs">{{ revealLibraryError }}</p>
-                <button type="button" class="btn btn-sm btn-secondary mt-1" @click="loadRevealLibrary">Try Again</button>
-              </div>
-              <div v-else-if="!revealLibrary.length" class="text-muted text-sm">Loading the reveal library…</div>
-              <div v-else class="reveal-pool">
-                <label v-for="preset in revealLibrary" :key="preset.id" class="reveal-pool-row">
-                  <input
-                    type="checkbox"
-                    :checked="sceneReveal.pool.includes(preset.id)"
-                    @change="toggleRevealPool(preset.id, ($event.target as HTMLInputElement).checked)"
-                  >
-                  <span>
-                    <strong>{{ preset.name }}</strong>
-                    <small class="text-muted"> · {{ preset.family }}</small>
-                    <small v-if="preset.approximation" class="reveal-approx"> · {{ preset.approximation }}</small>
-                  </span>
-                </label>
-              </div>
-              <small class="text-muted">Nothing ticked uses the engine's default six wipes.</small>
-            </div>
-
-            <div v-if="!revealPlan" class="mt-3">
-              <button class="btn btn-secondary btn-sm" :disabled="revealPlanLoading || !episodeId" @click="loadRevealPlan()">
-                {{ revealPlanLoading ? 'Planning…' : 'Show Planned Arrivals' }}
-              </button>
-            </div>
-            <div v-else class="mt-3">
-              <div class="reveal-plan-head">
-                <strong>Planned arrivals</strong>
-                <button class="btn btn-secondary btn-sm" :disabled="revealPlanLoading" @click="loadRevealPlan()">
-                  {{ revealPlanLoading ? 'Planning…' : 'Refresh Plan' }}
-                </button>
-              </div>
-              <p class="text-muted text-sm">
-                Scene track {{ revealPlanTotal }}s across {{ revealPlan.scenes.length }} scene(s) —
-                the lengths the render will use.
-              </p>
-              <ul class="reveal-plan">
-                <li v-for="entry in revealPlan.scenes" :key="entry.scene_id">
-                  <span class="reveal-plan-scene">{{ entry.scene_index + 1 }}</span>
-                  <span class="reveal-plan-name">{{ revealName(entry.preset_id) }}</span>
-                  <span class="text-muted">{{ entry.hold.reveal_seconds.toFixed(1) }}s + {{ entry.hold.hold_seconds.toFixed(1) }}s</span>
-                  <span v-if="entry.source === 'override'" class="reveal-plan-badge">your choice</span>
-                  <button class="btn btn-secondary btn-sm" :disabled="revealPlanLoading" @click="rerollRevealScene(entry.scene_id)">Reroll</button>
-                </li>
-              </ul>
-            </div>
-          </template>
-        </div>
-
-        <div v-if="animationsCatalogLoading" class="text-muted text-sm catalog-loading">Loading animations…</div>
-        <div v-else-if="animationsCatalogError" class="ffmpeg-warning" role="alert">
-          <p class="text-muted text-md">We couldn't load the animation list.</p>
-          <p class="text-muted text-xs">{{ animationsCatalogError }}</p>
-          <button type="button" class="btn btn-sm btn-secondary mt-1" @click="loadAnimationsCatalog">Try Again</button>
-        </div>
-        <AnimationPicker
-          v-else
-          :slug="slug"
-          :episode-id="episodeId"
-          :aspect-ratio="exportSettings.aspect_ratio"
-          :animations="animationsCatalog"
-          :families="animationFamilies"
-          :primary-id="sceneAnimation.type"
-          :pool="sceneAnimation.pool"
-          :randomize-mode="sceneAnimation.randomize_mode"
-          @update:primary-id="(id) => sceneAnimation.type = id"
-          @update:pool="(p) => sceneAnimation.pool = p"
-          @update:randomize-mode="(m) => sceneAnimation.randomize_mode = m"
-        />
-
-        <!-- Ken Burns controls -->
-        <div v-if="sceneAnimation.type === 'ken-burns'" class="mt-2">
-          <div class="grid-2">
-            <div class="form-group">
-              <label>Start Zoom ({{ sceneAnimation.zoom_start }}%)</label>
-              <SliderWithNumber v-model="sceneAnimation.zoom_start" :min="90" :max="120" :step="1" suffix="%" />
-            </div>
-            <div class="form-group">
-              <label>End Zoom ({{ sceneAnimation.zoom_end }}%)</label>
-              <SliderWithNumber v-model="sceneAnimation.zoom_end" :min="95" :max="130" :step="1" suffix="%" />
-            </div>
-          </div>
-        </div>
-
-        <!-- Parallax controls -->
-        <div v-if="sceneAnimation.type === 'parallax-drift'" class="mt-2">
-          <div class="grid-2">
-            <div class="form-group">
-              <label>Direction</label>
-              <select v-model="sceneAnimation.parallax_direction" class="select">
-                <option value="left">Left</option>
-                <option value="right">Right</option>
-                <option value="up">Up</option>
-                <option value="down">Down</option>
-              </select>
-            </div>
-            <div class="form-group">
-              <label>Speed ({{ sceneAnimation.parallax_speed }})</label>
-              <SliderWithNumber v-model="sceneAnimation.parallax_speed" :min="1" :max="5" :step="1" />
-            </div>
-          </div>
-        </div>
-
-        <!-- Breathe controls -->
-        <div v-if="sceneAnimation.type === 'breathe'" class="mt-2">
-          <div class="grid-2">
-            <div class="form-group">
-              <label>Base Zoom ({{ sceneAnimation.breathe_base_zoom }}%)</label>
-              <SliderWithNumber v-model="sceneAnimation.breathe_base_zoom" :min="100" :max="110" :step="1" suffix="%" />
-            </div>
-            <div class="form-group">
-              <label>Amplitude ({{ sceneAnimation.breathe_amplitude }}%)</label>
-              <SliderWithNumber v-model="sceneAnimation.breathe_amplitude" :min="1" :max="5" :step="1" suffix="%" />
-            </div>
-          </div>
-        </div>
-
-        <!-- Fade-in info -->
-        <div v-if="sceneAnimation.type === 'fade-in'" class="mt-2">
-          <p class="text-muted text-sm">Each scene will fade in from black over 1.5 seconds</p>
-        </div>
       </div>
 
       <!-- Video length (read-only) — v1.0.354: Target Duration removed.
@@ -1106,6 +1099,240 @@
         </div>
       </div>
 
+      <!-- Outro Card — the last thing on the timeline. Detached popup: opening,
+           browsing, Escape, backdrop and Cancel write nothing; Apply saves. -->
+      <div class="settings-section mt-2">
+        <div class="flex gap-2 items-center justify-between flex-wrap">
+          <div>
+            <h4>Outro Card</h4>
+            <p class="text-muted text-sm mt-1">{{ outroCardSummary }}</p>
+          </div>
+          <button type="button" class="btn btn-sm btn-primary" :disabled="!episodeId" @click="openOutroCardEditor">Edit outro card</button>
+        </div>
+        <span v-if="!episodeId" class="text-muted text-xs">Pick an episode in Step 1 first.</span>
+      </div>
+
+      <Modal
+        :visible="!!outroCardDraft"
+        size="md"
+        labelledby="outro-card-title"
+        @close="closeOutroCardEditor"
+      >
+        <div v-if="outroEdit" style="display: flex; flex-direction: column; min-height: 0; max-height: calc(78vh - 48px);">
+          <header style="display: flex; align-items: flex-start; gap: 12px; margin-bottom: 12px;">
+            <div style="flex: 1;">
+              <span class="text-muted text-xs">Saved for this episode only — Video Assembly uses it on the next render</span>
+              <h3 id="outro-card-title">Outro Card · {{ outroCardDraft.scope.episode || 'no episode' }}</h3>
+            </div>
+            <button type="button" class="btn btn-sm btn-secondary" :disabled="outroApplying" @click="closeOutroCardEditor">Close</button>
+          </header>
+          <div :inert="outroApplying ? true : undefined" style="flex: 1; min-height: 0; overflow-y: auto;">
+            <label class="checkbox-label">
+              <input type="checkbox" v-model="outroEdit.enabled" />
+              <span class="ml-1-tight">Show an outro card at the end</span>
+            </label>
+            <div class="grid-2 mt-1">
+              <div class="form-group">
+                <label>Text</label>
+                <input v-model="outroEdit.text" class="input" placeholder="Outro text" :disabled="!outroEdit.enabled" />
+              </div>
+              <div class="form-group">
+                <label>Style</label>
+                <select v-model="outroEdit.style" class="select" :disabled="!outroEdit.enabled">
+                  <option value="gold">Gold</option>
+                  <option value="white">White</option>
+                  <option value="neon">Neon</option>
+                  <option value="minimal">Minimal</option>
+                </select>
+              </div>
+            </div>
+            <div class="form-group mt-1">
+              <label>Duration ({{ outroEdit.duration }}s)</label>
+              <SliderWithNumber v-model="outroEdit.duration" :min="2" :max="8" :step="1" suffix="s" :disabled="!outroEdit.enabled" />
+            </div>
+            <div class="form-group mt-1">
+              <label>Background image / looping video <span class="text-muted">(optional)</span></label>
+              <div class="flex gap-2 items-center flex-wrap">
+                <span class="text-sm flex-1">{{ outroEdit.background_media_path ? outroEdit.background_media_path.split('/').pop() : 'Use solid background' }}</span>
+                <button type="button" class="btn btn-sm btn-secondary" :disabled="!outroEdit.enabled" @click="openBackgroundPicker('outro-card')">Pick Media</button>
+                <button v-if="outroEdit.background_media_path" type="button" class="btn btn-sm btn-secondary" @click="outroEdit.background_media_path = ''">Clear</button>
+              </div>
+            </div>
+          </div>
+          <footer style="display: flex; align-items: center; gap: 12px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border);">
+            <p v-if="outroError" class="text-danger text-sm" role="alert" style="margin: 0; flex: 1;">{{ outroError }}</p>
+            <span v-else class="text-muted text-sm" style="margin: 0; flex: 1;">Your edits stay in this draft until Apply.</span>
+            <div style="display: flex; gap: 8px;">
+              <button type="button" class="btn btn-secondary" :disabled="outroApplying" @click="closeOutroCardEditor">Cancel</button>
+              <button type="button" class="btn btn-primary" :disabled="outroApplying || !episodeId" @click="applyOutroCardDraft">
+                {{ outroApplying ? 'Applying…' : 'Apply' }}
+              </button>
+            </div>
+          </footer>
+        </div>
+      </Modal>
+
+      <!-- Outro video & timeline clips — detached popup. Opening, browsing,
+           Escape and Cancel write nothing; Apply saves. -->
+      <div class="settings-section mt-2">
+        <div class="flex gap-2 items-center justify-between flex-wrap">
+          <div>
+            <h4>Outro video &amp; timeline clips</h4>
+            <p class="text-muted text-sm mt-1">{{ outroTimelineSummary }}</p>
+          </div>
+          <button type="button" class="btn btn-sm btn-primary" :disabled="!episodeId" @click="openOutroTimelineEditor">Edit outro video &amp; clips</button>
+        </div>
+        <span v-if="!episodeId" class="text-muted text-xs">Pick an episode in Step 1 first.</span>
+      </div>
+
+      <Modal
+        :visible="!!outroTimelineDraft"
+        size="lg"
+        labelledby="outro-timeline-title"
+        :close-on-backdrop="false"
+        :close-on-escape="false"
+      >
+        <div v-if="outroTimeline" style="display: flex; flex-direction: column; min-height: 0; max-height: calc(78vh - 48px);">
+          <header style="display: flex; align-items: flex-start; gap: 12px; margin-bottom: 12px;">
+            <div style="flex: 1;">
+              <span class="text-muted text-xs">Saved for this episode only — Video Assembly uses it on the next render</span>
+              <h3 id="outro-timeline-title">Outro video &amp; timeline clips · {{ outroTimelineDraft.scope.episode || 'no episode' }}</h3>
+            </div>
+            <button type="button" class="btn btn-sm btn-secondary" :disabled="outroTimelineApplying" @click="closeOutroTimelineEditor">Close</button>
+          </header>
+          <div :inert="outroTimelineApplying ? true : undefined" style="flex: 1; min-height: 0; overflow-y: auto;">
+            <!-- Outro Video -->
+            <div class="settings-section">
+              <div class="flex gap-2 items-center">
+                <label class="checkbox-label" @click.stop>
+                  <input type="checkbox" v-model="outroTimeline.outro.enabled" />
+                </label>
+                <h4>Outro Video</h4>
+              </div>
+
+              <div v-if="outroTimeline.outro.enabled" class="mt-2">
+                <div class="form-group">
+                  <label>Outro Video Path <span class="text-muted text-xs">(.mp4, .mov, .mkv, .webm)</span></label>
+                  <FilePicker
+                    v-model="outroTimeline.outro.video_path"
+                    placeholder="No outro video chosen"
+                    :filters="[{ name: 'Videos', extensions: ['mp4', 'mov', 'mkv', 'webm'] }]"
+                    title="Choose an outro video"
+                    aria-label="Outro video path"
+                    clearable
+                  />
+                </div>
+                <p class="text-muted text-sm mt-1">
+                  The outro clip plays at the very end — after the post-audio tail. It never receives
+                  effects (no colour grading, vignette, or grain), so a pre-made clip slots in cleanly
+                  without bloating file size.
+                </p>
+              </div>
+            </div>
+
+            <!-- Timeline clips (user-supplied, multi-position) -->
+            <div class="settings-section mt-2">
+              <div class="flex gap-2 items-center justify-between">
+                <h4 class="m-0">Timeline Clips</h4>
+                <button class="btn btn-sm btn-secondary" @click="addTimelineClip(outroTimeline.timeline_clips)">+ Add Clip</button>
+              </div>
+              <p class="text-muted text-sm mt-1">
+                Insert your own video clips at named positions in the final render — sponsor stings, credits,
+                imported clips, etc. Clips play in the order shown within each anchor. They're always
+                effect-free (no colour grade, vignette, or grain) and don't go through the scene transitions.
+              </p>
+              <div v-if="!outroTimeline.timeline_clips.length" class="text-muted text-sm mt-1 italic-empty">
+                No timeline clips yet. Use the button above to add one.
+              </div>
+              <div v-for="(clip, i) in outroTimeline.timeline_clips" :key="clip.id" class="timeline-clip-row mt-2">
+                <div class="flex gap-2 items-center timeline-clip-header">
+                  <span class="text-muted text-xs timeline-clip-num">#{{ i + 1 }}</span>
+                  <label class="checkbox-label m-0" :title="clip.enabled ? 'Click to disable this clip' : 'Click to enable this clip'">
+                    <input type="checkbox" v-model="clip.enabled" />
+                  </label>
+                  <select
+                    :value="clip.kind || 'video'"
+                    class="select select-sm timeline-kind-select"
+                    :title="TIMELINE_KIND_OPTIONS.find(o => o.value === (clip.kind || 'video'))?.hint"
+                    @change="setTimelineClipKind(clip.id, ($event.target as HTMLSelectElement).value as TimelineClipKind, outroTimeline.timeline_clips)"
+                  >
+                    <option v-for="opt in TIMELINE_KIND_OPTIONS" :key="opt.value" :value="opt.value">
+                      {{ opt.label }}
+                    </option>
+                  </select>
+                  <select v-model="clip.anchor" class="select select-sm timeline-anchor-select" :title="TIMELINE_ANCHOR_OPTIONS.find(o => o.value === clip.anchor)?.hint">
+                    <option v-for="opt in TIMELINE_ANCHOR_OPTIONS" :key="opt.value" :value="opt.value">
+                      {{ opt.label }}
+                    </option>
+                  </select>
+                  <div class="flex gap-1 ml-auto">
+                    <button class="btn btn-sm btn-secondary" :disabled="i === 0" @click="moveTimelineClip(clip.id, -1, outroTimeline.timeline_clips)" title="Move up">▲</button>
+                    <button class="btn btn-sm btn-secondary" :disabled="i === outroTimeline.timeline_clips.length - 1" @click="moveTimelineClip(clip.id, 1, outroTimeline.timeline_clips)" title="Move down">▼</button>
+                    <button class="btn btn-sm btn-danger" @click="removeTimelineClip(clip.id, outroTimeline.timeline_clips)" title="Remove this clip">✕</button>
+                  </div>
+                </div>
+
+                <!-- Video kind: pick an .mp4/.mov/.mkv/.webm. -->
+                <FilePicker
+                  v-if="(clip.kind || 'video') === 'video'"
+                  v-model="clip.video_path"
+                  placeholder="No video chosen"
+                  :filters="[{ name: 'Videos', extensions: ['mp4', 'mov', 'mkv', 'webm'] }]"
+                  title="Choose a timeline clip"
+                  :aria-label="`Timeline clip ${i + 1} path`"
+                  clearable
+                />
+
+                <!-- Static kind: image picker + duration in minutes. Stored as
+                     seconds on the clip; the UI converts for legibility. -->
+                <template v-else>
+                  <FilePicker
+                    v-model="(clip as TimelineClipStatic).image_path"
+                    placeholder="No still image chosen"
+                    :filters="[{ name: 'Images', extensions: ['jpg', 'jpeg', 'png', 'webp'] }]"
+                    title="Choose a still image for the static segment"
+                    :aria-label="`Timeline clip ${i + 1} image path`"
+                    clearable
+                  />
+                  <div class="flex gap-2 mt-1 items-center">
+                    <label class="dim-inline-label">Duration (min)</label>
+                    <input
+                      type="number"
+                      class="input input-sm input-w-100"
+                      min="0.1"
+                      step="0.5"
+                      :value="clipDurationMinutes(clip as TimelineClipStatic)"
+                      @input="setClipDurationMinutes(clip as TimelineClipStatic, parseFloat(($event.target as HTMLInputElement).value))"
+                    />
+                    <span class="text-muted text-xs">
+                      = {{ ((clip as TimelineClipStatic).duration_sec || 0).toFixed(0) }}s
+                    </span>
+                  </div>
+                  <p class="text-muted text-xs mt-1">
+                    Static segment — pipeline synthesises this from the single image at the channel's resolution + fps.
+                    Audio (background music / ambient noise) comes from the Music tab in Step 4 and loops automatically across this duration.
+                  </p>
+                </template>
+
+                <p class="text-muted text-xs mt-1">
+                  {{ TIMELINE_ANCHOR_OPTIONS.find(o => o.value === clip.anchor)?.hint }}
+                </p>
+              </div>
+            </div>
+          </div>
+          <footer style="display: flex; align-items: center; gap: 12px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border);">
+            <p v-if="outroTimelineError" class="text-danger text-sm" role="alert" style="margin: 0; flex: 1;">{{ outroTimelineError }}</p>
+            <span v-else class="text-muted text-sm" style="margin: 0; flex: 1;">Your edits stay in this draft until Apply.</span>
+            <div style="display: flex; gap: 8px;">
+              <button type="button" class="btn btn-secondary" :disabled="outroTimelineApplying" @click="closeOutroTimelineEditor">Cancel</button>
+              <button type="button" class="btn btn-primary" :disabled="outroTimelineApplying || !episodeId" @click="applyOutroTimelineDraft">
+                {{ outroTimelineApplying ? 'Applying…' : 'Apply' }}
+              </button>
+            </div>
+          </footer>
+        </div>
+      </Modal>
+
       <div class="step-nav mt-3">
         <button class="btn btn-secondary" @click="goToStep(2)">Back</button>
         <button class="btn btn-primary" @click="goToStep(4)">Continue</button>
@@ -1199,7 +1426,9 @@
             <input v-model.number="previewTimeSec" type="range" min="0" :max="estimatedDurationSec" step="0.5" />
           </div>
           <p class="text-muted preview-watermark">
-            Live composition preview. Green-screen removal is finalized by FFmpeg; placement, opacity, stacking, and timing are shown here.
+            Preview of the look already applied to this episode. Green-screen removal is finalized by
+            FFmpeg; placement, opacity, stacking, and timing are shown here. Changes made in
+            Edit render appearance appear after Apply.
           </p>
           <!-- Pain-point #14 fix: make the silent logo-load failure visible. -->
           <!-- Previously logoLoadError was set but never rendered, so users -->
@@ -1211,454 +1440,22 @@
 
         <!-- RIGHT: Scrollable effect controls -->
         <div class="effects-controls-scroll">
-
-      <!-- ─── Video Layout (v1.0.63+ / Path C) ─────────────────────────
-           Picks between the standard scene-clip pipeline (narrative /
-           scene-images flow) and the inverted compilation layout
-           (compilation-mode / listicle: looping background plate as base,
-           per-chapter foreground icons composited on top with
-           chapter-aligned timing). The card is at the very top of
-           Step 4 because the choice changes how every OTHER setting
-           on this page applies. -->
-      <div class="settings-section mt-1" style="border: 2px solid var(--accent); border-radius: 8px; padding: 12px;">
-        <div class="flex gap-2 items-center">
-          <h4 style="margin: 0;">📐 Video Layout</h4>
-          <span
-            v-if="compilationLayout.layout === 'compilation'"
-            class="badge"
-            style="background: var(--accent); color: white; font-size: var(--font-xs); padding: 2px 8px; border-radius: 4px;"
-          >COMPILATION</span>
-        </div>
-        <p class="text-muted text-sm mt-1">
-          <strong>Standard</strong> renders scene images full-frame as the base video — the sleep-story default.
-          <strong>Compilation</strong> uses a looping background (e.g. starfield) as the base and composites each chapter's icon as a foreground overlay — the compilation-mode / listicle / explainer layout.
-        </p>
-        <VisualOptionPicker
-          :model-value="compilationLayout.layout"
-          @update:model-value="value => compilationLayout.layout = value as 'standard' | 'compilation'"
-          :options="[{ value: 'standard', label: 'Standard (scene-clip base)' }, { value: 'compilation', label: 'Compilation (background + foreground)' }]"
-          title="Video layout"
-          description="Choose how scene images appear in the video."
-        >
-          <template #sample="{ option }">
-            <svg viewBox="0 0 160 90" width="100%" height="100%" aria-hidden="true">
-              <rect width="160" height="90" fill="#354b5b" />
-              <path d="M0 80 L42 35 L70 60 L105 23 L160 80 V90 H0Z" fill="#71949a" />
-              <template v-if="option.value === 'compilation'">
-                <rect x="52" y="20" width="56" height="50" rx="4" fill="#eadcbf" />
-                <circle cx="80" cy="45" r="14" fill="#b9865c" />
-              </template>
-            </svg>
-          </template>
-        </VisualOptionPicker>
-
-        <div v-if="compilationLayout.layout === 'compilation'" class="mt-2" style="border-top: 1px solid var(--border); padding-top: 12px;">
-          <p class="text-muted text-xs">
-            <strong>Requires Audio Assembly to have run</strong> on this episode — the per-chapter durations from
-            <code>audio_chapters.json</code> are what time-bound each foreground icon to its chapter narration.
-          </p>
-
-          <!-- Background plate picker -->
-          <div class="form-group mt-2">
-            <label>Background plate</label>
-            <span class="field-hint" style="display: block; margin-bottom: 4px;">
-              Choose from the app's backgrounds. Existing episode file choices stay available for rendering.
-            </span>
-            <div class="flex gap-2" style="flex-wrap: wrap; align-items: center;">
-              <span v-if="compilationLayout.backgroundPlate.source_path" style="font-size: 12px; flex: 1; word-break: break-all;">
-                <strong>{{ compilationLayout.backgroundPlate.source_path.split('/').pop() }}</strong>
-              </span>
-              <span v-else class="text-muted" style="font-size: 12px; flex: 1;">
-                (none picked)
-              </span>
-              <button
-                type="button"
-                class="btn btn-sm btn-secondary"
-                @click="openBackgroundPicker('compilation')"
-              >+ Pick</button>
-            </div>
-          </div>
-
-          <!-- Foreground sizing + position -->
-          <div class="grid-3 mt-2">
-            <div class="form-group">
-              <label>Foreground scale ({{ Math.round(compilationLayout.foregroundDefaults.scale_pct * 100) }}% of width)</label>
-              <SliderWithNumber v-model="compilationLayout.foregroundDefaults.scale_pct" :min="0.1" :max="0.8" :step="0.05" :decimals="2" />
-            </div>
-            <div class="form-group">
-              <label>Position</label>
-              <select v-model="compilationLayout.foregroundDefaults.position" class="select">
-                <option value="center">Centered</option>
-                <option value="top-third">Top third</option>
-                <option value="bottom-third">Bottom third</option>
-                <option value="lower-right">Lower right</option>
-                <option value="lower-left">Lower left</option>
-              </select>
-            </div>
-            <div class="form-group">
-              <label class="checkbox-label">
-                <input
-                  type="checkbox"
-                  :checked="!!compilationLayout.foregroundDefaults.chroma_key"
-                  @change="compilationLayout.foregroundDefaults.chroma_key = ($event.target as HTMLInputElement).checked
-                    ? { color: '#FFFFFF', similarity: 0.15, blend: 0.10 }
-                    : null"
-                >
-                Chroma-key foreground bg
-              </label>
-              <span class="field-hint">On if your icon images have a solid background (white default). Off if they have native alpha.</span>
-            </div>
-          </div>
-
-          <!-- Chroma-key sub-controls -->
-          <div v-if="compilationLayout.foregroundDefaults.chroma_key" class="grid-3 mt-1">
-            <div class="form-group">
-              <label>Key color</label>
-              <div class="flex gap-2 items-center">
-                <input v-model="compilationLayout.foregroundDefaults.chroma_key.color" type="color" class="color-swatch-input" />
-                <input v-model="compilationLayout.foregroundDefaults.chroma_key.color" class="input input-sm input-w-100" />
+          <div class="settings-section mt-1">
+            <div class="flex gap-2 items-center justify-between flex-wrap">
+              <div>
+                <h4>Render appearance</h4>
+                <p class="text-muted text-sm mt-1">{{ renderAppearanceSummary }}</p>
               </div>
-            </div>
-            <div class="form-group">
-              <label>Similarity ({{ compilationLayout.foregroundDefaults.chroma_key.similarity.toFixed(2) }})</label>
-              <SliderWithNumber v-model="compilationLayout.foregroundDefaults.chroma_key.similarity" :min="0.01" :max="0.5" :step="0.01" :decimals="2" />
-            </div>
-            <div class="form-group">
-              <label>Edge blend ({{ compilationLayout.foregroundDefaults.chroma_key.blend.toFixed(2) }})</label>
-              <SliderWithNumber v-model="compilationLayout.foregroundDefaults.chroma_key.blend" :min="0.0" :max="0.5" :step="0.01" :decimals="2" />
-            </div>
-          </div>
-        </div>
-
-        <!-- Background picker modal -->
-        <Modal :visible="showBackgroundPicker" size="md" labelledby="bg-picker-title" @close="showBackgroundPicker = false">
-          <div>
-            <div class="flex gap-2 items-center" style="margin-bottom: 12px;">
-              <h3 id="bg-picker-title" style="margin: 0; flex: 1;">
-                {{ backgroundPickerTarget === 'frame' ? 'Pick a presentation-frame background'
-                  : backgroundPickerTarget === 'title-card' ? 'Pick a title-card background'
-                    : backgroundPickerTarget === 'outro-card' ? 'Pick an outro-card background'
-                      : 'Pick a compilation background plate' }}
-              </h3>
-              <button type="button" class="btn btn-sm btn-secondary" @click="showBackgroundPicker = false">✕ Close</button>
-            </div>
-            <div v-if="bgLibraryLoading" class="text-muted text-sm">Loading backgrounds…</div>
-            <div v-else-if="bgLibraryError" class="text-danger text-sm">{{ bgLibraryError }}</div>
-            <div v-else style="display: flex; flex-direction: column; gap: 6px; max-height: 60vh; overflow-y: auto;">
-              <button
-                v-for="f in bgLibrary"
-                :key="f.path"
-                type="button"
-                class="btn btn-secondary"
-                style="text-align: left; padding: 10px; display: flex; gap: 10px; align-items: center;"
-                @click="pickBackgroundFile(f)"
-              >
-                <img v-if="f.thumbnail_url" :src="f.thumbnail_url" alt="" width="96" height="54" loading="lazy" style="object-fit: cover; border-radius: 4px;" @error="bgLibraryError = 'A background preview could not be loaded. Close and reopen Backgrounds to try again.'" />
-                <span style="flex: 1;">
-                  <strong>{{ f.filename }}</strong>
-                  <br>
-                  <span class="text-muted text-xs">
-                    {{ !f.path ? 'Default · no background image' : f.id ? 'App background' : 'Custom file' }}{{ f.duration ? ` · ${f.duration.toFixed(1)}s loop` : '' }}
-                  </span>
-                </span>
+              <button type="button" class="btn btn-sm btn-primary" :disabled="!episodeId" @click="openRenderAppearanceEditor">
+                Edit render appearance
               </button>
             </div>
-            <p class="text-muted text-xs mt-2" style="margin-bottom: 0;">
-              App backgrounds are shared across channels. Your saved file choice stays until you choose a replacement.
+            <span v-if="!episodeId" class="text-muted text-xs">Pick an episode in Step 1 first.</span>
+            <p class="text-muted text-xs mt-1">
+              Logo, colour grading, video layout, presentation frame, green-screen overlay and overlay
+              layers are saved for this episode when you press Apply in the editor.
             </p>
           </div>
-        </Modal>
-      </div>
-
-      <!-- Logo Overlay (moved from old Step 2) -->
-      <div class="settings-section mt-2">
-        <div class="flex gap-2 items-center">
-          <label class="checkbox-label" @click.stop>
-            <input type="checkbox" v-model="logo.enabled" />
-          </label>
-          <h4>Logo Overlay</h4>
-        </div>
-
-        <div v-if="logo.enabled" class="mt-2">
-          <div class="form-group">
-            <label>Logo Image Path <span class="text-muted text-xs">(PNG recommended)</span></label>
-            <FilePicker
-              v-model="logo.image_path"
-              placeholder="No logo image chosen"
-              :filters="[{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp'] }]"
-              title="Choose a logo image"
-              aria-label="Logo image path"
-              :episodes-root="episodesRoot"
-              clearable
-            />
-          </div>
-
-          <div class="grid-2 mt-1">
-            <div>
-              <label class="sub-section-label">Position</label>
-              <div class="position-grid mt-1">
-                <div v-for="pos in logoPositions" :key="pos.id"
-                  :class="['pos-cell', { active: logo.position === pos.id }]"
-                  @click="logo.position = pos.id"
-                  :title="pos.label">
-                  <span class="pos-dot" />
-                </div>
-              </div>
-              <button
-                :class="['btn btn-sm mt-1 text-xs', logo.position === 'custom' ? 'btn-primary' : 'btn-secondary']"
-                @click="logo.position = 'custom'"
-              >Custom</button>
-
-              <div v-if="logo.position === 'custom'" class="flex gap-2 mt-1">
-                <div class="form-group flex-1">
-                  <label>X (px)</label>
-                  <input v-model.number="logo.custom_x" type="number" min="0" class="input input-sm" />
-                </div>
-                <div class="form-group flex-1">
-                  <label>Y (px)</label>
-                  <input v-model.number="logo.custom_y" type="number" min="0" class="input input-sm" />
-                </div>
-              </div>
-            </div>
-
-            <div>
-              <div class="form-group">
-                <label>Opacity ({{ logo.opacity }}%)</label>
-                <SliderWithNumber v-model="logo.opacity" :min="0" :max="100" :step="1" suffix="%" />
-              </div>
-              <div class="form-group mt-1">
-                <label>Scale ({{ logo.scale }}% of video width)</label>
-                <SliderWithNumber v-model="logo.scale" :min="1" :max="50" :step="1" suffix="%" />
-              </div>
-              <div class="form-group mt-1">
-                <label>Shape</label>
-                <select v-model="logo.shape" class="select" aria-label="Logo shape">
-                  <option value="none">None — as the image is</option>
-                  <option value="rounded">Rounded corners</option>
-                  <option value="circle">Circle</option>
-                </select>
-              </div>
-              <div v-if="logo.shape === 'rounded'" class="form-group mt-1">
-                <label>Corner radius ({{ logo.corner_radius_pct }}% of the shorter side)</label>
-                <SliderWithNumber v-model="logo.corner_radius_pct" :min="1" :max="50" :step="1" suffix="%" />
-              </div>
-              <div class="form-group mt-1">
-                <label>Margin ({{ logo.margin }}px)</label>
-                <input v-model.number="logo.margin" type="number" min="0" max="200" class="input input-sm input-w-80" />
-              </div>
-              <label class="checkbox-label mt-1" title="When enabled, the logo stays hidden for the full duration of the intro clip and fades in as the title image appears. Useful when your intro already has its own branding.">
-                <input type="checkbox" v-model="logo.hide_during_intro" />
-                Hide during intro
-              </label>
-              <p class="text-muted text-xs hint-line-tight">
-                Logo is invisible for the intro's full duration, then fades in over the title image.
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Color Grading -->
-      <div class="settings-section mt-2">
-        <div class="flex gap-2 items-center">
-          <label class="checkbox-label" @click.stop>
-            <input type="checkbox" v-model="colorGrading.enabled" />
-          </label>
-          <h4>Color Grading</h4>
-        </div>
-
-        <div v-if="colorGrading.enabled" class="mt-2">
-          <!-- Preset grid: 1 None + 18 themed presets in a responsive
-               auto-fill grid; Custom button sits below to make "I'm
-               dialing my own values" a first-class state. -->
-          <label class="sub-section-label">Preset</label>
-          <div class="preset-grid mt-1">
-            <div v-for="cp in colorGradingPresets" :key="cp.id"
-              :class="['preset-card', { active: colorGrading.preset === cp.id }]"
-              @click="applyColorPreset(cp.id)">
-              <span class="preset-name">{{ cp.label }}</span>
-              <span class="preset-desc">{{ cp.description }}</span>
-            </div>
-          </div>
-          <button
-            type="button"
-            :class="['preset-custom-btn mt-1', { active: colorGrading.preset === 'custom' }]"
-            :title="customPresetActive ? 'You\'ve customised the values below' : 'Start from neutral and dial in your own look'"
-            @click="applyColorPreset('custom')"
-          >
-            <span class="preset-custom-label">Custom</span>
-            <span class="preset-custom-hint">{{ customPresetActive ? 'Using your fine-tune values' : 'Use the sliders below' }}</span>
-          </button>
-
-          <!-- Fine-tune sliders -->
-          <label class="sub-section-label sub-section-block mt-2">Fine-Tune Adjustments</label>
-          <p class="text-muted text-xs fine-tune-hint">
-            Small changes go a long way on video — try staying within ±0.15 for brightness/warmth/tint, and 0.85–1.15 for contrast/saturation unless you're going for an obvious stylised look.
-          </p>
-          <div class="grid-3 mt-1">
-            <div class="form-group">
-              <label>Brightness ({{ colorGrading.brightness > 0 ? '+' : '' }}{{ colorGrading.brightness.toFixed(2) }})</label>
-              <SliderWithNumber v-model="colorGrading.brightness" :min="-0.5" :max="0.5" :step="0.01" :decimals="2" />
-            </div>
-            <div class="form-group">
-              <label>Contrast ({{ colorGrading.contrast.toFixed(2) }})</label>
-              <SliderWithNumber v-model="colorGrading.contrast" :min="0.5" :max="2.0" :step="0.01" :decimals="2" />
-            </div>
-            <div class="form-group">
-              <label>Saturation ({{ colorGrading.saturation.toFixed(2) }})</label>
-              <SliderWithNumber v-model="colorGrading.saturation" :min="0.0" :max="2.0" :step="0.01" :decimals="2" />
-            </div>
-          </div>
-          <div class="grid-2 mt-1">
-            <div class="form-group">
-              <label>Warmth ({{ colorGrading.warmth > 0 ? '+' : '' }}{{ colorGrading.warmth.toFixed(2) }}) <span class="text-muted text-xs">cool &larr;&rarr; warm</span></label>
-              <SliderWithNumber v-model="colorGrading.warmth" :min="-0.5" :max="0.5" :step="0.01" :decimals="2" />
-            </div>
-            <div class="form-group">
-              <label>Tint ({{ colorGrading.tint > 0 ? '+' : '' }}{{ colorGrading.tint.toFixed(2) }}) <span class="text-muted text-xs">green &larr;&rarr; magenta</span></label>
-              <SliderWithNumber v-model="colorGrading.tint" :min="-0.5" :max="0.5" :step="0.01" :decimals="2" />
-            </div>
-          </div>
-          <button class="btn btn-sm btn-secondary mt-1" @click="colorGrading.brightness = 0; colorGrading.contrast = 1; colorGrading.saturation = 1; colorGrading.warmth = 0; colorGrading.tint = 0;">Reset Sliders</button>
-        </div>
-      </div>
-
-      <!-- 1.4.282 — Vignette, Film Grain and Cinematic Letterbox live in the
-           Effect Library below (one route). A preset that still has the old
-           checkboxes turns them into marked library entries when it loads, and
-           those render exactly where the checkboxes did. -->
-
-      <!-- Aged Archive Film -->
-      <div class="settings-section mt-2">
-        <div class="flex gap-2 items-center">
-          <label class="checkbox-label" @click.stop>
-            <input type="checkbox" v-model="agedArchiveFilm.enabled" />
-          </label>
-          <h4>Aged Archive Film</h4>
-          <span class="text-muted text-sm">(dust, scratches, flicker, gate weave)</span>
-        </div>
-        <div v-if="agedArchiveFilm.enabled" class="mt-2">
-          <div class="form-group">
-            <label>Intensity ({{ agedArchiveFilm.strength }})</label>
-            <SliderWithNumber v-model="agedArchiveFilm.strength" :min="1" :max="100" :step="1" />
-            <p class="text-muted text-sm mt-1">
-              A self-contained archival treatment. It does not enable or change Color Grading, Vignette, or Film Grain; turn those on separately only when you want them stacked.
-            </p>
-          </div>
-        </div>
-      </div>
-
-      <!-- Presentation frame -->
-      <div class="settings-section mt-2 frame-settings">
-        <div class="flex gap-2 items-center">
-          <label class="checkbox-label" @click.stop>
-            <input type="checkbox" v-model="frame.enabled" />
-          </label>
-          <h4>Presentation Frame</h4>
-          <span class="text-muted text-sm">(video inside a border or board)</span>
-        </div>
-        <p class="text-muted text-sm mt-1">Adds a visible matte around the complete video. Rounded corners affect the video surface, while subtitles and logos remain part of the framed composition.</p>
-        <div v-if="frame.enabled" class="mt-2">
-          <div class="grid-3">
-            <div class="form-group">
-              <label>Outer inset ({{ frame.inset_pct }}%)</label>
-              <SliderWithNumber v-model="frame.inset_pct" :min="0" :max="20" :step="0.5" :decimals="1" suffix="%" />
-            </div>
-            <div class="form-group">
-              <label>Border width ({{ frame.border_width }}px)</label>
-              <SliderWithNumber v-model="frame.border_width" :min="0" :max="100" :step="1" suffix="px" />
-            </div>
-            <div class="form-group">
-              <label>Corner radius ({{ frame.corner_radius }}px)</label>
-              <SliderWithNumber v-model="frame.corner_radius" :min="0" :max="200" :step="2" suffix="px" />
-            </div>
-          </div>
-          <div class="grid-3 mt-2">
-            <div class="form-group">
-              <label>Border color</label>
-              <input v-model="frame.border_color" type="color" class="color-swatch-input" />
-            </div>
-            <div class="form-group">
-              <label>Board color</label>
-              <input v-model="frame.background_color" type="color" class="color-swatch-input" />
-            </div>
-            <div class="form-group">
-              <label>Video fit</label>
-              <select v-model="frame.fit" class="select">
-                <option value="cover">Fill frame (crop edges)</option>
-                <option value="contain">Fit whole video</option>
-              </select>
-            </div>
-          </div>
-          <div class="form-group mt-2">
-            <label>Board background media <span class="text-muted">(optional)</span></label>
-            <p class="field-hint">Use a still texture or looping video behind the framed scene. Leave empty to use the board color.</p>
-            <div class="flex gap-2 items-center flex-wrap">
-              <span class="text-sm flex-1">{{ frame.background_path ? frame.background_path.split('/').pop() : 'Solid color only' }}</span>
-              <button type="button" class="btn btn-sm btn-secondary" @click="openBackgroundPicker('frame')">Pick Image / Video</button>
-              <button v-if="frame.background_path" type="button" class="btn btn-sm btn-secondary" @click="frame.background_path = ''">Clear</button>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Effect library (v1.2.0) -->
-      <div class="settings-section mt-2">
-        <SceneEffectLibrary
-          v-model="sceneEffects"
-          :slug="slug"
-          :episode-id="episodeId"
-          :aspect-ratio="exportSettings.aspect_ratio"
-          :get="get"
-          :post="post"
-        />
-      </div>
-
-      <!-- Simple single-source green-screen overlay -->
-      <div class="settings-section mt-2">
-        <div class="flex gap-2 items-center">
-          <label class="checkbox-label" @click.stop>
-            <input type="checkbox" v-model="chromaKey.enabled" />
-          </label>
-          <h4>Single Green-Screen Overlay</h4>
-        </div>
-        <div v-if="chromaKey.enabled" class="mt-2">
-          <div class="form-group">
-            <label>Green Screen Source <span class="text-muted text-xs">(video or image with green background)</span></label>
-            <FilePicker
-              v-model="chromaKey.source_path"
-              placeholder="No green screen source chosen"
-              :filters="[{ name: 'Media', extensions: ['mp4', 'mov', 'mkv', 'webm', 'png', 'jpg', 'jpeg', 'webp'] }]"
-              title="Choose a green screen source"
-              aria-label="Green screen source path"
-              :episodes-root="episodesRoot"
-              clearable
-            />
-          </div>
-          <div class="grid-3 mt-1">
-            <div class="form-group">
-              <label>Key Color</label>
-              <div class="flex gap-2 items-center">
-                <input v-model="chromaKey.color" type="color" class="color-swatch-input" />
-                <input v-model="chromaKey.color" class="input input-sm input-w-100" />
-              </div>
-            </div>
-            <div class="form-group">
-              <label>Similarity ({{ chromaKey.similarity.toFixed(2) }})</label>
-              <SliderWithNumber v-model="chromaKey.similarity" :min="0.01" :max="0.5" :step="0.01" :decimals="2" />
-            </div>
-            <div class="form-group">
-              <label>Edge Blend ({{ chromaKey.blend.toFixed(2) }})</label>
-              <SliderWithNumber v-model="chromaKey.blend" :min="0.0" :max="0.5" :step="0.01" :decimals="2" />
-            </div>
-          </div>
-          <p class="text-muted text-sm mt-1">
-            Removes the selected background color and places one clip or image over the scenes. This is the simple one-layer option; use Overlay Layers below for multiple effects, timing, opacity, or stacking. Leave it off when you do not use green-screen media.
-          </p>
-        </div>
-      </div>
-
-
       <!-- v1.4.1 — a pre-1.4.1 preset still carries overlay windows. They are
            rescued into THIS episode rather than dropped, and never over a window
            the episode already had. Announced once, because a value that moves
@@ -1679,16 +1476,502 @@
         </template>
       </WorkspaceNotice>
 
+      <!-- Per-episode effects (1.4.384): the old Effects Library page now
+           lives here as a popup. Its draft and its Apply live inside the
+           dialog — opening, browsing or closing writes nothing. -->
+      <div class="settings-section mt-2">
+        <div class="flex gap-2 items-center">
+          <h4>Episode effects</h4>
+          <span class="text-muted text-sm">(per-scene stack · saved with this episode)</span>
+        </div>
+        <p class="text-muted text-sm mt-1">
+          Put effects on one scene, watch them move live, or set the order — everything stacks with
+          everything else. What you set there is saved with this episode and rendered here.
+          Built-in effects and custom overlay files are in Render appearance.
+        </p>
+        <button
+          type="button"
+          class="btn btn-sm btn-primary mt-1"
+          :disabled="!episodeId"
+          @click="openEpisodeEffects"
+        >Open episode effects editor</button>
+        <span v-if="!episodeId" class="text-muted text-xs" style="margin-left: 8px;">Pick an episode in Step 1 first.</span>
+      </div>
+
+      <!-- Effect library moved into the render-appearance draft (1.4.384). -->
+
+      <!-- The episode editor popup. Apply calls the editor's own apply()
+           exactly once; a failed save keeps this dialog open with its error,
+           and Cancel/Escape/close only ever discard the editor's draft. -->
+      <Modal
+        :visible="showEpisodeEffects"
+        size="xxl"
+        labelledby="episode-effects-title"
+        @close="closeEpisodeEffects"
+      >
+        <div style="display: flex; flex-direction: column; min-height: 0; max-height: calc(78vh - 48px);">
+          <header style="display: flex; align-items: flex-start; gap: 12px; margin-bottom: 12px;">
+            <div style="flex: 1;">
+              <span class="text-muted text-xs">Saved with this episode — Video Assembly uses it on the next render</span>
+              <h3 id="episode-effects-title">Episode effects · {{ episodeId || 'no episode' }}</h3>
+            </div>
+            <button type="button" class="btn btn-sm btn-secondary" @click="closeEpisodeEffects">Close</button>
+          </header>
+          <div style="flex: 1; min-height: 0; overflow-y: auto;">
+            <EpisodeEffectsEditor
+              v-if="showEpisodeEffects && episodeId"
+              ref="episodeEffectsEditor"
+              :project-slug="slug"
+              :episode-id="episodeId"
+              :scene-id="episodeEffectsSceneId"
+              @dirty-change="episodeEffectsDirty = $event"
+              @loading-change="episodeEffectsLoading = $event"
+            />
+            <p v-else class="text-muted text-sm">
+              Pick an episode in Step 1 — effects are saved with one episode, never guessed across them.
+            </p>
+          </div>
+          <footer style="display: flex; align-items: center; gap: 12px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border);">
+            <p v-if="episodeEffectsError" class="text-danger text-sm" role="alert" style="margin: 0; flex: 1;">{{ episodeEffectsError }}</p>
+            <span v-else-if="episodeEffectsDirty" class="text-muted text-sm" style="margin: 0; flex: 1;">Unsaved changes — Apply saves them to this episode.</span>
+            <span v-else style="flex: 1;"></span>
+            <div style="display: flex; gap: 8px;">
+              <button type="button" class="btn btn-secondary" :disabled="episodeEffectsApplying" @click="cancelEpisodeEffects">Cancel</button>
+              <button
+                type="button"
+                class="btn btn-primary"
+                :disabled="episodeEffectsLoading || episodeEffectsApplying || !episodeId"
+                @click="applyEpisodeEffects"
+              >{{ episodeEffectsApplying ? 'Applying…' : 'Apply' }}</button>
+            </div>
+          </footer>
+        </div>
+      </Modal>
+        </div><!-- /.effects-controls-scroll -->
+      </div><!-- /.effects-split-layout -->
+
+      <!-- Per-episode render appearance (1.4.384). Every legacy global control
+           lives in this one detached draft; Apply is its only write. -->
+      <Modal
+        :visible="!!renderAppearanceDraft"
+        size="xxl"
+        labelledby="render-appearance-title"
+        @close="closeRenderAppearanceEditor"
+      >
+        <div v-if="renderAppearanceEdit" style="display: flex; flex-direction: column; min-height: 0; max-height: calc(78vh - 48px);">
+          <header style="display: flex; align-items: flex-start; gap: 12px; margin-bottom: 12px;">
+            <div style="flex: 1;">
+              <span class="text-muted text-xs">Saved for this episode only — Video Assembly uses it on the next render</span>
+              <h3 id="render-appearance-title">Render appearance · {{ renderAppearanceDraft.scope.episode || 'no episode' }}</h3>
+            </div>
+            <button type="button" class="btn btn-sm btn-secondary" @click="closeRenderAppearanceEditor">Close</button>
+          </header>
+          <div :inert="renderAppearanceApplying ? true : undefined" style="flex: 1; min-height: 0; overflow-y: auto;">
+            <p class="text-muted text-sm">
+              Every control here edits a draft. The page preview shows the look already applied;
+              changes appear there after Apply.
+            </p>
+      <!-- ─── Video Layout (v1.0.63+ / Path C) ─────────────────────────
+           Picks between the standard scene-clip pipeline (narrative /
+           scene-images flow) and the inverted compilation layout
+           (compilation-mode / listicle: looping background plate as base,
+           per-chapter foreground icons composited on top with
+           chapter-aligned timing). The card is at the very top of
+           Step 4 because the choice changes how every OTHER setting
+           on this page applies. -->
+      <div class="settings-section mt-1" style="border: 2px solid var(--accent); border-radius: 8px; padding: 12px;">
+        <div class="flex gap-2 items-center">
+          <h4 style="margin: 0;">📐 Video Layout</h4>
+          <span
+            v-if="renderAppearanceEdit.compilationLayout.layout === 'compilation'"
+            class="badge"
+            style="background: var(--accent); color: white; font-size: var(--font-xs); padding: 2px 8px; border-radius: 4px;"
+          >COMPILATION</span>
+        </div>
+        <p class="text-muted text-sm mt-1">
+          <strong>Standard</strong> renders scene images full-frame as the base video — the sleep-story default.
+          <strong>Compilation</strong> uses a looping background (e.g. starfield) as the base and composites each chapter's icon as a foreground overlay — the compilation-mode / listicle / explainer layout.
+        </p>
+        <VisualOptionPicker
+          :model-value="renderAppearanceEdit.compilationLayout.layout"
+          @update:model-value="value => renderAppearanceEdit.compilationLayout.layout = value as 'standard' | 'compilation'"
+          :options="[{ value: 'standard', label: 'Standard (scene-clip base)' }, { value: 'compilation', label: 'Compilation (background + foreground)' }]"
+          title="Video layout"
+          description="Choose how scene images appear in the video."
+        >
+          <template #sample="{ option }">
+            <svg viewBox="0 0 160 90" width="100%" height="100%" aria-hidden="true">
+              <rect width="160" height="90" fill="#354b5b" />
+              <path d="M0 80 L42 35 L70 60 L105 23 L160 80 V90 H0Z" fill="#71949a" />
+              <template v-if="option.value === 'compilation'">
+                <rect x="52" y="20" width="56" height="50" rx="4" fill="#eadcbf" />
+                <circle cx="80" cy="45" r="14" fill="#b9865c" />
+              </template>
+            </svg>
+          </template>
+        </VisualOptionPicker>
+
+        <div v-if="renderAppearanceEdit.compilationLayout.layout === 'compilation'" class="mt-2" style="border-top: 1px solid var(--border); padding-top: 12px;">
+          <p class="text-muted text-xs">
+            <strong>Requires Audio Assembly to have run</strong> on this episode — the per-chapter durations from
+            <code>audio_chapters.json</code> are what time-bound each foreground icon to its chapter narration.
+          </p>
+
+          <!-- Background plate picker -->
+          <div class="form-group mt-2">
+            <label>Background plate</label>
+            <span class="field-hint" style="display: block; margin-bottom: 4px;">
+              Choose from the app's backgrounds. Existing episode file choices stay available for rendering.
+            </span>
+            <div class="flex gap-2" style="flex-wrap: wrap; align-items: center;">
+              <span v-if="renderAppearanceEdit.compilationLayout.backgroundPlate.source_path" style="font-size: 12px; flex: 1; word-break: break-all;">
+                <strong>{{ renderAppearanceEdit.compilationLayout.backgroundPlate.source_path.split('/').pop() }}</strong>
+              </span>
+              <span v-else class="text-muted" style="font-size: 12px; flex: 1;">
+                (none picked)
+              </span>
+              <button
+                type="button"
+                class="btn btn-sm btn-secondary"
+                @click="openBackgroundPicker('compilation')"
+              >+ Pick</button>
+            </div>
+          </div>
+
+          <!-- Foreground sizing + position -->
+          <div class="grid-3 mt-2">
+            <div class="form-group">
+              <label>Foreground scale ({{ Math.round(renderAppearanceEdit.compilationLayout.foregroundDefaults.scale_pct * 100) }}% of width)</label>
+              <SliderWithNumber v-model="renderAppearanceEdit.compilationLayout.foregroundDefaults.scale_pct" :min="0.1" :max="0.8" :step="0.05" :decimals="2" />
+            </div>
+            <div class="form-group">
+              <label>Position</label>
+              <select v-model="renderAppearanceEdit.compilationLayout.foregroundDefaults.position" class="select">
+                <option value="center">Centered</option>
+                <option value="top-third">Top third</option>
+                <option value="bottom-third">Bottom third</option>
+                <option value="lower-right">Lower right</option>
+                <option value="lower-left">Lower left</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="checkbox-label">
+                <input
+                  type="checkbox"
+                  :checked="!!renderAppearanceEdit.compilationLayout.foregroundDefaults.chroma_key"
+                  @change="renderAppearanceEdit.compilationLayout.foregroundDefaults.chroma_key = ($event.target as HTMLInputElement).checked
+                    ? { color: '#FFFFFF', similarity: 0.15, blend: 0.10 }
+                    : null"
+                >
+                Chroma-key foreground bg
+              </label>
+              <span class="field-hint">On if your icon images have a solid background (white default). Off if they have native alpha.</span>
+            </div>
+          </div>
+
+          <!-- Chroma-key sub-controls -->
+          <div v-if="renderAppearanceEdit.compilationLayout.foregroundDefaults.chroma_key" class="grid-3 mt-1">
+            <div class="form-group">
+              <label>Key color</label>
+              <div class="flex gap-2 items-center">
+                <input v-model="renderAppearanceEdit.compilationLayout.foregroundDefaults.chroma_key.color" type="color" class="color-swatch-input" />
+                <input v-model="renderAppearanceEdit.compilationLayout.foregroundDefaults.chroma_key.color" class="input input-sm input-w-100" />
+              </div>
+            </div>
+            <div class="form-group">
+              <label>Similarity ({{ renderAppearanceEdit.compilationLayout.foregroundDefaults.chroma_key.similarity.toFixed(2) }})</label>
+              <SliderWithNumber v-model="renderAppearanceEdit.compilationLayout.foregroundDefaults.chroma_key.similarity" :min="0.01" :max="0.5" :step="0.01" :decimals="2" />
+            </div>
+            <div class="form-group">
+              <label>Edge blend ({{ renderAppearanceEdit.compilationLayout.foregroundDefaults.chroma_key.blend.toFixed(2) }})</label>
+              <SliderWithNumber v-model="renderAppearanceEdit.compilationLayout.foregroundDefaults.chroma_key.blend" :min="0.0" :max="0.5" :step="0.01" :decimals="2" />
+            </div>
+          </div>
+        </div>
+
+      </div>
+      <!-- Logo Overlay (moved from old Step 2) -->
+      <div class="settings-section mt-2">
+        <div class="flex gap-2 items-center">
+          <label class="checkbox-label" @click.stop>
+            <input type="checkbox" v-model="renderAppearanceEdit.logo.enabled" />
+          </label>
+          <h4>Logo Overlay</h4>
+        </div>
+
+        <div v-if="renderAppearanceEdit.logo.enabled" class="mt-2">
+          <div class="form-group">
+            <label>Logo Image Path <span class="text-muted text-xs">(PNG recommended)</span></label>
+            <FilePicker
+              v-model="renderAppearanceEdit.logo.image_path"
+              placeholder="No logo image chosen"
+              :filters="[{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp'] }]"
+              title="Choose a logo image"
+              aria-label="Logo image path"
+              clearable
+            />
+          </div>
+
+          <div class="grid-2 mt-1">
+            <div>
+              <label class="sub-section-label">Position</label>
+              <div class="position-grid mt-1">
+                <div v-for="pos in logoPositions" :key="pos.id"
+                  :class="['pos-cell', { active: renderAppearanceEdit.logo.position === pos.id }]"
+                  @click="renderAppearanceEdit.logo.position = pos.id"
+                  :title="pos.label">
+                  <span class="pos-dot" />
+                </div>
+              </div>
+              <button
+                :class="['btn btn-sm mt-1 text-xs', renderAppearanceEdit.logo.position === 'custom' ? 'btn-primary' : 'btn-secondary']"
+                @click="renderAppearanceEdit.logo.position = 'custom'"
+              >Custom</button>
+
+              <div v-if="renderAppearanceEdit.logo.position === 'custom'" class="flex gap-2 mt-1">
+                <div class="form-group flex-1">
+                  <label>X (px)</label>
+                  <input v-model.number="renderAppearanceEdit.logo.custom_x" type="number" min="0" class="input input-sm" />
+                </div>
+                <div class="form-group flex-1">
+                  <label>Y (px)</label>
+                  <input v-model.number="renderAppearanceEdit.logo.custom_y" type="number" min="0" class="input input-sm" />
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <div class="form-group">
+                <label>Opacity ({{ renderAppearanceEdit.logo.opacity }}%)</label>
+                <SliderWithNumber v-model="renderAppearanceEdit.logo.opacity" :min="0" :max="100" :step="1" suffix="%" />
+              </div>
+              <div class="form-group mt-1">
+                <label>Scale ({{ renderAppearanceEdit.logo.scale }}% of video width)</label>
+                <SliderWithNumber v-model="renderAppearanceEdit.logo.scale" :min="1" :max="50" :step="1" suffix="%" />
+              </div>
+              <div class="form-group mt-1">
+                <label>Shape</label>
+                <select v-model="renderAppearanceEdit.logo.shape" class="select" aria-label="Logo shape">
+                  <option value="none">None — as the image is</option>
+                  <option value="rounded">Rounded corners</option>
+                  <option value="circle">Circle</option>
+                </select>
+              </div>
+              <div v-if="renderAppearanceEdit.logo.shape === 'rounded'" class="form-group mt-1">
+                <label>Corner radius ({{ renderAppearanceEdit.logo.corner_radius_pct }}% of the shorter side)</label>
+                <SliderWithNumber v-model="renderAppearanceEdit.logo.corner_radius_pct" :min="1" :max="50" :step="1" suffix="%" />
+              </div>
+              <div class="form-group mt-1">
+                <label>Margin ({{ renderAppearanceEdit.logo.margin }}px)</label>
+                <input v-model.number="renderAppearanceEdit.logo.margin" type="number" min="0" max="200" class="input input-sm input-w-80" />
+              </div>
+              <label class="checkbox-label mt-1" title="When enabled, the logo stays hidden for the full duration of the intro clip and fades in as the title image appears. Useful when your intro already has its own branding.">
+                <input type="checkbox" v-model="renderAppearanceEdit.logo.hide_during_intro" />
+                Hide during intro
+              </label>
+              <p class="text-muted text-xs hint-line-tight">
+                Logo is invisible for the intro's full duration, then fades in over the title image.
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Color Grading -->
+      <div class="settings-section mt-2">
+        <div class="flex gap-2 items-center">
+          <label class="checkbox-label" @click.stop>
+            <input type="checkbox" v-model="renderAppearanceEdit.colorGrading.enabled" />
+          </label>
+          <h4>Color Grading</h4>
+        </div>
+
+        <div v-if="renderAppearanceEdit.colorGrading.enabled" class="mt-2">
+          <!-- Preset grid: 1 None + 18 themed presets in a responsive
+               auto-fill grid; Custom button sits below to make "I'm
+               dialing my own values" a first-class state. -->
+          <label class="sub-section-label">Preset</label>
+          <div class="preset-grid mt-1">
+            <div v-for="cp in colorGradingPresets" :key="cp.id"
+              :class="['preset-card', { active: renderAppearanceEdit.colorGrading.preset === cp.id }]"
+              @click="applyColorPreset(cp.id, renderAppearanceEdit.colorGrading)">
+              <span class="preset-name">{{ cp.label }}</span>
+              <span class="preset-desc">{{ cp.description }}</span>
+            </div>
+          </div>
+          <button
+            type="button"
+            :class="['preset-custom-btn mt-1', { active: renderAppearanceEdit.colorGrading.preset === 'custom' }]"
+            :title="customPresetActiveFor(renderAppearanceEdit.colorGrading) ? 'You\'ve customised the values below' : 'Start from neutral and dial in your own look'"
+            @click="applyColorPreset('custom', renderAppearanceEdit.colorGrading)"
+          >
+            <span class="preset-custom-label">Custom</span>
+            <span class="preset-custom-hint">{{ customPresetActiveFor(renderAppearanceEdit.colorGrading) ? 'Using your fine-tune values' : 'Use the sliders below' }}</span>
+          </button>
+
+          <!-- Fine-tune sliders -->
+          <label class="sub-section-label sub-section-block mt-2">Fine-Tune Adjustments</label>
+          <p class="text-muted text-xs fine-tune-hint">
+            Small changes go a long way on video — try staying within ±0.15 for brightness/warmth/tint, and 0.85–1.15 for contrast/saturation unless you're going for an obvious stylised look.
+          </p>
+          <div class="grid-3 mt-1">
+            <div class="form-group">
+              <label>Brightness ({{ renderAppearanceEdit.colorGrading.brightness > 0 ? '+' : '' }}{{ renderAppearanceEdit.colorGrading.brightness.toFixed(2) }})</label>
+              <SliderWithNumber v-model="renderAppearanceEdit.colorGrading.brightness" :min="-0.5" :max="0.5" :step="0.01" :decimals="2" />
+            </div>
+            <div class="form-group">
+              <label>Contrast ({{ renderAppearanceEdit.colorGrading.contrast.toFixed(2) }})</label>
+              <SliderWithNumber v-model="renderAppearanceEdit.colorGrading.contrast" :min="0.5" :max="2.0" :step="0.01" :decimals="2" />
+            </div>
+            <div class="form-group">
+              <label>Saturation ({{ renderAppearanceEdit.colorGrading.saturation.toFixed(2) }})</label>
+              <SliderWithNumber v-model="renderAppearanceEdit.colorGrading.saturation" :min="0.0" :max="2.0" :step="0.01" :decimals="2" />
+            </div>
+          </div>
+          <div class="grid-2 mt-1">
+            <div class="form-group">
+              <label>Warmth ({{ renderAppearanceEdit.colorGrading.warmth > 0 ? '+' : '' }}{{ renderAppearanceEdit.colorGrading.warmth.toFixed(2) }}) <span class="text-muted text-xs">cool &larr;&rarr; warm</span></label>
+              <SliderWithNumber v-model="renderAppearanceEdit.colorGrading.warmth" :min="-0.5" :max="0.5" :step="0.01" :decimals="2" />
+            </div>
+            <div class="form-group">
+              <label>Tint ({{ renderAppearanceEdit.colorGrading.tint > 0 ? '+' : '' }}{{ renderAppearanceEdit.colorGrading.tint.toFixed(2) }}) <span class="text-muted text-xs">green &larr;&rarr; magenta</span></label>
+              <SliderWithNumber v-model="renderAppearanceEdit.colorGrading.tint" :min="-0.5" :max="0.5" :step="0.01" :decimals="2" />
+            </div>
+          </div>
+          <button class="btn btn-sm btn-secondary mt-1" @click="renderAppearanceEdit.colorGrading.brightness = 0; renderAppearanceEdit.colorGrading.contrast = 1; renderAppearanceEdit.colorGrading.saturation = 1; renderAppearanceEdit.colorGrading.warmth = 0; renderAppearanceEdit.colorGrading.tint = 0;">Reset Sliders</button>
+        </div>
+      </div>
+
+      <!-- 1.4.282 — Vignette, Film Grain and Cinematic Letterbox live in the
+           Effect Library below (one route). A preset that still has the old
+           checkboxes turns them into marked library entries when it loads, and
+           those render exactly where the checkboxes did. -->
+
+      <!-- Aged Archive Film -->
+      <div class="settings-section mt-2">
+        <div class="flex gap-2 items-center">
+          <label class="checkbox-label" @click.stop>
+            <input type="checkbox" v-model="renderAppearanceEdit.agedArchiveFilm.enabled" />
+          </label>
+          <h4>Aged Archive Film</h4>
+          <span class="text-muted text-sm">(dust, scratches, flicker, gate weave)</span>
+        </div>
+        <div v-if="renderAppearanceEdit.agedArchiveFilm.enabled" class="mt-2">
+          <div class="form-group">
+            <label>Intensity ({{ renderAppearanceEdit.agedArchiveFilm.strength }})</label>
+            <SliderWithNumber v-model="renderAppearanceEdit.agedArchiveFilm.strength" :min="1" :max="100" :step="1" />
+            <p class="text-muted text-sm mt-1">
+              A self-contained archival treatment. It does not enable or change Color Grading, Vignette, or Film Grain; turn those on separately only when you want them stacked.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Presentation frame -->
+      <div class="settings-section mt-2 frame-settings">
+        <div class="flex gap-2 items-center">
+          <label class="checkbox-label" @click.stop>
+            <input type="checkbox" v-model="renderAppearanceEdit.frame.enabled" />
+          </label>
+          <h4>Presentation Frame</h4>
+          <span class="text-muted text-sm">(video inside a border or board)</span>
+        </div>
+        <p class="text-muted text-sm mt-1">Adds a visible matte around the complete video. Rounded corners affect the video surface, while subtitles and logos remain part of the framed composition.</p>
+        <div v-if="renderAppearanceEdit.frame.enabled" class="mt-2">
+          <div class="grid-3">
+            <div class="form-group">
+              <label>Outer inset ({{ renderAppearanceEdit.frame.inset_pct }}%)</label>
+              <SliderWithNumber v-model="renderAppearanceEdit.frame.inset_pct" :min="0" :max="20" :step="0.5" :decimals="1" suffix="%" />
+            </div>
+            <div class="form-group">
+              <label>Border width ({{ renderAppearanceEdit.frame.border_width }}px)</label>
+              <SliderWithNumber v-model="renderAppearanceEdit.frame.border_width" :min="0" :max="100" :step="1" suffix="px" />
+            </div>
+            <div class="form-group">
+              <label>Corner radius ({{ renderAppearanceEdit.frame.corner_radius }}px)</label>
+              <SliderWithNumber v-model="renderAppearanceEdit.frame.corner_radius" :min="0" :max="200" :step="2" suffix="px" />
+            </div>
+          </div>
+          <div class="grid-3 mt-2">
+            <div class="form-group">
+              <label>Border color</label>
+              <input v-model="renderAppearanceEdit.frame.border_color" type="color" class="color-swatch-input" />
+            </div>
+            <div class="form-group">
+              <label>Board color</label>
+              <input v-model="renderAppearanceEdit.frame.background_color" type="color" class="color-swatch-input" />
+            </div>
+            <div class="form-group">
+              <label>Video fit</label>
+              <select v-model="renderAppearanceEdit.frame.fit" class="select">
+                <option value="cover">Fill frame (crop edges)</option>
+                <option value="contain">Fit whole video</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-group mt-2">
+            <label>Board background media <span class="text-muted">(optional)</span></label>
+            <p class="field-hint">Use a still texture or looping video behind the framed scene. Leave empty to use the board color.</p>
+            <div class="flex gap-2 items-center flex-wrap">
+              <span class="text-sm flex-1">{{ renderAppearanceEdit.frame.background_path ? renderAppearanceEdit.frame.background_path.split('/').pop() : 'Solid color only' }}</span>
+              <button type="button" class="btn btn-sm btn-secondary" @click="openBackgroundPicker('frame')">Pick Image / Video</button>
+              <button v-if="renderAppearanceEdit.frame.background_path" type="button" class="btn btn-sm btn-secondary" @click="renderAppearanceEdit.frame.background_path = ''">Clear</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <!-- Simple single-source green-screen overlay -->
+      <div class="settings-section mt-2">
+        <div class="flex gap-2 items-center">
+          <label class="checkbox-label" @click.stop>
+            <input type="checkbox" v-model="renderAppearanceEdit.chromaKey.enabled" />
+          </label>
+          <h4>Single Green-Screen Overlay</h4>
+        </div>
+        <div v-if="renderAppearanceEdit.chromaKey.enabled" class="mt-2">
+          <div class="form-group">
+            <label>Green Screen Source <span class="text-muted text-xs">(video or image with green background)</span></label>
+            <FilePicker
+              v-model="renderAppearanceEdit.chromaKey.source_path"
+              placeholder="No green screen source chosen"
+              :filters="[{ name: 'Media', extensions: ['mp4', 'mov', 'mkv', 'webm', 'png', 'jpg', 'jpeg', 'webp'] }]"
+              title="Choose a green screen source"
+              aria-label="Green screen source path"
+              clearable
+            />
+          </div>
+          <div class="grid-3 mt-1">
+            <div class="form-group">
+              <label>Key Color</label>
+              <div class="flex gap-2 items-center">
+                <input v-model="renderAppearanceEdit.chromaKey.color" type="color" class="color-swatch-input" />
+                <input v-model="renderAppearanceEdit.chromaKey.color" class="input input-sm input-w-100" />
+              </div>
+            </div>
+            <div class="form-group">
+              <label>Similarity ({{ renderAppearanceEdit.chromaKey.similarity.toFixed(2) }})</label>
+              <SliderWithNumber v-model="renderAppearanceEdit.chromaKey.similarity" :min="0.01" :max="0.5" :step="0.01" :decimals="2" />
+            </div>
+            <div class="form-group">
+              <label>Edge Blend ({{ renderAppearanceEdit.chromaKey.blend.toFixed(2) }})</label>
+              <SliderWithNumber v-model="renderAppearanceEdit.chromaKey.blend" :min="0.0" :max="0.5" :step="0.01" :decimals="2" />
+            </div>
+          </div>
+          <p class="text-muted text-sm mt-1">
+            Removes the selected background color and places one clip or image over the scenes. This is the simple one-layer option; use Overlay Layers below for multiple effects, timing, opacity, or stacking. Leave it off when you do not use green-screen media.
+          </p>
+        </div>
+      </div>
       <!-- Overlay Layers (multi-source compositing) -->
       <div class="settings-section mt-2">
         <div class="flex gap-2 items-center">
 
           <label class="checkbox-label" @click.stop>
-            <input type="checkbox" v-model="overlays.enabled" :disabled="!overlays.layers.length" />
+            <input type="checkbox" v-model="renderAppearanceEdit.overlays.enabled" :disabled="!renderAppearanceEdit.overlays.layers.length" />
           </label>
           <h4>Overlay Layers</h4>
           <span class="text-muted text-xs">
-            ({{ overlays.layers.length }} layer{{ overlays.layers.length === 1 ? '' : 's' }})
+            ({{ renderAppearanceEdit.overlays.layers.length }} layer{{ renderAppearanceEdit.overlays.layers.length === 1 ? '' : 's' }})
           </span>
         </div>
         <p class="text-muted text-sm mt-1">
@@ -1701,9 +1984,9 @@
           Solid-background files (most green-screen MP4s) need the per-layer chroma key turned on.
         </p>
 
-        <div v-if="overlays.layers.length" class="mt-2" style="display: flex; flex-direction: column; gap: 8px;">
+        <div v-if="renderAppearanceEdit.overlays.layers.length" class="mt-2" style="display: flex; flex-direction: column; gap: 8px;">
           <div
-            v-for="(layer, idx) in overlays.layers"
+            v-for="(layer, idx) in renderAppearanceEdit.overlays.layers"
             :key="layer.id"
             class="card"
             :style="`padding: 10px; border-left: 3px solid ${layer.enabled ? 'var(--accent)' : 'var(--border)'}`"
@@ -1722,20 +2005,20 @@
                 class="btn btn-sm btn-secondary"
                 :disabled="idx === 0"
                 title="Move layer down (further from camera)"
-                @click="moveOverlayLayer(layer.id, -1)"
+                @click="moveOverlayLayer(layer.id, -1, renderAppearanceEdit.overlays)"
               >↑</button>
               <button
                 type="button"
                 class="btn btn-sm btn-secondary"
-                :disabled="idx === overlays.layers.length - 1"
+                :disabled="idx === renderAppearanceEdit.overlays.layers.length - 1"
                 title="Move layer up (closer to camera)"
-                @click="moveOverlayLayer(layer.id, 1)"
+                @click="moveOverlayLayer(layer.id, 1, renderAppearanceEdit.overlays)"
               >↓</button>
               <button
                 type="button"
                 class="btn btn-sm btn-danger"
                 title="Remove this layer"
-                @click="removeOverlayLayer(layer.id)"
+                @click="removeOverlayLayer(layer.id, renderAppearanceEdit.overlays)"
               >✕</button>
             </div>
 
@@ -1797,7 +2080,7 @@
                 <input
                   type="checkbox"
                   :checked="!!layer.time_range"
-                  @change="setOverlayTimeRangeEnabled(layer.id, ($event.target as HTMLInputElement).checked)"
+                  @change="setOverlayTimeRangeEnabled(layer.id, ($event.target as HTMLInputElement).checked, renderAppearanceEdit.overlays.layers)"
                 />
                 <strong>Limit to a time range</strong>
                 <span class="text-muted text-xs">
@@ -1833,19 +2116,19 @@
                       left: ${(layer.time_range.start_s / estimatedDurationSec) * 100}%;
                       width: ${((((layer.time_range.end_s ?? estimatedDurationSec) - layer.time_range.start_s) / estimatedDurationSec) * 100)}%;
                     `"
-                    @pointerdown.stop="startOverlayDrag($event, layer.id, 'move')"
+                    @pointerdown.stop="startOverlayDrag($event, layer.id, 'move', renderAppearanceEdit.overlays.layers)"
                   >
                     <!-- Left handle -->
                     <div
                       style="position: absolute; left: -4px; top: 0; bottom: 0; width: 8px; background: var(--accent); cursor: ew-resize; border-radius: 2px;"
                       title="Drag to set start time"
-                      @pointerdown.stop="startOverlayDrag($event, layer.id, 'start')"
+                      @pointerdown.stop="startOverlayDrag($event, layer.id, 'start', renderAppearanceEdit.overlays.layers)"
                     />
                     <!-- Right handle -->
                     <div
                       style="position: absolute; right: -4px; top: 0; bottom: 0; width: 8px; background: var(--accent); cursor: ew-resize; border-radius: 2px;"
                       title="Drag to set end time"
-                      @pointerdown.stop="startOverlayDrag($event, layer.id, 'end')"
+                      @pointerdown.stop="startOverlayDrag($event, layer.id, 'end', renderAppearanceEdit.overlays.layers)"
                     />
                   </div>
                 </div>
@@ -1864,7 +2147,7 @@
                       :min="0"
                       :max="layer.time_range.end_s ?? estimatedDurationSec"
                       step="0.1"
-                      @input="onOverlayTimeInput($event, layer.id, 'start')"
+                      @input="onOverlayTimeInput($event, layer.id, 'start', renderAppearanceEdit.overlays.layers)"
                     >
                   </div>
                   <div class="form-group">
@@ -1876,7 +2159,7 @@
                       :min="layer.time_range.start_s + 0.1"
                       :max="estimatedDurationSec || 99999"
                       step="0.1"
-                      @input="onOverlayTimeInput($event, layer.id, 'end')"
+                      @input="onOverlayTimeInput($event, layer.id, 'end', renderAppearanceEdit.overlays.layers)"
                     >
                   </div>
                   <div class="form-group" style="align-self: end;">
@@ -1913,6 +2196,97 @@
             @click="refreshOverlayLibrary"
           >🔄 Refresh</button>
         </div>
+
+      </div>
+      <!-- Effect library (v1.2.0) — moved into this draft with the rest of
+           the look; Apply is its only write. -->
+      <div class="settings-section mt-2">
+        <SceneEffectLibrary
+          v-model="renderAppearanceEdit.sceneEffects"
+          :slug="slug"
+          :episode-id="episodeId"
+          :aspect-ratio="exportSettings.aspect_ratio"
+          :get="get"
+          :post="post"
+          @open-episode-effects="openEpisodeEffects"
+        />
+      </div>
+
+      <!-- Intro + title exclusion -->
+      <div
+        v-if="(intro.enabled || titleImage.enabled) && (renderAppearanceEdit.colorGrading.enabled || lookPreview.vignette !== null || lookPreview.grain !== null || (renderAppearanceEdit.logo.enabled && renderAppearanceEdit.logo.image_path) || (renderAppearanceEdit.chromaKey.enabled && renderAppearanceEdit.chromaKey.source_path))"
+        class="settings-section mt-2"
+      >
+        <label class="checkbox-label">
+          <input type="checkbox" v-model="renderAppearanceEdit.excludeIntroFromEffects" />
+          Exclude intro and title from effects
+        </label>
+        <!-- Subtitles used to be named here, and to be one of the conditions
+             that revealed this whole block. They never belonged: the burn-in
+             filter is libass, which FFmpeg accepts no timeline `enable=` gate
+             on (see the comment beside the filter in generators/video.ts), so
+             this checkbox has never affected a single caption. Promising that
+             it did also made "Hide captions during the intro" — which really
+             works — look redundant. -->
+        <p class="text-muted text-xs hint-line">
+          Color grading, vignette, film grain, logo, and chroma key only start after the title image ends. Letterbox still applies throughout (it changes the frame shape). Captions are not affected — use "Hide captions during the intro" in the Subtitles section.
+        </p>
+      </div>
+          </div>
+          <footer style="display: flex; align-items: center; gap: 12px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border);">
+            <p v-if="renderAppearanceError" class="text-danger text-sm" role="alert" style="margin: 0; flex: 1;">{{ renderAppearanceError }}</p>
+            <span v-else class="text-muted text-sm" style="margin: 0; flex: 1;">Your edits stay in this draft until Apply.</span>
+            <div style="display: flex; gap: 8px;">
+              <button type="button" class="btn btn-secondary" :disabled="renderAppearanceApplying" @click="closeRenderAppearanceEditor">Cancel</button>
+              <button
+                type="button"
+                class="btn btn-primary"
+                :disabled="renderAppearanceApplying || !episodeId"
+                @click="applyRenderAppearanceDraft"
+              >{{ renderAppearanceApplying ? 'Applying…' : 'Apply' }}</button>
+            </div>
+          </footer>
+        </div>
+      </Modal>
+
+        <!-- Background picker modal -->
+        <Modal :visible="showBackgroundPicker" size="md" labelledby="bg-picker-title" @close="showBackgroundPicker = false">
+          <div>
+            <div class="flex gap-2 items-center" style="margin-bottom: 12px;">
+              <h3 id="bg-picker-title" style="margin: 0; flex: 1;">
+                {{ backgroundPickerTarget === 'frame' ? 'Pick a presentation-frame background'
+                  : backgroundPickerTarget === 'title-card' ? 'Pick a title-card background'
+                    : backgroundPickerTarget === 'outro-card' ? 'Pick an outro-card background'
+                      : 'Pick a compilation background plate' }}
+              </h3>
+              <button type="button" class="btn btn-sm btn-secondary" @click="showBackgroundPicker = false">✕ Close</button>
+            </div>
+            <div v-if="bgLibraryLoading" class="text-muted text-sm">Loading backgrounds…</div>
+            <div v-else-if="bgLibraryError" class="text-danger text-sm">{{ bgLibraryError }}</div>
+            <div v-else style="display: flex; flex-direction: column; gap: 6px; max-height: 60vh; overflow-y: auto;">
+              <button
+                v-for="f in bgLibrary"
+                :key="f.path"
+                type="button"
+                class="btn btn-secondary"
+                style="text-align: left; padding: 10px; display: flex; gap: 10px; align-items: center;"
+                @click="pickBackgroundFile(f)"
+              >
+                <img v-if="f.thumbnail_url" :src="f.thumbnail_url" alt="" width="96" height="54" loading="lazy" style="object-fit: cover; border-radius: 4px;" @error="bgLibraryError = 'A background preview could not be loaded. Close and reopen Backgrounds to try again.'" />
+                <span style="flex: 1;">
+                  <strong>{{ f.filename }}</strong>
+                  <br>
+                  <span class="text-muted text-xs">
+                    {{ !f.path ? 'Default · no background image' : f.id ? 'App background' : 'Custom file' }}{{ f.duration ? ` · ${f.duration.toFixed(1)}s loop` : '' }}
+                  </span>
+                </span>
+              </button>
+            </div>
+            <p class="text-muted text-xs mt-2" style="margin-bottom: 0;">
+              App backgrounds are shared across channels. Your saved file choice stays until you choose a replacement.
+            </p>
+          </div>
+        </Modal>
 
         <!-- Picker modal -->
         <Modal :visible="showOverlayPickerForLayer === '__add__'" size="md" labelledby="overlay-picker-title" @close="showOverlayPickerForLayer = null">
@@ -1960,232 +2334,6 @@
             </p>
           </div>
         </Modal>
-      </div>
-
-      <!-- Intro + title exclusion -->
-      <div
-        v-if="(intro.enabled || titleImage.enabled) && (colorGrading.enabled || lookPreview.vignette !== null || lookPreview.grain !== null || (logo.enabled && logo.image_path) || (chromaKey.enabled && chromaKey.source_path))"
-        class="settings-section mt-2"
-      >
-        <label class="checkbox-label">
-          <input type="checkbox" v-model="excludeIntroFromEffects" />
-          Exclude intro and title from effects
-        </label>
-        <!-- Subtitles used to be named here, and to be one of the conditions
-             that revealed this whole block. They never belonged: the burn-in
-             filter is libass, which FFmpeg accepts no timeline `enable=` gate
-             on (see the comment beside the filter in generators/video.ts), so
-             this checkbox has never affected a single caption. Promising that
-             it did also made "Hide captions during the intro" — which really
-             works — look redundant. -->
-        <p class="text-muted text-xs hint-line">
-          Color grading, vignette, film grain, logo, and chroma key only start after the title image ends. Letterbox still applies throughout (it changes the frame shape). Captions are not affected — use "Hide captions during the intro" in the Subtitles section.
-        </p>
-      </div>
-
-      <!-- Text Overlays (collapsed by default) -->
-      <h4 class="mt-3 text-overlays-heading">Text Overlays <span class="text-muted text-xs font-normal">(optional)</span></h4>
-
-      <!-- Title Card -->
-      <div class="collapsible mt-1">
-        <div class="collapsible-header" @click="titleCardOpen = !titleCardOpen">
-          <div class="flex gap-2 items-center">
-            <label class="checkbox-label" @click.stop>
-              <input type="checkbox" v-model="titleCard.enabled" />
-            </label>
-            <strong>Title Card</strong>
-            <span v-if="!titleCard.enabled" class="badge badge-muted">OFF</span>
-          </div>
-          <span class="collapse-arrow">{{ titleCardOpen ? '&#9660;' : '&#9654;' }}</span>
-        </div>
-        <div v-if="titleCardOpen" class="collapsible-body">
-          <div class="grid-2 mt-1">
-            <div class="form-group">
-              <label>Title Text</label>
-              <input v-model="titleCard.text" class="input" placeholder="Episode title" :disabled="!titleCard.enabled" />
-            </div>
-            <div class="form-group">
-              <label>Subtitle (optional)</label>
-              <input v-model="titleCard.subtitle" class="input" placeholder="Subtitle text" :disabled="!titleCard.enabled" />
-            </div>
-          </div>
-          <div class="grid-3 mt-1">
-            <div class="form-group">
-              <label>Duration ({{ titleCard.duration }}s)</label>
-              <SliderWithNumber v-model="titleCard.duration" :min="1" :max="10" :step="1" suffix="s" :disabled="!titleCard.enabled" />
-            </div>
-            <div class="form-group">
-              <label>Style</label>
-              <VisualOptionPicker
-                v-model="titleCard.style"
-                :options="TITLE_CARD_STYLE_OPTIONS"
-                :disabled="!titleCard.enabled"
-                title="Title card style"
-                description="The colour the episode title is drawn in."
-              >
-                <template #sample="{ option }">
-                  <span class="tc-style-sample" :class="`tc-style--${option.value}`">{{ option.label }}</span>
-                </template>
-              </VisualOptionPicker>
-            </div>
-            <div class="form-group">
-              <label>Background</label>
-              <VisualOptionPicker
-                v-model="titleCard.background"
-                :options="TITLE_CARD_BACKGROUND_OPTIONS"
-                :disabled="!titleCard.enabled"
-                title="Title card background"
-                description="The fill behind the title when no background media is picked."
-              >
-                <template #sample="{ option }">
-                  <span class="tc-bg-sample" :class="`tc-bg--${option.value}`">
-                    <code>{{ TITLE_CARD_BACKGROUND_COLORS[option.value as keyof typeof TITLE_CARD_BACKGROUND_COLORS] }}</code>
-                  </span>
-                </template>
-              </VisualOptionPicker>
-            </div>
-          </div>
-          <div class="form-group mt-1">
-            <label>Background image / looping video <span class="text-muted">(optional)</span></label>
-            <div class="flex gap-2 items-center flex-wrap">
-              <span class="text-sm flex-1">{{ titleCard.background_media_path ? titleCard.background_media_path.split('/').pop() : 'Use selected color style' }}</span>
-              <button type="button" class="btn btn-sm btn-secondary" :disabled="!titleCard.enabled" @click="openBackgroundPicker('title-card')">Pick Media</button>
-              <button v-if="titleCard.background_media_path" type="button" class="btn btn-sm btn-secondary" @click="titleCard.background_media_path = ''">Clear</button>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Chapter Titles -->
-      <div class="collapsible mt-1">
-        <div class="collapsible-header" @click="chapterTitlesOpen = !chapterTitlesOpen">
-          <div class="flex gap-2 items-center">
-            <label class="checkbox-label" @click.stop>
-              <input type="checkbox" v-model="chapterTitles.enabled" />
-            </label>
-            <strong>Chapter Titles</strong>
-            <span v-if="!chapterTitles.enabled" class="badge badge-muted">OFF</span>
-          </div>
-          <span class="collapse-arrow">{{ chapterTitlesOpen ? '&#9660;' : '&#9654;' }}</span>
-        </div>
-        <div v-if="chapterTitlesOpen" class="collapsible-body">
-          <div class="grid-3 mt-1">
-            <div class="form-group">
-              <label>Style</label>
-              <select v-model="chapterTitles.style" class="select" :disabled="!chapterTitles.enabled">
-                <option value="gold">Gold</option>
-                <option value="white">White</option>
-                <option value="neon">Neon</option>
-                <option value="minimal">Minimal</option>
-              </select>
-            </div>
-            <div class="form-group">
-              <label>Position</label>
-              <select v-model="chapterTitles.position" class="select" :disabled="!chapterTitles.enabled">
-                <option value="top">Top</option>
-                <option value="center">Center</option>
-                <option value="bottom">Bottom</option>
-              </select>
-            </div>
-            <div class="form-group">
-              <label>Font Size</label>
-              <select v-model="chapterTitles.font_size" class="select" :disabled="!chapterTitles.enabled">
-                <option value="small">Small</option>
-                <option value="medium">Medium</option>
-                <option value="large">Large</option>
-              </select>
-            </div>
-          </div>
-          <div class="form-group mt-1">
-            <label>Duration ({{ chapterTitles.duration }}s)</label>
-            <SliderWithNumber v-model="chapterTitles.duration" :min="1" :max="5" :step="1" suffix="s" :disabled="!chapterTitles.enabled" />
-          </div>
-          <!-- Animation preset (v1.0.56+). Backend extends the
-               drawtext call with alpha (fade) or x/y (slide) FFmpeg
-               expressions. 'none' keeps the legacy static behaviour. -->
-          <div class="grid-2 mt-1">
-            <div class="form-group">
-              <label>Animation</label>
-              <select v-model="chapterTitles.animation" class="select" :disabled="!chapterTitles.enabled">
-                <option value="none">None (static)</option>
-                <option value="fade-in-out">Fade in + out</option>
-                <option value="slide-from-left">Slide in · from left</option>
-                <option value="slide-from-right">Slide in · from right</option>
-                <option value="slide-up">Slide in · from below</option>
-              </select>
-            </div>
-            <div
-              v-if="chapterTitles.animation && chapterTitles.animation !== 'none'"
-              class="form-group"
-            >
-              <label>
-                Transition ({{ (chapterTitles.animation_duration ?? 0.5).toFixed(2) }}s)
-                <span
-                  class="field-hint"
-                  :title="chapterTitles.animation === 'fade-in-out'
-                    ? 'Applied to BOTH fade-in and fade-out, so total fade time is roughly 2× this value. Capped at duration / 2 by the backend so a long fade never overlaps itself.'
-                    : 'Length of the slide-in only. Exit is a hard cut at the end of duration.'"
-                >Capped at duration ÷ 2.</span>
-              </label>
-              <SliderWithNumber
-                v-model="chapterTitles.animation_duration"
-                :min="0.1"
-                :max="Math.max(0.1, chapterTitles.duration / 2)"
-                :step="0.05"
-                :decimals="2"
-                suffix="s"
-                :disabled="!chapterTitles.enabled"
-              />
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Outro Card -->
-      <div class="collapsible mt-1">
-        <div class="collapsible-header" @click="outroCardOpen = !outroCardOpen">
-          <div class="flex gap-2 items-center">
-            <label class="checkbox-label" @click.stop>
-              <input type="checkbox" v-model="outroCard.enabled" />
-            </label>
-            <strong>Outro Card</strong>
-            <span v-if="!outroCard.enabled" class="badge badge-muted">OFF</span>
-          </div>
-          <span class="collapse-arrow">{{ outroCardOpen ? '&#9660;' : '&#9654;' }}</span>
-        </div>
-        <div v-if="outroCardOpen" class="collapsible-body">
-          <div class="grid-2 mt-1">
-            <div class="form-group">
-              <label>Text</label>
-              <input v-model="outroCard.text" class="input" placeholder="Outro text" :disabled="!outroCard.enabled" />
-            </div>
-            <div class="form-group">
-              <label>Style</label>
-              <select v-model="outroCard.style" class="select" :disabled="!outroCard.enabled">
-                <option value="gold">Gold</option>
-                <option value="white">White</option>
-                <option value="neon">Neon</option>
-                <option value="minimal">Minimal</option>
-              </select>
-            </div>
-          </div>
-          <div class="form-group mt-1">
-            <label>Duration ({{ outroCard.duration }}s)</label>
-            <SliderWithNumber v-model="outroCard.duration" :min="2" :max="8" :step="1" suffix="s" :disabled="!outroCard.enabled" />
-          </div>
-          <div class="form-group mt-1">
-            <label>Background image / looping video <span class="text-muted">(optional)</span></label>
-            <div class="flex gap-2 items-center flex-wrap">
-              <span class="text-sm flex-1">{{ outroCard.background_media_path ? outroCard.background_media_path.split('/').pop() : 'Use solid background' }}</span>
-              <button type="button" class="btn btn-sm btn-secondary" :disabled="!outroCard.enabled" @click="openBackgroundPicker('outro-card')">Pick Media</button>
-              <button v-if="outroCard.background_media_path" type="button" class="btn btn-sm btn-secondary" @click="outroCard.background_media_path = ''">Clear</button>
-            </div>
-          </div>
-        </div>
-      </div>
-
-        </div><!-- /.effects-controls-scroll -->
-      </div><!-- /.effects-split-layout -->
 
       <div class="step-nav mt-3">
         <button class="btn btn-secondary" @click="goToStep(3)">Back</button>
@@ -2210,27 +2358,59 @@
         @delete="finishPreset(subtitlesPresets.remove(), 'Subtitles preset deleted')"
       />
 
+      <!-- Summary; editing happens in a detached popup. Opening, browsing,
+           Escape, backdrop and Cancel write nothing — Apply is the one save. -->
       <div class="settings-section mt-2">
-        <label class="checkbox-label">
-          <input type="checkbox" v-model="subtitles.enabled" />
-          <span class="ml-1-tight">Enable subtitles</span>
-        </label>
+        <div class="flex gap-2 items-center justify-between flex-wrap">
+          <div>
+            <h4>Subtitles</h4>
+            <p class="text-muted text-sm mt-1">{{ subtitlesSummary }}</p>
+          </div>
+          <button type="button" class="btn btn-sm btn-primary" :disabled="!episodeId" @click="openSubtitleEditor">Edit subtitles</button>
+        </div>
+        <span v-if="!episodeId" class="text-muted text-xs">Pick an episode in Step 1 first.</span>
         <p v-if="subtitles.enabled && ffmpegStatus && !ffmpegStatus.has_libass"
            class="validation-msg text-sm mt-1">
           ⚠ This FFmpeg build doesn't include libass — subtitles can't be burned in.
-          Install a build with libass (e.g. <code>brew install ffmpeg</code> with freetype+libass).
-        </p>
-        <!-- v1.0.423 — hide intro captions (sleep-story). -->
-        <label v-if="subtitles.enabled" class="checkbox-label mt-2" title="Drops caption cues before the first story chapter from the burned-in track (welcome / context / CTA / breathing stay silent on screen). The full SRT sidecar for YouTube upload is left intact. Needs an 'Introduction' audio chapter.">
-          <input type="checkbox" v-model="subtitles.hide_during_intro" />
-          <span class="ml-1-tight">Hide captions during the intro</span>
-        </label>
-        <p v-if="subtitles.enabled && subtitles.hide_during_intro" class="text-muted text-xs mt-1">
-          Captions start when the story does (after the Introduction chapter). The uploaded SRT file is unchanged — only the burned-in captions are trimmed.
         </p>
       </div>
 
-      <div v-if="subtitles.enabled" class="mt-2">
+      <Modal
+        :visible="!!subtitleDraft"
+        size="xxl"
+        labelledby="subtitle-editor-title"
+        @close="closeSubtitleEditor"
+      >
+        <div v-if="subtitleEdit" style="display: flex; flex-direction: column; min-height: 0; max-height: calc(78vh - 48px);">
+          <header style="display: flex; align-items: flex-start; gap: 12px; margin-bottom: 12px;">
+            <div style="flex: 1;">
+              <span class="text-muted text-xs">Saved for this episode only — Video Assembly uses it on the next render</span>
+              <h3 id="subtitle-editor-title">Subtitles · {{ subtitleDraft.scope.episode || 'no episode' }}</h3>
+            </div>
+            <button type="button" class="btn btn-sm btn-secondary" :disabled="subtitleApplying" @click="closeSubtitleEditor">Close</button>
+          </header>
+          <div :inert="subtitleApplying ? true : undefined" style="flex: 1; min-height: 0; overflow-y: auto;">
+            <div class="settings-section mt-2">
+              <label class="checkbox-label">
+                <input type="checkbox" v-model="subtitleEdit.enabled" />
+                <span class="ml-1-tight">Enable subtitles</span>
+              </label>
+              <p v-if="subtitleEdit.enabled && ffmpegStatus && !ffmpegStatus.has_libass"
+                 class="validation-msg text-sm mt-1">
+                ⚠ This FFmpeg build doesn't include libass — subtitles can't be burned in.
+                Install a build with libass (e.g. <code>brew install ffmpeg</code> with freetype+libass).
+              </p>
+              <!-- v1.0.423 — hide intro captions (sleep-story). -->
+              <label v-if="subtitleEdit.enabled" class="checkbox-label mt-2" title="Drops caption cues before the first story chapter from the burned-in track (welcome / context / CTA / breathing stay silent on screen). The full SRT sidecar for YouTube upload is left intact. Needs an 'Introduction' audio chapter.">
+                <input type="checkbox" v-model="subtitleEdit.hide_during_intro" />
+                <span class="ml-1-tight">Hide captions during the intro</span>
+              </label>
+              <p v-if="subtitleEdit.enabled && subtitleEdit.hide_during_intro" class="text-muted text-xs mt-1">
+                Captions start when the story does (after the Introduction chapter). The uploaded SRT file is unchanged — only the burned-in captions are trimmed.
+              </p>
+            </div>
+
+            <div v-if="subtitleEdit.enabled" class="mt-2">
         <!-- v1.0.216+ — Subtitle CREATION moved to the dedicated Subtitles
              tab. Video Assembly only picks which SRT to burn in + styles it. -->
         <div class="settings-section">
@@ -2326,15 +2506,15 @@
               <div class="flex gap-2 flex-wrap">
                 <button v-for="srt in burnView.alternatives" :key="srt.path"
                   class="btn btn-sm btn-secondary"
-                  :disabled="pinningSubtitle"
+                  :disabled="subtitleApplying"
                   :title="hasQualityFindings((srt as any).quality) ? 'Some cues in this file look like transcription errors.' : ''"
-                  @click="pinSubtitle(srt.filename)">
+                  @click="chooseSubtitleInDraft(srt.filename)">
                   <span v-if="hasQualityFindings((srt as any).quality)" aria-hidden="true">⚠ </span>{{ srt.filename }}
                 </button>
               </div>
-              <p v-if="burnView.pinned" class="text-muted text-sm mt-2">
-                You chose <strong>{{ burnView.burning }}</strong> for this episode.
-                <button class="btn btn-sm" :disabled="pinningSubtitle" @click="pinSubtitle('')">
+              <p v-if="subtitleEdit.pinned_subtitle" class="text-muted text-sm mt-2">
+                Will burn <strong>{{ subtitleEdit.pinned_subtitle }}</strong> for this episode after Apply.
+                <button class="btn btn-sm" :disabled="subtitleApplying" @click="chooseSubtitleInDraft('')">
                   Back to Automatic
                 </button>
               </p>
@@ -2353,10 +2533,10 @@
             :slug="slug"
             :episode-id="episodeId"
             :aspect-ratio="exportSettings.aspect_ratio"
-            :style="subtitles.style"
+            :style="subtitleEdit.style"
             :backdrop-url="subtitleBackdropUrl"
             :sample-text="sampleSubtitleText"
-            @update:style="(s: SubtitleStyleDocument) => { subtitles.style = s }"
+            @update:style="(s: SubtitleStyleDocument) => { subtitleEdit.style = s }"
           />
         </div>
 
@@ -2483,7 +2663,20 @@
             style asks again.
           </p>
         </div>
-      </div>
+            </div>
+          </div>
+          <footer style="display: flex; align-items: center; gap: 12px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border);">
+            <p v-if="subtitleError" class="text-danger text-sm" role="alert" style="margin: 0; flex: 1;">{{ subtitleError }}</p>
+            <span v-else class="text-muted text-sm" style="margin: 0; flex: 1;">Your edits stay in this draft until Apply.</span>
+            <div style="display: flex; gap: 8px;">
+              <button type="button" class="btn btn-secondary" :disabled="subtitleApplying" @click="closeSubtitleEditor">Cancel</button>
+              <button type="button" class="btn btn-primary" :disabled="subtitleApplying || !episodeId" @click="applySubtitleDraft">
+                {{ subtitleApplying ? 'Applying…' : 'Apply' }}
+              </button>
+            </div>
+          </footer>
+        </div>
+      </Modal>
 
       <SoundDesignHandoff :slug="slug" :episode-code="episodeId" />
 
@@ -2994,6 +3187,8 @@ import { describeMergedAudioOpening } from '~/utils/merged-audio-opening'
 import { describeOpeningSync } from '~/utils/opening-sync'
 import { estimateRender, formatEstimateGb, formatEstimateTime } from '~/utils/render-estimate'
 import { LAST_USED_CONFIG_KEY, pickLastUsedSettings, recordLastUsedSettings } from '~/utils/video-assembly-last-used'
+import { applyAssemblyStepDraft, beginAssemblyStepDraft, cancelAssemblyStepDraft, sameAssemblyStepScope, type AssemblyStepDraft, type AssemblyStepScope } from '~/utils/assembly-step-draft'
+import type { StillPostFontPool } from '@shared/still-post-fonts'
 import { aspectRatioOptions, canvasFor, parseAspectRatio, DEFAULT_ASPECT_RATIO } from '~/utils/aspect-ratios'
 import { describeSubtitleBurn } from '~/utils/subtitle-episode-selection'
 import { customerSafeJobText } from '~/utils/job-presentation'
@@ -3051,6 +3246,16 @@ const { jobs: allJobs, isJobActiveFor } = useJobs()
 const stepLabels = ['Assets', 'Intro', 'Timeline', 'Effects', 'Subtitles', 'Export']
 const currentStep = ref(1)
 const maxStepReached = ref(1)
+
+// JOB6: the retired Effects Library address (and its redirect) land on the
+// step that hosts its editor. Only an explicit 1–6 in the URL moves the
+// wizard — a step is never guessed — using the same direct jump the subtitle
+// preflight already makes.
+const requestedStep = Number(route.query.step)
+if (Number.isInteger(requestedStep) && requestedStep >= 1 && requestedStep <= 6 && requestedStep > currentStep.value) {
+  currentStep.value = requestedStep
+  maxStepReached.value = Math.max(maxStepReached.value, requestedStep)
+}
 
 // --------------- Step 1: Assets ---------------
 const initialEpisodeId = typeof route.query.episode_id === 'string'
@@ -3331,6 +3536,29 @@ const intro = reactive({
   video_path: '',
 })
 
+// The channel's intro-music choice is a sibling of `intro`, never part of the
+// intro preset or the renderer parameters. It is kept live so the last-used
+// snapshot can carry it forward; the intro popup writes it on Apply.
+interface ChannelIntroSelection {
+  file: string
+  volume: number
+  gap_after: number
+}
+const channelIntro = ref<ChannelIntroSelection | null>(null)
+
+function normalizeChannelIntro(raw: any): ChannelIntroSelection | null {
+  if (!raw || typeof raw !== 'object') return null
+  const file = String(raw.file || '').trim()
+  if (!file) return null
+  const volume = Number(raw.volume)
+  const gap = Number(raw.gap_after)
+  return {
+    file,
+    volume: Number.isFinite(volume) ? Math.max(0, Math.min(1, volume)) : 1,
+    gap_after: Number.isFinite(gap) ? Math.max(0, gap) : 0,
+  }
+}
+
 // Read-only opening mode preview; render timing comes from scene_plan.json.
 const introHold = ref<{
   skip_intro_scenes: boolean
@@ -3411,7 +3639,7 @@ const TIMELINE_ANCHOR_OPTIONS: Array<{ value: TimelineAnchor; label: string; hin
   { value: 'before_intro', label: 'Before intro',           hint: 'Very start, before the intro clip' },
   { value: 'after_intro',  label: 'After intro',            hint: 'Between the intro/title and the first story scene' },
   { value: 'after_scenes', label: 'After scenes',           hint: 'Between the last scene and the post-audio fade/hold' },
-  { value: 'after_outro',  label: 'After outro (very end)', hint: 'Very end — where multi-hour black screens go' },
+  { value: 'after_outro',  label: 'After outro (very end)', hint: 'Very end — after everything else in the render' },
 ]
 
 const TIMELINE_KIND_OPTIONS: Array<{ value: TimelineClipKind; label: string; hint: string }> = [
@@ -3427,11 +3655,11 @@ const TIMELINE_KIND_OPTIONS: Array<{ value: TimelineClipKind; label: string; hin
   },
 ]
 
-function addTimelineClip() {
+function addTimelineClip(target: TimelineClip[] = timelineClips.value) {
   // Default new clips to 'video' for back-compat with operators' muscle
   // memory. The first per-row control is a kind toggle so switching is
   // one click away.
-  timelineClips.value.push({
+  target.push({
     id: `clip-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
     kind: 'video',
     video_path: '',
@@ -3445,13 +3673,13 @@ function addTimelineClip() {
  * enabled state. Each kind owns its own path field; we leave the
  * other field intact so flip-flopping doesn't lose the picked file.
  */
-function setTimelineClipKind(id: string, kind: TimelineClipKind) {
-  const i = timelineClips.value.findIndex(c => c.id === id)
+function setTimelineClipKind(id: string, kind: TimelineClipKind, target: TimelineClip[] = timelineClips.value) {
+  const i = target.findIndex(c => c.id === id)
   if (i < 0) return
-  const cur = timelineClips.value[i]
+  const cur = target[i]
   if (cur.kind === kind) return
   if (kind === 'static') {
-    timelineClips.value[i] = {
+    target[i] = {
       id: cur.id,
       kind: 'static',
       anchor: cur.anchor,
@@ -3466,7 +3694,7 @@ function setTimelineClipKind(id: string, kind: TimelineClipKind) {
       video_path: cur.video_path,
     }
   } else {
-    timelineClips.value[i] = {
+    target[i] = {
       id: cur.id,
       kind: 'video',
       anchor: cur.anchor,
@@ -3486,16 +3714,16 @@ function setClipDurationMinutes(clip: TimelineClipStatic, mins: number) {
   const safe = Number.isFinite(mins) && mins > 0 ? mins : 0
   clip.duration_sec = Math.round(safe * 60)
 }
-function removeTimelineClip(id: string) {
-  timelineClips.value = timelineClips.value.filter(c => c.id !== id)
+function removeTimelineClip(id: string, target: TimelineClip[] = timelineClips.value) {
+  const idx = target.findIndex(c => c.id === id)
+  if (idx >= 0) target.splice(idx, 1)
 }
-function moveTimelineClip(id: string, direction: -1 | 1) {
-  const idx = timelineClips.value.findIndex(c => c.id === id)
+function moveTimelineClip(id: string, direction: -1 | 1, target: TimelineClip[] = timelineClips.value) {
+  const idx = target.findIndex(c => c.id === id)
   if (idx < 0) return
   const newIdx = idx + direction
-  if (newIdx < 0 || newIdx >= timelineClips.value.length) return
-  const arr = timelineClips.value
-  ;[arr[idx], arr[newIdx]] = [arr[newIdx], arr[idx]]
+  if (newIdx < 0 || newIdx >= target.length) return
+  ;[target[idx], target[newIdx]] = [target[newIdx], target[idx]]
 }
 
 // Base values per preset — kept in one place so the live CSS preview
@@ -3717,7 +3945,15 @@ const revealPaces = [
   { id: 'slow', name: 'Slow', description: 'One image carries a whole narration line — the image saving lives here.' },
   { id: 'documentary', name: 'Documentary', description: 'Long holds, the calmest arrivals.' },
 ]
-const revealPaceHint = computed(() => revealPaces.find(pace => pace.id === sceneReveal.pace)?.description || '')
+const revealPaceHint = computed(() => {
+  // While the Title/Motion popup is open its detached pace is the one being edited.
+  const pace = titleMotionDraft.value?.value.timeline.scene_reveal.pace ?? sceneReveal.pace
+  return revealPaces.find(entry => entry.id === pace)?.description || ''
+})
+const revealDraftPending = computed(() => {
+  const draft = titleMotionDraft.value?.value.timeline.scene_reveal
+  return !!draft && JSON.stringify(draft) !== JSON.stringify(revealBundleSnapshot())
+})
 const revealPlanTotal = computed(() => (revealPlan.value?.scenes || [])
   .reduce((sum, entry) => sum + entry.hold.reveal_seconds + entry.hold.hold_seconds, 0).toFixed(1))
 
@@ -3809,24 +4045,50 @@ watch([slug, episodeId], () => {
   if (sceneReveal.enabled && episodeId.value) void loadRevealPlan()
 })
 
-/** Reroll one scene: a new derived pick, stored with the scene so a re-render keeps it. */
-async function rerollRevealScene(sceneId: string): Promise<void> {
-  const candidates = sceneReveal.pool.length ? sceneReveal.pool : revealLibrary.value.map(preset => preset.id)
+/** Reroll is a draft choice: the popup stages it and only Apply writes it. */
+const stagedRevealRerolls = ref<Array<{ scene_id: string; preset_id: string; reroll: number }>>([])
+
+function stageRevealReroll(sceneId: string): void {
+  if (stagedRevealRerolls.value.some(entry => entry.scene_id === sceneId)) {
+    stagedRevealRerolls.value = stagedRevealRerolls.value.filter(entry => entry.scene_id !== sceneId)
+    return
+  }
+  const draftReveal = titleMotionDraft.value?.value.timeline.scene_reveal
+  const candidates = (draftReveal?.pool?.length ? draftReveal.pool : revealLibrary.value.map(preset => preset.id)) as string[]
   if (!candidates.length) return
   const current = revealPlan.value?.scenes.find(entry => entry.scene_id === sceneId)?.preset_id
   const choices = candidates.filter(id => id !== current)
   const pick = (choices.length ? choices : candidates)[Math.floor(Math.random() * (choices.length ? choices.length : candidates.length))]!
-  try {
-    await put(`/projects/${slug.value}/video-editor/reveals/scene-choice`, {
-      episode_id: episodeId.value,
-      scene_id: sceneId,
-      preset_id: pick,
-      reroll: Date.now(),
-    })
-    await loadRevealPlan()
-  } catch (error: any) {
-    showError(error?.data?.detail || error?.message || 'Could not save the scene\'s reveal choice')
+  stagedRevealRerolls.value = [...stagedRevealRerolls.value, { scene_id: sceneId, preset_id: pick, reroll: Date.now() }]
+}
+
+/** Write the staged rerolls to the episode the draft was opened on, one at a time.
+ *  A successful write leaves the queue immediately, so a retry never repeats it. */
+async function flushStagedRevealRerolls(scope: AssemblyStepScope): Promise<string> {
+  const channel = scope.channel
+  const episode = scope.episode
+  if (!channel || !episode) {
+    return stagedRevealRerolls.value.length
+      ? 'The episode could not be identified, so the staged rerolls were not saved.'
+      : ''
   }
+  const failed: string[] = []
+  for (const staged of [...stagedRevealRerolls.value]) {
+    try {
+      await put(`/projects/${channel}/video-editor/reveals/scene-choice`, {
+        episode_id: episode,
+        scene_id: staged.scene_id,
+        preset_id: staged.preset_id,
+        reroll: staged.reroll,
+      })
+      stagedRevealRerolls.value = stagedRevealRerolls.value.filter(entry => entry !== staged)
+    } catch {
+      failed.push(staged.scene_id)
+    }
+  }
+  return failed.length
+    ? `${failed.length} planned arrival reroll${failed.length === 1 ? '' : 's'} could not be saved. Your settings are saved; Apply again retries only the unfinished reroll.`
+    : ''
 }
 
 /** Only what the engine reads, so the fingerprint and the plan cannot disagree with the panel. */
@@ -4068,6 +4330,62 @@ const bgLibraryLoading = ref(false)
 const bgLibraryError = ref('')
 const bgLibrary = ref<Array<{ id?: string; filename: string; path: string; ext: string; kind: 'video' | 'image'; duration?: number; thumbnail_url?: string }>>([])
 const showBackgroundPicker = ref(false)
+
+// ── Episode effects popup (1.4.384) ─────────────────────────────────────
+// The old Effects Library page, hosted here. The editor owns its own
+// detached draft (utils/episode-effects-draft.ts); this host only opens it
+// and invokes its Apply/Cancel. Opening, browsing, Escape, backdrop, Close
+// and navigation all go through closeEpisodeEffects, which discards the
+// draft and writes nothing — the editor's queued side-writes run only
+// inside its apply(), called exactly once by this dialog's Apply button.
+const showEpisodeEffects = ref(false)
+const episodeEffectsEditor = ref<{ apply: () => Promise<{ ok: boolean; error?: string }>; cancel: () => void } | null>(null)
+const episodeEffectsDirty = ref(false)
+const episodeEffectsLoading = ref(false)
+const episodeEffectsApplying = ref(false)
+const episodeEffectsError = ref('')
+/** Initial scene from the redirect, so a scene-scoped link previews that scene once. */
+const episodeEffectsSceneId = typeof route.query.scene === 'string' ? route.query.scene.trim() : ''
+
+function openEpisodeEffects(): void {
+  if (!episodeId.value) return
+  episodeEffectsError.value = ''
+  showEpisodeEffects.value = true
+}
+
+async function applyEpisodeEffects(): Promise<void> {
+  const editor = episodeEffectsEditor.value
+  if (!editor || episodeEffectsApplying.value) return
+  episodeEffectsApplying.value = true
+  episodeEffectsError.value = ''
+  try {
+    const result = await editor.apply()
+    if (!result.ok) {
+      // A failed save keeps this dialog open with its plain error — never
+      // discarded, never closed as if it had worked.
+      episodeEffectsError.value = result.error || 'The save failed — your changes are still here; try Apply again.'
+      return
+    }
+    showEpisodeEffects.value = false
+    episodeEffectsDirty.value = false
+  } finally {
+    episodeEffectsApplying.value = false
+  }
+}
+
+function closeEpisodeEffects(): void {
+  // An Apply in flight owns the dialog until it answers.
+  if (episodeEffectsApplying.value) return
+  episodeEffectsEditor.value?.cancel()
+  showEpisodeEffects.value = false
+  episodeEffectsError.value = ''
+  episodeEffectsDirty.value = false
+}
+const cancelEpisodeEffects = closeEpisodeEffects
+
+// The retired Effects Library URL asks for the editor itself, not just the
+// step — but only when this URL really names an episode (never guessed).
+if (route.query.effects === '1' && episodeId.value) openEpisodeEffects()
 const backgroundPickerTarget = ref<'compilation' | 'frame' | 'title-card' | 'outro-card'>('compilation')
 
 async function refreshBackgroundLibrary() {
@@ -4097,12 +4415,31 @@ async function openBackgroundPicker(target: typeof backgroundPickerTarget.value)
 async function pickBackgroundFile(file: { path: string; filename: string }) {
   const target = backgroundPickerTarget.value
   const scope = videoEpisodeSequence
+  // A pick started from the render-appearance popup belongs to that draft. If
+  // the popup closed while the file resolved, drop it — never the live form.
+  const draft = renderAppearanceDraft.value
+  // The outro popup stages the raw pick; Apply adopts it. Resolving here would
+  // write a channel path before the customer pressed Apply.
+  if (target === 'outro-card' && outroCardDraft.value) {
+    if (scope !== videoEpisodeSequence) return
+    outroCardDraft.value.value.background_media_path = file.path
+    showBackgroundPicker.value = false
+    return
+  }
   const portable = await collapseToPortablePath(file.path)
   if (scope !== videoEpisodeSequence) return
-  if (target === 'frame') frame.background_path = portable
+  if (target === 'frame') {
+    if (draft) {
+      if (renderAppearanceDraft.value !== draft) return
+      draft.value.frame.background_path = portable
+    } else frame.background_path = portable
+  }
   else if (target === 'title-card') titleCard.background_media_path = portable
   else if (target === 'outro-card') outroCard.background_media_path = portable
-  else compilationLayout.backgroundPlate.source_path = portable
+  else if (draft) {
+    if (renderAppearanceDraft.value !== draft) return
+    draft.value.compilationLayout.backgroundPlate.source_path = portable
+  } else compilationLayout.backgroundPlate.source_path = portable
   showBackgroundPicker.value = false
 }
 
@@ -4163,9 +4500,12 @@ function newOverlayId(): string {
   return `ov_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
 }
 
-function addOverlayLayer(file: { path: string; filename: string; likely_has_alpha: boolean }) {
+function addOverlayLayer(
+  file: { path: string; filename: string; likely_has_alpha: boolean },
+  target: { enabled: boolean; layers: OverlayLayer[] } = overlays,
+) {
   void (async () => {
-    overlays.layers.push({
+    target.layers.push({
       id: newOverlayId(),
       enabled: true,
       source_path: await collapseToPortablePath(file.path),
@@ -4180,24 +4520,24 @@ function addOverlayLayer(file: { path: string; filename: string; likely_has_alph
       scale: 'cover',
       loop: true,
     })
-    overlays.enabled = true   // first add auto-enables the system
+    target.enabled = true   // first add auto-enables the system
     showOverlayPickerForLayer.value = null
   })()
 }
 
-function removeOverlayLayer(id: string) {
-  const idx = overlays.layers.findIndex(l => l.id === id)
-  if (idx >= 0) overlays.layers.splice(idx, 1)
-  if (!overlays.layers.length) overlays.enabled = false
+function removeOverlayLayer(id: string, target: { enabled: boolean; layers: OverlayLayer[] } = overlays) {
+  const idx = target.layers.findIndex(l => l.id === id)
+  if (idx >= 0) target.layers.splice(idx, 1)
+  if (!target.layers.length) target.enabled = false
 }
 
-function moveOverlayLayer(id: string, dir: -1 | 1) {
-  const idx = overlays.layers.findIndex(l => l.id === id)
+function moveOverlayLayer(id: string, dir: -1 | 1, target: { enabled: boolean; layers: OverlayLayer[] } = overlays) {
+  const idx = target.layers.findIndex(l => l.id === id)
   const next = idx + dir
-  if (idx < 0 || next < 0 || next >= overlays.layers.length) return
-  const tmp = overlays.layers[idx]!
-  overlays.layers[idx] = overlays.layers[next]!
-  overlays.layers[next] = tmp
+  if (idx < 0 || next < 0 || next >= target.layers.length) return
+  const tmp = target.layers[idx]!
+  target.layers[idx] = target.layers[next]!
+  target.layers[next] = tmp
 }
 
 // ── Overlay timeline drag-and-drop (v1.0.58+) ────────────────────────
@@ -4206,8 +4546,13 @@ function moveOverlayLayer(id: string, dir: -1 | 1) {
 // outside the track still updates (matches the native slider feel).
 // Time values snap to 0.1s — finer precision is rarely useful and
 // the typed-input fallback covers the rest.
-function startOverlayDrag(event: PointerEvent, layerId: string, mode: 'start' | 'end' | 'move') {
-  const layer = overlays.layers.find(l => l.id === layerId)
+function startOverlayDrag(
+  event: PointerEvent,
+  layerId: string,
+  mode: 'start' | 'end' | 'move',
+  layers: OverlayLayer[] = overlays.layers,
+) {
+  const layer = layers.find(l => l.id === layerId)
   if (!layer || !layer.time_range) return
   const totalDur = estimatedDurationSec.value
   if (!totalDur || totalDur < 5) return
@@ -4248,9 +4593,6 @@ function startOverlayDrag(event: PointerEvent, layerId: string, mode: 'start' | 
     document.removeEventListener('pointermove', onMove)
     document.removeEventListener('pointerup', onUp)
     document.removeEventListener('pointercancel', onUp)
-    // v1.4.1 — the window belongs to this episode, so it is saved against this
-    // episode. On drag END only: a write per pointer-move would be noise.
-    persistEpisodeOverlayTimings()
   }
   document.addEventListener('pointermove', onMove)
   document.addEventListener('pointerup', onUp)
@@ -4258,8 +4600,13 @@ function startOverlayDrag(event: PointerEvent, layerId: string, mode: 'start' | 
   event.preventDefault()
 }
 
-function onOverlayTimeInput(event: Event, layerId: string, edge: 'start' | 'end') {
-  const layer = overlays.layers.find(l => l.id === layerId)
+function onOverlayTimeInput(
+  event: Event,
+  layerId: string,
+  edge: 'start' | 'end',
+  layers: OverlayLayer[] = overlays.layers,
+) {
+  const layer = layers.find(l => l.id === layerId)
   if (!layer || !layer.time_range) return
   const raw = Number((event.target as HTMLInputElement).value)
   if (!Number.isFinite(raw)) return
@@ -4271,15 +4618,17 @@ function onOverlayTimeInput(event: Event, layerId: string, edge: 'start' | 'end'
   } else {
     layer.time_range.end_s = snap(Math.max(layer.time_range.start_s + 0.1, Math.min(totalDur, raw)))
   }
-  persistEpisodeOverlayTimings()
 }
 
 /** Turn a layer's window on or off for THIS episode, and record it. */
-function setOverlayTimeRangeEnabled(layerId: string, on: boolean) {
-  const layer = overlays.layers.find(l => l.id === layerId)
+function setOverlayTimeRangeEnabled(
+  layerId: string,
+  on: boolean,
+  layers: OverlayLayer[] = overlays.layers,
+) {
+  const layer = layers.find(l => l.id === layerId)
   if (!layer) return
   layer.time_range = on ? { start_s: 0, end_s: estimatedDurationSec.value || null } : null
-  persistEpisodeOverlayTimings()
 }
 
 // Render timeline ticks every 60s — visual reference points so the
@@ -4674,7 +5023,7 @@ async function checkPreflightFreshness(): Promise<void> {
 }
 
 /** Captions are on, but this episode has no subtitle file to burn. Never auto-confirmed. */
-const noSubtitleFile = computed(() => !!subtitlePreflight.value?.skipped && subtitles.enabled)
+const noSubtitleFile = computed(() => !!subtitlePreflight.value?.skipped && (subtitleEdit.value?.enabled ?? subtitles.enabled))
 
 if (typeof window !== 'undefined') {
   // On return to the window, because the usual way this goes stale is the owner
@@ -4704,10 +5053,6 @@ function formatPreflightTime(sec: number): string {
 // Subtitle creation moved to the dedicated Subtitles tab. Video Assembly only
 // reads the existing SRT list (via loadSubtitlesStatus above) to let the user
 // pick one to burn in.
-
-const titleCardOpen = ref(false)
-const chapterTitlesOpen = ref(false)
-const outroCardOpen = ref(false)
 
 const titleCard = reactive({
   enabled: false,
@@ -4765,6 +5110,902 @@ const outroCard = reactive({
   style: 'white',
   background_media_path: '',
 })
+
+// ── Step 2 intro popup (1.4.384) ─────────────────────────────────────────
+// The popup owns its detached draft and its own Apply; this page only opens
+// it, shows the applied summary, and receives the committed values.
+const introEditorOpen = ref(false)
+const introEditorScope = ref<AssemblyStepScope | null>(null)
+const introEditorSettings = ref<Record<string, any> | null>(null)
+
+const introSummary = computed(() => {
+  const file = intro.video_path ? intro.video_path.split('/').pop() : ''
+  const clip = !intro.enabled
+    ? 'Intro video off'
+    : file ? `Intro video ${file}` : 'Intro video on, no file'
+  return `${clip} · ${channelIntro.value ? 'channel intro chosen' : 'no channel intro'}.`
+})
+
+function openIntroEditor(): void {
+  if (!episodeId.value) return
+  introEditorScope.value = { channel: slug.value, episode: episodeId.value }
+  introEditorSettings.value = JSON.parse(JSON.stringify(snapshotAllSettings()))
+  introEditorOpen.value = true
+}
+
+function closeIntroEditor(): void {
+  introEditorOpen.value = false
+}
+
+/** Apply answers for the episode it captured; another open episode is untouched (§4). */
+function commitAppliedIntro(value: { intro: { enabled: boolean; video_path: string }; channel_intro: ChannelIntroSelection | null }): void {
+  const scope = introEditorScope.value
+  introEditorOpen.value = false
+  if (!scope || !sameAssemblyStepScope(scope, { channel: slug.value, episode: episodeId.value })) {
+    info(`Saved to ${scope?.episode || 'the captured episode'}. ${episodeId.value || 'No episode'} is open now, so its form was left unchanged.`)
+    return
+  }
+  intro.enabled = value.intro.enabled === true
+  intro.video_path = String(value.intro.video_path || '')
+  channelIntro.value = value.channel_intro ? { ...value.channel_intro } : null
+}
+
+watch([slug, episodeId], () => { introEditorOpen.value = false })
+
+// ── Step 3 title / motion / chapter popup (1.4.384) ─────────────────────
+// The popup edits a DETACHED copy of this step's settings (utils/assembly-step-draft.ts).
+// Opening, browsing, Escape, backdrop and Cancel never write; Apply is the single
+// write, and it lands in the captured episode's own saved settings only.
+interface TitleMotionDraftSettings {
+  timeline: {
+    title_image: Record<string, any>
+    transition: Record<string, any>
+    scene_animation: Record<string, any>
+    scene_reveal: Record<string, any>
+  }
+  effects: {
+    title_card: Record<string, any>
+    chapter_titles: Record<string, any>
+  }
+}
+
+const titleMotionDraft = ref<AssemblyStepDraft<TitleMotionDraftSettings> | null>(null)
+const titleMotionApplying = ref(false)
+const titleMotionError = ref('')
+const titleMotionPool = ref<StillPostFontPool | null>(null)
+const titleMotionAdoptBaseline = ref<{ titleImage: string; titleCardMedia: string } | null>(null)
+const titleMotionSettingsBaseline = ref<Record<string, any> | null>(null)
+// Captured with the draft: adoption must target the channel it was opened on.
+const titleMotionAdoptRoot = ref('')
+// The modal body is only rendered while a draft exists, so this is non-null there.
+const titleMotion = computed(() => titleMotionDraft.value?.value as TitleMotionDraftSettings)
+
+/** The heading the render will actually draw: this episode's first titled scene. */
+const titleMotionChapterSample = computed(() => {
+  const scene = scenes.value.find(entry => entry.title?.trim())
+  return {
+    text: scene?.title?.trim() || '',
+    background: scene?.image_path ? getImagePreviewUrl(scene.image_path) : '',
+  }
+})
+
+/** What this step currently holds, so the editor has one summary home. */
+const titleMotionSummary = computed(() => {
+  const title = !titleImage.enabled
+    ? 'Title image off'
+    : titleImage.image_path ? `Title image ${titleImage.duration}s` : 'Title image on, no file'
+  const motion = sceneReveal.enabled ? `Sketch Draw reveal (${sceneReveal.pace})` : sceneAnimation.type
+  return [
+    title,
+    `${transition.type || 'main transition'} ${transition.duration}s`,
+    motion,
+    titleCard.enabled ? 'Title card on' : 'Title card off',
+    chapterTitles.enabled ? `Chapter titles ${chapterTitles.style}` : 'Chapter titles off',
+  ].join(' · ')
+})
+
+/** The channel's own saved lettering pool for this heading's script, or none. */
+async function loadTitleMotionPool(text: string): Promise<void> {
+  titleMotionPool.value = null
+  const channel = slug.value
+  const episode = episodeId.value
+  const draft = titleMotionDraft.value
+  const stale = () => slug.value !== channel || episodeId.value !== episode || titleMotionDraft.value !== draft
+  const script = /[ក-៿]/.test(text) ? 'khmr' : 'latn'
+  try {
+    const workspace = await get<any>(`/projects/${channel}/still-posts`)
+    if (stale()) return
+    const presets = Array.isArray(workspace?.presets) ? workspace.presets : []
+    const selected = presets.find((preset: any) => preset.id === workspace?.last_preset_id)
+    const pool = selected?.data?.font_pools?.[script]
+      ?? presets.map((preset: any) => preset?.data?.font_pools?.[script]).find((entry: any) => entry?.fonts?.length)
+    if (stale()) return
+    titleMotionPool.value = pool?.fonts?.length ? pool : null
+  } catch {
+    // A stale answer (another episode/draft is open now) is dropped, never shown.
+    if (!stale()) titleMotionPool.value = null
+  }
+}
+
+function openTitleMotionEditor(): void {
+  if (!episodeId.value) return
+  titleMotionError.value = ''
+  stagedRevealRerolls.value = []
+  titleMotionDraft.value = reactive(beginAssemblyStepDraft<TitleMotionDraftSettings>({
+    timeline: {
+      title_image: titleImage,
+      transition,
+      scene_animation: sceneAnimation,
+      scene_reveal: revealBundleSnapshot(),
+    },
+    effects: { title_card: titleCard, chapter_titles: chapterTitles },
+  }, { channel: slug.value, episode: episodeId.value }))
+  // What the popup captured, so unchanged files are never adopted and a first
+  // per-episode Apply can seed a full entry instead of a partial one.
+  titleMotionAdoptBaseline.value = {
+    titleImage: titleImage.image_path || '',
+    titleCardMedia: titleCard.background_media_path || '',
+  }
+  titleMotionSettingsBaseline.value = JSON.parse(JSON.stringify(snapshotAllSettings()))
+  titleMotionAdoptRoot.value = episodesRoot.value
+  void loadTitleMotionPool(titleMotionChapterSample.value.text)
+  if (!revealLibrary.value.length) void loadRevealLibrary()
+}
+
+function toggleTitleMotionRevealPool(id: string, on: boolean): void {
+  const pool = titleMotionDraft.value?.value.timeline.scene_reveal.pool as string[] | undefined
+  if (!pool) return
+  titleMotionDraft.value!.value.timeline.scene_reveal.pool = on
+    ? [...pool, id]
+    : pool.filter(entry => entry !== id)
+}
+
+function pickTitleMotionImage(filePath: string): void {
+  if (titleMotionDraft.value) titleMotionDraft.value.value.timeline.title_image.image_path = filePath
+}
+
+/**
+ * The popup's one write: merge this episode's full title/motion draft into ITS own
+ * `video_assembly_last_used` entry. The channel starting point and every other
+ * slot on that entry are left exactly as they were (AGENTS §4).
+ */
+async function saveTitleMotionDraft(value: TitleMotionDraftSettings, scope: AssemblyStepScope): Promise<void> {
+  // Capture everything the save depends on BEFORE the first await. The page can
+  // switch project or reopen this popup while an adoption request is in flight.
+  const adoptBaseline = titleMotionAdoptBaseline.value
+  const settingsBaseline = titleMotionSettingsBaseline.value
+  const adoptRoot = titleMotionAdoptRoot.value
+  // Browse never adopts. Apply adopts only the files this draft actually
+  // changed; an untouched or already-portable selection is left alone.
+  const adoptChanged = async (raw: unknown, original: unknown): Promise<string> => {
+    const path = String(raw || '').trim()
+    if (!path || path === String(original || '').trim()) return path
+    if (/^\$\{(?:CHANNEL|PROJECT|ASSET|BACKGROUND)\}/.test(path)) return path
+    return await collapseToPortablePath(path, true, adoptRoot, true)
+  }
+  value.timeline.title_image.image_path = await adoptChanged(
+    value.timeline.title_image.image_path,
+    adoptBaseline?.titleImage,
+  )
+  value.effects.title_card.background_media_path = await adoptChanged(
+    value.effects.title_card.background_media_path,
+    adoptBaseline?.titleCardMedia,
+  )
+
+  await persistEpisodeStepSettings(scope, settingsBaseline, (base) => {
+    base.timeline = {
+      ...(base.timeline || {}),
+      title_image: value.timeline.title_image,
+      transition: value.timeline.transition,
+      scene_animation: value.timeline.scene_animation,
+      scene_reveal: value.timeline.scene_reveal,
+    }
+    base.effects = {
+      ...(base.effects || {}),
+      title_card: value.effects.title_card,
+      chapter_titles: value.effects.chapter_titles,
+    }
+  })
+}
+
+/** Apply the saved draft to the live form, so the page shows what was written. */
+function commitTitleMotionDraft(value: TitleMotionDraftSettings): void {
+  applyTitleImagePreset(titleImage, value.timeline.title_image)
+  titleImage.image_path = value.timeline.title_image.image_path || ''
+  Object.assign(transition, value.timeline.transition)
+  transition.pool = [...(value.timeline.transition.pool || [])]
+  Object.assign(sceneAnimation, value.timeline.scene_animation)
+  sceneAnimation.pool = [...(value.timeline.scene_animation.pool || [])]
+  applyRevealBundle({ scene_reveal: value.timeline.scene_reveal })
+  Object.assign(titleCard, value.effects.title_card)
+  Object.assign(chapterTitles, value.effects.chapter_titles)
+}
+
+async function applyTitleMotion(): Promise<void> {
+  const draft = titleMotionDraft.value
+  if (!draft || titleMotionApplying.value) return
+  titleMotionApplying.value = true
+  titleMotionError.value = ''
+  try {
+    const result = await applyAssemblyStepDraft(
+      draft,
+      { channel: slug.value, episode: episodeId.value },
+      saveTitleMotionDraft,
+    )
+    if (result.ok === false) {
+      titleMotionError.value = result.error
+      return
+    }
+    // Reveal off in this draft means its staged rerolls are moot; do not write them.
+    if (!draft.value.timeline.scene_reveal.enabled) stagedRevealRerolls.value = []
+    const rerollError = await flushStagedRevealRerolls(draft.scope)
+    if (rerollError) {
+      // Settings are saved; hand the draft back so Apply retries only the unfinished rerolls.
+      draft.state = 'editing'
+      titleMotionError.value = rerollError
+      return
+    }
+    // The save is correct for the captured episode. If another episode is open
+    // by the time it answers, its form must not receive the other one's title
+    // image or chapter font (AGENTS §4).
+    if (!sameAssemblyStepScope(draft.scope, { channel: slug.value, episode: episodeId.value })) {
+      titleMotionDraft.value = null
+      stagedRevealRerolls.value = []
+      titleMotionAdoptBaseline.value = null
+      titleMotionSettingsBaseline.value = null
+      titleMotionAdoptRoot.value = ''
+      info(`Saved to ${draft.scope.episode}. ${episodeId.value || 'No episode'} is open now, so its form was left unchanged.`)
+      return
+    }
+    commitTitleMotionDraft(draft.value)
+    stagedRevealRerolls.value = []
+    void loadRevealPlan()
+    titleMotionDraft.value = null
+    titleMotionAdoptBaseline.value = null
+    titleMotionSettingsBaseline.value = null
+    titleMotionAdoptRoot.value = ''
+  } finally {
+    titleMotionApplying.value = false
+  }
+}
+
+function closeTitleMotionEditor(): void {
+  if (titleMotionApplying.value) return
+  if (titleMotionDraft.value) cancelAssemblyStepDraft(titleMotionDraft.value)
+  titleMotionDraft.value = null
+  titleMotionAdoptBaseline.value = null
+  titleMotionSettingsBaseline.value = null
+  titleMotionAdoptRoot.value = ''
+  titleMotionError.value = ''
+  stagedRevealRerolls.value = []
+}
+
+// The draft belongs to the episode that opened it. It is never carried across.
+watch([slug, episodeId], () => closeTitleMotionEditor())
+watch(currentStep, (step) => { if (step !== 3) closeTitleMotionEditor() })
+
+/**
+ * The one write for a step popup: merge a step's settings into the CAPTURED
+ * episode's own `video_assembly_last_used` entry. The channel starting point
+ * and every other slot stay exactly as they were (AGENTS §4).
+ */
+async function persistEpisodeStepSettings(
+  scope: AssemblyStepScope,
+  baseline: Record<string, any> | null,
+  merge: (base: Record<string, any>) => void,
+  extraConfig: Record<string, any> = {},
+): Promise<void> {
+  const project = scope.channel
+  const episode = (scope.episode || '').trim().toUpperCase()
+  if (!project || !episode) throw new Error('This editor needs a channel and an episode to save into.')
+  // Read the store fresh: a cached/SWR copy can be older than another step's
+  // save and would overwrite it when this merge writes the whole key back.
+  const config = await get<any>(`/projects/${project}/settings/config`, { cache: 'no-store' })
+  const store = (config?.[LAST_USED_CONFIG_KEY] || {}) as any
+  const own = store.episodes?.[episode]?.settings
+  // A first per-episode Apply must not turn a full channel fallback into a
+  // PARTIAL own entry, so seed missing slots from the snapshot taken on open.
+  const base: Record<string, any> = own && typeof own === 'object'
+    ? { ...own }
+    : JSON.parse(JSON.stringify(baseline || {}))
+  for (const slot of ['intro', 'timeline', 'effects', 'subtitles', 'export']) {
+    if (base[slot] === undefined && baseline?.[slot] !== undefined) {
+      base[slot] = JSON.parse(JSON.stringify(baseline[slot]))
+    }
+  }
+  merge(base)
+  await put(`/projects/${project}/settings/config`, {
+    ...extraConfig,
+    [LAST_USED_CONFIG_KEY]: {
+      ...store,
+      episodes: {
+        ...(store.episodes || {}),
+        [episode]: { episode_id: episode, saved_at: new Date().toISOString(), settings: base },
+      },
+    },
+  })
+}
+
+// ── Step 5 subtitles popup (1.4.384) ─────────────────────────────────────
+interface SubtitleDraftSettings {
+  enabled: boolean
+  source: 'chapters' | 'upload' | 'whisper'
+  hide_during_intro: boolean
+  style: SubtitleStyleDocument
+  /** '' means the renderer's automatic choice; a filename is the episode's pin. */
+  pinned_subtitle: string
+}
+
+const subtitleDraft = ref<AssemblyStepDraft<SubtitleDraftSettings> | null>(null)
+const subtitleEdit = computed(() => subtitleDraft.value?.value ?? null)
+const subtitleApplying = ref(false)
+const subtitleError = ref('')
+const subtitlePinBaseline = ref('')
+const subtitleSettingsBaseline = ref<Record<string, any> | null>(null)
+
+const subtitlesSummary = computed(() => {
+  if (!subtitles.enabled) return 'Subtitles off — no captions are burned in.'
+  if (subtitlesStatusLoading.value) return 'Captions on — checking this episode’s subtitle file…'
+  if (subtitlesStatusError.value) return 'Captions on — this episode’s subtitle files could not be read.'
+  const burning = burnView.value.burning
+  if (!burning) return 'Captions on — this episode has no subtitle file yet.'
+  const choice = burnView.value.pinned ? 'your choice' : 'automatic'
+  return `Captions on — burning ${burning} (${choice})${subtitles.hide_during_intro ? ' · intro captions hidden' : ''}.`
+})
+
+function openSubtitleEditor(): void {
+  if (!episodeId.value) return
+  subtitleError.value = ''
+  subtitlePinBaseline.value = burnView.value.pinned ? burnView.value.burning || '' : ''
+  subtitleSettingsBaseline.value = JSON.parse(JSON.stringify(snapshotAllSettings()))
+  subtitleDraft.value = reactive(beginAssemblyStepDraft<SubtitleDraftSettings>({
+    enabled: subtitles.enabled,
+    source: subtitles.source,
+    hide_during_intro: subtitles.hide_during_intro,
+    style: cloneSubtitleStyle(subtitles.style),
+    pinned_subtitle: subtitlePinBaseline.value,
+  }, { channel: slug.value, episode: episodeId.value }))
+}
+
+function chooseSubtitleInDraft(filename: string): void {
+  // Staged in the draft: "Back to Automatic" is not pinSubtitle('') until Apply.
+  if (subtitleDraft.value) subtitleDraft.value.value.pinned_subtitle = filename
+}
+
+async function saveSubtitleDraft(value: SubtitleDraftSettings, scope: AssemblyStepScope): Promise<void> {
+  const project = scope.channel
+  const episode = (scope.episode || '').trim()
+  if (!project || !episode) throw new Error('This editor needs a channel and an episode to save into.')
+  // Capture both baselines BEFORE the first await: closing or navigating while
+  // the pin write is in flight resets the live refs, not this save's answers.
+  const baseline = subtitleSettingsBaseline.value
+  const pinBaseline = subtitlePinBaseline.value
+  // The file pin is episode-scoped and separate from the saved settings; it is
+  // written here, only on Apply, never while browsing.
+  if (value.pinned_subtitle !== pinBaseline) {
+    await put(`/projects/${project}/video-editor/subtitles/select/${episode}`, { filename: value.pinned_subtitle })
+  }
+  await persistEpisodeStepSettings(scope, baseline, (base) => {
+    base.subtitles = {
+      enabled: value.enabled,
+      source: value.source,
+      hide_during_intro: value.hide_during_intro,
+      style: cloneSubtitleStyle(value.style),
+    }
+  })
+}
+
+function commitSubtitleDraft(value: SubtitleDraftSettings): void {
+  subtitles.enabled = value.enabled
+  subtitles.source = value.source
+  subtitles.hide_during_intro = value.hide_during_intro
+  subtitles.style = cloneSubtitleStyle(value.style)
+}
+
+async function applySubtitleDraft(): Promise<void> {
+  const draft = subtitleDraft.value
+  if (!draft || subtitleApplying.value) return
+  subtitleApplying.value = true
+  subtitleError.value = ''
+  try {
+    const result = await applyAssemblyStepDraft(
+      draft,
+      { channel: slug.value, episode: episodeId.value },
+      saveSubtitleDraft,
+    )
+    if (result.ok === false) {
+      if (subtitleDraft.value !== draft) return
+      subtitleError.value = result.error
+      return
+    }
+    // A save resolves late after the page moved on. Never let the old draft
+    // clear or commit over a replacement opened for another episode (§4).
+    if (subtitleDraft.value !== draft) return
+    const stillOpen = sameAssemblyStepScope(draft.scope, { channel: slug.value, episode: episodeId.value })
+    if (stillOpen) {
+      commitSubtitleDraft(draft.value)
+      void loadSubtitlesStatus()
+      resetSubtitlePreflight()
+    } else {
+      info(`Saved to ${draft.scope.episode}. ${episodeId.value || 'No episode'} is open now, so its form was left unchanged.`)
+    }
+    subtitleDraft.value = null
+    subtitleSettingsBaseline.value = null
+    subtitlePinBaseline.value = ''
+  } finally {
+    subtitleApplying.value = false
+  }
+}
+
+function closeSubtitleEditor(): void {
+  if (subtitleApplying.value) return
+  if (subtitleDraft.value) cancelAssemblyStepDraft(subtitleDraft.value)
+  subtitleDraft.value = null
+  subtitleSettingsBaseline.value = null
+  subtitlePinBaseline.value = ''
+  subtitleError.value = ''
+}
+
+watch([slug, episodeId], () => closeSubtitleEditor())
+watch(currentStep, (step) => { if (step !== 5) closeSubtitleEditor() })
+
+// ── Step 3 outro card popup (1.4.384) ────────────────────────────────────
+interface OutroCardDraftSettings {
+  enabled: boolean
+  text: string
+  duration: number
+  style: string
+  background_media_path: string
+}
+
+const outroCardDraft = ref<AssemblyStepDraft<OutroCardDraftSettings> | null>(null)
+const outroEdit = computed(() => outroCardDraft.value?.value ?? null)
+const outroApplying = ref(false)
+const outroError = ref('')
+const outroSettingsBaseline = ref<Record<string, any> | null>(null)
+// Captured when the popup opens: its background is staged raw by Browse and
+// adopted only on Apply, against the channel root that was current then.
+const outroAdoptBaseline = ref('')
+const outroAdoptRoot = ref('')
+
+const outroCardSummary = computed(() => {
+  if (!outroCard.enabled) return 'Outro card off.'
+  const text = outroCard.text?.trim() ? `“${outroCard.text.trim()}”` : 'no text'
+  const background = outroCard.background_media_path ? ' · background chosen' : ' · solid background'
+  return `${text} · ${outroCard.duration}s · ${outroCard.style}${background}.`
+})
+
+function openOutroCardEditor(): void {
+  if (!episodeId.value) return
+  outroError.value = ''
+  outroSettingsBaseline.value = JSON.parse(JSON.stringify(snapshotAllSettings()))
+  outroAdoptBaseline.value = outroCard.background_media_path || ''
+  outroAdoptRoot.value = episodesRoot.value
+  outroCardDraft.value = reactive(beginAssemblyStepDraft<OutroCardDraftSettings>({
+    enabled: outroCard.enabled,
+    text: outroCard.text,
+    duration: outroCard.duration,
+    style: outroCard.style,
+    background_media_path: outroCard.background_media_path,
+  }, { channel: slug.value, episode: episodeId.value }))
+}
+
+async function saveOutroCardDraft(value: OutroCardDraftSettings, scope: AssemblyStepScope): Promise<void> {
+  // Capture the baseline and the channel root BEFORE the first await. Browse
+  // only staged a raw path; this is the one place it is adopted.
+  const baseline = outroSettingsBaseline.value
+  const adoptRoot = outroAdoptRoot.value
+  const original = outroAdoptBaseline.value
+  const raw = String(value.background_media_path || '').trim()
+  if (raw && raw !== original && !/^\$\{(?:CHANNEL|PROJECT|ASSET|BACKGROUND)\}(?:\/.*)?$/.test(raw)) {
+    value.background_media_path = await collapseToPortablePath(raw, true, adoptRoot, true)
+  }
+  await persistEpisodeStepSettings(scope, baseline, (base) => {
+    base.effects = { ...(base.effects || {}), outro_card: { ...value } }
+  })
+}
+
+function commitOutroCardDraft(value: OutroCardDraftSettings): void {
+  Object.assign(outroCard, value)
+}
+
+async function applyOutroCardDraft(): Promise<void> {
+  const draft = outroCardDraft.value
+  if (!draft || outroApplying.value) return
+  outroApplying.value = true
+  outroError.value = ''
+  try {
+    const result = await applyAssemblyStepDraft(
+      draft,
+      { channel: slug.value, episode: episodeId.value },
+      saveOutroCardDraft,
+    )
+    if (outroCardDraft.value !== draft) return
+    if (result.ok === false) {
+      outroError.value = result.error
+      return
+    }
+    if (sameAssemblyStepScope(draft.scope, { channel: slug.value, episode: episodeId.value })) {
+      commitOutroCardDraft(draft.value)
+    } else {
+      info(`Saved to ${draft.scope.episode}. ${episodeId.value || 'No episode'} is open now, so its form was left unchanged.`)
+    }
+    outroCardDraft.value = null
+    outroSettingsBaseline.value = null
+    outroAdoptBaseline.value = ''
+    outroAdoptRoot.value = ''
+  } finally {
+    outroApplying.value = false
+  }
+}
+
+function closeOutroCardEditor(): void {
+  if (outroApplying.value) return
+  if (outroCardDraft.value) cancelAssemblyStepDraft(outroCardDraft.value)
+  outroCardDraft.value = null
+  outroSettingsBaseline.value = null
+  outroAdoptBaseline.value = ''
+  outroAdoptRoot.value = ''
+  outroError.value = ''
+}
+
+watch([slug, episodeId], () => closeOutroCardEditor())
+watch(currentStep, (step) => { if (step !== 3) closeOutroCardEditor() })
+
+// ── Step 3 outro video & timeline clips popup (1.4.384) ─────────────────
+// Detached draft of the outro clip and the timeline clip list. Opening,
+// browsing, Escape and Cancel write nothing; Apply is the only write.
+interface OutroTimelineDraftSettings {
+  outro: Record<string, any>
+  timeline_clips: TimelineClip[]
+}
+
+const outroTimelineDraft = ref<AssemblyStepDraft<OutroTimelineDraftSettings> | null>(null)
+const outroTimeline = computed(() => outroTimelineDraft.value?.value ?? null)
+const outroTimelineApplying = ref(false)
+const outroTimelineError = ref('')
+const outroTimelineSettingsBaseline = ref<Record<string, any> | null>(null)
+const outroTimelineAdoptRoot = ref('')
+const outroTimelineAdoptBaseline = ref<{
+  outroVideoPath: string
+  clips: Array<{ id: string; video_path: string; image_path: string }>
+} | null>(null)
+
+const outroTimelineSummary = computed(() => {
+  const video = !outro.enabled
+    ? 'Outro video off'
+    : outro.video_path ? `Outro video ${outro.video_path.split('/').pop()}` : 'Outro video on, no file'
+  const count = timelineClips.value.length
+  return `${video} · ${count ? `${count} timeline clip${count === 1 ? '' : 's'}` : 'no timeline clips'}.`
+})
+
+function openOutroTimelineEditor(): void {
+  if (!episodeId.value) return
+  outroTimelineError.value = ''
+  outroTimelineSettingsBaseline.value = JSON.parse(JSON.stringify(snapshotAllSettings()))
+  outroTimelineAdoptRoot.value = episodesRoot.value
+  outroTimelineAdoptBaseline.value = {
+    outroVideoPath: outro.video_path || '',
+    clips: timelineClips.value.map(c => ({
+      id: c.id,
+      video_path: c.video_path || '',
+      image_path: c.image_path || '',
+    })),
+  }
+  outroTimelineDraft.value = reactive(beginAssemblyStepDraft<OutroTimelineDraftSettings>({
+    outro: { ...outro },
+    timeline_clips: JSON.parse(JSON.stringify(timelineClips.value)),
+  }, { channel: slug.value, episode: episodeId.value }))
+}
+
+async function saveOutroTimelineDraft(value: OutroTimelineDraftSettings, scope: AssemblyStepScope): Promise<void> {
+  // Capture everything the save depends on BEFORE the first await.
+  const baseline = outroTimelineSettingsBaseline.value
+  const adoptRoot = outroTimelineAdoptRoot.value
+  const originals = outroTimelineAdoptBaseline.value
+  const originalClips = new Map((originals?.clips || []).map(c => [c.id, c]))
+  // Browse never adopts. Apply adopts only files this draft changed; an
+  // untouched or already-portable selection is left alone.
+  const adoptChanged = async (raw: unknown, original: unknown): Promise<string> => {
+    const path = String(raw || '').trim()
+    if (!path || path === String(original || '').trim()) return path
+    if (/^\$\{(?:CHANNEL|PROJECT|ASSET|BACKGROUND)\}/.test(path)) return path
+    return await collapseToPortablePath(path, true, adoptRoot, true)
+  }
+  value.outro = { ...value.outro, video_path: await adoptChanged(value.outro.video_path, originals?.outroVideoPath) }
+  for (const clip of value.timeline_clips) {
+    const original = originalClips.get(clip.id)
+    clip.video_path = await adoptChanged(clip.video_path, original?.video_path)
+    clip.image_path = await adoptChanged(clip.image_path, original?.image_path)
+  }
+  await persistEpisodeStepSettings(scope, baseline, (base) => {
+    base.intro = {
+      ...(base.intro || {}),
+      outro: { ...value.outro },
+      timeline_clips: value.timeline_clips.map(c => ({ ...c })),
+    }
+  })
+}
+
+function commitOutroTimelineDraft(value: OutroTimelineDraftSettings): void {
+  Object.assign(outro, value.outro)
+  timelineClips.value = value.timeline_clips.map(c => ({ ...c }))
+}
+
+async function applyOutroTimelineDraft(): Promise<void> {
+  const draft = outroTimelineDraft.value
+  if (!draft || outroTimelineApplying.value) return
+  outroTimelineApplying.value = true
+  outroTimelineError.value = ''
+  try {
+    const result = await applyAssemblyStepDraft(
+      draft,
+      { channel: slug.value, episode: episodeId.value },
+      saveOutroTimelineDraft,
+    )
+    if (outroTimelineDraft.value !== draft) return
+    if (result.ok === false) {
+      outroTimelineError.value = result.error
+      return
+    }
+    if (sameAssemblyStepScope(draft.scope, { channel: slug.value, episode: episodeId.value })) {
+      commitOutroTimelineDraft(draft.value)
+    } else {
+      info(`Saved to ${draft.scope.episode}. ${episodeId.value || 'No episode'} is open now, so its form was left unchanged.`)
+    }
+    outroTimelineDraft.value = null
+    outroTimelineSettingsBaseline.value = null
+    outroTimelineAdoptRoot.value = ''
+    outroTimelineAdoptBaseline.value = null
+  } finally {
+    outroTimelineApplying.value = false
+  }
+}
+
+function closeOutroTimelineEditor(): void {
+  if (outroTimelineApplying.value) return
+  if (outroTimelineDraft.value) cancelAssemblyStepDraft(outroTimelineDraft.value)
+  outroTimelineDraft.value = null
+  outroTimelineSettingsBaseline.value = null
+  outroTimelineAdoptRoot.value = ''
+  outroTimelineAdoptBaseline.value = null
+  outroTimelineError.value = ''
+}
+
+watch([slug, episodeId], () => closeOutroTimelineEditor())
+watch(currentStep, (step) => { if (step !== 3) closeOutroTimelineEditor() })
+
+// ── Step 4 render appearance popup (1.4.384) ─────────────────────────────
+// The legacy global controls (video layout, logo, colour grading, aged
+// archive film, presentation frame, single green-screen overlay and overlay
+// layers) used to edit the live form inline. They now share one detached
+// draft: opening, browsing or Cancel writes nothing, and Apply is the only
+// save. The page keeps a summary and an Edit button.
+interface RenderAppearanceDraftSettings {
+  logo: Record<string, any>
+  colorGrading: typeof colorGrading
+  agedArchiveFilm: Record<string, any>
+  frame: Record<string, any>
+  chromaKey: Record<string, any>
+  overlays: { enabled: boolean; layers: OverlayLayer[] }
+  excludeIntroFromEffects: boolean
+  compilationLayout: {
+    layout: 'standard' | 'compilation'
+    backgroundPlate: { source_path: string; loop: boolean; opacity: number }
+    foregroundDefaults: {
+      scale_pct: number
+      position: CompilationFgPosition
+      chroma_key: { color: string; similarity: number; blend: number } | null
+    }
+  }
+  sceneEffects: {
+    enabled: boolean
+    overlays: Array<{ id: string; enabled: boolean; params?: Record<string, unknown>; legacy_slot?: 'vignette' | 'film_grain' | 'letterbox' }>
+  }
+}
+
+const renderAppearanceDraft = ref<AssemblyStepDraft<RenderAppearanceDraftSettings> | null>(null)
+const renderAppearanceEdit = computed(() => renderAppearanceDraft.value?.value ?? null)
+const renderAppearanceApplying = ref(false)
+const renderAppearanceError = ref('')
+const renderAppearanceSettingsBaseline = ref<Record<string, any> | null>(null)
+const renderAppearanceAdoptRoot = ref('')
+const renderAppearanceAdoptBaseline = ref({ logo: '', chroma: '' })
+
+const renderAppearanceSummary = computed(() => {
+  const bits: string[] = []
+  bits.push(logo.enabled ? 'logo on' : 'logo off')
+  bits.push(colorGrading.enabled ? `colour grading ${colorGrading.preset}` : 'colour grading off')
+  if (agedArchiveFilm.enabled) bits.push('aged archive film')
+  if (frame.enabled) bits.push('presentation frame')
+  if (compilationLayout.layout === 'compilation') bits.push('compilation layout')
+  if (chromaKey.enabled) bits.push('green-screen overlay')
+  if (overlays.layers.length) bits.push(`${overlays.layers.length} overlay layer${overlays.layers.length === 1 ? '' : 's'}`)
+  if (excludeIntroFromEffects.value) bits.push('intro excluded from effects')
+  return `${bits.join(' · ')}.`
+})
+
+function liveRenderAppearance(): RenderAppearanceDraftSettings {
+  return {
+    logo: { ...logo },
+    colorGrading: { ...colorGrading },
+    agedArchiveFilm: { ...agedArchiveFilm },
+    frame: { ...frame },
+    chromaKey: { ...chromaKey },
+    overlays: {
+      enabled: overlays.enabled,
+      layers: overlays.layers.map(l => ({ ...l, time_range: l.time_range ? { ...l.time_range } : null })),
+    },
+    excludeIntroFromEffects: excludeIntroFromEffects.value,
+    compilationLayout: {
+      layout: compilationLayout.layout,
+      backgroundPlate: { ...compilationLayout.backgroundPlate },
+      foregroundDefaults: {
+        ...compilationLayout.foregroundDefaults,
+        chroma_key: compilationLayout.foregroundDefaults.chroma_key
+          ? { ...compilationLayout.foregroundDefaults.chroma_key }
+          : null,
+      },
+    },
+    sceneEffects: {
+      enabled: sceneEffects.enabled,
+      overlays: sceneEffects.overlays.map(o => ({ ...o, params: { ...(o.params || {}) } })),
+    },
+  }
+}
+
+function openRenderAppearanceEditor(): void {
+  if (!episodeId.value) return
+  renderAppearanceError.value = ''
+  renderAppearanceSettingsBaseline.value = JSON.parse(JSON.stringify(snapshotAllSettings()))
+  renderAppearanceAdoptRoot.value = episodesRoot.value
+  renderAppearanceAdoptBaseline.value = {
+    logo: logo.image_path || '',
+    chroma: chromaKey.source_path || '',
+  }
+  renderAppearanceDraft.value = reactive(beginAssemblyStepDraft<RenderAppearanceDraftSettings>(
+    liveRenderAppearance(),
+    { channel: slug.value, episode: episodeId.value },
+  ))
+}
+
+async function saveRenderAppearanceDraft(
+  value: RenderAppearanceDraftSettings,
+  scope: AssemblyStepScope,
+): Promise<void> {
+  // Capture everything the save depends on BEFORE the first await: the page can
+  // switch project or reopen this popup while an adoption request is in flight.
+  const baseline = renderAppearanceSettingsBaseline.value
+  const adoptRoot = renderAppearanceAdoptRoot.value
+  const originals = renderAppearanceAdoptBaseline.value
+  // Browse never adopts. Apply adopts only the file this draft actually changed,
+  // into the output root captured when the popup opened (AGENTS §4).
+  const adoptChanged = async (raw: string, original: string): Promise<string> => {
+    const path = String(raw || '').trim()
+    if (!path || path === String(original || '').trim()) return path
+    if (/^\$\{(?:CHANNEL|PROJECT|ASSET|BACKGROUND)\}/.test(path)) return path
+    return await collapseToPortablePath(path, true, adoptRoot, true)
+  }
+  value.logo.image_path = await adoptChanged(value.logo.image_path || '', originals.logo)
+  value.chromaKey.source_path = await adoptChanged(value.chromaKey.source_path || '', originals.chroma)
+
+  // Overlay windows are this episode's own facts; the effects record keeps the
+  // full look and the config keeps the windows keyed by the captured episode.
+  const code = (scope.episode || '').trim().toUpperCase()
+  const timings = withEpisodeTimings(
+    overlayTimingStore.value,
+    code,
+    collectOverlayTimings(value.overlays.layers),
+  )
+  await persistEpisodeStepSettings(scope, baseline, (base) => {
+    base.effects = {
+      ...(base.effects || {}),
+      logo: { ...value.logo },
+      color_grading: { ...value.colorGrading },
+      aged_archive_film: { ...value.agedArchiveFilm },
+      frame: { ...value.frame },
+      chroma_key: { ...value.chromaKey },
+      overlays: {
+        enabled: value.overlays.enabled,
+        layers: value.overlays.layers.map(l => ({ ...l, time_range: l.time_range ? { ...l.time_range } : null })),
+      },
+      exclude_intro_from_effects: value.excludeIntroFromEffects,
+      compilation_layout: {
+        layout: value.compilationLayout.layout,
+        background_plate: { ...value.compilationLayout.backgroundPlate },
+        foreground_defaults: {
+          ...value.compilationLayout.foregroundDefaults,
+          chroma_key: value.compilationLayout.foregroundDefaults.chroma_key
+            ? { ...value.compilationLayout.foregroundDefaults.chroma_key }
+            : null,
+        },
+      },
+      scene_effects: {
+        enabled: value.sceneEffects.enabled,
+        overlays: value.sceneEffects.overlays.map(o => ({ ...o, params: { ...(o.params || {}) } })),
+      },
+    }
+  }, { overlay_time_ranges: timings })
+}
+
+function commitRenderAppearanceDraft(value: RenderAppearanceDraftSettings): void {
+  overlayTimingStore.value = withEpisodeTimings(
+    overlayTimingStore.value,
+    episodeId.value,
+    collectOverlayTimings(value.overlays.layers),
+  )
+  applyEffectsData({
+    logo: { ...value.logo },
+    color_grading: { ...value.colorGrading },
+    aged_archive_film: { ...value.agedArchiveFilm },
+    frame: { ...value.frame },
+    chroma_key: { ...value.chromaKey },
+    overlays: {
+      enabled: value.overlays.enabled,
+      layers: value.overlays.layers.map(l => ({ ...l, time_range: l.time_range ? { ...l.time_range } : null })),
+    },
+    exclude_intro_from_effects: value.excludeIntroFromEffects,
+    compilation_layout: {
+      layout: value.compilationLayout.layout,
+      background_plate: { ...value.compilationLayout.backgroundPlate },
+      foreground_defaults: {
+        ...value.compilationLayout.foregroundDefaults,
+        chroma_key: value.compilationLayout.foregroundDefaults.chroma_key
+          ? { ...value.compilationLayout.foregroundDefaults.chroma_key }
+          : null,
+      },
+    },
+    scene_effects: {
+      enabled: value.sceneEffects.enabled,
+      overlays: value.sceneEffects.overlays.map(o => ({ ...o, params: { ...(o.params || {}) } })),
+    },
+  })
+  overlayTimingMigrated.value = []
+}
+
+async function applyRenderAppearanceDraft(): Promise<void> {
+  const draft = renderAppearanceDraft.value
+  if (!draft || renderAppearanceApplying.value) return
+  renderAppearanceApplying.value = true
+  renderAppearanceError.value = ''
+  try {
+    const result = await applyAssemblyStepDraft(
+      draft,
+      { channel: slug.value, episode: episodeId.value },
+      saveRenderAppearanceDraft,
+    )
+    if (renderAppearanceDraft.value !== draft) return
+    if (result.ok === false) {
+      renderAppearanceError.value = result.error
+      return
+    }
+    if (sameAssemblyStepScope(draft.scope, { channel: slug.value, episode: episodeId.value })) {
+      commitRenderAppearanceDraft(draft.value)
+    } else {
+      info(`Saved to ${draft.scope.episode}. ${episodeId.value || 'No episode'} is open now, so its form was left unchanged.`)
+    }
+    renderAppearanceDraft.value = null
+    renderAppearanceSettingsBaseline.value = null
+    renderAppearanceAdoptRoot.value = ''
+    renderAppearanceAdoptBaseline.value = { logo: '', chroma: '' }
+  } finally {
+    renderAppearanceApplying.value = false
+  }
+}
+
+function closeRenderAppearanceEditor(): void {
+  if (renderAppearanceApplying.value) return
+  if (renderAppearanceDraft.value) cancelAssemblyStepDraft(renderAppearanceDraft.value)
+  renderAppearanceDraft.value = null
+  renderAppearanceSettingsBaseline.value = null
+  renderAppearanceAdoptRoot.value = ''
+  renderAppearanceAdoptBaseline.value = { logo: '', chroma: '' }
+  renderAppearanceError.value = ''
+}
+
+watch([slug, episodeId], () => closeRenderAppearanceEditor())
+watch(currentStep, (step) => { if (step !== 4) closeRenderAppearanceEditor() })
+
 
 // --------------- Step 6: Export ---------------
 const exportSettings = reactive<{
@@ -5359,6 +6600,8 @@ let lastUsedReady = false
 function snapshotAllSettings() {
   return {
     intro: snapshotIntroData(),
+    // Sibling of `intro`, not inside it: presets and the renderer never see it.
+    channel_intro: channelIntro.value ? { ...channelIntro.value } : null,
     timeline: snapshotTimelineData(),
     effects: snapshotEffectsData(),
     subtitles: snapshotSubtitlesData(),
@@ -5373,8 +6616,11 @@ async function restoreLastUsedSettings(): Promise<void> {
     const config = await get<any>(`/projects/${project}/settings/config`)
     if (episode !== episodeId.value || project !== slug.value) return
     const pick = pickLastUsedSettings(config?.[LAST_USED_CONFIG_KEY], episode)
-    if (!pick) { lastUsedNotice.value = ''; return }
+    if (!pick) { lastUsedNotice.value = ''; channelIntro.value = null; return }
     applyIntroData(pick.settings.intro)
+    channelIntro.value = pick.scope === 'episode'
+      ? normalizeChannelIntro((pick.settings as any).channel_intro ?? (pick.settings as any).intro?.channel_intro)
+      : null
     applyTimelineData(pick.settings.timeline)
     applyEffectsData(pick.settings.effects)
     applySubtitlesData(pick.settings.subtitles)
@@ -6152,31 +7398,34 @@ function formatRelativeTime(mtimeMs: number): string {
   return `${Math.round(diffSec / 86400)}d ago`
 }
 
-function applyColorPreset(preset: string) {
+function applyColorPreset(
+  preset: string,
+  target: { preset: string; brightness: number; contrast: number; saturation: number; warmth: number; tint: number } = colorGrading,
+) {
   // Special case: 'custom' means "stop tracking a named preset; the
   // sliders ARE the look now". Don't wipe the slider values — that's
   // the opposite of what the user wants. For every named preset we
   // still reset the sliders so the preset's base shines through cleanly.
-  colorGrading.preset = preset
+  target.preset = preset
   if (preset === 'custom') return
-  colorGrading.brightness = 0
-  colorGrading.contrast = 1.0
-  colorGrading.saturation = 1.0
-  colorGrading.warmth = 0
-  colorGrading.tint = 0
+  target.brightness = 0
+  target.contrast = 1.0
+  target.saturation = 1.0
+  target.warmth = 0
+  target.tint = 0
 }
 
 // True when the user has either explicitly picked Custom OR has tweaked
 // any slider away from neutral while a named preset is selected. Drives
 // the Custom button's hint text so the UI is honest about state.
-const customPresetActive = computed(() => {
-  if (colorGrading.preset === 'custom') return true
-  return Math.abs(colorGrading.brightness || 0) > 0.001
-    || Math.abs((colorGrading.contrast ?? 1) - 1) > 0.001
-    || Math.abs((colorGrading.saturation ?? 1) - 1) > 0.001
-    || Math.abs(colorGrading.warmth || 0) > 0.001
-    || Math.abs(colorGrading.tint || 0) > 0.001
-})
+function customPresetActiveFor(grading: Record<string, any>): boolean {
+  if (grading.preset === 'custom') return true
+  return Math.abs(grading.brightness || 0) > 0.001
+    || Math.abs((grading.contrast ?? 1) - 1) > 0.001
+    || Math.abs((grading.saturation ?? 1) - 1) > 0.001
+    || Math.abs(grading.warmth || 0) > 0.001
+    || Math.abs(grading.tint || 0) > 0.001
+}
 
 // v1.2.9 — per-visit cache key. Scene images and thumbnails are regenerated
 // in place elsewhere (Scene Review, Thumbnail Generator), so the path alone
@@ -6215,18 +7464,30 @@ function pickTitleImage(filePath: string) {
  * copied into the channel's `assets/` folder first, so the channel folder
  * carries everything it uses (self-contained channels, 2026-10-07).
  */
-async function collapseToPortablePath(input: string, adopt = false): Promise<string> {
+async function collapseToPortablePath(
+  input: string,
+  adopt = false,
+  outputRoot = episodesRoot.value,
+  strictAdopt = false,
+): Promise<string> {
   const raw = String(input || '').trim()
   if (!raw) return ''
   if (!adopt && /^\$\{(?:CHANNEL|PROJECT|ASSET|BACKGROUND)\}(?:\/.*)?$/.test(raw)) return raw
   try {
     const r = await post<{ output: string }>(`/system/resolve-asset-path`, {
       path: raw,
-      output_root: episodesRoot.value,
+      output_root: outputRoot,
       mode: adopt ? 'adopt' : 'portable',
     })
-    return String(r?.output || raw)
-  } catch {
+    const output = String(r?.output || raw)
+    // Strict adopt is used by a step save: a raw absolute path must never be
+    // written back as if the channel owned it.
+    if (strictAdopt && adopt && !/^\$\{(?:CHANNEL|PROJECT|ASSET|BACKGROUND)\}(?:\/.*)?$/.test(output)) {
+      throw new Error(`Could not adopt ${raw} into this channel.`)
+    }
+    return output
+  } catch (cause) {
+    if (strictAdopt) throw cause
     return raw
   }
 }
@@ -6511,6 +7772,9 @@ watch([slug, episodeId], ([, newEp]) => {
   visualSourceSaving.value = false
   subtitleStatusSequence++
   subtitlesStatus.value = null
+  // Episode state never stands while another episode is on screen; the scoped
+  // last-used restore below rehydrates this one's own choice.
+  channelIntro.value = null
   // A failure belonging to the previous episode must not stand while another is
   // on screen; the re-read below decides the new episode's answer. Mirror the
   // visual-source loading flag so "Checking…" is the state until it answers.

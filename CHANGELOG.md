@@ -4,6 +4,14 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.384 — 2026-11-06
+
+- Video Assembly keeps intro, title and motion, appearance, episode effects, subtitles and outro editing together. Editors hold changes until Apply; Cancel keeps the current episode unchanged. Old Effects Library links open the matching episode and scene here.
+- Choose channel-owned intro music explicitly in the Intro editor. Apply rebuilds that episode's audio with its saved Audio Assembly preset and selects the completed new track. Episodes without a selection keep their existing audio path.
+- Chapter titles can use an explicitly selected channel font, with fitting and wrapping for English and Khmer. Approximate previews say so; existing title rendering stays unchanged when no font is selected.
+- Character Sheet shows the full channel roster without requiring an episode. Edit shared character records, references and channel voice profiles there; the episode cast stays separate. Old Channel Characters links lead to the matching channel.
+- Assembly popups keep space around their content and controls on desktop and small screens. The effects toolbar wraps inside the dialog instead of clipping its search and category buttons.
+
 ## v1.4.383 — 2026-11-06
 
 - An approved or resumed YouTube upload rechecks the exact frozen title and description before any provider or quota work. A blank field fails loudly with the episode named and asks you to review and confirm again; the live metadata is never substituted.

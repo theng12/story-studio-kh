@@ -20,6 +20,7 @@ import {
 } from '../services/audio-workflow-readiness.js'
 import { safetyMode } from '../services/safety-checks.js'
 import { revalidatePreview, streamTo } from '../lib/stream-file.js'
+import { findActivePreset, resolveStepParams } from './pipeline.js'
 
 export const router = Router()
 
@@ -79,7 +80,84 @@ router.post('/projects/:slug/generate/audio-merge', async (req, res) => {
   // source map have been fenced.  A browser must not be able to turn an
   // ordinary merge into a quality-repair completion path.
   delete req.body.audio_quality_refresh
+  // Audio Assembly's explicit Apply (VA step 2) sends an episode's approved mixer
+  // choices with the channel's EXISTING selected preset: resolve that preset the
+  // same way Pipeline does. `channel_intro` must be stated on every such request —
+  // a non-empty selection freezes below, `null` deliberately rebuilds the legacy
+  // (no channel intro) track. Anything else is refused rather than defaulted.
+  const reuseSavedSettings = req.body.reuse_saved_settings === true
+  delete req.body.reuse_saved_settings
   if (!episode_id) return res.status(400).json({ detail: 'episode_id is required' })
+  let reusedParams: Record<string, any> | undefined
+  let clearChannelIntro = false
+  if (reuseSavedSettings) {
+    const hasIntroKey = Object.prototype.hasOwnProperty.call(req.body, 'channel_intro')
+    const selection = req.body.channel_intro
+    if (!hasIntroKey) {
+      return res.status(400).json({
+        detail: 'Saved Audio Assembly settings need an explicit channel intro choice: pick an intro file, or send channel_intro: null to rebuild without one.',
+      })
+    }
+    if (selection === null) {
+      clearChannelIntro = true
+    } else if (!selection || typeof selection !== 'object'
+      || typeof selection.file !== 'string' || !selection.file.trim() || selection.enabled === false) {
+      return res.status(400).json({
+        detail: 'The channel intro selection is malformed: choose a file, or send channel_intro: null to rebuild without one.',
+      })
+    }
+    try {
+      const config = await pm.getConfig(slug)
+      const active = findActivePreset(config, 'audio_merge')
+      if (!active.preset) {
+        return res.status(400).json({
+          detail: `Saved Audio Assembly settings are not available: ${active.missingReason || 'no Audio Assembly preset is selected.'}`,
+        })
+      }
+      const format = await getEffectiveFormat(slug)
+      reusedParams = resolveStepParams('audio_merge', episode_id, '', active.preset, format)
+    } catch (e: any) {
+      return res.status(400).json({
+        detail: `Saved Audio Assembly settings could not be resolved: ${e?.message || e}`,
+      })
+    }
+  }
+  // Job3 (1.4.384) — an explicit channel-owned intro is frozen HERE, at the
+  // job boundary: the chosen bytes are copied and hashed once, so the merge
+  // reads exactly what this job was queued with (local and remote consumers
+  // of the assembled audio see the same intro). An absent or empty selection
+  // deletes the key and the generator takes the release/1.4.383 path
+  // untouched — nothing reads or adopts a channel intro on its own.
+  if (req.body.channel_intro && typeof req.body.channel_intro === 'object') {
+    const picked = typeof req.body.channel_intro.file === 'string' ? req.body.channel_intro.file.trim() : ''
+    if (picked && req.body.channel_intro.enabled !== false) {
+      try {
+        const outputRoot = await pm.getProjectOutputRoot(slug)
+        if (!outputRoot) return res.status(404).json({ detail: 'Project not found' })
+        const { freezeChannelIntro } = await import('../services/channel-intro-asset.js')
+        const frozen = await freezeChannelIntro({ outputRoot, file: picked, slug, episodeId: episode_id })
+        req.body.channel_intro = { ...req.body.channel_intro, ...frozen, enabled: true }
+        // Nothing was frozen (source unavailable at the boundary): drop the
+        // unfrozen path so the generator never treats it as a frozen copy —
+        // its existing intro_audio safety mode decides with a loud reason.
+        if (!frozen.file) delete req.body.channel_intro.file
+      } catch (e: any) {
+        return res.status(400).json({ detail: `Channel intro could not be prepared for this run: ${e?.message || e}` })
+      }
+    } else {
+      delete req.body.channel_intro
+    }
+  }
+  if (reuseSavedSettings && reusedParams) {
+    // Only these run-specific facts ride over the selected preset: the episode,
+    // its explicit intro (or its deliberate absence), and how to write the file.
+    // Any other submitted key is ignored so it cannot override the chosen mixer.
+    const writeMode = req.body.write_mode
+    const frozenIntro = req.body.channel_intro
+    req.body = { ...reusedParams, episode_id }
+    if (!clearChannelIntro && frozenIntro) req.body.channel_intro = frozenIntro
+    if (writeMode !== undefined) req.body.write_mode = writeMode
+  }
   const readiness = await inspectChapterAudioReadiness(slug, episode_id)
   if (!readiness.ready
     && (!readiness.present_files.length || await safetyMode(slug, 'chapter_audio_present') === 'block')) {
@@ -99,8 +177,10 @@ router.post('/projects/:slug/generate/audio-merge', async (req, res) => {
     const fmt = await getEffectiveFormat(slug)
     fmtMerge = fmt?.script.audioMergeDefaults
   } catch { /* format layer must never break the queue submit */ }
-  req.body.gap_duration = gap_duration ?? fmtMerge?.gapDurationSec ?? 3
-  req.body.normalize_volume = normalize_volume ?? fmtMerge?.normalizeVolume ?? false
+  if (!reuseSavedSettings) {
+    req.body.gap_duration = gap_duration ?? fmtMerge?.gapDurationSec ?? 3
+    req.body.normalize_volume = normalize_volume ?? fmtMerge?.normalizeVolume ?? false
+  }
 
   if (isDuplicate(slug, episode_id, 'audio_merge')) {
     return res.status(409).json({ detail: `Audio merge already queued/running for ${episode_id}` })

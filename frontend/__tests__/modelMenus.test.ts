@@ -31,7 +31,7 @@ const modelSurfaces = {
   imagePrompts: source('../pages/projects/[slug]/image-prompts.vue'),
   thumbnailVisionMenu: source('../utils/thumbnail-vision-model-menu.ts'),
   research: source('../pages/projects/[slug]/research.vue'),
-  channelCharacters: source('../pages/character-library.vue'),
+  characterRecordEditor: source('../components/CharacterRecordEditor.vue'),
 }
 
 describe('shared model menus', () => {
@@ -265,7 +265,12 @@ describe('shared model menus', () => {
     assert.match(modelSurfaces.sceneReview, /<ImageModelPicker/)
     assert.doesNotMatch(modelSurfaces.sceneReview, /Rewrite LLM|<ModelSelector/)
     assert.match(modelSurfaces.imagePrompts, /title="Thumbnail reference analysis model"/)
-    assert.match(modelSurfaces.channelCharacters, /title="Character vision model"/)
+    // 1.4.384: the Channel Characters page is a redirect adapter; its shared
+    // record editor lives on the Character Sheet. That editor's reference
+    // describing control (the character vision model menu) is still on the
+    // retired page and is a known relocation seam — it is not asserted here
+    // under a surface that does not render it.
+    assert.match(modelSurfaces.characterRecordEditor, /<VoicePicker/)
   })
 
   test('no picker row carries a cost tier into the list any more', () => {

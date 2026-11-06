@@ -46,7 +46,7 @@
       </p>
       <p class="text-muted text-sm">
         To put effects on one scene, see them move live, or set their order, open the
-        <NuxtLink :to="effectsLibraryLink">Effects Library</NuxtLink> — what you set there is saved with the episode and rendered here.
+        <button type="button" class="link-btn" @click="emit('open-episode-effects')">Episode effects editor</button> — what you set there is saved with the episode and rendered here.
       </p>
       <p v-if="episodeStackSummary" class="text-sm effect-episode-stack">{{ episodeStackSummary }}</p>
 
@@ -235,6 +235,9 @@ const model = defineModel<{ enabled: boolean; overlays: AppliedOverlay[] }>({
   default: () => ({ enabled: false, overlays: [] }),
 })
 
+/** The host opens the episode editor popup (Video Assembly Step 4) — this component never navigates away. */
+const emit = defineEmits<{ 'open-episode-effects': [] }>()
+
 const catalog = reactive<{
   grouped_overlays: Array<{ category: string; overlays: OverlayEntry[] }>
   supports_text_overlays: boolean
@@ -283,10 +286,6 @@ async function loadEpisodeStack(): Promise<void> {
 }
 watch(() => props.episodeId, loadEpisodeStack, { immediate: true })
 
-const effectsLibraryLink = computed(() => ({
-  path: `/projects/${props.slug}/effects-library`,
-  ...(props.episodeId ? { query: { episode: props.episodeId } } : {}),
-}))
 function groupLabel(category: string): string {
   return GROUP_LABELS[category] || category
 }

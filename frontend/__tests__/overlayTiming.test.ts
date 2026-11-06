@@ -217,9 +217,17 @@ test('randomising overlay effects cannot reach the timing', () => {
   // guarantee cannot be lost before the feature arrives.
   const util = readFileSync(fileURLToPath(new URL('../utils/overlay-timing.ts', import.meta.url)), 'utf8')
   assert.ok(util.includes('delete copy.time_range'), 'the preset strip is the single guarantee')
-  // And nothing on the page may write a window from a preset directly.
+  // The render-appearance popup round-trips the live layers through a detached
+  // draft — window included, because that window is this episode's own fact.
+  // What must never happen is a PRESET layer writing its window onto live
+  // state; the preset apply path re-seats windows from the episode instead.
+  const presetApply = page.slice(
+    page.indexOf('function applyOverlayLayersFromPreset'),
+    page.indexOf('function applyEpisodeOverlayTimings'),
+  )
+  assert.match(presetApply, /applyOverlayTimings\(incoming, timings\)/, 'the preset apply re-seats windows from the episode')
   assert.ok(
-    !/time_range:\s*(?:l|layer)\.time_range/.test(page),
+    !/time_range:\s*(?:l|layer|incoming|data)\.time_range/.test(presetApply),
     'a preset layer is assigning its window straight onto live state',
   )
 })
