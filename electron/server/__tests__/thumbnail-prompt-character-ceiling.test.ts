@@ -546,13 +546,14 @@ function thumbJob(params: Record<string, unknown>): any {
 async function withMockGateway(
   publishedCeiling: number,
   body: (context: { service: Awaited<ReturnType<typeof startMockGenStudioService>> }) => Promise<void>,
+  catalogueOverrides: Record<string, unknown> = {},
 ): Promise<void> {
   const service = await startMockGenStudioService()
   const originalFetch = globalThis.fetch
   try {
     globalThis.fetch = async (input: any, init: any) => {
       const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url)
-      if (url.pathname === '/v1/image/models') return Response.json([freeCatalogRow(publishedCeiling)])
+      if (url.pathname === '/v1/image/models') return Response.json([{ ...freeCatalogRow(publishedCeiling), ...catalogueOverrides }])
       return originalFetch(input, init)
     }
     const settings = await import('../services/app-settings.js')
@@ -567,6 +568,38 @@ async function withMockGateway(
     await service.close()
   }
 }
+
+describe('Shell rendering follows live reference support', () => {
+  for (const supported of [false, true]) {
+    test(`saved layout reaches the provider with reference support ${supported}`, async () => {
+      await withMockGateway(10_000, async ({ service }) => {
+        const pm = await import('../services/project-manager.js')
+        const { generateImages } = await import('../generators/images.js')
+        const project = await pm.createProject({ name: `Shell dispatch ${supported}`, episode_prefix: 'EP', episode_digits: 4 })
+        const referenceDir = path.join(pm.getProjectDir(project.slug)!, 'thumbnail-reference-assets')
+        await fs.mkdir(referenceDir, { recursive: true })
+        await fs.writeFile(path.join(referenceDir, 'shell.png'), ONE_PIXEL_PNG)
+        const fixture = await makeEpisode(project.slug, { code: 'EP0001', prompts: ['A new episode subject with generous clear space.'] })
+        const job = thumbJob({
+          episode_id: fixture.episodeId, mode: 'thumbs', model: FREE_MODEL,
+          aspect_ratio: '16:9', resolution: '1K',
+          thumbnail_shell_id: `channel-reference:${project.slug}`,
+          thumbnail_reference_asset: { id: 'shell', filename: 'shell.png', reframing_prompt: 'Leave the left third empty; place the focal shape on the right.' },
+        })
+        job.project_slug = project.slug
+        job.episode_id = fixture.episodeId
+        await generateImages(job)
+        const submissions = service.submissions.filter(item => item.operation === 'image' && !item.replay)
+        assert.equal(submissions.length, 1, 'one original image submission')
+        assert.match(String(submissions[0]!.parsedBody?.prompt), /Leave the left third empty/)
+        const body = submissions[0]!.parsedBody!
+        const sources = body.reference_asset_ids
+        assert.equal(Boolean(Array.isArray(sources) ? sources.length : sources), supported, JSON.stringify(body))
+        if (!supported) assert.match(job.output_lines.join('\n'), /written layout only; no Shell image will be sent/)
+      }, { supports_reference_images: supported, max_reference_images: supported ? 1 : 0 })
+    })
+  }
+})
 
 describe('the render refuses an over-length prompt before anything is submitted', () => {
   test('the eight missing targets are refused and the finished one is kept', async () => {

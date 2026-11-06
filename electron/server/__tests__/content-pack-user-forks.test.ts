@@ -591,6 +591,18 @@ describe('explicit legacy Content Pack user forks', () => {
       .expect(200)
     assert.equal(savedRecipe.body.template.name, 'Edited explicit Recipe fork')
 
+    // The save boundary refuses a Shell image whose managed reference does not
+    // exist. The route must report that as a fixable 400, not a 500 — the picker
+    // only offers managed assets, so a stale reference is the customer's to fix.
+    const missingShell = await request(app)
+      .put(`/api/thumbnail-templates/${encodeURIComponent(recipeResponse.body.template.id)}`)
+      .send({
+        ...recipeResponse.body.template, name: 'Missing Shell image',
+        shellImage: 'shell/missing-shell.webp', layoutNote: 'A quiet layout.',
+      })
+      .expect(400)
+    assert.match(missingShell.body.detail, /existing managed image/i)
+
     const updated = await projectManager.getProject(project.slug)
     assert.equal(updated?.niche_id, nicheResponse.body.id)
     assert.deepEqual(updated?.topic_pack_ids, [topicResponse.body.id])

@@ -1,5 +1,6 @@
 <template>
   <div class="ttp-root" :class="{ 'ttp-compact': compact }">
+    <label class="ttp-search">Search Shells<input v-model="query" type="search" class="input" placeholder="Search names or layout notes" /></label>
     <div v-if="loading" class="ttp-loading">Loading templates…</div>
     <div v-else-if="loadError" class="ttp-empty ttp-error" role="alert">
       Could not load thumbnail templates: {{ loadError }}
@@ -8,6 +9,7 @@
     <div v-else-if="!templates.length" class="ttp-empty">
       No thumbnail templates yet. Templates you create or install will appear here.
     </div>
+    <p v-else-if="!sortedTemplates.length" class="ttp-empty">No Shells match your search.</p>
     <div v-else class="ttp-grid" :class="{ 'ttp-grid-strip': compact }">
       <button
         v-for="t in sortedTemplates"
@@ -18,18 +20,25 @@
         @click="select(t.id)"
       >
         <div class="ttp-preview-wrap">
+          <!-- preview.png serves the Shell's own picture when one is declared;
+               a 502 there means the stored image is unavailable, so show that
+               plainly instead of a broken picture. -->
+          <span v-if="!t.shellImage && !t.previewImages?.length" class="ttp-preview ttp-preview-missing">Preview pending</span>
           <img
-            :src="t.previewImages?.[0] || previewUrl(t.id)"
+            v-else-if="!failedPreviewIds.has(t.id)"
+            :src="t.shellImage ? previewUrl(t.id) : t.previewImages?.[0]"
             :alt="`${t.name} preview`"
             class="ttp-preview"
             loading="lazy"
+            @error="failedPreviewIds.add(t.id)"
           />
+          <span v-else class="ttp-preview ttp-preview-missing" role="status">Shell image unavailable</span>
           <span v-if="isRecommended(t)" class="ttp-rec-badge" aria-label="Recommended for this niche">★</span>
           <span v-if="t.id === modelValue" class="ttp-active-badge" aria-label="Selected">✓</span>
         </div>
         <div class="ttp-meta">
           <div class="ttp-name">{{ t.name }}</div>
-          <div v-if="t.tagline" class="ttp-tagline">{{ t.tagline }}</div>
+          <div v-if="t.layoutNote || t.tagline" class="ttp-tagline">{{ t.layoutNote || t.tagline }}</div>
           <div v-if="showEditButtons" class="ttp-actions">
             <button
               type="button"
@@ -69,7 +78,7 @@
  * the top. Every template stays clickable regardless — the user is in
  * charge.
  */
-import { ref, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { useApi } from '~/composables/useApi'
 
 interface ThumbnailTemplateLite {
@@ -80,6 +89,10 @@ interface ThumbnailTemplateLite {
   builtin: boolean
   recommendedNicheIds?: string[]
   previewImages?: string[]
+  /** Shell's own layout picture (a managed `shell/...` asset URL), when the
+   *  template carries one. Falls back to the composited preview. */
+  shellImage?: string
+  layoutNote?: string
   category?: string
   tags?: string[]
   recipe?: { titleMode?: 'ai' }
@@ -113,10 +126,14 @@ const emit = defineEmits<{
 const { get } = useApi()
 const loading = ref(true)
 const templates = ref<ThumbnailTemplateLite[]>([])
+/** Cards whose preview request failed (declared Shell image unavailable). */
+const failedPreviewIds = reactive(new Set<string>())
 
+const query = ref('')
 const sortedTemplates = computed(() => {
   const rec = props.recommendedNicheId
-  return [...templates.value].sort((a, b) => {
+  const needle = query.value.trim().toLocaleLowerCase()
+  return templates.value.filter(t => !needle || `${t.name} ${t.layoutNote || ''} ${t.description || ''}`.toLocaleLowerCase().includes(needle)).sort((a, b) => {
     if (rec) {
       const aRec = (a.recommendedNicheIds || []).includes(rec) ? 1 : 0
       const bRec = (b.recommendedNicheIds || []).includes(rec) ? 1 : 0
@@ -177,6 +194,7 @@ onMounted(load)
 </script>
 
 <style scoped>
+.ttp-search { display: grid; gap: 6px; margin-bottom: 16px; }
 .ttp-root {
   width: 100%;
 }
@@ -246,6 +264,15 @@ onMounted(load)
   height: 100%;
   display: block;
   object-fit: cover;
+}
+.ttp-preview-missing {
+  display: grid;
+  place-items: center;
+  padding: 8px;
+  background: var(--bg-tertiary);
+  color: var(--warning, #d97706);
+  font-size: var(--font-xs);
+  text-align: center;
 }
 .ttp-rec-badge,
 .ttp-active-badge {

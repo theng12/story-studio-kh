@@ -49,6 +49,7 @@ import {
 import { truncateChars } from '../lib/well-formed-text.js'
 import { pipelinePolicyCheckpointStore, pipelinePolicyForJob } from '../lib/pipeline-model-policy.js'
 import { thumbnailCount, thumbnailOptionsLabel } from '../contracts/thumbnail-counts.js'
+import { resolveThumbnailShell } from '../services/thumbnail-shell.js'
 
 interface ThumbnailPromptsParams {
   episode_id: string
@@ -74,6 +75,7 @@ interface ThumbnailPromptsParams {
   thumb_creative_direction?: string
   /** A browsable Thumbnail Recipe Catalog id used to shape the generated prompt. */
   thumbnail_template_id?: string
+  thumbnail_shell_id?: string
   mode?: 'thumbnails'
   character_ids?: string[]
   fill_gaps?: boolean
@@ -654,18 +656,11 @@ export async function generateImagePrompts(job: Job): Promise<void> {
   // from what was reserved here. The render still measures the assembled
   // prompt before it submits and refuses an over-length one there.
   let renderCast: Character[] = []
-  let renderReferenceGuidance = ''
-  if (publishedCap) {
-    renderCast = await episodeCast(projectSlug, episodeId)
-    // The reference guidance the RENDER will append — the same helper the
-    // render uses, in the render's own order (the request's asset, else the
-    // project's saved one), so the two cannot disagree: no saved reference
-    // asset means the render appends nothing, and nothing is reserved for it.
-    renderReferenceGuidance = savedThumbnailReferenceGuidanceFor(
-      pm.getProjectDir(projectSlug) || path.join(pm.projectsRoot(), projectSlug),
-      (req as any)?.thumbnail_reference_asset || (config as any)?.thumbnail_reference_asset || null,
-    )
-  }
+  const shell = await resolveThumbnailShell(projectSlug, req, config)
+  const renderReferenceGuidance = savedThumbnailReferenceGuidanceFor(
+    pm.getProjectDir(projectSlug) || path.join(pm.projectsRoot(), projectSlug), shell.guidanceAsset,
+  )
+  if (publishedCap) renderCast = await episodeCast(projectSlug, episodeId)
   if (targetNumbers.length > 0) {
     const storyContext = await readStoryContext(projectSlug, episodeId, title)
     const characters = Array.isArray(req.character_ids) && req.character_ids.length
@@ -675,7 +670,7 @@ export async function generateImagePrompts(job: Job): Promise<void> {
     if (characters.length) job.output_lines.push(`Cast: ${characters.map(character => character.name).join(', ')}`)
 
     let thumbnailFormat: ThumbnailFmt | null = null
-    let recipeName = ''
+    const recipeName = shell.name
     try {
       const { getEffectiveFormat } = await import('../services/format-loader.js')
       const format = await getEffectiveFormat(projectSlug)
@@ -687,28 +682,8 @@ export async function generateImagePrompts(job: Job): Promise<void> {
     // overrides) the format's broad thumbnail defaults. It deliberately does
     // not replace the project art style — composition and rendering remain
     // separate choices.
-    let recipe: ThumbnailRecipeProfile | undefined
-    try {
-      const { loadTemplate, getEffectiveTemplateFor } = await import('../services/thumbnail-template-loader.js')
-      const selectedId = typeof req.thumbnail_template_id === 'string' && req.thumbnail_template_id.trim()
-        ? req.thumbnail_template_id.trim()
-        : ''
-      let template = selectedId ? await loadTemplate(selectedId) : null
-      if (!template && !selectedId) {
-        const project = await pm.getProject(projectSlug)
-        if (project) {
-          const { getEffectiveNicheFor } = await import('../services/niche-loader.js')
-          template = await getEffectiveTemplateFor(project, await getEffectiveNicheFor(project), config as any)
-        }
-      }
-      if (selectedId && !template) throw new Error(`Thumbnail Recipe '${selectedId}' was not found`)
-      if (template) {
-        recipe = template.recipe
-        recipeName = template.name
-      }
-    } catch (error: any) {
-      throw new Error(`Could not resolve Thumbnail Recipe: ${error?.message || error}`)
-    }
+    const recipe: ThumbnailRecipeProfile | undefined = shell.template?.recipe
+    if (shell.id) job.output_lines.push(`Shell: ${shell.name}. Its saved layout is reused without another vision call.`)
     if (recipe) {
       thumbnailFormat = {
         ...(thumbnailFormat || {}),
@@ -726,6 +701,12 @@ export async function generateImagePrompts(job: Job): Promise<void> {
       // The recipe supplies a DEFAULT. It no longer overrules the customer,
       // who may not have chosen at all — in which case this is the choice.
       if (!req.thumb_headline_mode && !textFree && recipe?.headlineMode) headlineMode = recipe.headlineMode
+    }
+    if (shell.layoutNote) {
+      thumbnailFormat = {
+        ...(thumbnailFormat || {}),
+        conceptGuidance: [thumbnailFormat?.conceptGuidance, `Shell layout only: ${shell.layoutNote}`].filter(Boolean).join('\n\n'),
+      }
     }
     // A lettering style bought as a Content Pack is NOT in the built-in
     // `FONT_STYLES` / `TEXT_STYLES` maps, so the synchronous builders below can

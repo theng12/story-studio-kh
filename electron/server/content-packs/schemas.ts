@@ -505,8 +505,12 @@ const ThumbnailRecipeDocumentSchema = z.object({
   headline_formats: textList(60),
   visual_style_guidance: safeText(5000),
   preview_assets: z.array(rasterAssetPath).min(1).max(12),
+  // Optional reusable layout shell: an original text-free layout reference and
+  // its saved layout note. Neither carries subject/palette/style/lettering.
+  shell_image: rasterAssetPath.optional(),
+  layout_note: safeText(4000).optional(),
   compatible_formula_ids: z.array(qualifiedId).max(MAX_LIST),
-}).strict()
+}).strict() // image⇒note lives in the union-level refine below: this schema must stay a plain ZodObject for discriminatedUnion
 
 // ── Caption looks and scene effects (v1.2.1) ────────────────────────────────
 //
@@ -754,6 +758,9 @@ function refineEngineDocument(
   assertPackSafeStrings(spec.body, ctx, [spec.at])
 }
 
+/** Exported for direct recipe tests; the pack-level gate stays ContentPackDocumentSchema. */
+export { ThumbnailRecipeDocumentSchema }
+
 /** Content documents are deliberately limited to Story-owned, already-supported fields. */
 export const ContentPackDocumentSchema = z.discriminatedUnion('kind', [
   SeriesFormulaDocumentSchema,
@@ -767,6 +774,15 @@ export const ContentPackDocumentSchema = z.discriminatedUnion('kind', [
   LetteringStyleDocumentPackSchema,
   MetadataFormulaDocumentSchema,
 ]).superRefine((document, ctx) => {
+  if (document.kind === 'thumbnail-recipe') {
+    // A Shell image without its saved layout note is incomplete authoring: runtime
+    // can never invent the note without a per-episode vision charge. Refinement
+    // lives here so the recipe schema stays a plain object for the union above.
+    if (document.shell_image && !document.layout_note?.trim()) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['layout_note'], message: 'shell_image requires a non-empty layout_note' })
+    }
+    return
+  }
   if (document.kind === 'metadata-formula') {
     // A built-in formula and a bought one are the same kind of document in the
     // same id namespace, so a pack could otherwise claim a shipped formula's id
