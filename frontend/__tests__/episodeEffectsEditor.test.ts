@@ -437,7 +437,11 @@ describe('the panel drafts until apply', () => {
       // Cancel is not "nothing was saved": the file write above is real.
       mounted.panel.value.cancel()
       await flush()
-      assert.equal(mounted.host.querySelectorAll('.fx-row').length, 2, 'the saved addition is still in the stack')
+      assert.equal(
+        mounted.host.querySelectorAll('.fx-row:not(.fx-row-fixed)').length,
+        2,
+        'the saved addition is still in the stack',
+      )
       assert.equal(mounted.dirtyEvents.at(-1), false, 'the panel now matches the saved file')
       assert.equal(mounted.writes().length, 1, 'cancel adds no write')
     } finally {
