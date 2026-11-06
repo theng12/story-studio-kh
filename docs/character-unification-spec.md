@@ -1,154 +1,79 @@
-# Character Unification — One App-Level Library, Assignable Per Project
+# Channel Characters — One Channel Per Character
 
-Status: **implemented (additive foundation + dry-run migration)** · v1.0.481
+Status: **implemented 2026-11-06** (owner correction). This supersedes the earlier
+app-level shared-library design where one record was assigned to several projects and
+carried per-channel voice profiles.
 
-## Goal
+## Ownership
 
-Today there are **two** character systems:
+A character belongs to **exactly one channel**.
 
-1. **Per-project** — `${PROJECTS_ROOT}/${slug}/characters/{id}/character.json`
-   (service `character-manager.ts`, routes `/projects/:slug/characters*`,
-   page `projects/[slug]/characters.vue`).
-2. **Global library** — `${PROJECTS_ROOT}/.character-library/{id}/character.json`
-   (service `character-library.ts`, routes `/character-library*` plus
-   `save-to-library` and `import-to/:slug`, page `character-library.vue`).
+- Channel-owned record:
+  `${PROJECTS_ROOT}/.character-library/_channels/<channelSlug>/<id>/character.json`
+  - `scope: 'project'`
+  - `source: 'project'`
+  - `projects: [channelSlug]`
+  - `speech` is this channel's voice; `channel_profiles` is absent
+- Reference images live beside the record in the same channel folder.
+- The old flat store `${PROJECTS_ROOT}/.character-library/<id>/` is **legacy and
+  read-only forever**. Reads may fall back to it; every write is refused with
+  `CharacterLegacyReadOnlyError` (409). It is never rewritten.
+- Legacy records still assigned to a channel may appear in that channel's list with
+  `source: 'library'` until migration. The UI shows them as **read-only until
+  migration** and does not read the global store to fake an editable copy.
 
-The global library only ever produced **snapshot copies** — "Save to library"
-copied a project character up, "Import from library" copied one down. There was
-no notion of a single character that simply *belongs* to several projects.
+## Routes
 
-**Target:** one app-level library where each character can be **assigned**
-(tagged) to one or more projects. The per-project Characters page becomes a
-filtered view — characters assigned to this project — plus an
-"assign existing from library" action. Existing per-project characters keep
-working untouched.
+Channel records use only the project-scoped routes:
 
-## Hard safety requirement
+- `GET    /api/projects/:slug/characters` — this channel's records plus unmigrated
+  legacy fallback rows
+- `POST   /api/projects/:slug/characters` — create the channel-owned copy
+- `GET    /api/projects/:slug/characters/:id`
+- `PUT    /api/projects/:slug/characters/:id`
+- `DELETE /api/projects/:slug/characters/:id` — moves the record to `_trash`
+- `POST   /api/projects/:slug/characters/:id/reference-image` — upload
+- `GET    /api/projects/:slug/characters/:id/reference-image/:filename` — preview
+- `DELETE /api/projects/:slug/characters/:id/reference-image/:filename` — moves
+  the image to `_trash`
 
-The user prioritised **"no issues" / no data loss** above all. Therefore:
+Ordinary GET requests never migrate and never write. The global
+`/api/character-library` routes are read-only and refuse all mutations.
 
-- **Nothing is deleted or destructively rewritten.** The per-project store and
-  the library store both keep all their existing data.
-- The design is **additive**: a new optional `projects: string[]` field on the
-  library record records assignments. Records without it behave exactly as
-  before.
-- The migration that consolidates per-project characters into the library is
-  **copy-only, dry-run-by-default, verified, and reversible** — it never
-  touches (let alone deletes) the per-project originals.
+## Migration
 
-## Design — unify at the *read* layer
+Migration is explicit, copy-only, verifiable, and reversible:
 
-Every downstream consumer of character data already goes through four
-`character-manager` functions:
+- `GET  /api/character-library/channel-migration/preview`
+- `POST /api/character-library/channel-migration/apply`
+- `POST /api/character-library/channel-migration/undo`
 
-| Consumer | Function used |
-| --- | --- |
-| script generator (`episode.ts`) | `resolveCharacters` |
-| image-prompt generator (`image-prompts.ts`) | `resolveCharacters` |
-| image generator (`images.ts`) | `listCharacters`, `referenceImagePath` |
-| audio / voice routing (`audio.ts`) | `listCharacters` |
-| continuity render (`continuity-render.ts`) | `getCharacter`, `referenceImagePath` |
-| prompt director (`prompt-director.ts`) | `getCharacter` |
-| Characters page + picker (frontend) | `GET /projects/:slug/characters` → `listCharacters` |
-
-So we unify **once**, at those functions, and every consumer inherits the
-unified view with no per-consumer change:
-
-- `listOwnCharacters(slug, opts)` — the *old* `listCharacters` body, reads
-  **only** the per-project folder. Used internally and by the migration so it
-  can see the un-merged project characters.
-- `listCharacters(slug, opts)` — **unified**: `listOwnCharacters` **plus**
-  every library character assigned to `slug` (`projects.includes(slug)`),
-  de-duplicated by `id` with the **on-disk project character winning**.
-  Library characters are project-scope semantics, so they appear for every
-  episode (ignore the `episode_code` filter, same as a `scope:'project'` char).
-- `getCharacter(slug, id)` — project file first (unchanged); **falls back** to a
-  library character assigned to `slug` when the project file is missing.
-- `referenceImagePath(slug, id, filename)` — project path first (unchanged);
-  **falls back** to the library folder
-  (`${PROJECTS_ROOT}/.character-library/{id}/{filename}`) when the file isn't in
-  the project folder. Pure path resolution, sync, no assignment lookup needed.
-
-Dedup-by-id with project-wins means a character that has been *both* migrated
-into the library (tagged with the slug) **and** still present on disk shows up
-**once** — so running the migration never produces duplicates in any picker or
-generator. The two stores can coexist indefinitely.
-
-### Why not flip the per-project store off?
-
-Because reference images for per-project characters live inside the project
-folder and travel with it across machines (the cross-machine portability
-invariant). Deleting the per-project store, or rewriting every consumer to read
-the library exclusively, is the high-blast-radius move the safety requirement
-tells us to avoid. The additive read-merge gives the user the unified behaviour
-**without** betting any existing data on a migration. The migration becomes an
-optional, user-driven consolidation they can run (dry-run first) whenever they
-choose.
-
-## Data model
-
-`Character` gains one optional field (backend `models/types.ts` + frontend
-`useCharacters.ts`):
-
-```ts
-/**
- * Unified-library assignment tags. On an app-level library record, lists the
- * project slugs this character is assigned to. Undefined/empty = library-only
- * (not assigned anywhere). Per-project on-disk characters leave this undefined
- * — their folder location *is* their assignment.
- */
-projects?: string[]
-```
-
-`source` gains a `'library'` value so the unified reader can mark which entries
-came from the library (the UI shows "Assigned from library" + an *Unassign*
-action instead of *Delete*).
-
-## Services
-
-`character-library.ts` (the app-level library becomes the system of record for
-shared characters):
-
-- `assignToProject(id, slug)` — add `slug` to `projects[]` (idempotent).
-- `unassignFromProject(id, slug)` — remove `slug` from `projects[]`.
-- `setProjects(id, slugs)` — replace the whole assignment set.
-- `listForProject(slug)` — library characters where `projects.includes(slug)`.
-- `libraryCharacterDir(id)` — exported so callers can resolve reference images.
-- `saveToLibrary` now **auto-assigns** the source project (`projects:[slug]`)
-  and preserves `projects` on overwrite; `updateLibraryCharacter` preserves
-  `projects`. `import-to/:slug` remains available for an intentional snapshot
-  copy.
-
-## API surface added
-
-- `POST   /api/character-library/:id/assign/:slug`
-- `DELETE /api/character-library/:id/assign/:slug`
-- `POST   /api/projects/:slug/characters/assign-from-library` `{ libraryId }`
-
-Existing routes (`save-to-library`, `import-to/:slug`, all CRUD) are unchanged.
+It creates one channel namespace copy per legacy assignment. Originals stay untouched
+until the user removes them through the normal restorable Trash path.
 
 ## Frontend
 
-- `useCharacterLibrary.ts` — `assignToProject`, `unassignFromProject`,
-  `listForProject`.
-- `projects/[slug]/characters.vue` — list now includes library-assigned
-  characters (they arrive through the existing `GET /projects/:slug/characters`).
-  Library-sourced rows show an "Assigned from library" badge and an *Unassign*
-  action (instead of *Delete*, which would not touch the library record). New
-  **"Assign from library"** button opens a picker of unassigned library
-  characters.
-- `character-library.vue` — each card shows the projects it's assigned to.
+- The Character Sheet hosts `ChannelCharacterRoster` above the episode gate, so the
+  roster works with no episode selected.
+- The roster reads only `/projects/:slug/characters`, filters out episode-scope
+  records, and keeps its own race fence separate from the episode cast.
+- `CharacterRecordEditor` edits the channel record through `useCharacters`:
+  - one identity, description and reference-image gallery
+  - one channel voice read live from the Gateway through `VoicePicker`
+  - staged draft; Cancel/close and dirty-state gating save nothing
+  - partial-upload recovery retries the image on the saved record instead of
+    creating a duplicate
+- There are no channel assignment labels, no multi-channel voice profiles, and no
+  global character-library edit path.
+- The legacy `/character-library` page only redirects to the channel's Character
+  Sheet.
 
-## Test coverage
+## Read compatibility
 
-- `character-library.test.ts` — assignment add/remove/idempotent, `listForProject`,
-  `saveToLibrary` auto-assign, `projects` preserved on update.
-- `character-manager.test.ts` — unified `listCharacters` merges assigned library
-  characters, dedups by id (project wins), `getCharacter`/`referenceImagePath`
-  library fallback, `listOwnCharacters` stays project-only.
+Generators still read through `character-manager`:
 
-## Rollback
-
-Unassigning a channel leaves the library character intact and removes it from
-that channel's unified view. Deleting a project-local character does not delete
-the corresponding library record.
+- `listCharacters` returns the channel's owned records plus any unmigrated legacy
+  records assigned to that channel, de-duplicated by id with the channel copy winning.
+- `getCharacter` and `referenceImagePath` resolve the channel copy first, then the
+  project-local folder, then the legacy flat store.
+- Reads never rewrite stored characters, presets, or project data.

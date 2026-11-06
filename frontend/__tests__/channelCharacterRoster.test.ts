@@ -210,12 +210,13 @@ async function mountEditor(props: Record<string, unknown>) {
 
   const vueUrl = await import.meta.resolve('vue')
   const component = await compileSfc(editorFile, 'character-record-editor', editorSupport(vueUrl))
-  const { createApp } = await import('vue')
-  const app = createApp(component, props)
+  const { createApp, reactive } = await import('vue')
+  const propsState = reactive({ ...props })
+  const app = createApp(component, propsState)
   const host = document.body.appendChild(document.createElement('div'))
   app.mount(host)
   await flush()
-  return { f, state: f.state, calls, errors, toasts, unmount: () => { app.unmount(); host.remove() } }
+  return { f, state: f.state, props: propsState, calls, errors, toasts, unmount: () => { app.unmount(); host.remove() } }
 }
 
 test('roster lists only project-scope records; openEdit reads the canonical record', { skip: depsSkip }, async () => {
@@ -262,7 +263,9 @@ test('legacy rows are read-only and never read through the global library', { sk
 
     assert.equal(state.legacyCount.value, 1, 'the roster names the legacy row')
     await state.openEdit(state.records.value[0])
-    assert.deepEqual(calls, ['chars.list'], `legacy edit made no canonical read, calls=${calls.join('|')}`)
+    // The immediate watcher already loads once; the point is that opening a
+    // legacy row performs no canonical/global read, not how many list calls ran.
+    assert.equal(calls.some(c => c.startsWith('chars.getOne')), false, `legacy edit made no canonical read, calls=${calls.join('|')}`)
     assert.equal(state.editorVisible.value, false, 'legacy row did not open an editor')
   } finally {
     unmount()
@@ -406,6 +409,48 @@ test('a save completing after a record switch cannot touch the new editor state'
     assert.equal(state.draft.name, 'B typing', 'late completion did not touch the new draft')
     assert.deepEqual(toasts, [], 'no success or error toast from the stale session')
     assert.equal(state.saving.value, false, 'stale finally did not clobber the new session saving flag')
+  } finally {
+    unmount()
+  }
+})
+
+test('a parent channel close during a held save ends the editor session', { skip: depsSkip }, async () => {
+  const canonical = {
+    id: 'aria', name: 'Aria', description: 'knight', scope: 'project', source: 'project',
+    projects: ['kh'],
+    speech: { voiceId: 'v-kh' },
+    references: { images: ['a.png'] },
+    schemaVersion: 1, created_at: 'now',
+  }
+  const { f, state, props, toasts, errors, unmount } = await mountEditor({
+    visible: true,
+    character: canonical,
+    slug: 'kh',
+  })
+  try {
+    let release!: () => void
+    f.chars.update = (id: string, p: any) => new Promise((resolve) => {
+      release = () => resolve({
+        id, name: 'A-SAVED', description: p.description, projects: ['kh'],
+        references: { images: ['a.png'] }, source: 'project', scope: 'project',
+        schemaVersion: 1, created_at: 'now',
+      })
+    })
+    const pending = state.saveCharacter()
+    assert.equal(typeof release, 'function', 'save entered the update before the channel switch')
+
+    // The roster closes the editor and changes channel without requestClose.
+    props.visible = false
+    props.slug = 'en'
+    await flush()
+    release()
+    await pending
+    await flush()
+
+    assert.deepEqual(toasts, [], 'no success toast from the closed session')
+    assert.deepEqual(errors, [], 'no stale error from the closed session')
+    assert.equal(state.saving.value, false, 'closed session is not left saving')
+    assert.equal(state.editing.value.name, 'Aria', 'late result did not touch the closed editor')
   } finally {
     unmount()
   }

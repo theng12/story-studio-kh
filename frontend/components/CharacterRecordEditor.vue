@@ -198,7 +198,17 @@ function seed() {
   editorSnapshot.value = editorState()
 }
 
-watch(() => props.visible, (open) => { if (open) seed() }, { immediate: true })
+// A parent channel switch closes the editor by clearing `visible` without
+// requestClose, so closing must end the session here too: an in-flight save
+// may then neither report success/error nor touch the next record's state.
+watch(
+  [() => props.visible, () => props.slug, () => props.character?.id ?? null],
+  ([open], previous) => {
+    if (open) seed()
+    else if (previous?.[0]) { editorSession++; saving.value = false }
+  },
+  { immediate: true },
+)
 
 function requestClose() {
   // End the session first: a save still in flight must not write its result
