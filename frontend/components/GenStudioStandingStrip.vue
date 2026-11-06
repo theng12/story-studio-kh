@@ -1,5 +1,5 @@
 <template>
-  <!-- A stopped Gateway outranks the balance: nothing can run, and the old figure would read as fine. -->
+  <!-- A stopped Gateway outranks every other fact: nothing can run while it is down. -->
   <button
     v-if="gatewayDown"
     type="button"
@@ -21,8 +21,6 @@
     :title="usageError || 'Open GenStudio usage'"
   >
     <span>Gateway</span>
-    <strong>{{ creditSummary }}</strong>
-    <em v-if="stalenessNote" class="freshness-badge">{{ stalenessNote }}</em>
     <small v-if="standingSummary">{{ standingSummary }}</small>
   </NuxtLink>
   <button
@@ -35,15 +33,14 @@
   >
     <!-- No key yet: this is the Gateway connection, not the paid GenStudio cloud service. -->
     <span>Gateway</span>
-    <strong>{{ creditSummary }}</strong>
-    <em v-if="stalenessNote" class="freshness-badge">{{ stalenessNote }}</em>
+    <strong>{{ connectionSummary }}</strong>
     <small v-if="standingSummary">{{ standingSummary }}</small>
   </button>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted } from 'vue'
-import { gatewayJobsLine, genstudioStaleNote } from '../utils/genstudio-freshness.js'
+import { gatewayJobsLine } from '../utils/genstudio-freshness.js'
 
 /**
  * `stacked` is the sidebar/band shape: the tier and lane line wraps onto its
@@ -57,9 +54,6 @@ import { gatewayJobsLine, genstudioStaleNote } from '../utils/genstudio-freshnes
 const { variant = 'stacked' } = defineProps<{ variant?: 'stacked' | 'inline' }>()
 
 const {
-  genstudioCredits,
-  genstudioCreditsLoadedAt,
-  genstudioCreditsStale,
   genstudioTier,
   genstudioActiveLanes,
   genstudioLaneLimit,
@@ -70,25 +64,11 @@ const {
 const appSettingsModal = useAppSettingsModal()
 const { connection, gatewayDown } = useConnectionStatus()
 
-/**
- * Three states, not two. A balance we hold is shown whether or not the last
- * refresh landed; `Unavailable` is reserved for having no balance at all, after
- * the server's own retries and its stale fallback have both been exhausted.
- * Announcing an outage on one slow response, next to a job generating happily,
- * is how this strip used to mislead.
- */
-const creditSummary = computed(() => {
+/** The only wording the no-key state needs; money never appears in this strip. */
+const connectionSummary = computed(() => {
   if (!genstudioConfigured.value) return 'Connect'
-  if (genstudioCredits.value === null) return 'Unavailable'
-  return `${genstudioCredits.value.toLocaleString()} credits`
+  return ''
 })
-
-/** Empty on the happy path, so nothing is rendered when the balance is current. */
-const stalenessNote = computed(() => (
-  genstudioConfigured.value && genstudioCredits.value !== null
-    ? genstudioStaleNote(genstudioCreditsStale.value, genstudioCreditsLoadedAt.value)
-    : ''
-))
 
 const standingSummary = computed(() => {
   const facts: string[] = []
@@ -122,8 +102,6 @@ onUnmounted(() => { releasePolling?.() })
 .genstudio-standing-strip:hover { background: var(--bg-hover); color: var(--text-primary); }
 .genstudio-standing-strip strong { color: var(--text-primary); font-weight: 650; }
 .genstudio-standing-strip small { width: 100%; color: var(--text-muted); line-height: 1.35; }
-/* Unobtrusive by design: a muted aside, never a banner. */
-.genstudio-standing-strip .freshness-badge { color: var(--text-muted); font-style: normal; font-size: var(--font-xs); }
 
 .gateway-down { border-color: color-mix(in srgb, var(--error) 55%, var(--border)); color: var(--text-primary); }
 .gateway-down strong { color: var(--error); }

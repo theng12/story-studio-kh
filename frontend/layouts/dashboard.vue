@@ -169,6 +169,9 @@
             <span>{{ connection.label }}</span>
           </div>
           <p v-if="connection.hint" class="network-hint">{{ connection.hint }}</p>
+          <!-- Signed-in browser host and sign-out sit with the connection status
+               they belong to, in normal flow — never a floating pill over the page. -->
+          <ServerModeBanner />
           <!-- Project pages had no version anywhere. The standing strip moved
                up to the top bar; the running build takes its place here, with
                the same content and title behaviour as default.vue's badge. -->

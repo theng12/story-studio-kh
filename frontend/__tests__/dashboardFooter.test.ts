@@ -3,6 +3,8 @@ import { readFileSync } from 'node:fs'
 import test from 'node:test'
 
 const dashboard = readFileSync(new URL('../layouts/dashboard.vue', import.meta.url), 'utf8')
+const app = readFileSync(new URL('../app.vue', import.meta.url), 'utf8')
+const banner = readFileSync(new URL('../components/ServerModeBanner.vue', import.meta.url), 'utf8')
 const footerStart = dashboard.indexOf('<footer class="sidebar-credits"')
 const footer = dashboard.slice(footerStart, dashboard.indexOf('</footer>', footerStart))
 
@@ -34,6 +36,18 @@ test('the footer badge reports the same build facts as the shared header', () =>
   assert.match(footer, title)
   assert.match(header, title)
   assert.match(defaultLayout, /<AppHeader \/>/)
+})
+
+test('the signed-in browser line and sign-out live in the sidebar footer, never over the page', () => {
+  // The old global pill floated bottom-right over page actions. It is the same
+  // session line and sign-out, now in normal flow under the connection status.
+  assert.doesNotMatch(app, /<ServerModeBanner/)
+  assert.match(footer, /v-if="connection\.hint"[\s\S]*<ServerModeBanner \/>[\s\S]*class="version-badge"/)
+  assert.doesNotMatch(banner, /position:\s*fixed/)
+  assert.doesNotMatch(banner, /latency|ssm-dot|setInterval/, 'the sidebar connection row owns status truth')
+  assert.match(banner, /\/api\/auth\/logout/)
+  assert.match(banner, /flex-wrap:\s*wrap/)
+  assert.match(banner, /overflow-wrap:\s*anywhere/)
 })
 
 test('the project sidebar reaches the existing Image Pool beside Assets Library', () => {

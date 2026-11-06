@@ -49,6 +49,14 @@ test('the strip carries its own top-bar shape instead of relying on a parent ove
   assert.match(component, /\.standing-strip-inline small\s*\{[^}]*width:\s*auto/)
 })
 
+test('the top bar keeps live Gateway status and queue facts without money', () => {
+  const component = readFileSync(componentUrl, 'utf8')
+  assert.doesNotMatch(component, /\bcredits?\b|creditSummary|genstudioCredits/, 'owner removed price and credit display')
+  assert.match(component, /gatewayDown/)
+  assert.match(component, /gatewayJobsLine\(genstudioActiveLanes\.value, genstudioLaneLimit\.value\)/)
+  assert.match(component, /usageError/)
+})
+
 test('the sign-in page does not show account standing it cannot read before sign-in', () => {
   assert.match(defaultLayout, /signingIn = computed\(\(\) => route\.path\.replace\(\/\\\/\+\$\/, ''\) === '\/login'\)/)
 })

@@ -57,12 +57,14 @@ test('a stale value renders as stale, and a current one renders no marker at all
   assert.equal(formatGenStudioAge(Date.now() - 2 * 3_600_000), '2 hours ago')
 })
 
-test('the standing strip shows the staleness marker beside the balance', () => {
+test('the standing strip keeps live status without a balance or its staleness marker', () => {
   const strip = readFileSync(new URL('../components/GenStudioStandingStrip.vue', import.meta.url), 'utf8')
-  assert.match(strip, /v-if="stalenessNote" class="freshness-badge"/)
-  assert.match(strip, /genstudioStaleNote\(/)
-  // Unavailable stays reachable — it is still the right answer sometimes.
-  assert.match(strip, /return 'Unavailable'/)
+  // Owner removed price and credit display; the strip still carries the tier
+  // and live job count from the same overview read.
+  assert.doesNotMatch(strip, /stalenessNote|freshness-badge|creditSummary/)
+  assert.match(strip, /standingSummary/)
+  assert.match(strip, /genstudioTier/)
+  assert.match(strip, /gatewayJobsLine\(/)
 })
 
 test('the audio generator marks its published figures when they are stale', () => {
