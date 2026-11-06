@@ -301,7 +301,7 @@ describe('verified Content Pack registry', () => {
     }, incompatibleOptions), null)
   })
 
-  test('hides disabled and retired packs from discovery but exact pins still resolve them', async () => {
+  test('hides disabled packs from discovery, keeps exact pins resolvable, and refuses retired archives', async () => {
     const { paths, recoveryRoot, options } = await isolated()
     const disabledPack = 'com.storystudio.registry-disabled'
     const retiredPack = 'com.storystudio.registry-retired'
@@ -311,17 +311,20 @@ describe('verified Content Pack registry', () => {
       await buildArchive(disabledPack, '0.9.0', 'disabled recovery'))
     await setContentPackDiscoveryDisabled(disabledPack, true, { paths })
     const retiredArchive = await buildArchive(retiredPack, '1.0.0', 'retired', 'retired')
-    const retired = await installContentPack({ archiveBytes: retiredArchive, source: 'local-import' }, { paths, policy })
+    await assert.rejects(
+      installContentPack({ archiveBytes: retiredArchive, source: 'local-import' }, { paths, policy }),
+      /retired/i,
+      'a retired archive cannot be newly installed or re-installed',
+    )
 
     assert.deepEqual(await listCatalogEntries('visual-style', options), [])
     const disabledEntry = await resolveCatalogItem(`${disabledPack}.style`, {
       pack_id: disabledPack, version: '1.0.0', archive_sha256: disabled.archive_sha256,
     }, options)
-    const retiredEntry = await resolveCatalogItem(`${retiredPack}.style`, {
-      pack_id: retiredPack, version: '1.0.0', archive_sha256: retired.archive_sha256,
-    }, options)
     assert.equal(disabledEntry?.value.name, 'Style disabled')
-    assert.equal(retiredEntry?.value.name, 'Style retired')
+    assert.equal(await resolveCatalogItem(`${retiredPack}.style`, {
+      pack_id: retiredPack, version: '1.0.0', archive_sha256: sha256(retiredArchive),
+    }, options), null, 'retired bytes resolve nowhere')
     assert.equal(await resolveCatalogItem(`${disabledPack}.style`, undefined, options), null)
   })
 

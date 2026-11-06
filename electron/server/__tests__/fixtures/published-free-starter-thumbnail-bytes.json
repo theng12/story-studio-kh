@@ -48,6 +48,17 @@
         "content/thumbnail-recipe.json": "60c48304874f06ab50c479e31ecdd8273548fdedc15c1846dc418c3e52a75db9",
         "pack.json": "9398385d78854573fca7dc335fa087c55c766c30555b88c1f9c1c2b07e237801"
       }
+    },
+    "prehistoric-discovery-v1.0.2": {
+      "pack_id": "com.storystudio.pack.thumbnail.prehistoric-discovery",
+      "version": "1.0.2",
+      "files": {
+        "assets/prehistoric-discovery-2.webp": "535dda840a2e030665054789258461a18110abbf9b486864f1cd89fe3136b5e2",
+        "assets/prehistoric-discovery-3.webp": "921e357ec5d935de68c3ef48e321e8403c1ae91f0f8a483d190c86b51a5b646a",
+        "assets/prehistoric-discovery.webp": "557f86602b5f96f8d92fc28f981c79eb1121d63b2f7ab1d8bff535e8524dfd14",
+        "content/thumbnail-recipe.json": "e869b1168b2839dc30a7fe273fc2684a4d28ee76c627a4d92c794a38238c185b",
+        "pack.json": "692775e2a1d459325d747cf2f534abbae5102c638c66bb24f8d2a7dbac0202b3"
+      }
     }
   },
   "retired_identities": {

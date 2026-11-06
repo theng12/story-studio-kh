@@ -44,6 +44,19 @@ const SLUGS = [
   'retro-paint-fantasy', 'studio-catalog-realism', 'whiteboard-doodle-explainer',
 ] as const
 
+// The authored source of each look's current version. The unversioned
+// directories are historical 1.0.0 snapshots; pixel-art-story and
+// retro-paint-fantasy were neutralised in 1.0.2 and no longer build under the
+// publisher's subject-word check.
+const SOURCE_DIRS: Record<(typeof SLUGS)[number], string> = {
+  'anime-cel': 'anime-cel-v1.0.1',
+  'hand-drawn-cartoon-explainer': 'hand-drawn-cartoon-explainer-v1.0.1',
+  'pixel-art-story': 'pixel-art-story-v1.0.2',
+  'retro-paint-fantasy': 'retro-paint-fantasy-v1.0.2',
+  'studio-catalog-realism': 'studio-catalog-realism-v1.0.1',
+  'whiteboard-doodle-explainer': 'whiteboard-doodle-explainer-v1.0.1',
+}
+
 const keyPair = generateKeyPairSync('ed25519')
 const policy = createContentPackKeyring([{
   keyId: KEY_ID,
@@ -52,8 +65,11 @@ const policy = createContentPackKeyring([{
 }])
 
 const sha256 = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex')
-const sourceStyle = async (slug: string) =>
-  JSON.parse(await fs.readFile(path.join(LOOKS, slug, 'content', 'visual-style.json'), 'utf8'))
+const sourceStyle = async (slug: keyof typeof SOURCE_DIRS) =>
+  JSON.parse(await fs.readFile(
+    path.join(LOOKS, SOURCE_DIRS[slug], 'content', 'visual-style.json'),
+    'utf8',
+  ))
 
 let tmp: { dir: string; cleanup: () => Promise<void> }
 let pm: typeof import('../services/project-manager.js')
@@ -88,7 +104,7 @@ describe('the six Production Looks reach the image generator as signed styles', 
     for (const slug of SLUGS) {
       const archivePath = path.join(tmp.dir, `${slug}.sspack`)
       await buildContentPack({
-        sourceDirectory: path.join(LOOKS, slug),
+        sourceDirectory: path.join(LOOKS, SOURCE_DIRS[slug]),
         privateKeyPath: keyPath,
         outputPath: archivePath,
         keyId: KEY_ID,
@@ -196,7 +212,7 @@ describe('the six Production Looks reach the image generator as signed styles', 
       assert.equal(response.headers['content-type'], 'image/webp')
       assert.equal(
         sha256(response.body),
-        sha256(await fs.readFile(path.join(LOOKS, slug, 'assets', `${slug}.webp`))),
+        sha256(await fs.readFile(path.join(LOOKS, SOURCE_DIRS[slug], 'assets', `${slug}.webp`))),
         `${slug} serves bytes that differ from its signed source asset`,
       )
     }

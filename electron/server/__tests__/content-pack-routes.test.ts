@@ -405,7 +405,7 @@ describe('local Content Pack management routes', () => {
     const { app } = await isolated()
     const source = await fs.readFile(new URL('../routes/content-packs.ts', import.meta.url), 'utf8')
     assert.match(source, /'\/content-packs\/import'/)
-    assert.doesNotMatch(source, /rollback|bundles\/apply|\/requirements|versions\/:version/)
+    assert.doesNotMatch(source, /rollback|bundles\/apply|\/requirements|router\.delete\(\s*['"]\/content-packs\/:packId\/versions\/:version/)
     await request(app).get('/api/content-packs').expect(404)
     await request(app).post(`/api/content-packs/${PACK_ID}/rollback`).send({ version: '1.0.0' }).expect(404)
     await request(app).delete(`/api/content-packs/${PACK_ID}/versions/1.0.0`).expect(404)
