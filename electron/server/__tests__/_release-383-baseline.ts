@@ -41,7 +41,7 @@ export function release383Source(relativePath: string): string {
  * absolute file URLs into this checkout, so every service/lib/model it uses is
  * the current source — the comparison pins this generator's own behaviour, not
  * a copy of its dependencies. The generated module lives under `.test-work/`
- * (gitignored, isolated) and is removed straight after it loads; its imports
+ * (gitignored, isolated) and is retained there for inspection; its imports
  * point at this checkout, never at the generated module's directory.
  */
 export async function loadRelease383AudioMerge(): Promise<{
@@ -53,37 +53,34 @@ export async function loadRelease383AudioMerge(): Promise<{
   await fs.mkdir(workRoot, { recursive: true })
   const dir = await fs.mkdtemp(path.join(workRoot, 'release-383-audio-'))
   const outfile = path.join(dir, 'audio-merge.383.mjs')
-  try {
-    await build({
-      stdin: {
-        contents: source,
-        resolveDir: path.join(serverRoot, 'generators'),
-        sourcefile: 'audio-merge.383.ts',
-        loader: 'ts',
+  await build({
+    stdin: {
+      contents: source,
+      resolveDir: path.join(serverRoot, 'generators'),
+      sourcefile: 'audio-merge.383.ts',
+      loader: 'ts',
+    },
+    bundle: true,
+    platform: 'node',
+    format: 'esm',
+    target: 'node20',
+    outfile,
+    logLevel: 'silent',
+    plugins: [{
+      name: 'current-shared-dependencies',
+      setup(build) {
+        // Every relative import in the pinned file resolves against this
+        // checkout's generators dir and stays external, so the current
+        // .ts source loads through the same tsx hook the suite already uses.
+        build.onResolve({ filter: /^\.\.?\// }, args => ({
+          path: pathToFileURL(path.resolve(args.resolveDir, args.path.replace(/\.js$/, '.ts'))).href,
+          external: true,
+        }))
       },
-      bundle: true,
-      platform: 'node',
-      format: 'esm',
-      target: 'node20',
-      outfile,
-      logLevel: 'silent',
-      plugins: [{
-        name: 'current-shared-dependencies',
-        setup(build) {
-          // Every relative import in the pinned file resolves against this
-          // checkout's generators dir and stays external, so the current
-          // .ts source loads through the same tsx hook the suite already uses.
-          build.onResolve({ filter: /^\.\.?\// }, args => ({
-            path: pathToFileURL(path.resolve(args.resolveDir, args.path.replace(/\.js$/, '.ts'))).href,
-            external: true,
-          }))
-        },
-      }],
-    })
-    return await import(pathToFileURL(outfile).href) as {
-      generateAudioMerge: (job: any) => Promise<unknown>
-    }
-  } finally {
-    await fs.rm(dir, { recursive: true, force: true }).catch(() => {})
+    }],
+  })
+  // Retained under gitignored .test-work for inspection; finished fixtures are not deleted.
+  return await import(pathToFileURL(outfile).href) as {
+    generateAudioMerge: (job: any) => Promise<unknown>
   }
 }
