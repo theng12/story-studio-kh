@@ -457,6 +457,8 @@ export const SERIAL_TEST_FILES = [
   'job-queue-genstudio-resume.test.ts',
   // MEASURED, 2026-11-04 — "returns measured Trash totals while free-space measurement remains in flight" failed in the pooled 380 gate (30 ms timeout, expected 24/24, got null/null); passed alone (6/6, exit 0, 1/1 file).
   'storage-space-summary-timeout.test.ts',
+  // MEASURED, 2026-11-06 — flushProjectNow hydration failed in pooled 383 R3; unchanged file passed alone (29/29, 1/1 file, exit 0).
+  'episode-status-cache.test.ts',
 ]
 
 /**
