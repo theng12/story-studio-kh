@@ -12,9 +12,11 @@ describe('App Settings modal sections', () => {
     assert.equal(modal.section.value, 'all')
     modal.close()
 
-    modal.open('connections')
-    assert.equal(modal.section.value, 'connections')
-    modal.close()
+    for (const section of ['connections', 'default-models', 'files', 'backup', 'appearance', 'performance'] as const) {
+      modal.open(section)
+      assert.equal(modal.section.value, section)
+      modal.close()
+    }
 
     assert.match(modalSource, /performance: 'Settings — Performance & recovery'/)
     assert.match(modalSource, /appearance: 'Settings — Appearance & app behavior'/)

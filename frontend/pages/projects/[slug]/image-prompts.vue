@@ -58,7 +58,6 @@
             class="input"
             type="number"
             :min="THUMBNAIL_COUNT_MIN"
-            :max="THUMBNAIL_COUNT_MAX"
           />
           <p class="text-muted text-xs hint-line">
             {{ thumbnailOptionsLabel(safeThumbCount || DEFAULT_THUMBNAIL_COUNT) }} — one candidate image each on
@@ -335,7 +334,6 @@
 // the generator and the Pipeline all read this one default and these bounds.
 import {
   DEFAULT_THUMBNAIL_COUNT,
-  THUMBNAIL_COUNT_MAX,
   THUMBNAIL_COUNT_MIN,
   thumbnailCount,
   thumbnailOptionsLabel,

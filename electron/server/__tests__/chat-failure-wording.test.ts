@@ -51,10 +51,12 @@ test('no free Mac / provider unavailable is not reported as a broken model', () 
   }
 })
 
-test('credits are mentioned only when some moved, in the sentence Abandon still parses', () => {
+test('no credit sentence reaches the writing failure, whatever the settlement says', () => {
   assert.doesNotMatch(gatewayFailure({ failure_code: 'PROVIDER_FAILED' }).message, /credit/i)
-  const paid = gatewayFailure({ failure_code: 'PROVIDER_FAILED', reserved_credits: 42, released_credits: 42 }).message
-  assert.match(paid, /GenStudio reports 42 credits released\./)
+  const paid = gatewayFailure({ failure_code: 'PROVIDER_FAILED', reserved_credits: 42, released_credits: 42 })
+  assert.doesNotMatch(paid.message, /credit/i, 'Story holds no balance; Gateway owns every credit claim')
+  assert.equal(paid.message,
+    'The writing model could not answer this request. Retry this step; if it keeps failing, pick a different writing model.')
 })
 
 test('a pool that ran out of members says so once, not as a 600-character member dump', () => {

@@ -112,6 +112,29 @@ test('a caller pinning the clock always recomputes', async () => {
   assert.equal(await svc.readPublishingOverview(), cached)
 })
 
+test('a project write the overview displays is visible on the very next read — no TTL wait, no manual invalidation', async () => {
+  const created = await pm.createProject({ name: 'Labelled Channel', episode_prefix: 'LC' })
+  const warmed = await svc.readPublishingOverview()
+  assert.equal(warmed.channels[0]!.channel_status, null, 'starts unlabelled')
+
+  // PUT /projects/:slug { channel_status } — the write path behind the status
+  // chips, shared with every other updateProject caller.
+  await pm.updateProject(created.slug, { channel_status: 'live' })
+
+  const fresh = await svc.readPublishingOverview()
+  assert.notEqual(fresh, warmed, 'a project.json write must drop the cached sweep, not serve it until the TTL')
+  assert.equal(fresh.channels[0]!.channel_status, 'live')
+
+  await pm.updateProject(created.slug, { channel_status: 'live' })
+  assert.equal(await svc.readPublishingOverview(), fresh, 'a no-op save still reuses the cached sweep')
+
+  await pm.updateProject(created.slug, { name: 'Renamed Channel' })
+  const renamed = await svc.readPublishingOverview()
+  assert.notEqual(renamed, fresh)
+  assert.equal(renamed.channels[0]!.name, 'Renamed Channel')
+  assert.equal(renamed.channels[0]!.channel_status, 'live')
+})
+
 test('the unknown-store semantics survive the cache unchanged', async () => {
   // A cache must not flatten a null into a zero or vice versa: the same response
   // is handed to every reader, so the honesty rules are exactly as they were.

@@ -405,6 +405,8 @@
           <li v-for="(warning, i) in previewed.warnings" :key="i"><b>Warning:</b> {{ warning }}</li>
         </ul>
 
+        <UploadMetadataChecklist :items="previewed.checklist" />
+
         <section class="thumbnail-review" aria-labelledby="upload-thumbnail-title">
           <div class="thumbnail-review-head">
             <div>
@@ -430,8 +432,9 @@
                 </div>
                 <div class="selected-thumbnail-copy">
                   <strong>{{ previewed.thumbnail.filename }}</strong>
-                  <span v-if="alreadyPublished">Current local selection. It does not change the upload already queued or on YouTube.</span>
+                  <span v-if="alreadyPublished">Local candidate. Use on YouTube replaces the existing video's thumbnail after confirmation.</span>
                   <span v-else>Selected for this upload request. Your saved default is unchanged.</span>
+                  <button v-if="isPostUpload && thumbnailOperationId" type="button" class="btn btn-sm btn-secondary youtube-thumbnail-replace" :disabled="busy !== '' || thumbnailUpdating || !youtubeThumbnail" @click="useThumbnailOnYouTube(previewed.thumbnail.filename || '')">Use on YouTube</button>
                 </div>
               </div>
 
@@ -449,7 +452,7 @@
                   <img :src="candidate.url" :alt="`Candidate thumbnail ${candidate.filename}`" />
                   <div class="candidate-copy">
                     <strong>{{ candidate.filename }}</strong>
-                    <small>Available for test in YouTube Studio</small>
+                    <button v-if="thumbnailOperationId" type="button" class="btn btn-sm btn-secondary youtube-thumbnail-replace" :disabled="busy !== '' || thumbnailUpdating || !youtubeThumbnail" @click="useThumbnailOnYouTube(candidate.filename)">Use on YouTube</button>
                   </div>
                 </div>
               </div>
@@ -476,7 +479,7 @@
             <strong>No thumbnail is selected for this upload.</strong>
             <span>A thumbnail is required. Choose or generate one before uploading.</span>
           </div>
-          <div v-if="previewed.thumbnail.options.length > 1 || previewed.thumbnail.state !== 'selected' || thumbnailImageUnavailable" class="thumbnail-options" aria-label="Choose thumbnail">
+          <div v-if="(!isPostUpload && (previewed.thumbnail.options.length > 1 || previewed.thumbnail.state !== 'selected' || thumbnailImageUnavailable)) || (isPostUpload && previewed.thumbnail.state !== 'selected')" class="thumbnail-options" aria-label="Choose thumbnail">
             <button
               v-for="option in previewed.thumbnail.options"
               :key="option.filename"
@@ -485,14 +488,32 @@
               :data-thumbnail-filename="option.filename"
               :aria-pressed="option.filename === previewed.thumbnail.filename"
               :title="option.filename === previewed.thumbnail.filename && thumbnailImageUnavailable ? 'Retry thumbnail preview' : `Use ${option.filename}`"
-              :disabled="busy !== '' || !!alreadyPublished"
-              @click="selectThumbnail(option.filename, $event)"
+              :disabled="busy !== '' || (isPostUpload && (thumbnailUpdating || !youtubeThumbnail || !thumbnailOperationId))"
+              @click="isPostUpload ? useThumbnailOnYouTube(option.filename) : selectThumbnail(option.filename, $event)"
             >
               <img :src="option.url" alt="" />
               <span>{{ option.filename }}</span>
+              <small v-if="isPostUpload">Use on YouTube</small>
               <small v-if="option.filename === previewed.thumbnail.filename">✓ Selected</small>
               <small v-if="option.is_pinned">Saved default</small>
             </button>
+          </div>
+          <div v-if="isPostUpload && thumbnailOperationId" class="youtube-thumbnail-state">
+            <p v-if="thumbnailJobMessage" role="status">{{ thumbnailJobMessage }}</p>
+            <ProgressBar v-if="thumbnailUpdating && thumbnailJob" :progress="thumbnailJob.progress || 0" label="YouTube thumbnail update" />
+            <div v-if="youtubeThumbnail" class="thumbnail-options">
+              <figure class="thumbnail-option">
+                <img :src="`${youtubeThumbnail.current.url}${youtubeThumbnail.current.url.includes('?') ? '&' : '?'}story_readback=${encodeURIComponent(youtubeThumbnail.current.checked_at)}`" alt="Current thumbnail read from YouTube" />
+                <figcaption>Current on YouTube · checked {{ formatWhen(youtubeThumbnail.current.checked_at) }}</figcaption>
+              </figure>
+              <figure v-if="youtubeThumbnail.previous" class="thumbnail-option">
+                <img :src="`${youtubeThumbnail.previous.url}?readback=${encodeURIComponent(youtubeThumbnail.current.checked_at)}`" alt="Previous YouTube thumbnail retained for restoration" />
+                <figcaption>Previous YouTube thumbnail</figcaption>
+                <button type="button" class="btn btn-sm btn-secondary youtube-thumbnail-restore" :disabled="busy !== '' || thumbnailUpdating" @click="useThumbnailOnYouTube(youtubeThumbnail.previous.filename, true)">Restore on YouTube</button>
+              </figure>
+            </div>
+            <p v-if="youtubeThumbnailReadError" class="row-result err" role="alert">{{ youtubeThumbnailReadError }}</p>
+            <button type="button" class="btn btn-sm btn-secondary" :disabled="busy !== '' || thumbnailUpdating" @click="readYouTubeThumbnail">Check YouTube thumbnail</button>
           </div>
           <p v-if="thumbnailError" class="row-result err" role="alert">{{ thumbnailError }}</p>
           <div class="thumbnail-review-actions">
@@ -626,6 +647,9 @@
           </div>
           <p v-if="draftError" class="row-result err draft-error" role="alert">{{ draftError }}</p>
         </div>
+        <p v-else-if="['queued', 'running', 'unknown'].includes(selectedEpisode?.local?.upload?.state)" class="hint" role="status">
+          This review stays available, but it does not change the upload already queued or on YouTube.
+        </p>
         <p v-else-if="reviewIntent === 'schedule'" class="hint">
           This video is already on YouTube. Scheduling changes its publish date — not its title or description.
         </p>
@@ -935,11 +959,12 @@
                   </div>
                   <dl>
                     <div><dt>Video file</dt><dd>{{ item.preview.source?.filename || 'Unavailable' }}</dd></div>
-                    <div><dt>YouTube title</dt><dd><strong>{{ item.preview.snippet.title }}</strong><small>{{ metadataReadiness(item.preview) }}</small></dd></div>
+                    <div><dt>YouTube title</dt><dd><strong>{{ item.preview.snippet.title }}</strong><small :class="{ 'tone-warn': item.preview.warnings.length > 0 }">{{ metadataReadiness(item.preview) }}</small></dd></div>
                     <div><dt>Channel</dt><dd>{{ item.channel_title }} · {{ item.channel_id }}</dd></div>
                     <div><dt>Publishing</dt><dd>{{ bulkTimingLabel(item) }}<small v-if="item.preview.status.publishAt">{{ item.preview.status.publishAt }}</small></dd></div>
                   </dl>
                 </div>
+                <UploadMetadataChecklist :items="item.preview.checklist" />
                 <details class="bulk-metadata disclosure">
                   <summary>Review Metadata</summary>
                   <dl>
@@ -1078,6 +1103,7 @@ interface Preview {
   video_id?: string | null
   modifications: Array<{ field: string; reason: string }>
   warnings: string[]
+  checklist?: Array<{ field: string; label: string; state: 'present' | 'missing' | 'not_checked'; detail?: string }>
   /**
    * What the editor may accept, published by the server that owns the
    * limits. The page does not keep its own copy of these numbers: a second
@@ -1581,6 +1607,81 @@ const youtubeStudioVideoUrl = computed(() => {
   if (!recordedVideoId.value) return ''
   return `https://studio.youtube.com/video/${encodeURIComponent(recordedVideoId.value)}/edit`
 })
+
+type YouTubeThumbnailView = {
+  current: { url: string; checked_at: string }
+  previous: { filename: string; url: string } | null
+}
+const youtubeThumbnail = ref<YouTubeThumbnailView | null>(null)
+const youtubeThumbnailReadError = ref('')
+const thumbnailJobId = ref('')
+const thumbnailOperationId = computed(() => selectedEpisode.value?.operation?.operation_id || '')
+const thumbnailJob = computed(() => jobs.value.find(job => job.job_id === thumbnailJobId.value
+  && job.type === 'youtube_thumbnail_refresh' && job.project_slug === slug.value
+  && job.episode_id === previewedEpisode.value) || null)
+let thumbnailReadRevision = 0
+const thumbnailUpdating = computed(() => !!thumbnailJobId.value && !thumbnailJob.value
+  || !!thumbnailJob.value && !['done', 'error', 'cancelled'].includes(thumbnailJob.value.status))
+const thumbnailJobMessage = computed(() => {
+  const job = thumbnailJob.value
+  if (!job) return thumbnailJobId.value ? 'Thumbnail update queued. Waiting for job progress.' : ''
+  if (job.status === 'done') return youtubeThumbnail.value ? 'Thumbnail update completed. The image below comes from a fresh YouTube readback.' : 'Thumbnail update accepted. Checking the live YouTube thumbnail; use Check YouTube thumbnail if this read fails.'
+  if (job.status === 'error' || job.status === 'cancelled') return job.error || 'Thumbnail update failed or was cancelled. Open Jobs for the reason before retrying.'
+  return `Thumbnail update ${job.status} · ${Math.round(job.progress || 0)}%${jobsStale.value ? ' · Progress may be out of date' : ''}`
+})
+async function readYouTubeThumbnail(): Promise<void> {
+  const revision = ++thumbnailReadRevision
+  const requested = { slug: slug.value, episode: previewedEpisode.value, operation: thumbnailOperationId.value }
+  if (!requested.operation || !recordedVideoId.value) return
+  youtubeThumbnailReadError.value = ''
+  try {
+    const data = await get<YouTubeThumbnailView>(`/projects/${requested.slug}/youtube/library/${encodeURIComponent(requested.operation)}/thumbnail`)
+    if (!data?.current?.url || !data.current.checked_at) throw new Error('The live YouTube thumbnail could not be checked. Check again before replacing it.')
+    if (revision === thumbnailReadRevision && slug.value === requested.slug && previewedEpisode.value === requested.episode && thumbnailOperationId.value === requested.operation) youtubeThumbnail.value = data
+  } catch (error: any) {
+    if (revision === thumbnailReadRevision && slug.value === requested.slug && previewedEpisode.value === requested.episode && thumbnailOperationId.value === requested.operation) {
+      youtubeThumbnail.value = null
+      youtubeThumbnailReadError.value = error?.data?.detail || error?.message || 'The live YouTube thumbnail could not be checked. Check again before replacing it.'
+    }
+  }
+}
+watch([slug, previewedEpisode, thumbnailOperationId], () => {
+  youtubeThumbnail.value = null
+  youtubeThumbnailReadError.value = ''
+  thumbnailJobId.value = ''
+  void readYouTubeThumbnail()
+})
+watch(() => `${thumbnailJob.value?.job_id}:${thumbnailJob.value?.status}`, () => {
+  if (thumbnailJob.value?.status === 'done') {
+    youtubeThumbnail.value = null
+    void readYouTubeThumbnail()
+  }
+})
+async function useThumbnailOnYouTube(filename: string, restore = false): Promise<void> {
+  if (busy.value || thumbnailUpdating.value || !youtubeThumbnail.value || !thumbnailOperationId.value) return
+  const episode = previewedEpisode.value
+  const operation = thumbnailOperationId.value
+  const video = recordedVideoId.value
+  const channel = assignedChannel.value?.channel_id
+  const action = beginAction(`youtube-thumbnail-${episode}`)
+  const confirmed = await ask({
+    title: restore ? `Restore ${episode}'s previous YouTube thumbnail?` : `Replace ${episode}'s YouTube thumbnail?`,
+    message: `This replaces the thumbnail on video ${video} with ${restore ? 'the previous YouTube image' : filename}. If a friend added a titled Khmer thumbnail, this replaces that image too. The current image is retained so it can be put back. Visibility, schedule, title and other metadata stay unchanged.`,
+    confirmLabel: restore ? 'Restore on YouTube' : 'Use on YouTube',
+  })
+  if (!actionIsCurrent(action)) return
+  if (!confirmed || episode !== previewedEpisode.value || operation !== thumbnailOperationId.value
+    || video !== recordedVideoId.value || channel !== assignedChannel.value?.channel_id) { busy.value = ''; return }
+  thumbnailError.value = ''
+  try {
+    const result = await post<{ job_id: string }>(`/projects/${action.slug}/youtube/library/${encodeURIComponent(operation)}/thumbnail`, {
+      confirm: true, thumbnail_filename: filename,
+    })
+    if (actionIsCurrent(action) && episode === previewedEpisode.value && operation === thumbnailOperationId.value) thumbnailJobId.value = result.job_id
+  } catch (error: any) {
+    if (actionIsCurrent(action) && episode === previewedEpisode.value) thumbnailError.value = error?.data?.detail || error?.message || 'Could not queue the thumbnail replacement. Check Jobs before retrying.'
+  } finally { if (actionIsCurrent(action)) busy.value = '' }
+}
 
 const otherThumbnailCandidates = computed(() => {
   const options = previewed.value?.thumbnail?.options || []
@@ -2707,8 +2808,9 @@ async function upload(episodeCode: string): Promise<void> {
 function metadataReadiness(value: Preview): string {
   const changes = value.modifications.length
   const warnings = value.warnings.length
-  if (!changes && !warnings) return 'Ready · no changes needed'
-  return `Ready · ${changes} reviewed change${changes === 1 ? '' : 's'}${warnings ? ` · ${warnings} warning${warnings === 1 ? '' : 's'}` : ''}`
+  if (warnings) return `Warnings · ${warnings} warning${warnings === 1 ? '' : 's'}${changes ? ` · ${changes} reviewed change${changes === 1 ? '' : 's'}` : ''}`
+  if (!changes) return 'Ready · no changes needed'
+  return `Ready · ${changes} reviewed change${changes === 1 ? '' : 's'}`
 }
 function bulkTimingLabel(item: BulkUploadReview): string {
   const publishAt = item.preview?.status.publishAt
@@ -3574,6 +3676,10 @@ watch(slug, () => {
 }
 .custom-timing input:focus-visible, .timing-option:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
 .thumbnail-review { display: grid; gap: 10px; padding: 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-tertiary); }
+.youtube-thumbnail-state { display: grid; gap: 10px; }
+.youtube-thumbnail-state figure { margin: 0; }
+.youtube-thumbnail-state figcaption { overflow-wrap: anywhere; font-size: var(--font-xs); }
+.youtube-thumbnail-state .thumbnail-options { grid-template-columns: repeat(auto-fit, minmax(140px, 260px)); }
 .thumbnail-review-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
 .thumbnail-review-head h3 { margin: 2px 0 0; font-size: 15px; }
 .section-kicker { margin: 0; color: var(--text-muted); font-size: var(--font-xs); font-weight: 700; letter-spacing: .05em; text-transform: uppercase; }

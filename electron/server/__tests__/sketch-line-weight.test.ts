@@ -258,6 +258,64 @@ describe('the weight is stored per channel and per episode', () => {
     assert.deepEqual(dropped, [], 'a save that moves nothing drops nothing')
   })
 
+  /** A sketch clip of one scene rendered under whatever weight `slug`/`code` resolve to right now. */
+  async function renderedNow(slug: string, code: string) {
+    const s = await checkpoint.resolveSketchDrawSettings(slug, code)
+    const frames = Math.round(4 * s.fps)
+    return {
+      id: 'scene-1', scene_index: 1, start_sec: 0, end_sec: 4, transcript_segment: 'A', visual_prompt: 'A',
+      approved: true, motion_choice: 'clip' as const, clip_source_image_version: 'v1',
+      clip_renderer: 'sketch_draw' as const, image_sha256: sha(PNG), clip_source_image_sha256: sha(PNG),
+      clip_scene_window_seconds: 4,
+      clip_sketch: { helper_version: NATIVE_SCENE_CLIP_VERSION, fps: s.fps, frames, width: s.width, height: s.height,
+        pen_fingerprint: s.penFingerprint, hold_frames: checkpoint.sketchHoldFramesFor(s, code, 'scene-1', frames),
+        hold_fingerprint: s.holdFingerprint, line_weight: s.lineWeight },
+    }
+  }
+  const reason = (slug: string, ep: { code: string; dir: string }, scene: Awaited<ReturnType<typeof renderedNow>>) =>
+    checkpoint.sceneClipStaleReason(scene, { slug, episodeId: ep.code, episodeDir: ep.dir })
+  /** Put this clip's receipt into the episode's Scene Plan — the evidence a channel-save pin reads. */
+  const planWithClip = async (slug: string, ep: { code: string; dir: string }, clip: unknown) =>
+    fs.writeFile(await paths.resolveScenePlanPath(slug, ep.code, ep.dir), JSON.stringify({ scenes: [clip] }))
+
+  test('a channel weight change pins a clipped episode to the weight its clips were drawn with; a clip-less one follows the new default', async () => {
+    const slug = await channel('Channel pins') // never chose one: normal
+    const ep1 = await episode(slug, 'EP001') // has a Sketch Draw clip
+    const ep2 = await episode(slug, 'EP002') // its own weight
+    const ep3 = await episode(slug, 'EP003') // no clips at all
+    await weightStore.writeEpisodeSketchLineWeight(slug, 'EP002', 'bold')
+    const clip1 = await renderedNow(slug, 'EP001')
+    const clip2 = await renderedNow(slug, 'EP002')
+    await planWithClip(slug, ep1, clip1)
+
+    await request(app).put(`/api/projects/${slug}/motion-presentation`)
+      .send({ renderer: 'sketch_draw', line_weight: 'thin' }).expect(200)
+
+    // EP1 keeps the weight its clip was drawn with: fresh now, and a re-render uses that weight.
+    assert.equal(await weightStore.readEpisodeSketchLineWeight(slug, 'EP001'), 'normal')
+    assert.equal(await reason(slug, ep1, clip1), null, 'the pinned weight keeps EP1\'s clip fresh')
+    assert.equal((await checkpoint.resolveSketchDrawSettings(slug, 'EP001')).lineWeight, 'normal')
+    assert.equal((await checkpoint.resolveEpisodeLineWeight(slug, 'EP001')).line_weight_source, 'episode',
+      'a redo of EP1 draws with the pinned weight, not the new channel default')
+    // EP3 has no clips, so it follows the new default.
+    assert.equal(await weightStore.readEpisodeSketchLineWeight(slug, 'EP003'), null)
+    assert.equal((await checkpoint.resolveEpisodeLineWeight(slug, 'EP003')).line_weight, 'thin')
+    // EP2's own weight is never overwritten.
+    assert.equal(await weightStore.readEpisodeSketchLineWeight(slug, 'EP002'), 'bold')
+    assert.equal(await reason(slug, ep2, clip2), null)
+  })
+
+  test('a channel save is refused, naming the episode, when its scene plan cannot be read', async () => {
+    const slug = await channel('Unreadable plan')
+    const ep = await episode(slug, 'EP001')
+    await fs.writeFile(await paths.resolveScenePlanPath(slug, 'EP001', ep.dir), '{ not json')
+    const refused = await request(app).put(`/api/projects/${slug}/motion-presentation`)
+      .send({ renderer: 'sketch_draw', line_weight: 'thin' }).expect(409)
+    assert.match(refused.body.detail, /EP001/)
+    assert.equal((await pm.getConfig(slug))?.motion_presentation?.line_weight, undefined, 'a refused save changes nothing')
+    assert.equal(await weightStore.readEpisodeSketchLineWeight(slug, 'EP001'), null, 'and no pin was written')
+  })
+
   test('the channel default rides in the presentation: set, kept by the renderer and pen saves, validated', async () => {
     // The renderer and the pen controls never send a weight, and neither drops it.
     const slug = await channel('Presentation')

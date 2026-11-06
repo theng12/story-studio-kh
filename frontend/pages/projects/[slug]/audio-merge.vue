@@ -271,7 +271,16 @@
         <template v-if="chunkSilenceSec > 0 && chunkTransitionsTotal > 0">
           + {{ chunkPauseSecondsTotal.toFixed(1) }}s chunk pauses
         </template>
+        <template v-if="musicLeadInSeconds > 0">
+          + {{ musicLeadInSeconds }}s music lead-in
+        </template>
+        <template v-if="introGapSeconds > 0">
+          + {{ introGapSeconds }}s intro gap
+        </template>
         = {{ formatDuration(estimatedMergedDuration) }}
+        <span v-if="estimatedUncounted.length" class="text-muted">
+          — not counted: {{ estimatedUncounted.join(', ') }}
+        </span>
       </div>
     </div>
 
@@ -635,7 +644,7 @@
               <input type="checkbox" v-model="track.enabled" />
             </label>
             <strong style="flex: 1; word-break: break-all;">
-              {{ track.source_filename || track.source_path.split('/').pop() || '(no file)' }}
+              {{ track.source_filename || track.source_path?.split('/').pop() || '(no file)' }}
             </strong>
             <span class="text-muted text-xs">#{{ idx + 1 }}</span>
             <button
@@ -824,6 +833,7 @@ import {
   musicOptionsNotice as buildMusicOptionsNotice,
   type MusicOptionsMeasurement,
 } from '../../../../electron/server/contracts/music-bed-defaults'
+import { applyAmbientPresetRows } from '~/utils/audio-merge-preset'
 
 definePageMeta({ layout: 'dashboard' })
 useAppTitle('Audio Assembly')
@@ -1221,7 +1231,6 @@ const mergePresets = usePresets<any>({
     const liveFiles = [...music.files]
     const liveIntroFile = intro.file
     const liveNoiseFile = backgroundNoise.custom_file
-    const liveAmbientPaths = ambientTracks.map(track => track.source_path)
 
     if (data.intro) Object.assign(intro, data.intro)
     if (data.music) {
@@ -1237,13 +1246,12 @@ const mergePresets = usePresets<any>({
     }
     if (data.background_noise) Object.assign(backgroundNoise, data.background_noise)
     if (Array.isArray(data.ambient_tracks)) {
-      // Replaced whole, then each row's own clip put back by position — the
-      // preset owns the layer's settings, the episode owns its audio.
-      ambientTracks.splice(0, ambientTracks.length, ...data.ambient_tracks.map((t: any) => ({ ...t })))
-      ambientTracks.forEach((track, index) => {
-        const path = liveAmbientPaths[index]
-        if (path) track.source_path = path
-      })
+      // The preset owns the layer SETTINGS, the session owns its clips: rows
+      // are never replaced, so every live clip keeps its id, source and
+      // position, and settings are matched by the preset row's saved id — a
+      // reorder cannot move a fade onto another clip and a shorter preset
+      // cannot drop a layer (§4/§5).
+      applyAmbientPresetRows(ambientTracks, data.ambient_tracks)
     }
     if (typeof data.gap_duration === 'number') gapDuration.value = data.gap_duration
     if (typeof data.chunk_silence_sec === 'number' && data.chunk_silence_sec >= 0) {
@@ -1255,13 +1263,10 @@ const mergePresets = usePresets<any>({
     // Restore the episode's own files. ASSIGNED, not merged: a preset that
     // stored an empty list must leave the episode's files in place, never blank
     // them — the value is the customer's and the preset has no opinion on it.
+    // (Ambient clips need no restore: their rows were never replaced.)
     music.files = liveFiles
     intro.file = liveIntroFile
     backgroundNoise.custom_file = liveNoiseFile
-    ambientTracks.forEach((track, index) => {
-      const path = liveAmbientPaths[index]
-      if (path) track.source_path = path
-    })
   },
 })
 
@@ -1308,10 +1313,6 @@ const hasMultiPartChapters = computed(() => chunkTransitionsTotal.value > 0)
 const chapterGapSecondsTotal = computed(() => chapterTransitions.value.differentChapter * gapDuration.value)
 const chunkPauseSecondsTotal = computed(() => chunkTransitionsTotal.value * chunkSilenceSec.value)
 
-const estimatedMergedDuration = computed(() => {
-  return totalChapterDuration.value + chapterGapSecondsTotal.value + chunkPauseSecondsTotal.value
-})
-
 const scannedMusicFiles = computed(() => {
   return scannedAssets.value?.music_files || []
 })
@@ -1330,6 +1331,33 @@ const hasSelectedMusic = computed(() => selectedMusicFiles.value.length > 0)
 // not had a bed picked yet must still be assemblable.
 const musicNotChosen = computed(() => music.enabled && !hasSelectedMusic.value
   && !(music.source === 'pool' && poolPeekLoading.value))
+
+// What the next merge PREPENDS, from this page's own controls — the payload at
+// generateMergedAudio sends music under exactly this condition, and the
+// generator bakes the lead-in only when that music is in the request.
+const musicLeadInSeconds = computed(() =>
+  music.enabled && selectedMusicFiles.value.length > 0
+  && music.lead_in_enabled && music.lead_in_seconds > 0
+    ? music.lead_in_seconds
+    : 0)
+/** The intro's gap after the clip — counted; the clip's own length is not (below). */
+const introGapSeconds = computed(() => (intro.enabled && intro.file ? intro.gap_after : 0))
+/**
+ * Parts of the merged file this estimate CANNOT count: the intro clip's own
+ * length needs a probe this page never runs, and the closing tail is resolved
+ * server-side from Video Assembly's post_audio with no route this page calls.
+ * They are named as not counted — never folded in as zero (§6).
+ */
+const estimatedUncounted = computed<string[]>(() => {
+  const parts: string[] = []
+  if (intro.enabled && intro.file) parts.push('intro clip length')
+  if (music.enabled && selectedMusicFiles.value.length > 0) parts.push('closing tail')
+  return parts
+})
+const estimatedMergedDuration = computed(() => {
+  return totalChapterDuration.value + chapterGapSecondsTotal.value + chunkPauseSecondsTotal.value
+    + musicLeadInSeconds.value + introGapSeconds.value
+})
 
 const existingMergedAudio = computed(() => {
   const files = scannedAssets.value?.merged_files || []

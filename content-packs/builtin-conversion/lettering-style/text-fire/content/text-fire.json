@@ -1,0 +1,12 @@
+{
+ "kind": "lettering-style",
+ "schema_version": 1,
+ "id": "com.storystudio.lettering.text-fire",
+ "name": "Fire",
+ "description": "fiery orange and red gradient, glowing embers, warm flame flicker",
+ "axis": "text",
+ "phrase": "fiery orange and red gradient, glowing embers, warm flame flicker",
+ "preview_assets": [
+  "assets/text-fire.webp"
+ ]
+}

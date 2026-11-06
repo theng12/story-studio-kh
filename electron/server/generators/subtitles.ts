@@ -32,7 +32,7 @@ import {
   GenStudioCatalogUnavailableError,
   GenStudioTerminalFailureError,
   GenStudioTranscriptionQuoteExpiredError,
-  isGenStudioInsufficientCredits,
+  isGenStudioPaymentRefusal,
   listTranscriptionModels,
   refreshGenStudioAdmission,
 } from '../lib/genstudio-client.js'
@@ -58,8 +58,8 @@ import { runSubtitleTranscription } from '../services/subtitle-recovery.js'
  * endpoint that serves them, and the caption engine still interpolates and
  * labels its word timings `estimated`). We set the flag anyway so the exact
  * timings are BANKED from now on. A transcription made today without them can
- * only get them back by re-transcribing, which spends the customer's credits
- * for data that was free to collect the first time.
+ * only get them back by re-transcribing, which buys the same data again
+ * for a request that could have collected it the first time.
  *
  * IMPORTANT: this value must be folded into BOTH the local task-reuse hash and
  * the GenStudio idempotency key. Leaving either at a hardcoded `false` makes a
@@ -105,7 +105,7 @@ export interface TranscribeSubtitlesRequest {
   /** Pipeline-stamped, deliberate one-action repair identity. */
   pipeline_repair?: { action_id: string }
   /** Backend-only explicit owner purchase, scoped to the failed job's missing set. */
-  subtitle_purchase?: { additional_credit_ceiling: number }
+  subtitle_purchase?: object
   /** New work uses the current live transcription catalog. */
   engine?: 'genstudio' | 'openai' | 'voicestudio'
   /**
@@ -300,7 +300,7 @@ async function resolveGenStudioTranscription(
     throw new Error('The selected transcription model is temporarily unavailable.')
   }
   if (selected.locked) {
-    throw new Error('The selected transcription model is locked for this Gateway account. Choose an unlocked model. No request or credit charge was made.')
+    throw new Error('The selected transcription model is locked for this Gateway account. Choose an unlocked model. No request was made.')
   }
   if (requestedModel !== migratedModel) {
     job.output_lines.push(`Migrated legacy transcription model ${requestedModel} → ${migratedModel}.`)
@@ -561,7 +561,7 @@ export async function generateSubtitlesTranscribe(job: Job): Promise<void> {
       job, outDir, section: 'merged', manifestKey, inputHash: currentInputHash,
       audioHash: audioIdentity.requestHash, apiKey: genstudio.apiKey, force: effectiveForce,
       generationActionId,
-      manualCreditCeiling: req.subtitle_purchase?.additional_credit_ceiling,
+      manualPurchase: req.subtitle_purchase !== undefined,
       request: {
         audioPath: sourceAudio, modelId: genstudio.modelId, requestIdentity,
         language: genstudio.language, wordTimestamps: TRANSCRIPTION_WORD_TIMESTAMPS,
@@ -986,7 +986,7 @@ async function transcribePerChapter(
         ...(repairSection ? {
           pipelineRepair: { actionId: repairActionId, isResultUsable: isPipelineRepairTranscriptUsable },
         } : {}),
-        manualCreditCeiling: req.subtitle_purchase?.additional_credit_ceiling,
+        manualPurchase: req.subtitle_purchase !== undefined,
         request: {
           audioPath: audioPath, modelId: genstudio.modelId, requestIdentity,
           language: genstudio.language, wordTimestamps: TRANSCRIPTION_WORD_TIMESTAMPS,
@@ -1017,10 +1017,10 @@ async function transcribePerChapter(
     // on cancel; any in-flight transcribe is aborted by the cancelWatcher's
     // shared AbortController. Sequential behaviour falls out naturally at N=1.
     let nextIdx = 0
-    let creditFailure: unknown
+    let paymentRefusal: unknown
     const worker = async (): Promise<void> => {
       while (true) {
-        if (jq.isCancelled(job.job_id) || creditFailure) return
+        if (jq.isCancelled(job.job_id) || paymentRefusal) return
         if (jq.isPauseRequested(job.job_id)) return
         const i = nextIdx++
         if (i >= sections.length) return
@@ -1028,8 +1028,8 @@ async function transcribePerChapter(
         try {
           await transcribeSection(sec)
         } catch (e) {
-          if (isGenStudioInsufficientCredits(e)) {
-            creditFailure ||= e
+          if (isGenStudioPaymentRefusal(e)) {
+            paymentRefusal ||= e
             return
           }
           // Cancellation aborts the in-flight transcribe via the shared
@@ -1044,7 +1044,7 @@ async function transcribePerChapter(
       }
     }
     await Promise.all(Array.from({ length: Math.min(concurrency, sections.length) }, () => worker()))
-    if (creditFailure) throw creditFailure
+    if (paymentRefusal) throw paymentRefusal
     if (jq.isCancelled(job.job_id)) throw new Error('Cancelled by user')
     jq.throwIfPauseRequested(job.job_id)
   } finally {

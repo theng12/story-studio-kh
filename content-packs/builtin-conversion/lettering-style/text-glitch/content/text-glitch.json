@@ -1,0 +1,12 @@
+{
+ "kind": "lettering-style",
+ "schema_version": 1,
+ "id": "com.storystudio.lettering.text-glitch",
+ "name": "Glitch",
+ "description": "digital glitch effect, RGB split, scan-line texture",
+ "axis": "text",
+ "phrase": "digital glitch effect, RGB split, scan-line texture",
+ "preview_assets": [
+  "assets/text-glitch.webp"
+ ]
+}

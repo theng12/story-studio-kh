@@ -680,6 +680,11 @@ async function preflightBatch(
     leftOut.set(step, message)
     warnIf(id, `${pipelineStepLabel(step)} is left out of this run: ${message}`)
   }
+  if (requestedSteps.includes('research') && requestedSteps.some(step => step === 'script-only' || step === 'introduction-only')) {
+    const reason = 'Research before writing follows the channel switch at run time and never blocks writing.'
+    leftOut.set('research', reason)
+    warnings.push(reason)
+  }
   const runSteps = () => requestedSteps.filter(step => !leftOut.has(step))
 
   const ideas = await im.getIdeas(slug, 'accepted')

@@ -1,0 +1,12 @@
+{
+ "kind": "lettering-style",
+ "schema_version": 1,
+ "id": "com.storystudio.lettering.text-horror",
+ "name": "Horror",
+ "description": "blood-drip horror style, cracked dark red, ominous shadow",
+ "axis": "text",
+ "phrase": "blood-drip horror style, cracked dark red, ominous shadow",
+ "preview_assets": [
+  "assets/text-horror.webp"
+ ]
+}

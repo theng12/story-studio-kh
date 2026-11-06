@@ -38,6 +38,12 @@ import {
   type ContentStoreCommerceState,
 } from '../content-store/types.js'
 
+/**
+ * A journal entry from this Mac's retired shop, shown without money.
+ *
+ * Old rows still carry credit figures; they stay on disk and are never
+ * rewritten, but no price or balance is published from them.
+ */
 export interface PublicContentPurchaseAttempt {
   quote_id: string
   account_id: string
@@ -46,8 +52,6 @@ export interface PublicContentPurchaseAttempt {
   entitlement_family: string
   expires_at: string
   status: CachedContentQuote['status']
-  base_credit_price: number
-  discount_credits: number
   entitlement_families?: string[]
   bundle_closure?: Array<{
     position: number
@@ -58,27 +62,10 @@ export interface PublicContentPurchaseAttempt {
     archive_sha256: string
   }>
   dependencies?: PublicContentDependency[]
-  operator_discount?: {
-    discount_id: string
-    version: number
-    percent: number
-    starts_on: string | null
-    ends_on: string | null
-    timezone: 'Asia/Phnom_Penh'
-  } | null
-  operator_discount_credits?: number
-  quoted_credits: number
-  balance_before: number
-  balance_after: number
   owned_components: string[]
-  sufficient_credits: boolean
-  insufficient_reason: 'insufficient_credits' | null
-  shortfall_credits: number
   refusal?: CachedContentRefusal
   uncertain_detail?: string
   ownership?: 'owned_not_installed'
-  credits_charged?: number
-  component_discount_credits?: number
   granted_families?: string[]
   previously_owned_families?: string[]
   replayed?: boolean
@@ -137,17 +124,6 @@ export interface PublicContentDependency {
   states: PublicContentDependencyState[]
 }
 
-export interface PublicContentProductDiscount {
-  id: string
-  version: number
-  percent: number
-  startsOn: string | null
-  endsOn: string | null
-  timezone: 'Asia/Phnom_Penh'
-  listCreditPrice: number
-  discountedCreditPrice: number
-}
-
 export interface PublicContentStoreShelf {
   id: string
   title: string
@@ -155,17 +131,16 @@ export interface PublicContentStoreShelf {
 }
 
 export type PublicContentProduct = Omit<GenStudioContentProduct,
-  'raw' | 'currentRelease' | 'bundleComponents' | 'cover' | 'hero' | 'tags' | 'license' | 'discount'
+  'raw' | 'currentRelease' | 'bundleComponents' | 'cover' | 'hero' | 'tags' | 'license'
   | 'removeFromInstalls' | 'removeFromInstallsAt'
 > & {
   currentRelease: PublicContentRelease | null
   bundleComponents: Array<Omit<GenStudioContentProduct['bundleComponents'][number], 'raw'>>
   presentation: PublicContentProductPresentation
-  discount: PublicContentProductDiscount | null
 }
 
 export interface ContentStoreOverviewSections {
-  /** This account's ownership, balance and installed releases, as GenStudio publishes them. */
+  /** This account's ownership and installed releases, as GenStudio publishes them. */
   account: ContentStoreSectionStatus
   /** The published product catalogue. */
   catalog: ContentStoreSectionStatus
@@ -260,17 +235,20 @@ async function cachedVerifiedFamilies(accountId: string): Promise<Set<string>> {
   }
 }
 
+/**
+ * An old refusal row still carries the credit figures it was saved with. The
+ * code and the reason stay; the money does not travel with them.
+ */
+function refusalWithoutMoney(refusal: CachedContentRefusal): CachedContentRefusal {
+  if (refusal.status !== 402) return { ...refusal }
+  return { status: 402, code: 'insufficient_credits', detail: refusal.detail }
+}
+
 function publicAttempt(
   attempt: CachedContentQuote,
   dependencies?: PublicContentDependency[],
 ): PublicContentPurchaseAttempt {
   const completed = attempt.completed_purchase
-  const finalOperatorDiscount = completed?.operator_discount !== undefined
-    ? completed.operator_discount
-    : attempt.operator_discount
-  const finalOperatorDiscountCredits = completed?.operator_discount !== undefined
-    ? completed.operator_discount_credits
-    : attempt.operator_discount_credits
   return {
     quote_id: attempt.quote_id,
     account_id: attempt.account_id,
@@ -279,15 +257,7 @@ function publicAttempt(
     entitlement_family: attempt.entitlement_family,
     expires_at: attempt.expires_at,
     status: attempt.status,
-    base_credit_price: completed?.base_credit_price ?? attempt.base_credit_price,
-    discount_credits: completed?.discount_credits ?? attempt.discount_credits,
-    quoted_credits: attempt.quoted_credits,
-    balance_before: completed?.balance_before ?? attempt.balance_before,
-    balance_after: completed?.balance_after ?? attempt.balance_after,
     owned_components: [...attempt.owned_components],
-    sufficient_credits: attempt.sufficient_credits,
-    insufficient_reason: attempt.insufficient_reason,
-    shortfall_credits: attempt.shortfall_credits,
     ...(attempt.entitlement_families ? {
       entitlement_families: [...(completed?.entitlement_families ?? attempt.entitlement_families)],
     } : {}),
@@ -295,18 +265,10 @@ function publicAttempt(
       bundle_closure: structuredClone(completed?.bundle_closure ?? attempt.bundle_closure) as NonNullable<PublicContentPurchaseAttempt['bundle_closure']>,
     } : {}),
     ...(dependencies ? { dependencies } : {}),
-    ...(finalOperatorDiscount !== undefined ? {
-      operator_discount: structuredClone(finalOperatorDiscount) as PublicContentPurchaseAttempt['operator_discount'],
-      operator_discount_credits: finalOperatorDiscountCredits,
-    } : {}),
-    ...(attempt.last_refusal ? { refusal: { ...attempt.last_refusal } } : {}),
+    ...(attempt.last_refusal ? { refusal: refusalWithoutMoney(attempt.last_refusal) } : {}),
     ...(attempt.uncertain_detail ? { uncertain_detail: attempt.uncertain_detail } : {}),
     ...(completed ? {
       ownership: 'owned_not_installed' as const,
-      credits_charged: completed.credits_charged,
-      ...(completed.component_discount_credits !== undefined ? {
-        component_discount_credits: completed.component_discount_credits,
-      } : {}),
       ...(completed.granted_families ? { granted_families: [...completed.granted_families] } : {}),
       ...(completed.previously_owned_families ? { previously_owned_families: [...completed.previously_owned_families] } : {}),
       replayed: completed.replayed,
@@ -331,6 +293,27 @@ function publicRelease(
   }
 }
 
+/**
+ * Rewrite Gateway cover paths to Story's same-origin proxy route.
+ *
+ * The Discover shelf renders `presentation.cover.src` directly in an `<img>`.
+ * A Gateway path like `/admin/api/content-library/covers/packId/version` would
+ * be blocked by CSP (only `localhost` and `127.0.0.1` are in `img-src`). Story
+ * proxies covers through `/api/content-store/covers/:packId/:version` which is
+ * same-origin and bypasses auth for loopback requests.
+ *
+ * The Library tab already does this rewrite in `buildLibraryCards` using
+ * `coverProxyPath`. This makes the Discover shelf consistent so both surfaces
+ * load covers through the same route.
+ */
+export function rewriteCoverSrc(product: GenStudioContentProduct): string {
+  const url = product.cover!.url
+  const match = /^\/admin\/api\/content-library\/covers\/([^/]+)\/([^/]+)$/.exec(url)
+  if (!match) return url
+  const [, packId, version] = match
+  return `/api/content-store/covers/${encodeURIComponent(packId!)}/${encodeURIComponent(version!)}`
+}
+
 function publicProduct(product: GenStudioContentProduct): PublicContentProduct {
   return {
     productId: product.productId,
@@ -340,7 +323,6 @@ function publicProduct(product: GenStudioContentProduct): PublicContentProduct {
     summary: product.summary,
     description: product.description,
     publisherId: product.publisherId,
-    creditPrice: product.creditPrice,
     free: product.free,
     owned: product.owned,
     retired: product.retired,
@@ -353,28 +335,16 @@ function publicProduct(product: GenStudioContentProduct): PublicContentProduct {
       entitlementFamily: component.entitlementFamily,
       title: component.title,
       kind: component.kind,
-      componentCreditValue: component.componentCreditValue,
       owned: component.owned,
     })),
-    ownedComponentCreditValue: product.ownedComponentCreditValue,
     showcaseVideos: product.showcaseVideos,
     presentation: {
-      cover: product.cover ? { src: product.cover.url, alt: product.cover.alt } : null,
+      cover: product.cover ? { src: rewriteCoverSrc(product), alt: product.cover.alt } : null,
       hero: product.hero ? { src: product.hero.url, alt: product.hero.alt } : null,
       licenseLabel: product.license?.label ?? null,
       licenseText: product.license?.text ?? null,
       tags: [...product.tags],
     },
-    discount: product.discount ? {
-      id: product.discount.discountId,
-      version: product.discount.version,
-      percent: product.discount.percent,
-      startsOn: product.discount.startsOn,
-      endsOn: product.discount.endsOn,
-      timezone: product.discount.timezone,
-      listCreditPrice: product.discount.listCreditPrice,
-      discountedCreditPrice: product.discount.discountedCreditPrice,
-    } : null,
   }
 }
 
@@ -389,8 +359,6 @@ async function publicAccount(
   return {
     accountId: account.accountId,
     contentAccountId: account.contentAccountId,
-    availableCredits: account.availableCredits,
-    contentSpendableCredits: account.contentSpendableCredits,
     owned: account.owned.map((owned, index) => ({
       entitlementFamily: owned.entitlementFamily,
       productId: owned.productId,

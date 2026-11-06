@@ -12,7 +12,7 @@
 import { ref } from 'vue'
 
 const isOpen = ref(false)
-export type AppSettingsSection = 'all' | 'connections' | 'performance' | 'appearance'
+export type AppSettingsSection = 'all' | 'connections' | 'default-models' | 'performance' | 'appearance' | 'files' | 'backup'
 const section = ref<AppSettingsSection>('all')
 
 export function useAppSettingsModal() {

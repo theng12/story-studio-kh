@@ -325,11 +325,14 @@ async function mutateState<T>(
 ): Promise<T> {
   return withCommerceLock(async () => {
     const state = await readOrResetState()
+    const before = JSON.stringify(state)
     const result = await mutate(state)
     const validated = ContentStoreCommerceStateSchema.parse(state)
     if (encodedStateBytes(validated) > MAX_STATE_BYTES) {
       throw new Error(`Content Store commerce journal exceeds ${MAX_STATE_BYTES} bytes; no evidence was written`)
     }
+    // A replay must leave historical evidence byte-for-byte unchanged.
+    if (JSON.stringify(validated) === before) return result
     const { statePath } = runtimePaths()
     assertWriteIsolatedInTests(statePath, 'content-store-commerce-state')
     await writeJsonAtomic(statePath, validated, { mode: STATE_MODE })
@@ -410,19 +413,9 @@ function quoteIdentity(record: CachedContentQuote): string {
     quote_canonical_json: record.quote_canonical_json,
     quote_signature: record.quote_signature,
     key_id: record.key_id,
-    base_credit_price: record.base_credit_price,
-    discount_credits: record.discount_credits,
     entitlement_families: record.entitlement_families,
     bundle_closure: record.bundle_closure,
-    operator_discount: record.operator_discount,
-    operator_discount_credits: record.operator_discount_credits,
-    quoted_credits: record.quoted_credits,
-    balance_before: record.balance_before,
-    balance_after: record.balance_after,
     owned_components: record.owned_components,
-    sufficient_credits: record.sufficient_credits,
-    insufficient_reason: record.insufficient_reason,
-    shortfall_credits: record.shortfall_credits,
   })
 }
 
@@ -438,8 +431,6 @@ function recordForQuote(quote: GenStudioContentQuote, createdAt: string): Cached
     quote_signature: quote.quoteSignature,
     key_id: quote.keyId,
     idempotency_key: `story-content-${randomUUID()}`,
-    base_credit_price: quote.baseCreditPrice,
-    discount_credits: quote.discountCredits,
     entitlement_families: quote.entitlementFamilies,
     bundle_closure: quote.bundleClosure.map(component => ({
       position: component.position,
@@ -449,22 +440,7 @@ function recordForQuote(quote: GenStudioContentQuote, createdAt: string): Cached
       version: component.version,
       archive_sha256: component.archiveSha256,
     })),
-    operator_discount: quote.operatorDiscount ? {
-      discount_id: quote.operatorDiscount.discountId,
-      version: quote.operatorDiscount.version,
-      percent: quote.operatorDiscount.percent,
-      starts_on: quote.operatorDiscount.startsOn,
-      ends_on: quote.operatorDiscount.endsOn,
-      timezone: quote.operatorDiscount.timezone,
-    } : null,
-    operator_discount_credits: quote.operatorDiscountCredits,
-    quoted_credits: quote.quotedCredits,
-    balance_before: quote.balanceBefore,
-    balance_after: quote.balanceAfter,
     owned_components: quote.ownedComponents,
-    sufficient_credits: quote.sufficientCredits,
-    insufficient_reason: quote.insufficientReason,
-    shortfall_credits: quote.shortfallCredits,
     status: 'quoted',
     created_at: createdAt,
     updated_at: createdAt,
@@ -672,21 +648,6 @@ function cachedPurchase(purchase: GenStudioContentPurchase): CachedContentPurcha
     purchase_id: purchase.purchaseId,
     quote_id: purchase.quoteId,
     account_id: purchase.accountId,
-    credits_charged: purchase.creditsCharged,
-    discount_credits: purchase.discountCredits,
-    base_credit_price: purchase.baseCreditPrice,
-    component_discount_credits: purchase.componentDiscountCredits,
-    operator_discount: purchase.operatorDiscount ? {
-      discount_id: purchase.operatorDiscount.discountId,
-      version: purchase.operatorDiscount.version,
-      percent: purchase.operatorDiscount.percent,
-      starts_on: purchase.operatorDiscount.startsOn,
-      ends_on: purchase.operatorDiscount.endsOn,
-      timezone: purchase.operatorDiscount.timezone,
-    } : null,
-    operator_discount_credits: purchase.operatorDiscountCredits,
-    balance_before: purchase.balanceBefore,
-    balance_after: purchase.balanceAfter,
     entitlement_ids: purchase.entitlementIds,
     entitlement_families: purchase.entitlementFamilies,
     granted_families: purchase.grantedFamilies,
@@ -712,6 +673,30 @@ function cachedPurchase(purchase: GenStudioContentPurchase): CachedContentPurcha
   }
 }
 
+/**
+ * What identifies a settlement: the purchase, its signed receipt and its
+ * entitlement grant. The legacy credit projections an old row may still carry
+ * are not identity, so a stored settlement is never restated by them.
+ */
+function purchaseIdentity(purchase: CachedContentPurchase | undefined): unknown {
+  if (!purchase) return null
+  return {
+    purchase_id: purchase.purchase_id,
+    quote_id: purchase.quote_id,
+    account_id: purchase.account_id,
+    entitlement_ids: purchase.entitlement_ids,
+    entitlement_families: purchase.entitlement_families,
+    granted_families: purchase.granted_families,
+    previously_owned_families: purchase.previously_owned_families,
+    bundle_closure: purchase.bundle_closure,
+    product_canonical_json: purchase.product_canonical_json,
+    release_canonical_json: purchase.release_canonical_json,
+    ledger_event_key: purchase.ledger_event_key,
+    receipt: purchase.receipt,
+    replayed: purchase.replayed,
+  }
+}
+
 export async function recordCompletedPurchase(
   quoteId: string,
   purchase: GenStudioContentPurchase,
@@ -720,7 +705,9 @@ export async function recordCompletedPurchase(
     const attempt = requireAttempt(state, quoteId)
     const completed = cachedPurchase(purchase)
     if (attempt.status === 'completed') {
-      if (JSON.stringify(attempt.completed_purchase) !== JSON.stringify(completed)) {
+      // Identity is compared without the legacy money projections an old row
+      // may still carry, so a stored settlement is not restated.
+      if (JSON.stringify(purchaseIdentity(attempt.completed_purchase)) !== JSON.stringify(purchaseIdentity(completed))) {
         throw new Error('Completed Content Store purchase is immutable; purchase identity drift was refused')
       }
       return attempt

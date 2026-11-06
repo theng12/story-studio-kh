@@ -246,7 +246,9 @@ export function sceneTakesCharacterReferences(
 export function sceneReferenceIds(
   scene: Pick<ScenePlanEntry, 'reference_character_ids'>,
   fallback: readonly string[] = [],
+  imageMode?: 'text2img' | 'img2img',
 ): string[] {
+  if (imageMode === 'text2img') return []
   const own = Array.isArray(scene.reference_character_ids)
     ? scene.reference_character_ids
       .filter((id): id is string => typeof id === 'string' && !!id.trim())

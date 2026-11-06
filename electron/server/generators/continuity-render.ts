@@ -57,7 +57,7 @@ import {
   tryRecoverImageFromManifestEntry,
   type ImageRecoveryOutcome,
 } from '../lib/manifest-recovery.js'
-import { buildGenStudioImageIdempotencyKey, GenStudioImageTerminalFailureError, hasFullyReleasedZeroSettlement, isGenStudioInsufficientCredits, refreshGenStudioAdmission } from '../lib/genstudio-client.js'
+import { buildGenStudioImageIdempotencyKey, GenStudioImageTerminalFailureError, isGenStudioPaymentRefusal, refreshGenStudioAdmission } from '../lib/genstudio-client.js'
 import { checkpointGenStudioAsset } from '../services/genstudio-recovery.js'
 import {
   assertReleasedZeroSettlementImageRetrySubmit,
@@ -121,6 +121,7 @@ interface ContinuityRenderParams {
   /** Scene Review "Reference to Image": ids of THIS episode's characters whose
    *  portraits are attached before the episode template. Resolved to files by
    *  ownership lookup in the generator — the client never sends a path. */
+  image_mode?: 'text2img' | 'img2img'
   reference_character_ids?: string[]
   /** Set on the one automatic remake after a failed free image check. */
   image_check_remake?: boolean
@@ -201,8 +202,8 @@ export interface EpisodeReferencePlan {
  * a feature that is broken.
  *
  * @param availablePaths existing reference files, already in preference order.
- * @param maxReferences the model's PUBLISHED `max_reference_images`. FLUX.2
- *   Klein publishes 0 and must degrade to a text-only render, not fail.
+ * @param maxReferences the model's PUBLISHED `max_reference_images`; zero
+ *   means degrade to a text-only render, not fail.
  */
 export function planEpisodeReference(input: {
   enabled: boolean
@@ -408,9 +409,9 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
   // never inferred from the model's name, and never a hardcoded count. The
   // owner's decision for this step is ONE reference, so the published
   // `max_reference_images` is used as a can/cannot gate here rather than as a
-  // budget: FLUX.2 Klein publishes 0 and must degrade to a text-only render
-  // with the reason said out loud, not fail the batch and not silently
-  // pretend the switch did something.
+  // budget: a published zero degrades to a text-only render with the reason
+  // said out loud, not fail the batch and not silently pretend the switch did
+  // something.
   const supportsReferences = modelConfig.supports_reference_images === true
   const maxReferences = modelConfig.max_reference_images ?? (supportsReferences ? 1 : 0)
   const referenceDir = path.join(paths.episode_dir, EPISODE_REFERENCE_DIRNAME)
@@ -418,7 +419,7 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
     .map(name => path.join(referenceDir, name))
     .filter(candidate => existsSync(candidate))
   const referencePlan = planEpisodeReference({
-    enabled: cfg.use_episode_reference,
+    enabled: cfg.use_episode_reference && params.image_mode !== 'text2img',
     availablePaths: availableReferences,
     supportsReferences,
     maxReferences,
@@ -764,7 +765,7 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
     // 300-scene batch with one cast must not re-read the portraits 300 times.
     const resolvedBySelection = new Map<string, ResolvedSceneReferences>()
     for (const scene of toRender) {
-      const ids = sceneReferenceIds(scene, defaultReferenceIds)
+      const ids = sceneReferenceIds(scene, defaultReferenceIds, params.image_mode)
       if (!ids.length) {
         if (minReferences > 0) {
           throw new Error(
@@ -969,6 +970,9 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
           let sceneManualFinish = manualFinish
           let attemptNum = 1
           let zeroSettlementRetryPending = false
+          let retryDecisionScope: string | undefined
+          let currentDecisionOrdinal: number | undefined
+          let currentMaxRetries: number | undefined
           for (;;) {
             // Cancel and Pause are re-read at the top of EVERY attempt, not
             // just every scene: a resubmission must never start after the owner
@@ -1208,7 +1212,8 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
               // Free fleet skips the paid decision: a control read that throws or is
               // not "failed" made it answer "recover-original" forever (TN0355 scene 65).
               // The ordinary path below derives a new retry identity from the dead task.
-              if (!freeFleet && !sceneManualFinish && !zeroSettlementRetryPending && !replacementScope && !submittedRecoveryEntry && originalSelector && manifestEntry && isTerminalGenStudioImageTaskFailure(manifestEntry)
+              const sameAction = !force || logicalPaidScope(manifestEntry, manifestEntry?.request_scope || '').split(':retry:')[0] === baseScope
+              if (sameAction && !freeFleet && !sceneManualFinish && !zeroSettlementRetryPending && !replacementScope && !submittedRecoveryEntry && originalSelector && manifestEntry && isTerminalGenStudioImageTaskFailure(manifestEntry)
                 && manifestEntry.original_output_selector) {
                 const decision = await decidePaidImageReplacement({
                   job,
@@ -1237,7 +1242,14 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
                   jq.recordPaidImageReplacementPublicReason(job, decision.public_reason)
                   throw new Error(jq.PAID_IMAGE_REPLACEMENT_PUBLIC_MESSAGE)
                 }
-                if (decision.action === 'safe-zero-settlement-retry') zeroSettlementRetryPending = true
+                if (decision.action === 'safe-zero-settlement-retry' || decision.action === 'retry') {
+                  zeroSettlementRetryPending = true
+                  if (decision.action === 'retry' && decision.scope) {
+                    retryDecisionScope = decision.scope
+                    currentDecisionOrdinal = decision.attempt_ordinal
+                    currentMaxRetries = decision.max_retries
+                  }
+                }
                 if (decision.action === 'commit') replacementScope = decision.scope
               }
               // A terminal saved job promotes the scope to a NEW retry identity,
@@ -1245,14 +1257,14 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
               const retryEntry = manifestEntry?.request_scope?.includes(':selector:')
                 ? { ...manifestEntry, request_scope: logicalPaidScope(manifestEntry, baseScope) }
                 : manifestEntry
-              const retryScope = resolveImageRetryScope(retryEntry, baseScope)
-              let logicalScope = retryScope.scope
+              const retryScope = retryDecisionScope ? { scope: retryDecisionScope, isRetry: true } : resolveImageRetryScope(retryEntry, baseScope)
+              let logicalScope = retryDecisionScope || retryScope.scope
               let identity = originalSelector && capturedReferences
                 ? buildPaidImageOriginalIdentity({ prompt: finalPrompt, selector: originalSelector, references: capturedReferences.inputs, baseScope: logicalScope })
                 : null
               let requestScope = preparedReplay
                 ? manifestEntry!.request_scope!
-                : replacementScope || (submittedRecoveryEntry ? manifestEntry!.replacement_scope! : '') || identity?.requestScope || logicalScope
+                : (retryDecisionScope && identity ? identity.requestScope : replacementScope) || (submittedRecoveryEntry ? manifestEntry!.replacement_scope! : '') || identity?.requestScope || logicalScope
               const expectedInputHash = preparedReplay
                 ? manifestEntry!.input_hash!
                 : identity?.inputHash || hashRequest(requestScope)
@@ -1408,12 +1420,19 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
                     jq.recordPaidImageReplacementPublicReason(job, decision.public_reason)
                     throw new Error(jq.PAID_IMAGE_REPLACEMENT_PUBLIC_MESSAGE)
                   }
-                  if (decision.action === 'safe-zero-settlement-retry') zeroSettlementRetryPending = true
+                  if (decision.action === 'safe-zero-settlement-retry' || decision.action === 'retry') {
+                    zeroSettlementRetryPending = true
+                    if (decision.action === 'retry' && decision.scope) {
+                      retryDecisionScope = decision.scope
+                      currentDecisionOrdinal = decision.attempt_ordinal
+                      currentMaxRetries = decision.max_retries
+                    }
+                  }
                 }
                 const carriedRetry = carried.request_scope?.includes(':selector:')
                   ? { ...carried, request_scope: logicalPaidScope(carried, baseScope) }
                   : carried
-                logicalScope = resolveImageRetryScope(carriedRetry, baseScope).scope
+                logicalScope = retryDecisionScope || resolveImageRetryScope(carriedRetry, baseScope).scope
                 identity = originalSelector && capturedReferences
                   ? buildPaidImageOriginalIdentity({ prompt: finalPrompt, selector: originalSelector, references: capturedReferences.inputs, baseScope: logicalScope })
                   : null
@@ -1749,6 +1768,7 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
                           ...(params.width ? { width: params.width } : {}),
                           ...(params.height ? { height: params.height } : {}),
                           auto_approve_generated: autoApproveOn(params.auto_approve_generated),
+                          ...(params.image_mode ? { image_mode: params.image_mode } : {}),
                           ...(Array.isArray(params.reference_character_ids) ? { reference_character_ids: params.reference_character_ids } : {}),
                         },
                       })
@@ -1795,6 +1815,7 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
                           ...(params.width ? { width: params.width } : {}),
                           ...(params.height ? { height: params.height } : {}),
                           auto_approve_generated: autoApproveOn(params.auto_approve_generated),
+                          ...(params.image_mode ? { image_mode: params.image_mode } : {}),
                           ...(Array.isArray(params.reference_character_ids) ? { reference_character_ids: params.reference_character_ids } : {}),
                         },
                       })
@@ -1810,7 +1831,7 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
               break
             } catch (e: any) {
               if (e instanceof jq.JobPausedError || jq.isPauseRequested(job.job_id)) return
-              if (isGenStudioInsufficientCredits(e)) {
+              if (isGenStudioPaymentRefusal(e)) {
                 fatalError = e
                 return
               }
@@ -1853,7 +1874,6 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
                   const manualZeroSettlementRetry = Boolean(
                     sceneManualFinish
                     && !e.cancelled
-                    && hasFullyReleasedZeroSettlement(e)
                     && isRetryableZeroSettlementImageFailureCode(e.failureCode),
                   )
                   const decision = (!sceneManualFinish || manualZeroSettlementRetry) && attemptPaidSelector
@@ -1868,10 +1888,15 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
                       })
                     : null
                   if (decision) {
-                    job.output_lines.push(`Scene ${scene.scene_index}: paid replacement decision — ${decision.action}.`)
+                    job.output_lines.push(`Scene ${scene.scene_index}: retry decision — ${decision.action}.`)
                   }
                   releasedZeroSettlementRetry = isReleasedZeroSettlementImageRetry(e, decision)
                   zeroSettlementRetryPending ||= releasedZeroSettlementRetry
+                  if (decision?.action === 'retry' && decision.scope) {
+                    retryDecisionScope = decision.scope
+                    currentDecisionOrdinal = decision.attempt_ordinal
+                    currentMaxRetries = decision.max_retries
+                  }
                   if (sceneManualFinish && releasedZeroSettlementRetry) sceneManualFinish = undefined
                   if (decision?.action === 'wait') {
                     paidImageWaitRequested = true
@@ -1893,9 +1918,11 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
                 // settled-failed key, which returns the same failure forever.
                 const plan = sceneManualFinish ? null : continuityFleetBusyRetryPlan(e, attemptNum)
                   || (releasedZeroSettlementRetry
-                    ? { waitMs: imageRouteRetryDelayMs(attemptNum - 1), reason: 'The failed image was fully refunded', maxAttempts: attemptNum + 1 }
+                    ? { waitMs: imageRouteRetryDelayMs(attemptNum - 1), reason: 'The failed image was fully refunded', maxAttempts: (currentMaxRetries ?? 3) + 1 }
                     : null)
                 if (plan && failedTaskId && !jq.isCancelled(job.job_id) && !jq.isPauseRequested(job.job_id)) {
+                  const ordinal = currentDecisionOrdinal ?? (attemptNum + 1)
+                  const maxOrd = currentMaxRetries ?? plan.maxAttempts
                   fleetWaiting.set(scene.scene_index, {
                     attempt: attemptNum,
                     maxAttempts: plan.maxAttempts,
@@ -1906,7 +1933,7 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
                   job.output_lines.push(isFreeMacPlan(plan) ? freeMacWaitLine(`Scene ${scene.scene_index}`, e, plan.waitMs) :
                     `Scene ${scene.scene_index}: ${plan.reason.toLowerCase()} — nothing was charged. ` +
                     `Waiting ${Math.round(plan.waitMs / 1000)}s and trying again ` +
-                    `(attempt ${attemptNum + 1}${releasedZeroSettlementRetry ? '' : ` of ${plan.maxAttempts}`}).`,
+                    `(retry attempt ${ordinal}${currentMaxRetries ? ` of ${maxOrd}` : ''}).`,
                   )
                   // The failed entry is already on disk, so the scope the next
                   // attempt derives from it is reproducible after a crash

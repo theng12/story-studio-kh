@@ -80,23 +80,38 @@ test('(a) a busy fleet with the money returned earns another attempt', () => {
   }
 })
 
-test('(b) the same code with credits SETTLED is never resubmitted', () => {
-  // Settled credits mean a provider was paid and may already have rendered the
-  // clip. Resubmitting over that charges the owner twice for one video — the
-  // worst outcome available to this change — so a guarantee that can no longer
-  // be verified stops the retry, whatever the failure code claims.
+test('(b) legacy or missing settlement does not decide; the code and the job state do', () => {
+  // Story no longer tracks credits — the error's credit fields are null — so a
+  // legacy payload's settled/released numbers can neither grant nor deny an
+  // attempt. Only the failure code, cancellation, modality and the
+  // unknown-outcome hold decide.
+  for (const over of [
+    { failure_code: 'SITE_PLACEMENT_EXHAUSTED', settled_credits: 240, released_credits: 0 },
+    { failure_code: 'SITE_CAPACITY_UNAVAILABLE', settled_credits: 12, released_credits: 228 },
+    {
+      failure_code: 'SITE_PLACEMENT_EXHAUSTED',
+      reserved_credits: undefined, settled_credits: undefined, released_credits: undefined,
+    },
+  ]) {
+    const plan = sceneClipFleetBusyRetryPlan(videoFailure(over), 1)
+    assert.ok(plan, `${JSON.stringify(over)} must not deny the attempt by itself`)
+  }
   assert.equal(
-    sceneClipFleetBusyRetryPlan(videoFailure({
-      failure_code: 'SITE_PLACEMENT_EXHAUSTED', settled_credits: 240, released_credits: 0,
-    }), 1),
-    null,
+    videoFailure({ failure_code: 'SITE_PLACEMENT_EXHAUSTED' }).settledCredits, null,
+    'the error publishes no settlement to decide on',
   )
-  assert.equal(
-    sceneClipFleetBusyRetryPlan(videoFailure({
-      failure_code: 'SITE_CAPACITY_UNAVAILABLE', settled_credits: 12, released_credits: 228,
-    }), 1),
-    null,
-  )
+})
+
+test('(b2) an unknown-outcome hold is never resubmitted', () => {
+  // The gateway may still be holding a result that has not landed; a busy code
+  // on such a job must not buy a second clip.
+  for (const over of [{ recovery_state: 'unknown_outcome' }, { recovery_required: true }]) {
+    assert.equal(
+      sceneClipFleetBusyRetryPlan(videoFailure({ failure_code: 'SITE_PLACEMENT_EXHAUSTED', ...over }), 1),
+      null,
+      JSON.stringify(over),
+    )
+  }
 })
 
 test('(c) an unrelated failure is never retried as if the fleet were merely busy', () => {

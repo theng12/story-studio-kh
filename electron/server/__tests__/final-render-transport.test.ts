@@ -6,6 +6,7 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { after, before, test } from 'node:test'
+import sharp from 'sharp'
 import ts from 'typescript'
 
 import type { CompositionOpts } from '../generators/video.js'
@@ -192,7 +193,9 @@ before(async () => {
   globalThis.fetch = async (input, init = {}) => {
     const call = { url: String(input), method: init.method ?? 'GET', body: init.body }
     fetchCalls.push(call)
-    assert.equal(call.url, `${ORIGIN}/v1/final-renders/capabilities`)
+    // Story now asks about the exact encode it needs, so the read carries the scoped query.
+    assert.ok(call.url === `${ORIGIN}/v1/final-renders/capabilities`
+      || call.url.startsWith(`${ORIGIN}/v1/final-renders/capabilities?requested_encode=`), call.url)
     assert.equal(call.method, 'GET')
     assert.equal(call.body, undefined)
     assert.equal(new Headers(init.headers).get('Authorization'), `Bearer ${BEARER}`)
@@ -333,6 +336,54 @@ test('zero-capacity paired capability GET stages immutable copies and exact cano
   await fs.writeFile(value.composition.videoInputPath, 'later live source mutation\n')
   assert.deepEqual(await fs.readFile(path.join(path.dirname(manifestPath), 'base.mp4')), BASE_BYTES,
     'the staged copy is immutable with respect to later live-source changes')
+})
+
+test('a shaped logo is cut before staging so the remote recipe carries only the masked PNG', async () => {
+  fetchCalls = []
+  await setPrivateFinalRenderSetting({ enabled: true })
+  const value = await prepareCase('logo-rounded')
+  const logoPath = path.join(value.sourceDir, 'logo.png')
+  await sharp({ create: { width: 400, height: 200, channels: 3, background: '#ff0000' } }).png().toFile(logoPath)
+  value.composition.logo = {
+    enabled: true, image_path: logoPath, position: 'top-left', opacity: 1, scale: 0.5,
+    margin: 20, hide_during_intro: false, shape: 'rounded', corner_radius_pct: 20,
+  }
+  assert.deepEqual(await prepare(value), { kind: 'video-assembly-remote-wait' })
+
+  const canonical = await queue.loadAuthoritativeJob(value.job.project_slug, value.job.job_id)
+  const receipt = canonical?.final_render_remote_wait as any
+  const intentDir = path.join(retainedRoot, 'private-render', 'intents', receipt.intent_id)
+  const manifest = JSON.parse(await fs.readFile(path.join(intentDir, 'manifest.json'), 'utf8'))
+  assert.equal(manifest.sources.find((source: any) => source.role === 'logo').safe_name, 'logo.png')
+  const staged = path.join(intentDir, 'logo.png')
+  assert.notDeepEqual(await fs.readFile(staged), await fs.readFile(logoPath),
+    'the staged logo is the cut still, not the original file')
+  const { data, info } = await sharp(staged).ensureAlpha().raw().toBuffer({ resolveWithObject: true })
+  assert.equal(data[3], 0, 'a corner is cut away')
+  assert.equal(data[((Math.floor(info.height / 2) * info.width) + Math.floor(info.width / 2)) * info.channels + 3], 255,
+    'the middle is kept')
+  assert.deepEqual(manifest.packet.recipe.operations.find((operation: any) => operation.kind === 'logo'), {
+    kind: 'logo', asset: { type: 'asset_ref', logical_id: 'logo' }, opacity: 1,
+    scale: 0.5, anchor: 'top-left', margin_px: 20, gate: 'always',
+  })
+  assert.match(value.job.output_lines.join('\n'), /Logo shape: rounded corners \(20%\) · 64x32/)
+})
+
+test('a shape that cannot be cut keeps the render local and says so', async () => {
+  fetchCalls = []
+  await setPrivateFinalRenderSetting({ enabled: true })
+  const value = await prepareCase('logo-broken')
+  const logoPath = path.join(value.sourceDir, 'logo.png')
+  await fs.writeFile(logoPath, 'not an image')
+  value.composition.logo = {
+    enabled: true, image_path: logoPath, position: 'top-left', opacity: 1, scale: 0.1,
+    margin: 20, hide_during_intro: false, shape: 'circle',
+  }
+  assert.equal(await prepare(value), null)
+  assert.equal(value.job.final_render_remote_wait, undefined)
+  const lines = value.job.output_lines.join('\n')
+  assert.match(lines, /Logo shape: circle could not be made .*stays on this Mac/)
+  assert.match(lines, /not representable remotely \(logo shape\)/)
 })
 
 test('shared final composition holds before local encoding and both real callers pass authoritative destination facts', async () => {
@@ -534,7 +585,10 @@ async function isolatedBuildPrepare(
     const calls=[];
     globalThis.fetch=async (url,init={})=>{
       calls.push({url:String(url),method:init.method ?? 'GET',body:init.body ?? null});
-      if(String(url)!==input.origin+'/v1/final-renders/capabilities' || (init.method ?? 'GET')!=='GET' || init.body!==undefined)
+      const seen=String(url);
+      if(!(seen===input.origin+'/v1/final-renders/capabilities'
+        || seen.startsWith(input.origin+'/v1/final-renders/capabilities?requested_encode='))
+        || (init.method ?? 'GET')!=='GET' || init.body!==undefined)
         throw new Error('unexpected remote mutation');
       return Response.json(input.capabilities);
     };
@@ -705,7 +759,14 @@ test('descriptor preparation performs capability GET only', async () => {
   const result = await isolatedBuildPrepare(value, 'descriptor-only')
   assert.deepEqual(result.disposition, { kind: 'video-assembly-remote-wait' })
   assert.equal(result.error, undefined)
-  assert.deepEqual(result.calls, [{ url: `${ORIGIN}/v1/final-renders/capabilities`, method: 'GET', body: null }])
+  assert.equal(result.calls.length, 1)
+  assert.equal(result.calls[0]!.method, 'GET')
+  assert.equal(result.calls[0]!.body, null)
+  assert.ok(result.calls[0]!.url.startsWith(`${ORIGIN}/v1/final-renders/capabilities?requested_encode=`), result.calls[0]!.url)
+  assert.deepEqual(JSON.parse(decodeURIComponent(result.calls[0]!.url.split('requested_encode=')[1]!)), {
+    container: 'mp4', requested_codec: 'h264', requested_effort: 'ultrafast',
+    crf: 23, quality_cpu_preset: 'ultrafast', bitrate_kbps: null,
+  })
   assert.equal(result.receipt.phase, 'intent_staged')
   await assert.rejects(fs.stat(value.composition.outputFile), /ENOENT/)
 })
@@ -817,6 +878,102 @@ test('an encode the paired machine cannot execute stays local before staging', a
     assert.equal(canonical?.final_render_remote_wait?.phase, 'intent_staged')
   } finally {
     supported.restore()
+  }
+})
+
+test('a scoped encode answer stages only when the exact tuple is supported and a Mac can take it', async () => {
+  const intents = async (): Promise<string[]> => {
+    try {
+      return await fs.readdir(path.join(retainedRoot, 'private-render', 'intents'))
+    } catch {
+      return []
+    }
+  }
+  const matching = {
+    container: 'mp4', requested_codec: 'h264', requested_effort: 'ultrafast',
+    crf: 23, quality_cpu_preset: 'ultrafast', bitrate_kbps: null,
+  }
+  // The Gateway answers about the exact tuple Story asked for and may echo it back.
+  const withScope = async (answer: Record<string, unknown>) => {
+    const original = globalThis.fetch
+    const calls: string[] = []
+    globalThis.fetch = async (input, init = {}) => {
+      calls.push(String(input))
+      assert.equal(init.method ?? 'GET', 'GET')
+      return Response.json({ ...capabilities(), ...answer })
+    }
+    return { calls, restore: () => { globalThis.fetch = original } }
+  }
+
+  await setPrivateFinalRenderSetting({ enabled: true })
+
+  // The exact tuple is supported and a Mac can take it now: the render stages.
+  const supported = await withScope({
+    eligible: 1, idle: 1, requested_encode: matching,
+    encode: { format: 'studio.render.encode-authority.v1', entries: [matching] },
+  })
+  try {
+    const value = await prepareCase('scope-supported')
+    assert.deepEqual(await prepare(value), { kind: 'video-assembly-remote-wait' })
+    const canonical = await queue.loadAuthoritativeJob(value.job.project_slug, value.job.job_id)
+    assert.equal(canonical?.final_render_remote_wait?.phase, 'intent_staged')
+    assert.equal(supported.calls.length, 1)
+    assert.match(supported.calls[0]!, /requested_encode=/)
+  } finally {
+    supported.restore()
+  }
+  // The baseline is read after the one staging case, so the cases below prove they stage nothing.
+  const before = await intents()
+
+  // The tuple is supported, but every supporting Mac is busy: no new intent is staged.
+  const busy = await withScope({
+    eligible: 2, idle: 0, requested_encode: matching,
+    encode: { format: 'studio.render.encode-authority.v1', entries: [matching] },
+  })
+  try {
+    const value = await prepareCase('scope-busy')
+    assert.equal(await prepare(value), null)
+    assert.match(value.job.output_lines.join('\n'), /none is free right now/)
+    assert.match(value.job.output_lines.join('\n'), /stays on this Mac/)
+    // The customer sees the six requested settings and no path, no identifier, no secret.
+    assert.match(value.job.output_lines.join('\n'), /container mp4, codec h264, ultrafast effort, CRF 23, ultrafast CPU preset, no bitrate cap/)
+    assert.doesNotMatch(value.job.output_lines.join('\n'), /\/Users\/|private-render|retainedRoot/)
+    assert.equal(value.job.final_render_remote_wait, undefined)
+    assert.deepEqual(await intents(), before, 'a busy fleet stages nothing')
+  } finally {
+    busy.restore()
+  }
+
+  // No Mac is qualified for this exact encode: that is missing support, not a busy fleet.
+  const unsupported = await withScope({
+    eligible: 0, idle: 0, requested_encode: matching,
+    encode: { format: 'studio.render.encode-authority.v1', entries: [] },
+  })
+  try {
+    const value = await prepareCase('scope-unsupported')
+    assert.equal(await prepare(value), null)
+    assert.match(value.job.output_lines.join('\n'), /no Mac is qualified for this exact encode/)
+    assert.doesNotMatch(value.job.output_lines.join('\n'), /none is free right now/)
+    assert.match(value.job.output_lines.join('\n'), /container mp4, codec h264, ultrafast effort, CRF 23, ultrafast CPU preset, no bitrate cap/)
+    assert.equal(value.job.final_render_remote_wait, undefined)
+    assert.deepEqual(await intents(), before, 'an unsupported encode stages nothing')
+  } finally {
+    unsupported.restore()
+  }
+
+  // No echo at all is an older Gateway: today's exact-list check decides, unchanged.
+  const legacy = await withScope({
+    eligible: 1, idle: 1,
+    encode: { format: 'studio.render.encode-authority.v1', entries: [{ ...matching, requested_effort: 'medium' }] },
+  })
+  try {
+    const value = await prepareCase('scope-legacy')
+    assert.equal(await prepare(value), null)
+    assert.match(value.job.output_lines.join('\n'), /exact encode is not qualified for remote rendering/)
+    assert.equal(value.job.final_render_remote_wait, undefined)
+    assert.deepEqual(await intents(), before, 'a legacy mismatch stages nothing')
+  } finally {
+    legacy.restore()
   }
 })
 

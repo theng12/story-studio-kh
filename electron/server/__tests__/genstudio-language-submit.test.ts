@@ -183,16 +183,17 @@ test('a refusal that is not request_in_progress is still a failure', async () =>
         headers: { 'content-type': 'application/json' },
       })
     }
-    await assert.rejects(
-      () => callChatWithGenStudio('credit-key', {
-        modelId: 'writer-alpha',
-        system: '',
-        userMessage: 'One pack.',
-        outputContract: { mode: 'json_object' },
-      }),
-      /insufficient credits/i,
-      'the reattachment loop must not swallow an ordinary refusal',
-    )
+    // A 402 is a terminal refusal carrying Gateway's own reason. Story holds no
+    // balance, so it neither waits on one nor coaches the owner about credits.
+    const error = await callChatWithGenStudio('credit-key', {
+      modelId: 'writer-alpha',
+      system: '',
+      userMessage: 'One pack.',
+      outputContract: { mode: 'json_object' },
+    }).then(() => null, (caught: unknown) => caught as Error)
+    assert.ok(error, 'a 402 must reject')
+    assert.match(error.message, /The Gateway refused this request: balance too low/)
+    assert.doesNotMatch(error.message, /Add credits/i, 'Story never instructs on credits')
     assert.equal(submissions, 1, 'a 402 is not replayed')
   } finally {
     globalThis.fetch = originalFetch

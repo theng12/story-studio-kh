@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import test from 'node:test'
 import { compileScript, compileTemplate, parse } from '@vue/compiler-sfc'
-import { transform } from 'esbuild'
+import { build } from 'esbuild'
 import { createApp, defineComponent, h, nextTick } from 'vue'
 import { setRevealCatalog, revealFromDraft, applyRevealPreset } from '../utils/sketch-reveal.js'
 
@@ -12,9 +12,31 @@ const { descriptor } = parse(readFileSync(filename, 'utf8'), { filename })
 const script = compileScript(descriptor, { id: 'reveal-picker' })
 const template = compileTemplate({ source: descriptor.template!.content, filename, id: 'reveal-picker', compilerOptions: { bindingMetadata: script.bindings } })
 assert.deepEqual(template.errors, [])
-const { code } = await transform(`${script.content.replace('export default', 'const __sfc__ =')}\n${template.code}\n__sfc__.render = render\nexport default __sfc__`, { loader: 'ts', format: 'esm' })
+// Bundle the SFC so its own relative import (the shared line weights) resolves:
+// a data: URL cannot resolve relative specifiers, only a bundle can.
+const bundled = await build({
+  stdin: {
+    contents: `${script.content.replace('export default', 'const __sfc__ =')}\n${template.code}\n__sfc__.render = render\nexport default __sfc__`,
+    loader: 'ts',
+    resolveDir: fileURLToPath(new URL('../components/', import.meta.url)),
+    sourcefile: filename,
+  },
+  bundle: true,
+  format: 'esm',
+  external: ['vue'],
+  write: false,
+})
+const code = bundled.outputFiles[0]!.text
 const Picker = (await import(`data:text/javascript;base64,${Buffer.from(code.replaceAll('"vue"', JSON.stringify(await import.meta.resolve('vue')))).toString('base64')}`)).default
 const Dialog = defineComponent({ props: { visible: Boolean }, setup: (props, { slots }) => () => props.visible ? h('div', slots.default?.()) : null })
+
+test('the loader resolves the component source import of the shared weights', () => {
+  assert.match(code, /LINE_WEIGHTS/, 'the shared util rode into the bundle')
+  assert.doesNotMatch(code, /from ["']\.{1,2}\//, 'nothing relative is left for the data: URL to fail on')
+  const source = readFileSync(filename, 'utf8')
+  assert.match(source, /import \{ LINE_WEIGHTS, lineWeightLabel \} from '\.\.\/utils\/sketch-line-weight'/)
+  assert.doesNotMatch(source, /WEIGHT_OPTIONS/, 'the runtime options are not duplicated here')
+})
 
 test('picker displays native samples and saves selected reveal and weight', async () => {
   const host = document.body.appendChild(document.createElement('div'))
@@ -25,8 +47,7 @@ test('picker displays native samples and saves selected reveal and weight', asyn
   host.querySelector<HTMLButtonElement>('.trigger')!.click()
   await nextTick()
   assert.equal(host.querySelectorAll('video[autoplay][loop][muted]').length, 2)
-  const select = host.querySelector<HTMLSelectElement>('select')!
-  select.value = 'bold'; select.dispatchEvent(new Event('change'))
+  ;[...host.querySelectorAll<HTMLButtonElement>('.weight-tab')].find(tab => tab.textContent?.trim() === 'Bold')!.click()
   await nextTick()
   assert.match(host.querySelectorAll('video')[1].getAttribute('src')!, /new-engine-style\/sample\?weight=bold/)
   host.querySelectorAll<HTMLButtonElement>('.card')[1].click()

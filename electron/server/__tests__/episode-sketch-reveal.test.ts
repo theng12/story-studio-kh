@@ -65,6 +65,11 @@ async function episode(slug: string, code: string) {
   return { code, dir: found.episode_dir, image }
 }
 
+/** Put this clip's receipt into the episode's Scene Plan — the evidence a channel-save pin reads. */
+async function planWithClip(slug: string, ep: { code: string; dir: string }, clip: unknown) {
+  await fs.writeFile(await paths.resolveScenePlanPath(slug, ep.code, ep.dir), JSON.stringify({ scenes: [clip] }))
+}
+
 /** Real scenes in the plan, so the review read can resolve a Mix per scene before anything is rendered. */
 async function planEpisode(slug: string, code: string) {
   const ep = await episode(slug, code)
@@ -140,17 +145,42 @@ describe('per-episode Sketch Draw reveal', () => {
     assert.equal(await stale(slug, ep2, clip2again), null)
   })
 
-  test('changing the channel default touches only the episodes that follow it', async () => {
+  test('a channel reveal change pins a clipped episode to the reveal its clips were drawn with; a clip-less one follows the new default', async () => {
     const slug = await channel('Channel moves')
-    const ep1 = await episode(slug, 'EP001')
-    const ep2 = await episode(slug, 'EP002')
+    const ep1 = await episode(slug, 'EP001') // has a Sketch Draw clip
+    const ep2 = await episode(slug, 'EP002') // its own reveal
+    const ep3 = await episode(slug, 'EP003') // no clips at all
     await revealStore.writeEpisodeSketchReveal(slug, 'EP002', { style: 'swipes', mix: [] })
     const clip1 = await renderedUnderCurrentReveal(slug, 'EP001')
     const clip2 = await renderedUnderCurrentReveal(slug, 'EP002')
+    await planWithClip(slug, ep1, clip1) // the receipt on disk: the pin's evidence
 
-    await pm.updateConfig(slug, { motion_presentation: { renderer: 'sketch_draw', pen: 'none', reveal: { style: 'buildup', mix: [] } } } as any)
-    assert.equal(await stale(slug, ep1, clip1), 'stale reveal style (line → buildup)')
+    await request(app).put(`/api/projects/${slug}/motion-presentation`)
+      .send({ renderer: 'sketch_draw', pen: 'none', reveal: { style: 'buildup', mix: [] } }).expect(200)
+
+    // EP1 keeps the reveal its clip was drawn with. The channel had never chosen one, so those
+    // clips drew with the line reveal — and that is what the pin says, never "follow the channel".
+    assert.deepEqual(await revealStore.readEpisodeSketchReveal(slug, 'EP001'), { style: 'line', mix: [] })
+    assert.equal(await stale(slug, ep1, clip1), null, 'the pinned reveal keeps EP1\'s clip fresh')
+    assert.equal((await checkpoint.resolveSketchDrawSettings(slug, 'EP001')).reveal?.style, 'line',
+      'a redo of EP1 draws with the pinned reveal, not the new channel default')
+    // EP3 has no clips, so it follows the new default.
+    assert.equal(await revealStore.readEpisodeSketchReveal(slug, 'EP003'), null)
+    assert.equal((await checkpoint.resolveEpisodeReveal(slug, 'EP003')).reveal?.style, 'buildup')
+    // EP2's own reveal is never overwritten.
+    assert.deepEqual(await revealStore.readEpisodeSketchReveal(slug, 'EP002'), { style: 'swipes', mix: [] })
     assert.equal(await stale(slug, ep2, clip2), null, 'EP2 has its own reveal')
+  })
+
+  test('a channel save is refused, naming the episode, when its scene plan cannot be read', async () => {
+    const slug = await channel('Unreadable plan')
+    const ep = await episode(slug, 'EP001')
+    await fs.writeFile(await paths.resolveScenePlanPath(slug, 'EP001', ep.dir), '{ not json')
+    const refused = await request(app).put(`/api/projects/${slug}/motion-presentation`)
+      .send({ renderer: 'sketch_draw', pen: 'none', reveal: { style: 'buildup', mix: [] } }).expect(409)
+    assert.match(refused.body.detail, /EP001/)
+    assert.equal((await pm.getConfig(slug))?.motion_presentation?.reveal, undefined, 'a refused save changes nothing')
+    assert.equal(await revealStore.readEpisodeSketchReveal(slug, 'EP001'), null, 'and no pin was written')
   })
 
   test('clearing the episode value returns it to the channel default, and the file is kept', async () => {

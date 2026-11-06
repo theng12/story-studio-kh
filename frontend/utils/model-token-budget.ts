@@ -43,6 +43,10 @@ export interface ModelTokenLimits {
   max_output_tokens?: number
   /** Where `max_output_tokens` came from. Absent/null means unlabelled. */
   max_output_tokens_source?: PublishedLimitSource | null
+  /** The Gateway's published request ceiling, when stated. */
+  max_request_tokens?: number
+  /** Where `max_request_tokens` came from. Absent/null means unlabelled. */
+  max_request_tokens_source?: PublishedLimitSource | null
 }
 
 const PUBLISHED_LIMIT_SOURCES: readonly PublishedLimitSource[] = [
@@ -106,6 +110,11 @@ export function contextWindowTokens(model: ModelTokenLimits | null | undefined):
 /** The product's published maximum output allowance, or 0 when unpublished. */
 export function maxOutputTokens(model: ModelTokenLimits | null | undefined): number {
   return model ? positiveInt(model.max_output_tokens) : 0
+}
+
+/** The product's published request (input-side) ceiling, or 0 when unpublished. */
+export function maxRequestTokens(model: ModelTokenLimits | null | undefined): number {
+  return model ? positiveInt(model.max_request_tokens) : 0
 }
 
 /** Ladder seeds; doubling and merging them reproduces the historical

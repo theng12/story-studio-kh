@@ -30,7 +30,11 @@ import {
   PROMPT_CHARS_PER_TOKEN_ESTIMATE,
 } from '../services/output-token-budget.js'
 
-function catalog(contextWindowTokens: number | null, maxOutputTokens: number | null) {
+function catalog(
+  contextWindowTokens: number | null,
+  maxOutputTokens: number | null,
+  maxRequestTokens?: number,
+) {
   return [{
     id: 'writer-alpha',
     display_name: 'Writer Alpha',
@@ -38,6 +42,7 @@ function catalog(contextWindowTokens: number | null, maxOutputTokens: number | n
     qualification_only: false,
     context_window_tokens: contextWindowTokens,
     max_output_tokens: maxOutputTokens,
+    ...(maxRequestTokens === undefined ? {} : { max_request_tokens: maxRequestTokens }),
     controls: ['temperature', 'max_output_tokens'],
     activation_blockers: [],
     structured_output_mode: 'json_object',
@@ -84,7 +89,11 @@ interface Submission {
 /** Run one chat call against a fixture product and report what it ASKED for. */
 async function submitted(
   request: Parameters<typeof callChatWithGenStudio>[1],
-  product: { contextWindowTokens: number | null; maxOutputTokens: number | null },
+  product: {
+    contextWindowTokens: number | null
+    maxOutputTokens: number | null
+    maxRequestTokens?: number
+  },
 ): Promise<Submission> {
   const originalFetch = globalThis.fetch
   let maxOutputTokens: number | undefined
@@ -92,7 +101,9 @@ async function submitted(
   try {
     globalThis.fetch = async (input, init) => {
       const url = String(input)
-      if (url.endsWith('/v1/chat/models')) return Response.json(catalog(product.contextWindowTokens, product.maxOutputTokens))
+      if (url.endsWith('/v1/chat/models')) {
+        return Response.json(catalog(product.contextWindowTokens, product.maxOutputTokens, product.maxRequestTokens))
+      }
       if (url.endsWith('/v1/account/overview')) return Response.json(accountOverview())
       submitted = true
       const body = JSON.parse(String(init?.body))
@@ -139,7 +150,12 @@ test('the bound is the window minus the prompt, and nothing is invented', () => 
   assert.equal(boundOutputTokensToContext(null, 32_768, 400).maxTokens, null)
   // No published window: today's behaviour, byte for byte.
   assert.deepEqual(boundOutputTokensToContext(64_000, 0, 400), {
-    maxTokens: 64_000, promptTokens: 100, contextWindowTokens: null, overflow: false,
+    maxTokens: 64_000,
+    promptTokens: 100,
+    contextWindowTokens: null,
+    requestLimit: null,
+    overflow: false,
+    overflowLimit: null,
   })
   // The prompt alone leaves no room.
   const overflow = boundOutputTokensToContext(64_000, 32_768, 32_768 * PROMPT_CHARS_PER_TOKEN_ESTIMATE)
@@ -221,4 +237,88 @@ test('a model switch recomputes the bound from the newly selected product', asyn
   assert.equal(small.maxOutputTokens, 32_768 - promptTokensOf(characters))
   assert.equal(large.maxOutputTokens, 64_000, 'the published 64,000 ceiling, now inside the window')
   assert.notEqual(small.maxOutputTokens, large.maxOutputTokens)
+})
+
+// ── the Gateway's published request ceiling (`max_request_tokens`) ────────
+//
+// Per model and per pool (the smallest of the enabled members'). It is the
+// INPUT-side admission line: it never lowers the answer, and an absent value
+// enforces nothing. The fleet's caller → published cap → 128,000 chain keeps
+// its last link downstream; Story never substitutes 4,096 (or any number).
+
+test('gemma-4: a fitting prompt keeps its 8,192-token answer and a prompt past 23,000 is refused', async () => {
+  const gemma = { contextWindowTokens: 32_768, maxOutputTokens: 8_192, maxRequestTokens: 23_000 }
+  const fits = await submitted(request(400, 'maximum'), gemma)
+  assert.equal(fits.submitted, true)
+  assert.equal(fits.maxOutputTokens, 8_192, 'the request ceiling never lowers the answer')
+
+  // Exactly at the request ceiling: 23,000 ASCII characters ÷ 4 = 23,000 tokens.
+  const atCap = await submitted(request(92_000, 'maximum'), gemma)
+  assert.equal(atCap.submitted, true, 'a prompt at the line still fits')
+  assert.equal(atCap.maxOutputTokens, 8_192)
+
+  // One token past it: refused before anything is sent, with both figures.
+  const characters = 92_004
+  const originalFetch = globalThis.fetch
+  let submittedCalls = 0
+  let caught: unknown = null
+  try {
+    globalThis.fetch = async (input) => {
+      const url = String(input)
+      if (url.endsWith('/v1/chat/models')) return Response.json(catalog(32_768, 8_192, 23_000))
+      if (url.endsWith('/v1/account/overview')) return Response.json(accountOverview())
+      submittedCalls += 1
+      return Response.json(chatJob())
+    }
+    keySeq += 1
+    await callChatWithGenStudio(`window-key-${keySeq}`, request(characters, 'maximum'))
+      .catch((error: unknown) => { caught = error })
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+  assert.equal(submittedCalls, 0, 'nothing was submitted')
+  assert.ok(caught instanceof Error)
+  assert.match(caught.message, /23,001 tokens/, 'the prompt figure')
+  assert.match(caught.message, /23,000-token request limit/, 'the published figure')
+  assert.match(caught.message, /No request or credit charge was made/)
+})
+
+test('absent output and request caps stay unknown — no 4,096 and no substituted 128,000', async () => {
+  // Gateway 227's story-llm pool publishes a 1,050,000-token window and no
+  // output or request ceiling. The field is omitted; the Hub's own 128,000
+  // fallback is the last link of the chain, never a number Story sends.
+  const result = await submitted(
+    request(400, 'maximum'),
+    { contextWindowTokens: 1_050_000, maxOutputTokens: null },
+  )
+  assert.equal(result.submitted, true)
+  assert.equal(result.maxOutputTokens, undefined, 'the ceiling is omitted, not invented')
+  assert.notEqual(result.maxOutputTokens, 4_096)
+  assert.notEqual(result.maxOutputTokens, 128_000)
+
+  const bounded = boundOutputTokensToContext(128_000, 1_050_000, 400)
+  assert.equal(bounded.requestLimit, null, 'no request ceiling was published, so none is enforced')
+  assert.equal(bounded.maxTokens, 128_000, 'a large published window never shrinks the caller\'s allowance')
+})
+
+test('an explicit caller allowance wins below the published caps', async () => {
+  const originalFetch = globalThis.fetch
+  let requested: number | undefined
+  try {
+    globalThis.fetch = async (input, init) => {
+      const url = String(input)
+      if (url.endsWith('/v1/chat/models')) return Response.json(catalog(32_768, 8_192, 23_000))
+      if (url.endsWith('/v1/account/overview')) return Response.json(accountOverview())
+      requested = JSON.parse(String(init?.body)).max_output_tokens
+      return Response.json(chatJob())
+    }
+    keySeq += 1
+    await callChatWithGenStudio(`window-key-${keySeq}`, {
+      ...request(400, 'maximum'),
+      maxOutputTokens: 4_096,
+    })
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+  assert.equal(requested, 4_096, 'the caller\'s number is not replaced by the tier')
 })

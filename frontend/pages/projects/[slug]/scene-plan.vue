@@ -262,12 +262,15 @@
                model’s published output limit". It did not: a hardcoded 50-scene
                cap sat on top of the derivation and bound for every model
                publishing 20,000 output tokens or more. The cap is gone, and the
-               copy now states the two things that actually decide the number. -->
+               copy now states the things that actually decide the number. -->
           <p v-if="hasPublishedPromptBudget" class="scene-setting-help">
             Automatic sends this channel’s default of {{ promptBatchSizeDefault }} scenes per request, reduced only if
-            the selected Gateway model cannot return that many complete in one response. Its published output
-            limit is the only ceiling — {{ maximumPromptPackSize.toLocaleString() }} scenes on the model chosen now.
-            <template v-if="promptBudgetSourceNote">That limit is {{ promptBudgetSourceNote }}.</template>
+            the selected Gateway model cannot return that many complete in one response. The output-derived upper bound
+            is {{ maximumPromptPackSize.toLocaleString() }} scenes on the model chosen now; actual requests are also
+            fitted to assembled input and context window.
+            <template v-if="publishedRequestCeilingLabel">The published request ceiling is {{ publishedRequestCeilingLabel }}.</template>
+            <template v-else>No request ceiling is published for this model.</template>
+            <template v-if="promptBudgetSourceNote"> The output limit is {{ promptBudgetSourceNote }}.</template>
           </p>
           <p v-else-if="hasUnpublishedExplicitPromptBudget" class="scene-setting-help">
             This model publishes no output ceiling. Story Studio sends your selected allowance of up to
@@ -1238,6 +1241,7 @@ import {
   describeUnstatedLimitSource,
   isModelTokenLimitError,
   maxOutputTokens as publishedMaxOutputTokens,
+  maxRequestTokens as publishedMaxRequestTokens,
   outputAllowanceOptions,
   type ModelTokenLimits,
 } from '../../../utils/model-token-budget.js'
@@ -2002,9 +2006,10 @@ const PROMPT_PACK_MIN = 1
  * This page used to carry its own `PROMPT_PACK_MAX = 50` — a duplicate of a
  * backend constant, applied with the same formula, so both ends independently
  * threw away a correct model-aware derivation. The presets above are shortcuts,
- * not limits: "Custom…" accepts any whole number, and the only ceiling shown
- * anywhere is `maximumPromptPackSize`, which is derived from the SELECTED
- * model's published output allowance and the channel's own tuning below.
+ * not limits: "Custom…" accepts any whole number. The output-derived figure
+ * shown is `maximumPromptPackSize`, derived from the SELECTED model's
+ * published output allowance and the channel's own tuning below; the
+ * published request ceiling is displayed separately beside it.
  */
 /**
  * Defaults only — mirrors `services/scene-prompt-batching.ts`. Each is
@@ -2224,6 +2229,11 @@ const hasPublishedPromptBudget = computed(() => !!form.value.model && selectedMo
  * not a claim about its author.
  */
 const promptBudgetSourceNote = computed(() => describeUnstatedLimitSource(liveModelLimits.value))
+const publishedRequestCeilingLabel = computed<string>(() => {
+  const tokens = publishedMaxRequestTokens(liveModelLimits.value)
+  if (tokens) return `${tokens.toLocaleString()} tokens`
+  return ''
+})
 /** Published `context_window_tokens`, falling back to the deprecated
  *  `context_limit_tokens` alias only when the current field is absent. */
 const selectedModelContextWindow = computed(() => contextWindowTokens(liveModelLimits.value))

@@ -139,6 +139,7 @@ export function useEpisodeStatus(
       try {
         const data = await get<any>(
           `/projects/${projectSlug}/episodes/${encodeURIComponent(code)}/status?invalidate=1`,
+          { cache: 'no-store' },
         )
         // Race guard: if the user switched episodes while this request was in
         // flight, discard the stale result — applying it would show episode

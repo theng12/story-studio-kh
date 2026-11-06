@@ -16,6 +16,7 @@ const snapshot = (value: unknown) => JSON.parse(JSON.stringify(value))
 function model(ratios: string[], defaultRatio = '') {
   return {
     id: 'task14-image', display_name: 'Live image model', available: true,
+    image_modes: [{ id: 'txt2img', label: 'Text to image', available: true }],
     aspect_ratios: ratios, default_aspect_ratio: defaultRatio,
     output_options: [], supports_seed: false, max_prompt_characters: 2400,
   }

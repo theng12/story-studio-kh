@@ -65,9 +65,7 @@ export interface AudioQualityRepairAction {
   /** Exact active source filenames at check time; bytes alone do not prove map ownership. */
   source_files: Record<string, string[]>
   mode: 'flag_issues' | 'check_and_repair'
-  /** User-approved total for later candidate ASR quote confirmations. */
-  verification_credit_ceiling?: number
-  verification_committed_credits?: number
+  /** The Gateway's own quote the owner confirmed; a price it published, not a budget. */
   verification_quote?: { id: string; quoted_credit_cost?: number; price_version?: string }
   /** Frozen alternate ASR model for this explicit repair action. */
   verification_model_id?: string
@@ -100,8 +98,6 @@ export interface AudioQualityRepairAction {
   active_check?: {
     model_id: string
     staging_dir: string
-    credit_ceiling?: number
-    committed_credits?: number
     state: 'quoted' | 'checking' | 'needs_approval' | 'no_issue_detected' | 'review_needed'
     quotes: Record<string, { id: string; audio_hash: string; quoted_credit_cost?: number; price_version?: string }>
   }
@@ -198,10 +194,6 @@ function repairAction(value: unknown): AudioQualityRepairAction | null {
       .flatMap(([slug, files]) => { const safeSlug = text(slug); return safeSlug ? [[safeSlug, safeFiles(files)] as [string, string[]]] : [] })
       .filter((pair): pair is [string, string[]] => pair[1].length > 0))
     : {}
-  const verification_credit_ceiling = typeof row.verification_credit_ceiling === 'number'
-    ? row.verification_credit_ceiling : undefined
-  const verification_committed_credits = typeof row.verification_committed_credits === 'number'
-    ? row.verification_committed_credits : undefined
   const rawQuote = row.verification_quote && typeof row.verification_quote === 'object'
     ? row.verification_quote as Record<string, unknown> : null
   const verification_quote = rawQuote && text(rawQuote.id) ? {
@@ -214,10 +206,7 @@ function repairAction(value: unknown): AudioQualityRepairAction | null {
   if (!action_id || !scope_fingerprint || !source_fingerprint || !created_at || !sections.length
     || sections.some(section => !source_files[section]?.length)
     || !['flag_issues', 'check_and_repair'].includes(String(mode))
-    || (verification_credit_ceiling !== undefined && (!Number.isSafeInteger(verification_credit_ceiling) || verification_credit_ceiling < 1))
-    || (verification_committed_credits !== undefined && (!Number.isSafeInteger(verification_committed_credits) || verification_committed_credits < 0))
-    || !['checked', 'confirmed', 'candidate_ready', 'needs_approval', 'fixed', 'still_needs_review', 'cancelled'].includes(String(state))
-    || (state !== 'checked' && verification_credit_ceiling === undefined)) return null
+    || !['checked', 'confirmed', 'candidate_ready', 'needs_approval', 'fixed', 'still_needs_review', 'cancelled'].includes(String(state))) return null
   const rawCandidate = row.candidate && typeof row.candidate === 'object' ? row.candidate as Record<string, unknown> : null
   const candidate = rawCandidate ? (() => {
     const model_id = text(rawCandidate.model_id)
@@ -277,8 +266,6 @@ function repairAction(value: unknown): AudioQualityRepairAction | null {
   const active_check = rawActiveCheck ? (() => {
     const model_id = text(rawActiveCheck.model_id)
     const staging_dir = text(rawActiveCheck.staging_dir)
-    const credit_ceiling = typeof rawActiveCheck.credit_ceiling === 'number' ? rawActiveCheck.credit_ceiling : undefined
-    const committed_credits = typeof rawActiveCheck.committed_credits === 'number' ? rawActiveCheck.committed_credits : undefined
     const state = rawActiveCheck.state
     const quotes = rawActiveCheck.quotes && typeof rawActiveCheck.quotes === 'object'
       ? Object.fromEntries(Object.entries(rawActiveCheck.quotes as Record<string, unknown>).flatMap(([slug, value]) => {
@@ -289,13 +276,10 @@ function repairAction(value: unknown): AudioQualityRepairAction | null {
           ...(text(item!.price_version) ? { price_version: text(item!.price_version)! } : {}),
         }]] : []
       })) : {}
-    const validCeiling = credit_ceiling === undefined || (Number.isSafeInteger(credit_ceiling) && credit_ceiling >= 1)
-    const validCommitted = committed_credits === undefined || (Number.isSafeInteger(committed_credits) && committed_credits >= 0)
-    return model_id && staging_dir && validCeiling && validCommitted
+    return model_id && staging_dir
       && ['quoted', 'checking', 'needs_approval', 'no_issue_detected', 'review_needed'].includes(String(state))
       && Object.keys(quotes).length
-      ? { model_id, staging_dir, ...(credit_ceiling !== undefined ? { credit_ceiling } : {}),
-        ...(committed_credits !== undefined ? { committed_credits } : {}),
+      ? { model_id, staging_dir,
         state: state as NonNullable<AudioQualityRepairAction['active_check']>['state'], quotes }
       : null
   })() : null
@@ -304,8 +288,6 @@ function repairAction(value: unknown): AudioQualityRepairAction | null {
     state: state as AudioQualityRepairAction['state'], mode: mode as AudioQualityRepairAction['mode'], created_at,
     ...(text(row.confirmed_at) ? { confirmed_at: text(row.confirmed_at)! } : {}),
     ...(text(row.script_fingerprint) ? { script_fingerprint: text(row.script_fingerprint)! } : {}),
-    ...(verification_credit_ceiling !== undefined ? { verification_credit_ceiling } : {}),
-    ...(verification_committed_credits !== undefined ? { verification_committed_credits } : {}),
     ...(verification_quote ? { verification_quote } : {}),
     ...(verification_model_id ? { verification_model_id } : {}),
     ...(candidate ? { candidate } : {}),

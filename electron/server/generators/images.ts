@@ -28,7 +28,7 @@ import {
   tryRecoverImageFromManifestEntry,
   type ImageRecoveryOutcome,
 } from '../lib/manifest-recovery.js'
-import { buildGenStudioImageIdempotencyKey, GenStudioImageTerminalFailureError, isGenStudioInsufficientCredits, isGenStudioRouteExhausted, refreshGenStudioAdmission } from '../lib/genstudio-client.js'
+import { buildGenStudioImageIdempotencyKey, GenStudioImageTerminalFailureError, isGenStudioPaymentRefusal, isGenStudioRouteExhausted, refreshGenStudioAdmission } from '../lib/genstudio-client.js'
 import { readManifest, type Manifest } from '../services/task-manifest.js'
 import { findReferencedCharacters } from '../lib/character-name-match.js'
 import { resolveProjectArtStyle } from '../services/art-style-resolver.js'
@@ -668,6 +668,12 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
     throw new Error(`Thumbnail prompt ${req.thumb_number} was not found. Refresh the thumbnail list and choose an available prompt.`)
   }
 
+  if (mode === 'thumbs') {
+    const { assertThumbnailOptionsApproved } = await import('../services/thumbnail-option-settings.js')
+    await assertThumbnailOptionsApproved(project_slug, episode_id,
+      thumbnails.filter(item => req.thumb_number == null || item.number === req.thumb_number))
+  }
+
   // Phase 8 — load this episode's character cast once for reference-image
   // wiring. Auto-detect: scan each scene's prompt text for character names
   // and forward matching characters' reference images to the provider.
@@ -1036,13 +1042,14 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
     filename: string,
     prompt: string,
     paid?: { selector: PaidImageOutputSelector; references: ReturnType<typeof capturePaidImageReferenceIdentity>; outputPath: string },
+    explicitLogicalScope?: string,
   ): Promise<DurableImageAttempt> {
     const baseScope = force ? `force:${generationActionId || job.job_id}` : 'default'
     const entry = manifest.tasks[filename] || null
     const retryEntry = entry?.request_scope?.includes(':selector:')
       ? { ...entry, request_scope: logicalPaidScope(entry, baseScope) }
       : entry
-    let logicalScope = actionScope(retryEntry, baseScope)
+    let logicalScope = explicitLogicalScope || actionScope(retryEntry, baseScope)
     let identity = paid ? buildPaidImageOriginalIdentity({
       prompt, selector: paid.selector, references: paid.references.inputs, baseScope: logicalScope,
     }) : null
@@ -1100,7 +1107,7 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
       const carriedRetry = carried.request_scope?.includes(':selector:')
         ? { ...carried, request_scope: logicalPaidScope(carried, baseScope) }
         : carried
-      logicalScope = actionScope(carriedRetry, baseScope)
+      logicalScope = explicitLogicalScope || actionScope(carriedRetry, baseScope)
       identity = paid ? buildPaidImageOriginalIdentity({
         prompt, selector: paid.selector, references: paid.references.inputs, baseScope: logicalScope,
       }) : null
@@ -1142,21 +1149,31 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
     previous: DurableImageAttempt,
     failedTaskId: string,
     prompt: string,
+    explicitScope?: string,
   ): DurableImageAttempt {
     const failedEntry: TaskManifestEntry = {
       provider: providerId(),
       task_id: failedTaskId,
       submitted_at: previous.submittedAt,
       input_hash: previous.inputHash,
-      request_scope: previous.scope,
+      request_scope: previous.scope?.includes(':selector:')
+        ? logicalPaidScope({ request_scope: previous.scope } as any, previous.baseScope)
+        : previous.scope,
       operation: 'image',
       last_state: 'failed',
     }
-    const scope = actionScope(failedEntry, previous.baseScope)
+    const logicalScope = explicitScope || actionScope(failedEntry, previous.baseScope)
+    const identity = previous.original?.original_output_selector ? buildPaidImageOriginalIdentity({
+      prompt,
+      selector: previous.original.original_output_selector,
+      references: (previous.original.original_reference_inputs || []) as any,
+      baseScope: logicalScope,
+    }) : null
+    const scope = identity?.requestScope || logicalScope
     return {
       recovery: { kind: 'no-saved-job' },
       scope,
-      inputHash: hashInput(`${scope}\n${prompt}`),
+      inputHash: identity?.inputHash || hashInput(`${scope}\n${prompt}`),
       submittedAt: new Date().toISOString(),
       notes: [],
       baseScope: previous.baseScope,
@@ -1314,7 +1331,7 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
           job.output_lines.push(`Scene ${scene.number}/${totalToProcess}: ${scene.title} — saved ${urls.length} variant(s)`)
           return
         } catch (e: any) {
-          if (isGenStudioInsufficientCredits(e)) throw e
+          if (isGenStudioPaymentRefusal(e)) throw e
           // Remember a settled provider failure so the next Retry mints a fresh
           // identity instead of replaying this dead job forever.
           //
@@ -1491,6 +1508,9 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
 
       let attempt: DurableImageAttempt | null = null
       let zeroSettlementRetryPending = false
+      let retryDecisionScope: string | undefined
+      let currentDecisionOrdinal: number | undefined
+      let currentMaxRetries: number | undefined
       for (let attemptNum = 1; ; attemptNum++) {
         let acceptedTaskId = ''
         let acceptedKey = ''
@@ -1525,7 +1545,8 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
               ? submittedRecoveryCandidate
               : null
             let committedScope = durablePermission?.replacement_scope || ''
-            if (!freeFleet && !committedScope && !submittedRecoveryEntry && paidSelector && existing && isTerminalGenStudioImageTaskFailure(existing) && existing.original_output_selector) {
+            const sameAction = !force || logicalPaidScope(existing, existing?.request_scope || '').split(':retry:')[0] === baseScope
+            if (sameAction && !freeFleet && !committedScope && !submittedRecoveryEntry && paidSelector && existing && isTerminalGenStudioImageTaskFailure(existing) && existing.original_output_selector) {
               const decision = await decidePaidImageReplacement({
                 job,
                 asset: {
@@ -1549,7 +1570,14 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
                 jq.recordPaidImageReplacementPublicReason(job, decision.public_reason)
                 throw new Error(jq.paidImageReplacementBlockedMessage(decision.public_reason))
               }
-              if (decision.action === 'safe-zero-settlement-retry') zeroSettlementRetryPending = true
+              if (decision.action === 'safe-zero-settlement-retry' || decision.action === 'retry') {
+                zeroSettlementRetryPending = true
+                if (decision.action === 'retry' && decision.scope) {
+                  retryDecisionScope = decision.scope
+                  currentDecisionOrdinal = decision.attempt_ordinal
+                  currentMaxRetries = decision.max_retries
+                }
+              }
               if (decision.action === 'commit') committedScope = decision.scope
             }
             attempt = submittedRecoveryEntry ? {
@@ -1579,6 +1607,7 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
             } : await prepareImageAttempt(
               thumbDir, currentManifest, filename, finalPrompt,
               paidSelector && paidReferences ? { selector: paidSelector, references: paidReferences, outputPath: v1Path } : undefined,
+              retryDecisionScope,
             )
           }
           const current = attempt!
@@ -1618,7 +1647,14 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
               jq.recordPaidImageReplacementPublicReason(job, decision.public_reason)
               throw new Error(jq.paidImageReplacementBlockedMessage(decision.public_reason))
             }
-            if (decision.action === 'safe-zero-settlement-retry') zeroSettlementRetryPending = true
+            if (decision.action === 'safe-zero-settlement-retry' || decision.action === 'retry') {
+              zeroSettlementRetryPending = true
+              if (decision.action === 'retry' && decision.scope) {
+                retryDecisionScope = decision.scope
+                currentDecisionOrdinal = decision.attempt_ordinal
+                currentMaxRetries = decision.max_retries
+              }
+            }
           }
           if (current.recovery.kind === 'uncertain') {
             if (current.paidRecovery) throw new Error(jq.PAID_IMAGE_REPLACEMENT_PUBLIC_MESSAGE)
@@ -1734,7 +1770,7 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
           job.output_lines.push(`Thumbnail ${thumb.number}/${totalToProcess}: ${thumb.title} — saved ${urls.length} variant(s)`)
           return
         } catch (e: any) {
-          if (isGenStudioInsufficientCredits(e)) throw e
+          if (isGenStudioPaymentRefusal(e)) throw e
           if (e instanceof GenStudioImageTerminalFailureError && attempt) {
             const failedTaskId = e.jobId || acceptedTaskId
             if (attempt.paidReplacement) {
@@ -1780,6 +1816,11 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
                 })
                 releasedZeroSettlementRetry = isReleasedZeroSettlementImageRetry(e, decision)
                 zeroSettlementRetryPending ||= releasedZeroSettlementRetry
+                if (decision.action === 'retry' && decision.scope) {
+                  retryDecisionScope = decision.scope
+                  currentDecisionOrdinal = decision.attempt_ordinal
+                  currentMaxRetries = decision.max_retries
+                }
                 if (decision.action === 'wait') {
                   paidImageWaitRequested = true
                   return
@@ -1796,28 +1837,30 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
           // refunded, policy-approved terminal failure keeps retrying with backoff.
           const plan = imageRetryPlan(e, attemptNum)
             || (releasedZeroSettlementRetry
-              ? { waitMs: imageRouteRetryDelayMs(attemptNum - 1), reason: 'The failed image was fully refunded', maxAttempts: attemptNum + 1 }
+              ? { waitMs: imageRouteRetryDelayMs(attemptNum - 1), reason: 'The failed image was fully refunded', maxAttempts: (currentMaxRetries ?? 3) + 1 }
               : null)
           const fleetBusy = isFleetBusyFailure(e, 'image')
           const stoppableRetry = fleetBusy || releasedZeroSettlementRetry
           if (plan && attempt && !jq.isCancelled(job.job_id)
             && !(stoppableRetry && jq.isPauseRequested(job.job_id))) {
             const { waitMs, reason, maxAttempts } = plan
+            const ordinal = currentDecisionOrdinal ?? attemptNum
+            const maxOrd = currentMaxRetries ?? (maxAttempts - 1)
             activeItems.set(key, {
               label,
               key,
               state: 'waiting_retry',
-              attempt: attemptNum,
-              max_attempts: maxAttempts,
+              attempt: ordinal,
+              max_attempts: maxOrd + 1,
               retry_at: new Date(Date.now() + waitMs).toISOString(),
               reason,
             })
             publishProgress()
             job.output_lines.push(isFreeMacPlan(plan) ? `  ${freeMacWaitLine(`Thumbnail ${thumb.number}`, e, waitMs)}` :
               `  Thumbnail ${thumb.number}: ${reason.toLowerCase()} — nothing was charged.`
-              + ` Retrying in ${Math.round(waitMs / 1000)}s (attempt ${attemptNum + 1}${releasedZeroSettlementRetry ? '' : ` of ${maxAttempts}`}).`,
+              + ` Retrying in ${Math.round(waitMs / 1000)}s (retry attempt ${ordinal} of ${maxOrd}).`,
             )
-            attempt = deriveRouteRetryAttempt(attempt, e.jobId || acceptedTaskId, finalPrompt)
+            attempt = deriveRouteRetryAttempt(attempt, e.jobId || acceptedTaskId, finalPrompt, retryDecisionScope)
             // v1.4.35 — the fleet-busy wait now ends on Pause too. Both
             // schedules used to share `cancelController`, which the 500ms
             // watcher aborts on CANCEL ONLY, so a Pause pressed mid-wait slept

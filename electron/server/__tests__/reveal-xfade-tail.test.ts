@@ -82,6 +82,7 @@ test('an intermediate far shorter than the render stops before encoding, without
     return true
   })
   assert.doesNotThrow(() => assertIntermediateCoversRender(8424.16, 8424.16))
-  assert.doesNotThrow(() => assertIntermediateCoversRender(8423.5, 8424.16), 'a frame of rounding is not a failure')
+  assert.doesNotThrow(() => assertIntermediateCoversRender(8424.12, 8424.16), 'a frame of rounding is not a failure')
+  assert.throws(() => assertIntermediateCoversRender(8423.86, 8424.16), 'a shortfall the output guard would reject stops before encoding')
   assert.doesNotThrow(() => assertIntermediateCoversRender(6200.25, 6185.07), 'a longer timeline is trimmed by the encode')
 })

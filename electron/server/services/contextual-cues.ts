@@ -300,18 +300,15 @@ export async function removeContextualCueProgress(scenePlanPath: string): Promis
   await fs.rm(contextualCueProgressPath(scenePlanPath), { force: true })
 }
 
-/** A fresh paid request is safe only when GenStudio proves the old one cost zero. */
+/** Only confirmed backpressure may enter this ladder; held or cancelled work stays stopped. */
 export function isReleasedContextualCueBackpressure(error: {
   failureCode?: string | null
-  reservedCredits?: number | null
-  settledCredits?: number | null
-  releasedCredits?: number | null
+  cancelled?: boolean
+  unknownOutcome?: boolean
 }): boolean {
   return error.failureCode === 'LANGUAGE_PROVIDER_BACKPRESSURE'
-    && typeof error.reservedCredits === 'number'
-    && error.reservedCredits > 0
-    && error.settledCredits === 0
-    && error.releasedCredits === error.reservedCredits
+    && !error.cancelled
+    && !error.unknownOutcome
 }
 
 export async function readContextualCueTimeline(scenePlanPath: string): Promise<ContextualCueTimeline | null> {

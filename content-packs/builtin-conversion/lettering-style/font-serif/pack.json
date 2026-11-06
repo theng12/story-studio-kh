@@ -1,0 +1,15 @@
+{
+  "pack_format": 1,
+  "pack_id": "com.storystudio.pack.lettering.font-serif",
+  "publisher_id": "com.storystudio",
+  "key_id": "{{KEY_ID}}",
+  "version": "1.0.0",
+  "min_app_version": "{{MIN_APP_VERSION}}",
+  "lifecycle": "active",
+  "changelog": "First release of the Serif lettering style: the built-in ornate serif font, republished under its own pack identity with its style document unchanged.",
+  "entitlement": {
+    "sku": "com.storystudio.sku.lettering.font-serif",
+    "family": "com.storystudio.family.lettering.font-serif"
+  },
+  "dependencies": []
+}

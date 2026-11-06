@@ -31,7 +31,7 @@ import {
   buildGenStudioMusicIdempotencyKey,
   generateMusicWithGenStudio,
   downloadGenStudioMusicTrack,
-  isGenStudioInsufficientCredits,
+  isGenStudioPaymentRefusal,
   listMusicModels,
   transcribeWithGenStudio,
   type GenStudioMusicRequest,
@@ -552,7 +552,7 @@ export async function generateSongPool(job: Job): Promise<void> {
           job.item_progress!.completed++
           return
         } catch (error) {
-          if (isGenStudioInsufficientCredits(error)) throw error
+          if (isGenStudioPaymentRefusal(error)) throw error
           if (jq.isCancelled(job.job_id)) throw new Error('Cancelled by user')
           const plan = musicFleetBusyRetryPlan(error, attempt)
           const deadJobId = error instanceof GenStudioMusicTerminalFailureError ? error.jobId : ''

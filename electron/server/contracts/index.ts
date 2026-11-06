@@ -30,6 +30,7 @@ import {
   normalizeProjectLabels,
 } from './project-labels.js'
 import { MAX_PROJECT_SLUG_LENGTH } from './project-slug.js'
+import { CHANNEL_STATUSES } from './publishing-overview.js'
 
 // ── Projects ────────────────────────────────────────────────────────────────
 
@@ -134,6 +135,16 @@ export const UpdateProjectSchema = z.object({
     MAX_PROJECT_LABELS,
     `a channel can have at most ${MAX_PROJECT_LABELS} labels`,
   ).transform(normalizeProjectLabels).optional(),
+  // The owner-set status label for this channel — Live, Preparing, Testing,
+  // Paused, Retired. A deliberate choice he makes on the channel, saved through
+  // this same channel-settings route; it is NOT a preset field (§5) and no
+  // upload or publishing path reads it.
+  //
+  // `null` is the explicit "clear it" sentinel and lands on the same answer an
+  // absent key already gives: Unclassified. An unknown word is refused here
+  // rather than stored — a label the vocabulary does not have is a typo, and
+  // silently keeping it would leave a chip the page cannot render.
+  channel_status: z.enum(CHANNEL_STATUSES).nullable().optional(),
   // The Facebook / Instagram / TikTok accounts this channel posts with. The ids
   // are platform identities, validated against the connection registry by the
   // social route — this schema only refuses shapes the registry can never hold.
@@ -478,6 +489,7 @@ export interface AccountSummaryResponse {
 // templates, custom_* autocomplete pools). Keep the schema permissive so
 // we reject obviously-wrong shapes without maintaining a growing denylist.
 export const UpdateConfigSchema = z.object({
+  research_before_writing: z.boolean().optional(),
   image_models: z.record(z.string(), z.any()).optional(),
   voice_presets: z.array(z.any()).optional(),
   contextual_cues_presets: z.array(z.object({
@@ -494,6 +506,14 @@ export const UpdateConfigSchema = z.object({
   confirmation_preferences: z.record(z.string(), z.any()).optional(),
   /** 1.4.300 — per-channel Off / Warn / Block for each safety check (services/safety-checks.ts). */
   safety_checks: z.record(z.string().max(80), z.enum(['off', 'warn', 'block'])).optional(),
+  /**
+   * 1.4.377 — this channel's final-check knobs. `silence_min_sec` is the owner's rule of
+   * 2026-11-03: a narration silence up to and including it is accepted, longer is flagged
+   * (default 10; bounds match lib/final-video-check.ts's SILENCE_MIN_SEC_BOUNDS).
+   */
+  final_check: z.object({
+    silence_min_sec: z.number().min(1).max(300).optional(),
+  }).optional(),
   auto_upload: z.enum(['off', 'private', 'scheduled']).optional(),
   shorts_per_episode: z.number().int().min(0).max(3).optional(),
   /**
@@ -559,6 +579,14 @@ export const UpdateConfigSchema = z.object({
     enabled: z.boolean().optional(),
     model: z.string().trim().max(240).optional(),
   }).optional(),
+  /**
+   * 1.4.375 — scene import clip preset and allowed lengths for outside video/image tools
+   * (owner, 2026-11-02: "scene import is for ANY outside video or image tool").
+   */
+  scene_import: z.object({
+    preset: z.string().trim().max(80).optional(),
+    custom_lengths: z.array(z.number().int().positive()).min(1).optional(),
+  }).optional(),
 }).passthrough().transform((value) => {
   // Legacy Story Studio releases persisted a project-owned TTS catalog. Keep
   // accepting those payloads so old clients can save unrelated settings, but
@@ -579,6 +607,12 @@ export const UpdateConfigSchema = z.object({
   delete current.audio_launch_stagger_ms
   delete current.video_launch_stagger_ms
   delete current.generation_timeouts
+  // The channel's Sketch Draw defaults (renderer, pen, hold, reveal, line weight) live behind
+  // PUT /projects/:slug/motion-presentation, which pins every following episode that has clips to
+  // the value it is replacing before the save lands. A wholesale config save must never reach this
+  // key: it would move the default without pinning, and re-render every following episode's clips
+  // (the 2026-11-02 line-weight incident). The stored value stays on disk untouched.
+  delete current.motion_presentation
   return current
 })
 export type UpdateConfigBody = z.infer<typeof UpdateConfigSchema>
@@ -616,6 +650,7 @@ export interface ChannelDefaultSummary {
  * serving; never add a `*_api_key` field here.
  */
 export interface SafeProjectConfigResponse {
+  research_before_writing?: boolean
   llm_lineup_migration?: import('../models/types.js').LlmLineupMigration
   has_genstudio_key: boolean
   /**
@@ -955,7 +990,8 @@ export interface JobEnqueuedResponse {
     enabled: boolean
     wait_minutes: 30
     max_replacements_per_asset: 1
-    additional_credit_ceiling: number | null
+    /** Legacy records only; ignored. The switch alone decides. */
+    additional_credit_ceiling?: number | null
     snapshotted_at: string
   }
   /** Latest bounded paid-image replacement state, redacted for renderer use. */

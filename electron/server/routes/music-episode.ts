@@ -160,6 +160,24 @@ function parseSongs(value: unknown): EpisodeSong[] {
   return out
 }
 
+router.put('/projects/:slug/music-episodes/channel-settings', async (req, res) => {
+  try {
+    const slug = req.params.slug
+    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
+    const target = req.body?.target_length_s
+    if (typeof target !== 'number' || !Number.isInteger(target) || target < 60 || target > 21_600) {
+      return res.status(400).json({ detail: 'Choose a mix target between 1 and 360 minutes.' })
+    }
+    if (!await pm.updateConfig(slug, { music_episode_target_length_s: target })) {
+      return res.status(404).json({ detail: 'Channel settings not found' })
+    }
+    const channel = await channelStartingSettings(slug)
+    res.json({ music_channel: channel.music_channel, channel_settings: channel.settings })
+  } catch (e) {
+    fail(res, e, 'Could not save the channel mix target')
+  }
+})
+
 router.put('/projects/:slug/music-episodes/:code', async (req, res) => {
   try {
     const slug = req.params.slug

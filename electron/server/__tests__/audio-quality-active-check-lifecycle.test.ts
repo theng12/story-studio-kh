@@ -12,7 +12,7 @@ const ACTION = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
 const CANCEL_ACTION = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
 const STALE_ACTION = 'ffffffff-ffff-4fff-8fff-ffffffffffff'
 
-void test('active-audio ASR check quotes, holds, resumes once, and never changes active assets', async () => {
+void test('active-audio ASR check confirms once despite a legacy ceiling and never changes active assets', async () => {
   const isolated = await useTempDataDir()
   process.env.STORY_STUDIO_DISABLE_LISTEN = '1'
   const service = await startMockGenStudioService()
@@ -62,22 +62,10 @@ void test('active-audio ASR check quotes, holds, resumes once, and never changes
     const wrongFingerprint = await request(app).post(`/api/projects/${project.slug}/episodes/${code}/audio-quality/active-check/confirm`).send({ operation_id: ACTION, source_fingerprint: 'different-active-source', verification_credit_ceiling: 7 })
     assert.equal(wrongFingerprint.status, 409, JSON.stringify(wrongFingerprint.body))
     assert.equal((await store.readAudioQualityProvenance(paths.episode_dir)).actions?.[ACTION]?.active_check?.state, 'quoted')
-    const held = await request(app).post(`/api/projects/${project.slug}/episodes/${code}/audio-quality/active-check/confirm`).send({ operation_id: ACTION, source_fingerprint: quoted.body.source_fingerprint, verification_credit_ceiling: 6 })
-    assert.equal(held.status, 201, JSON.stringify(held.body)); await terminal(id(held.body)); assert.equal(jq.getJob(id(held.body))?.status, 'error')
-    await waitFor(async () => (
-      (await store.readAudioQualityProvenance(paths.episode_dir)).actions?.[ACTION]?.active_check?.state === 'needs_approval'
-    ), { label: 'durable held active-ASR quote', timeoutMs: 2_000 }).catch(() => undefined)
-    const heldAction = (await store.readAudioQualityProvenance(paths.episode_dir)).actions?.[ACTION]
-    assert.equal(heldAction?.active_check?.state, 'needs_approval', JSON.stringify({
-      job: jq.getJob(id(held.body)), activeCheck: heldAction?.active_check,
-    })); assert.equal(service.providerSubmissionCount('transcription'), 0)
-    const heldReplay = await request(app).post(`/api/projects/${project.slug}/episodes/${code}/audio-quality/active-check/confirm`).send({ operation_id: ACTION, source_fingerprint: quoted.body.source_fingerprint, verification_credit_ceiling: 6 })
-    assert.equal(heldReplay.status, 200, JSON.stringify(heldReplay.body)); assert.equal(id(heldReplay.body), id(held.body))
-    assert.equal(service.providerSubmissionCount('transcription'), 0, 'held action replay cannot confirm the quote')
-    const resumed = await request(app).post(`/api/projects/${project.slug}/episodes/${code}/audio-quality/active-check/confirm`).send({ operation_id: ACTION, source_fingerprint: quoted.body.source_fingerprint, verification_credit_ceiling: 7 })
-    assert.ok([200, 201].includes(resumed.status), JSON.stringify(resumed.body)); await terminal(id(resumed.body)); assert.equal(jq.getJob(id(resumed.body))?.status, 'done')
+    const resumed = await request(app).post(`/api/projects/${project.slug}/episodes/${code}/audio-quality/active-check/confirm`).send({ operation_id: ACTION, source_fingerprint: quoted.body.source_fingerprint, verification_credit_ceiling: 6 })
+    assert.equal(resumed.status, 201, JSON.stringify(resumed.body)); await terminal(id(resumed.body)); assert.equal(jq.getJob(id(resumed.body))?.status, 'done')
     assert.equal(service.providerSubmissionCount('tts'), 1, 'active check never submits TTS')
-    assert.equal(service.providerSubmissionCount('transcription'), 1, 'raised ceiling confirms exactly one quoted ASR task')
+    assert.equal(service.providerSubmissionCount('transcription'), 1, 'legacy ceiling does not block the one explicitly confirmed ASR task')
     assert.deepEqual(await fs.readFile(path.join(paths.audio_dir, filename)), originalAudio)
     assert.equal(await fs.readFile(path.join(paths.episode_dir, 'audio_chapters.json'), 'utf8'), originalMap)
     assert.equal(await fs.readFile(path.join(paths.subtitles_dir, srtName), 'utf8'), originalSrt)

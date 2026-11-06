@@ -44,7 +44,7 @@ import {
   type CatalogEntry,
   type ContentPackRegistryOptions,
 } from '../content-packs/registry.js'
-import { listUserForks } from '../content-packs/user-forks.js'
+import { isUserForkId, listUserForks } from '../content-packs/user-forks.js'
 import { contentPackDocumentToNiche } from '../content-packs/legacy-adapters.js'
 import { registryOptionsForCurrentJob, resolveProjectContentPinsForKinds } from '../content-packs/project-pins.js'
 
@@ -344,7 +344,7 @@ async function loadResolvedNiche(id: string, registryOptions: ContentPackRegistr
 
 /** Explicit compatibility resolver used by non-destructive fork-on-edit. */
 export async function loadLegacyNiche(id: string): Promise<{ document: Niche; source: 'legacy-builtin' | 'legacy-user-fork' } | null> {
-  if (!/^[a-z0-9][a-z0-9._-]{0,127}$/.test(id)) return null
+  if (!/^[a-z0-9][a-z0-9._-]{0,127}$/.test(id) && !isUserForkId(id)) return null
   const userPath = path.join(userNichesDir(), `${id}.json`)
   if (existsSync(userPath)) {
     const st = await fs.stat(userPath)

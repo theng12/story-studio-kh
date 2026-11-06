@@ -2,7 +2,7 @@
  * Episode and project cost service.
  *
  * Implements:
- * (a) Paid cost = actual Gateway charges recorded per job (cost_usd / settled_credits).
+ * (a) Paid cost = the USD the provider itself stated for a job (`cost_usd`). Absent is no data, never 0.
  * (b) Local cost = Mac-minutes × power × electricity price.
  * (c) Waste % = cost of redone / failed / rejected / superseded work as a share of total.
  *
@@ -132,7 +132,6 @@ export function extractEpisodeCode(job: Readonly<Job>): string | null {
 interface JobCostFacts {
   job: Job
   paidUsd: number
-  credits: number
   hasPaidEvidence: boolean
   macMinutes: number
   localCostUsd: number
@@ -144,8 +143,6 @@ interface JobCostFacts {
 function analyzeJobCost(job: Job, settings: CostSettings, thisMacClass: string): JobCostFacts {
   // model-drift-allow: a running sum of charges the Gateway already recorded for these jobs; it starts empty, it is not a catalogue price
   let paidUsd = 0
-  // model-drift-allow: a running sum of charges the Gateway already recorded for these jobs; it starts empty, it is not a catalogue price
-  let credits = 0
   let hasPaidEvidence = false
 
   // 1. Gateway provider evidence on the job
@@ -155,27 +152,10 @@ function analyzeJobCost(job: Job, settings: CostSettings, thisMacClass: string):
         paidUsd += entry.cost_usd
         hasPaidEvidence = true
       }
-      if (typeof entry.settled_credits === 'number' && Number.isFinite(entry.settled_credits) && entry.settled_credits >= 0) {
-        credits += entry.settled_credits
-        hasPaidEvidence = true
-      } else if (typeof entry.credit_cost === 'number' && Number.isFinite(entry.credit_cost) && entry.credit_cost >= 0) {
-        credits += entry.credit_cost
-        hasPaidEvidence = true
-      }
     }
   }
 
-  // 2. Paid image replacement attempts
-  if (Array.isArray(job.paid_image_replacement_attempts)) {
-    for (const attempt of job.paid_image_replacement_attempts) {
-      if (typeof attempt.actual_settled_credits === 'number' && Number.isFinite(attempt.actual_settled_credits) && attempt.actual_settled_credits >= 0) {
-        credits += attempt.actual_settled_credits
-        hasPaidEvidence = true
-      }
-    }
-  }
-
-  // 3. Local runtime
+  // 2. Local runtime
   let macMinutes = 0
   // model-drift-allow: a running sum of charges the Gateway already recorded for these jobs; it starts empty, it is not a catalogue price
   let localCostUsd = 0
@@ -204,7 +184,6 @@ function analyzeJobCost(job: Job, settings: CostSettings, thisMacClass: string):
   return {
     job,
     paidUsd,
-    credits,
     hasPaidEvidence,
     macMinutes,
     localCostUsd,
@@ -251,18 +230,14 @@ export function computeEpisodeCost(
   let paidMeasurement: PaidCostMeasurement
   // model-drift-allow: a running sum of charges the Gateway already recorded for these jobs; it starts empty, it is not a catalogue price
   let totalPaidUsd = 0
-  // model-drift-allow: a running sum of charges the Gateway already recorded for these jobs; it starts empty, it is not a catalogue price
-  let totalCredits = 0
 
   if (hasAnyPaid) {
     for (const a of analyzed) {
       totalPaidUsd += a.paidUsd
-      totalCredits += a.credits
     }
     paidMeasurement = {
       state: 'measured',
       usd: roundDecimals(totalPaidUsd, 4),
-      credits: totalCredits,
     }
   } else {
     paidMeasurement = {
@@ -348,15 +323,12 @@ export function computeEpisodeCost(
   } else {
     // model-drift-allow: a running sum of charges the Gateway already recorded for these jobs; it starts empty, it is not a catalogue price
     let wasteUsd = 0
-    // model-drift-allow: a running sum of charges the Gateway already recorded for these jobs; it starts empty, it is not a catalogue price
-    let wasteCredits = 0
     let wasteMinutes = 0
 
     for (const a of analyzed) {
       if (wastedJobIds.has(a.job.job_id)) {
         // model-drift-allow: a running sum of charges the Gateway already recorded for these jobs; it starts empty, it is not a catalogue price
         wasteUsd += (a.hasPaidEvidence ? a.paidUsd : 0) + (a.hasRuntimeEvidence ? a.localCostUsd : 0)
-        wasteCredits += a.credits
         wasteMinutes += a.macMinutes
       }
     }
@@ -367,8 +339,6 @@ export function computeEpisodeCost(
     let percent = 0
     if (totalUsdCombined > 0) {
       percent = Math.round((wasteUsd / totalUsdCombined) * 100 * 10) / 10
-    } else if (totalCredits > 0) {
-      percent = Math.round((wasteCredits / totalCredits) * 100 * 10) / 10
     } else if (totalMacMinutes > 0) {
       percent = Math.round((wasteMinutes / totalMacMinutes) * 100 * 10) / 10
     } else {
@@ -381,8 +351,6 @@ export function computeEpisodeCost(
       percent,
       waste_cost_usd: roundDecimals(wasteUsd, 4),
       total_cost_usd: roundDecimals(totalUsdCombined, 4),
-      waste_credits: wasteCredits,
-      total_credits: totalCredits,
       waste_mac_minutes: roundDecimals(wasteMinutes, 2),
       total_mac_minutes: roundDecimals(totalMacMinutes, 2),
       waste_jobs_count: wastedJobIds.size,
@@ -433,8 +401,6 @@ export function computeProjectCost(
   let anyPaidMeasured = false
   // model-drift-allow: a running sum of charges the Gateway already recorded for these jobs; it starts empty, it is not a catalogue price
   let channelPaidUsd = 0
-  // model-drift-allow: a running sum of charges the Gateway already recorded for these jobs; it starts empty, it is not a catalogue price
-  let channelCredits = 0
 
   let anyLocalMeasured = false
   let channelMacMinutes = 0
@@ -447,10 +413,6 @@ export function computeProjectCost(
   let channelWasteUsd = 0
   // model-drift-allow: a running sum of charges the Gateway already recorded for these jobs; it starts empty, it is not a catalogue price
   let channelTotalUsd = 0
-  // model-drift-allow: a running sum of charges the Gateway already recorded for these jobs; it starts empty, it is not a catalogue price
-  let channelWasteCredits = 0
-  // model-drift-allow: a running sum of charges the Gateway already recorded for these jobs; it starts empty, it is not a catalogue price
-  let channelTotalCredits = 0
   let channelWasteMinutes = 0
   let channelTotalMinutes = 0
   let channelWasteJobs = 0
@@ -463,8 +425,6 @@ export function computeProjectCost(
     if (summary.paid.state === 'measured') {
       anyPaidMeasured = true
       channelPaidUsd += summary.paid.usd ?? 0
-      // model-drift-allow: adds a measured receipt field that is absent on that receipt; the measured or unmeasurable state is decided above
-      channelCredits += summary.paid.credits ?? 0
     }
 
     if (summary.local.state === 'measured') {
@@ -478,10 +438,6 @@ export function computeProjectCost(
       anyWasteMeasured = true
       channelWasteUsd += summary.waste.waste_cost_usd ?? 0
       channelTotalUsd += summary.waste.total_cost_usd ?? 0
-      // model-drift-allow: adds a measured receipt field that is absent on that receipt; the measured or unmeasurable state is decided above
-      channelWasteCredits += summary.waste.waste_credits ?? 0
-      // model-drift-allow: adds a measured receipt field that is absent on that receipt; the measured or unmeasurable state is decided above
-      channelTotalCredits += summary.waste.total_credits ?? 0
       channelWasteMinutes += summary.waste.waste_mac_minutes ?? 0
       channelTotalMinutes += summary.waste.total_mac_minutes ?? 0
       channelWasteJobs += summary.waste.waste_jobs_count ?? 0
@@ -493,7 +449,6 @@ export function computeProjectCost(
     ? {
         state: 'measured',
         usd: roundDecimals(channelPaidUsd, 4),
-        credits: channelCredits,
       }
     : {
         state: 'unmeasurable',
@@ -517,8 +472,6 @@ export function computeProjectCost(
     let percent = 0
     if (channelTotalUsd > 0) {
       percent = Math.round((channelWasteUsd / channelTotalUsd) * 100 * 10) / 10
-    } else if (channelTotalCredits > 0) {
-      percent = Math.round((channelWasteCredits / channelTotalCredits) * 100 * 10) / 10
     } else if (channelTotalMinutes > 0) {
       percent = Math.round((channelWasteMinutes / channelTotalMinutes) * 100 * 10) / 10
     } else {
@@ -530,8 +483,6 @@ export function computeProjectCost(
       percent,
       waste_cost_usd: roundDecimals(channelWasteUsd, 4),
       total_cost_usd: roundDecimals(channelTotalUsd, 4),
-      waste_credits: channelWasteCredits,
-      total_credits: channelTotalCredits,
       waste_mac_minutes: roundDecimals(channelWasteMinutes, 2),
       total_mac_minutes: roundDecimals(channelTotalMinutes, 2),
       waste_jobs_count: channelWasteJobs,

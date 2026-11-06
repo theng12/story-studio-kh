@@ -173,8 +173,8 @@ test('a confirmed clear invalidates, removes, and reloads history in either scop
   assert.match(page, /history\.invalidate\(\)/)
   assert.match(page, /if \(cleared\) await loadJobHistory\(\)/,
     'selected clears reload the active scope after confirmed removals')
-  assert.match(page, /control\.action === 'clear-history'\) \{[\s\S]{0,260}history\.removeIds\(\[job\.job_id\]\)[\s\S]{0,120}await loadJobHistory\(\)/,
-    'a single clear reloads after removing the confirmed row')
+  assert.match(page, /control\.action === 'clear-history'\) \{[\s\S]{0,420}if \(!isMissingJobError\(error\)\) throw error[\s\S]{0,260}history\.removeIds\(\[job\.job_id\]\)[\s\S]{0,160}await loadJobHistory\(\)/,
+    'a single clear treats a missing job as removed, drops the row and reloads')
   assert.match(page, /if \(isUniversal\.value\) void refreshVisibleJobs\(\)\n\s*else await refreshVisibleJobs\(\)\n\s*await loadJobHistory\(\)/,
     'bulk clear reloads the authoritative active scope even when the server cleared nothing')
 })

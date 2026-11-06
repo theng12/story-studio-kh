@@ -933,7 +933,7 @@ export async function generateContextualCues(job: Job): Promise<void> {
         // without it the label could read "5 of 4".
         maxAttempts = Math.max(maxAttempts, attemptNum + 1 + (CONTEXTUAL_CUE_BACKPRESSURE_RETRIES - backpressureRetries))
         job.output_lines.push(
-          `Batch ${index + 1} met confirmed provider backpressure. The Gateway settled 0 credits and released the full reservation; retrying only this batch after a bounded cooldown.`,
+          `Batch ${index + 1} met confirmed provider backpressure; retrying only this batch after a bounded cooldown.`,
         )
         job.item_progress.active = [{ label: `Batch ${index + 1}`, key: `batch-${index}`, state: 'waiting_retry', attempt: attemptNum, max_attempts: maxAttempts, retry_at: new Date(Date.now() + CONTEXTUAL_CUE_BACKPRESSURE_COOLDOWN_MS).toISOString(), reason: 'provider backpressure' }]
         await waitWhileActive(job.job_id, CONTEXTUAL_CUE_BACKPRESSURE_COOLDOWN_MS)

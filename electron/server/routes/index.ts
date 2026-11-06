@@ -72,6 +72,7 @@ import { router as continuityRouter } from './continuity.js'
 import { router as stillPostsRouter } from './still-posts.js'
 import { router as publishingOverviewRouter } from './publishing-overview.js'
 import { router as finalReviewRouter } from './final-review.js'
+import { router as productionInventoryRouter } from './production-inventory.js'
 import { requireProject } from './middleware.js'
 
 export function mountRoutes(app: Express): void {
@@ -150,4 +151,7 @@ export function mountRoutes(app: Express): void {
   app.use('/api', publishingOverviewRouter)
   // Optional final-video review marks (owner, 2026-10-29) — off per channel unless enabled.
   app.use('/api', finalReviewRouter)
+  // Read-only production inventory (settings export): preset pointers/lists,
+  // lettering + subtitle selections. GETs only — no write paths.
+  app.use('/api', productionInventoryRouter)
 }

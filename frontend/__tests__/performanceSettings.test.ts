@@ -25,6 +25,7 @@ const CONCURRENCY = '/app-settings/concurrency'
 const MANUAL_REDO = '/app-settings/manual-generation-redo'
 const PRIVATE_FLEET = '/app-settings/private-final-render'
 const PRIVATE_FLEET_BINDING = '/app-settings/private-final-render/binding'
+const OUTPUT_SETTINGS = '/app-settings/private-final-render/output-settings'
 
 async function loadComponent(): Promise<Component> {
   const filename = fileURLToPath(new URL('../components/PerformanceSettings.vue', import.meta.url))
@@ -60,6 +61,8 @@ async function mount(options: {
   echo?: (path: string, body: any) => any
 } = {}) {
   const saves: Array<{ path: string; body: any }> = []
+  const reads: string[] = []
+  let privateFleetEnabled = options.privateFleet?.enabled ?? false
   const concurrency = options.concurrency ?? {
     subtitle_episode_concurrency: 2, llm_concurrency: 8, image_episode_concurrency: 3,
     image_fanout_per_episode: 'auto', thumbnail_episode_concurrency: 3, outline_chapter_headroom: 2,
@@ -67,6 +70,12 @@ async function mount(options: {
   }
   ;(globalThis as any).__perfApi = {
     get: async (path: string) => {
+      reads.push(path)
+      if (path === OUTPUT_SETTINGS) return {
+        private_render_enabled: privateFleetEnabled,
+        best_available: false,
+        reason: privateFleetEnabled ? 'Gateway qualification evidence is unavailable.' : 'Private rendering is off; Best has not been checked.',
+      }
       if (path === CONCURRENCY) return concurrency
       if (path === MANUAL_REDO) {
         if (options.failManualRedo) throw new Error('offline')
@@ -84,6 +93,7 @@ async function mount(options: {
     put: async (path: string, body: any) => {
       saves.push({ path, body })
       if (options.refuse?.[path]) throw options.refuse[path]
+      if (path === PRIVATE_FLEET) privateFleetEnabled = body.enabled
       if (options.echo) return options.echo(path, body)
       if (path === CONCURRENCY) return body
       return body
@@ -112,7 +122,7 @@ async function mount(options: {
   const save = async () => { saveButton().click(); await flush() }
   const manualRedo = () => host.querySelector<HTMLInputElement>('input[name="manual-generation-redo-enabled"]')
   const privateFleet = () => host.querySelector<HTMLInputElement>('input[name="private-final-render-enabled"]')
-  return { host, saves, row, turnOn, setCeiling, save, saveButton, manualRedo, privateFleet, unmount: () => app.unmount() }
+  return { host, saves, reads, row, turnOn, setCeiling, save, saveButton, manualRedo, privateFleet, unmount: () => app.unmount() }
 }
 
 describe('Performance & recovery', () => {
@@ -272,6 +282,26 @@ describe('Performance & recovery', () => {
         assert.equal(refused.saveButton().disabled, true)
       } finally { refused.unmount() }
     }
+  })
+
+  test('Best stays unavailable and refreshes its reason after the private-render switch is saved', async () => {
+    const m = await mount()
+    try {
+      assert.match(m.host.querySelector('[data-best]')?.textContent || '', /has not been checked/)
+      for (const enabled of [true, false]) {
+        m.privateFleet()!.checked = enabled
+        m.privateFleet()!.dispatchEvent(new Event('change', { bubbles: true }))
+        await flush()
+        await m.save()
+        assert.match(m.host.querySelector('[data-best]')?.textContent || '', /Best rendering: unavailable/)
+        assert.match(m.host.querySelector('[data-best]')?.textContent || '', enabled ? /qualification evidence/ : /has not been checked/)
+      }
+      assert.equal(m.reads.filter(path => path === OUTPUT_SETTINGS).length, 3)
+      assert.deepEqual(m.saves, [
+        { path: PRIVATE_FLEET, body: { enabled: true } },
+        { path: PRIVATE_FLEET, body: { enabled: false } },
+      ])
+    } finally { m.unmount() }
   })
 
   test('the private render pairing says what it replaced, and warns while it still names an old Gateway', async () => {

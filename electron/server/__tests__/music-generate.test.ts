@@ -58,10 +58,9 @@ describe('what earns a second request, and what does not', () => {
     assert.equal(plan!.waitMs, FLEET_BUSY_RETRY_DELAYS_MS[0])
   })
 
-  test('(b) the same code with credits SETTLED is never retried', () => {
-    // Settled credits mean a provider was engaged. Asking again would buy the
-    // same song twice.
-    assert.equal(musicFleetBusyRetryPlan(failure({ settled_credits: 100, released_credits: 0 }), 1), null)
+  test('(b) legacy settlement never decides a capacity retry, but an unknown outcome stops it', () => {
+    assert.deepEqual(musicFleetBusyRetryPlan(failure({ settled_credits: 100, released_credits: 0 }), 1), musicFleetBusyRetryPlan(failure(), 1))
+    assert.equal(musicFleetBusyRetryPlan(failure({ recovery_required: true }), 1), null)
   })
 
   test('(c) an unrelated failure is never retried as if the fleet were busy', () => {
@@ -132,7 +131,7 @@ describe('both paid tracks are kept', () => {
 describe('the run stops for the right things and continues for the rest', () => {
   test('insufficient credits stops the whole top-up', async () => {
     const body = await readFile(SRC, 'utf8')
-    assert.match(body, /if \(isGenStudioInsufficientCredits\(error\)\) throw error/,
+    assert.match(body, /if \(isGenStudioPaymentRefusal\(error\)\) throw error/,
       'every later request would fail identically; twenty failures help nobody')
   })
 

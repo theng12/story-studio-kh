@@ -35,6 +35,7 @@ import {
   defaultExpansionBatchSetting,
   expansionOutputTokenCap,
   expansionRequestOutputBudget,
+  expansionExpectedOutputTokens,
   planExpansionGroups,
   shouldChunkByBudget,
   type ChunkingBudget,
@@ -52,10 +53,12 @@ function budget(
   outputTokenCap: number | null,
   productName: string | null = 'GPT-5.6 Luna',
   contextWindowTokens: number | null = null,
+  maxRequestTokens: number | null = null,
 ): ChunkingBudget {
   return {
     outputTokenCap,
     contextWindowTokens,
+    maxRequestTokens,
     thresholdWords: chunkThresholdWords(outputTokenCap),
     productId: productName ? 'gpt-5-6-luna' : null,
     productName,
@@ -137,6 +140,16 @@ test('with no published cap the run still proceeds — chunked, and saying nothi
   // `null`, which means "send no ceiling at all", never a stand-in figure.
   assert.equal(expansionOutputTokenCap(budget(null, null), 4_000), null)
   assert.deepEqual(expansionRequestOutputBudget(budget(null, null), 4_000), { outputBudget: 'maximum' })
+})
+
+test('chapter deadline work follows batch targets and repair subsets independently of the output ceiling', () => {
+  const chapters = [{ n: 1, words_per_chapter: 200 }, { n: 2 }, { n: 3, words_per_chapter: 800 }] as OutlineEntry[]
+  assert.equal(expansionExpectedOutputTokens(chapters, 500), 2_400)
+  assert.equal(expansionExpectedOutputTokens(chapters.slice(2), 500), 1_280)
+  const before = expansionRequestOutputBudget(budget(LUNA_OUTPUT_TOKENS), 4_000)
+  assert.equal(before.outputBudget, 'maximum')
+  assert.equal(before.maxTokens, LUNA_OUTPUT_TOKENS)
+  assert.ok(expansionExpectedOutputTokens(chapters, 500) < before.maxTokens!)
 })
 
 test('headroom stays proportional instead of being another fixed number', () => {
@@ -349,6 +362,20 @@ test('a prompt that cannot fit the published window fails loudly instead of aski
     /leaves no room inside Tiny Window's published 2,000-token context window/,
   )
   assert.throws(() => expansionOutputTokenCap(tiny, 40_000), /Nothing was requested/)
+})
+
+test('the Gateway\'s published request ceiling refuses an oversized prompt, alone', () => {
+  // gemma-4's curated figures: 8,192-token answer, 23,000-token request,
+  // 32,768-token window. 92,000 ASCII characters ≈ 23,000 tokens.
+  const gemma = budget(8_192, 'Gemma 4', 32_768, 23_000)
+  assert.equal(expansionOutputTokenCap(gemma, 80_000), 8_192, 'a prompt inside the request line leaves the answer alone')
+  assert.throws(
+    () => expansionOutputTokenCap(gemma, 92_004),
+    /about 23,001 tokens, and Gemma 4 publishes a 23,000-token request limit/,
+  )
+  assert.throws(() => expansionOutputTokenCap(gemma, 92_004), /Nothing was requested/)
+  // Unpublished request ceiling: nothing is enforced, and no number is invented.
+  assert.equal(expansionOutputTokenCap(budget(8_192, 'Gemma 4', 32_768, null), 92_004), 8_192)
 })
 
 test('the expansion request states a ceiling, never an expected answer length', () => {

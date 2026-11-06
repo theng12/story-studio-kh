@@ -21,6 +21,20 @@
         </div>
       </div>
 
+      <section class="pack-detail-section" aria-labelledby="pack-detail-pictures">
+        <h3 id="pack-detail-pictures">Preview pictures</h3>
+        <p v-if="!pictures.length" class="pack-detail-nopictures">The Gateway publishes no preview picture for this pack yet.</p>
+        <div v-else class="pack-detail-pictures">
+          <button
+            v-for="(picture, position) in pictures" :key="picture.src" type="button"
+            class="pack-detail-picture" :aria-label="`Enlarge preview ${position + 1} of ${pictures.length}`"
+            @click="openPreview(position)"
+          >
+            <img :src="picture.src" :alt="picture.alt" loading="lazy" decoding="async" />
+          </button>
+        </div>
+      </section>
+
       <section v-if="card.product?.summary || card.product?.description" class="pack-detail-section" aria-labelledby="pack-detail-about">
         <h3 id="pack-detail-about">About</h3>
         <p class="pack-detail-lede">{{ card.product?.summary }}</p>
@@ -82,6 +96,11 @@
         <button type="button" class="btn btn-secondary" @click="$emit('close')">Close</button>
       </footer>
     </article>
+
+    <PackPreviewViewer
+      v-if="previewOpen" :pictures="pictures" :index="previewIndex"
+      :title="card.title" @close="previewOpen = false" @update:index="previewIndex = $event"
+    />
   </Modal>
 </template>
 
@@ -95,6 +114,7 @@
  */
 import { computed, ref, watch } from 'vue'
 import Modal from '~/components/Modal.vue'
+import PackPreviewViewer, { type PackPicture } from './PackPreviewViewer.vue'
 import type { LibraryPackCard } from '~/content-store/pack-browsing'
 import type { GatewayContentArchive } from '~/composables/useContentStore'
 
@@ -109,6 +129,36 @@ defineEmits<{ close: []; install: [archive: GatewayContentArchive]; remove: [pac
 
 const coverBroken = ref(false)
 watch(() => [props.visible, props.card.cover?.src], () => { if (!props.visible) coverBroken.value = false })
+
+/**
+ * Every picture this pack publishes — the card cover and whatever else the
+ * catalogue carries — each shown once.
+ *
+ * A hero and a cover can be the same file; listing it twice would make the
+ * strip claim a picture that is not there. An empty list is the honest "no
+ * preview picture" state, and the section above says so in words.
+ */
+const pictures = computed<PackPicture[]>(() => {
+  const seen = new Set<string>()
+  const rows: PackPicture[] = []
+  const media = [props.card.cover, props.card.product?.presentation.hero, props.card.product?.presentation.cover]
+  for (const row of media) {
+    if (!row?.src || seen.has(row.src)) continue
+    seen.add(row.src)
+    rows.push({ src: row.src, alt: row.alt || '' })
+  }
+  return rows
+})
+
+const previewOpen = ref(false)
+const previewIndex = ref(0)
+function openPreview(position: number): void {
+  previewIndex.value = position
+  previewOpen.value = true
+}
+// Leaving the dialog must also leave its viewer: reopening the pack should
+// start at the first picture, not wherever the last visit stopped.
+watch(() => props.visible, visible => { if (!visible) previewOpen.value = false })
 
 const stateText = computed(() => {
   switch (props.card.installState) {
@@ -181,6 +231,19 @@ function integrityLabel(row: GatewayContentArchive): string {
 .pack-detail-section h3 { color: var(--text-secondary); font-size: var(--font-xs); font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
 .pack-detail-section p { color: var(--text-secondary); line-height: 1.55; }
 .pack-detail-lede { color: var(--text-primary) !important; font-weight: 600; }
+/*
+ * Tiles are buttons, so Enter and Space open the viewer and the focus ring is
+ * the browser's own. One 16/9 ratio per tile keeps a row level whatever the
+ * artwork's shape, and the hover ring is drawn inside the tile so nothing
+ * next to it moves.
+ */
+.pack-detail-pictures { display: grid; min-width: 0; grid-template-columns: repeat(auto-fill, minmax(min(100%, 168px), 1fr)); gap: 10px; }
+.pack-detail-picture { position: relative; padding: 0; overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-accent); cursor: zoom-in; }
+.pack-detail-picture::after { content: ''; position: absolute; inset: 0; border-radius: inherit; box-shadow: inset 0 0 0 2px transparent; transition: box-shadow 140ms ease; pointer-events: none; }
+.pack-detail-picture:hover::after { box-shadow: inset 0 0 0 2px var(--accent); }
+.pack-detail-picture:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.pack-detail-picture img { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: cover; }
+.pack-detail-nopictures { margin: 0; }
 .pack-detail-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; }
 .pack-detail-chips li { padding: 4px 9px; border: 1px solid var(--border); border-radius: 999px; background: var(--bg-secondary); color: var(--text-secondary); font-size: var(--font-sm); }
 .pack-detail-chips li span { color: var(--text-muted); font-size: var(--font-xs); }

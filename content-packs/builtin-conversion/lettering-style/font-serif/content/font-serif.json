@@ -1,0 +1,12 @@
+{
+ "kind": "lettering-style",
+ "schema_version": 1,
+ "id": "com.storystudio.lettering.font-serif",
+ "name": "Serif",
+ "description": "ornate serif font",
+ "axis": "font",
+ "phrase": "ornate serif font",
+ "preview_assets": [
+  "assets/font-serif.webp"
+ ]
+}

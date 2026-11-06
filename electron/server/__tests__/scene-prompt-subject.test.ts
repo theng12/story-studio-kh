@@ -386,6 +386,80 @@ describe('the single-pass planner (buildScenePlannerPrompt)', () => {
     assert.ok(!second.requests[0]!.system.includes(EPISODE.title))
   })
 
+  test('a window that does not fit is split, and the halves keep range, coverage and recap', async () => {
+    const longSrtPath = path.join(temp!.dir, 'long-stitched.srt')
+    const stamp = (seconds: number) => `00:${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')},000`
+    const cues = Array.from({ length: 8 }, (_, index) => {
+      return `${index + 1}\n${stamp(index * 10)} --> ${stamp((index + 1) * 10)}\n${'The zipper holds two rows of tiny teeth in line under load. '.repeat(5)}`
+    }).join('\n\n') + '\n'
+    await fs.writeFile(longSrtPath, cues)
+
+    const rangeOf = (user: string) => {
+      const match = /time range ([\d.]+)s – ([\d.]+)s/.exec(user)
+      assert.ok(match, 'the request names its segment range')
+      return { start: Number(match[1]), end: Number(match[2]) }
+    }
+    const answerFor = (user: string) => {
+      const { start, end } = rangeOf(user)
+      const scenes: Array<Record<string, unknown>> = []
+      // The right half answers six seconds late so it snaps to the NEXT cue
+      // boundary: the split seam must still leave no narration without a scene.
+      for (let from = start >= 40 ? start + 6 : start; from < end; from += 10) {
+        scenes.push({
+          start_sec: from,
+          end_sec: Math.min(end, from + 10),
+          transcript_segment: 'x',
+          visual_prompt: `A cinematic zipper scene at ${from} seconds.`,
+          boundary_reason: 'beat',
+        })
+      }
+      return JSON.stringify({ scenes })
+    }
+
+    const whole: Array<{ system: string; user: string }> = []
+    const wholeCall = (async (_model: string, system: string, user: string) => {
+      whole.push({ system, user })
+      return answerFor(user)
+    }) as any
+    await planner.planScenes({
+      stitched_srt_path: longSrtPath, model: 'test-model', window_size: 'full', callAi: wholeCall,
+    })
+    assert.equal(whole.length, 1, 'the whole episode is one window when nothing is published')
+
+    const requests: Array<{ system: string; user: string }> = []
+    const callAi = (async (_model: string, system: string, user: string) => {
+      requests.push({ system, user })
+      // The split child of the seam-extended scene is filled per scene.
+      if (!user.includes('time range')) return 'A cinematic zipper scene at the seam.'
+      return answerFor(user)
+    }) as any
+    const fullPromptTokens = Math.ceil((whole[0]!.system.length + 2 + whole[0]!.user.length) / 4)
+    const warnings: string[] = []
+    const plan = await planner.planScenes({
+      stitched_srt_path: longSrtPath, model: 'test-model', window_size: 'full',
+      max_request_tokens: fullPromptTokens - 50,
+      callAi, onWarn: message => warnings.push(message),
+    })
+
+    const plannerRequests = requests.filter(request => request.user.includes('time range'))
+    assert.equal(plannerRequests.length, 2, 'one request per half')
+    assert.ok(warnings.some(message => message.includes('was split into')))
+    for (const request of plannerRequests) assert.match(request.user, /SEGMENT 1 of 1/)
+    const right = plannerRequests.find(request => rangeOf(request.user).start >= 40)!
+    assert.match(right.user, /Most recent scenes already planned/)
+    assert.match(right.user, /A cinematic zipper scene at 0 seconds/)
+
+    assert.ok(plan.scenes.length > 0)
+    assert.ok(plan.scenes[0]!.start_sec <= 0.001)
+    for (let index = 1; index < plan.scenes.length; index++) {
+      assert.ok(
+        Math.abs(plan.scenes[index]!.start_sec - plan.scenes[index - 1]!.end_sec) < 0.001,
+        `scene ${index + 1} starts where scene ${index} ends`,
+      )
+    }
+    assert.ok(plan.scenes[plan.scenes.length - 1]!.end_sec >= 80 - 0.001)
+  })
+
   test('the two-pass planner hands the same context to every per-scene writer', async () => {
     const { requests, callAi } = capturePlan()
     const plan = await planner.planScenesTwoPass({

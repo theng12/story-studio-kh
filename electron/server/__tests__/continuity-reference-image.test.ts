@@ -86,7 +86,7 @@ test('the switch OFF is the only silent way to send no reference', () => {
 })
 
 test('a model publishing zero references degrades out loud, naming the model', () => {
-  // FLUX.2 Klein's live shape: available and text-to-image only.
+  // A zero-reference model can still render the scene without its reference.
   // Failing the batch would be wrong (the render is perfectly possible) and so
   // would rendering silently (the customer asked for a reference and would be
   // told nothing). The only honest outcome is the render plus the reason.
@@ -95,10 +95,10 @@ test('a model publishing zero references degrades out loud, naming the model', (
     availablePaths: ['/ep/img2img-references/composition.png'],
     supportsReferences: false,
     maxReferences: 0,
-    modelName: 'flux-2-klein',
+    modelName: 'model-with-zero-references',
   })
   assert.equal(plan.sourcePath, '', 'nothing may be attached to a 0-reference model')
-  assert.match(plan.note, /flux-2-klein/, 'the note must name the model that refused')
+  assert.match(plan.note, /model-with-zero-references/, 'the note must name the model that refused')
   assert.match(plan.note, /max_reference_images: 0/)
   assert.match(plan.note, /prompt text only/i)
 })
@@ -299,8 +299,8 @@ async function configureMockGenStudio(baseUrl: string): Promise<void> {
 /**
  * Republish the mock image catalogue with real reference capability.
  *
- * The stock fixture publishes `max_reference_images: 0` — which happens to be
- * exactly FLUX.2 Klein's live shape, so the degrade test needs no patch at all.
+ * The stock fixture publishes `max_reference_images: 0`, so the degrade test
+ * needs no patch at all.
  */
 async function withReferenceCapableCatalog(
   baseUrl: string,
@@ -519,7 +519,7 @@ test('an accepted Continuity scene publishes its durable filename as the active 
     job.params.force = false
     const renderPromise = runContinuityRenderJob(job)
 
-    await pollStarted
+    await Promise.race([pollStarted, renderPromise.then(() => { throw new Error('render finished before the held poll') })])
     const taskId = service.submissions.find(submission => submission.operation === 'image')!.jobId
     const manifest = await readManifest(outDir)
     const active = job.item_progress?.active[0]
@@ -651,14 +651,18 @@ test('a fleet-busy Continuity retry republishes its active canonical filename on
     }
     const { runContinuityRenderJob } = await import('../generators/continuity-render.js')
     const { project, episodeId, paths } = await createEpisode('Retry active key')
+    const { setImageRetrySetting } = await import('../services/app-settings.js')
+    const { writeAuthoritativeJob } = await import('../services/job-queue.js')
+    await setImageRetrySetting({ enabled: true, retries: 1 })
     await writeScenePrerequisites(paths, episodeId, [
       { id: 'scene-001', scene_index: 1, visual_prompt: 'A lantern in a quiet archive.' },
     ])
     await fs.writeFile(path.join(paths.episode_dir, 'continuity.json'), JSON.stringify({ schema_version: 1 }))
     const job = renderJob(project.slug, episodeId)
+    await writeAuthoritativeJob(job)
     const renderPromise = runContinuityRenderJob(job)
 
-    await secondSubmitStarted
+    await Promise.race([secondSubmitStarted, renderPromise.then(() => { throw new Error('render finished before the second submit') })])
     const secondAttempt = job.item_progress?.active[0]
     releaseSecondSubmit()
     await renderPromise
@@ -722,9 +726,9 @@ test('a legacy sidecar carrying only the references.sheet mirror still counts as
   assert.match(result.lines, /Episode reference: master\.png/)
 })
 
-test('FLUX.2 Klein renders the scene and says why the anchor was not used', async () => {
-  // The stock mock catalogue publishes `max_reference_images: 0` — Klein's own
-  // live shape. No catalogue patch: this is the unmodified refusal path.
+test('a zero-reference model renders the scene and says why the anchor was not used', async () => {
+  // The stock mock catalogue publishes `max_reference_images: 0`. No catalogue
+  // patch: this is the unmodified refusal path.
   const result = await render({
     name: 'Reference zero capacity',
     continuity: { use_episode_sheet: true, references: { sheet: true } },
@@ -892,8 +896,7 @@ test('characters plus the episode template over the published ceiling are refuse
 })
 
 test('a text-only model with a character selection fails loudly instead of rendering text-only', async () => {
-  // The stock mock catalogue publishes `max_reference_images: 0` — FLUX.2
-  // Klein's own live shape before the edit lane shipped.
+  // The stock mock catalogue publishes `max_reference_images: 0`.
   const result = await render({
     name: 'Character refs on a zero model',
     continuity: {},

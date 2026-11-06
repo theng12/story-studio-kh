@@ -1,0 +1,12 @@
+{
+ "kind": "lettering-style",
+ "schema_version": 1,
+ "id": "com.storystudio.lettering.font-condensed",
+ "name": "Condensed",
+ "description": "condensed narrow sans-serif, compact and efficient",
+ "axis": "font",
+ "phrase": "condensed narrow sans-serif, compact and efficient",
+ "preview_assets": [
+  "assets/font-condensed.webp"
+ ]
+}

@@ -1,5 +1,5 @@
 import { computed, readonly, ref } from 'vue'
-import { useApi } from './useApi.js'
+import { useApi, invalidateProjectCache } from './useApi.js'
 import { announceJobFailure, isWatchingProject } from './useJobs.js'
 import type { Job, JobStats } from './useJobs.js'
 import type { JobHistoryResponse, JobListResponse } from '@shared/contracts'
@@ -108,7 +108,7 @@ async function announceFailuresWhileAway(since: number) {
   try {
     const { get } = useApi()
     const query = `status=error&limit=200&since=${encodeURIComponent(new Date(since).toISOString())}`
-    recent = (await get<JobHistoryResponse>(`/jobs/all/history?${query}`)).jobs as Job[]
+    recent = (await get<JobHistoryResponse>(`/jobs/all/history?${query}`, { cache: 'no-store' })).jobs as Job[]
   } catch { return /* best effort: the row is still on the Jobs page */ }
   for (const job of recent) {
     if (isWatchingProject(job.project_slug)) continue
@@ -164,6 +164,12 @@ function applyUpdate(job: Job) {
   if ((previous?.status === 'running' || previous?.status === 'queued')
     && job.status === 'error' && !isWatchingProject(job.project_slug)) {
     announceJobFailure(job)
+  }
+  // A terminal transition changed the project's episodes/channels on disk —
+  // drop its cached reads so no page keeps showing the pre-job picture.
+  if ((previous?.status === 'running' || previous?.status === 'queued')
+    && !isLiveStatus(job.status)) {
+    invalidateProjectCache(job.project_slug, job.episode_id)
   }
   if (previous) {
     // The badge counts the transition even though the row itself leaves the list:
@@ -235,7 +241,7 @@ async function refresh() {
   const epoch = transportEpoch
   const revision = stateRevision
   try {
-    const snapshot = await get<JobListResponse>('/jobs/all?view=active')
+    const snapshot = await get<JobListResponse>('/jobs/all?view=active', { cache: 'no-store' })
     // Before the first snapshot, concurrent confirmed changes are recorded
     // for reconciliation. They must not make the only authoritative fallback
     // snapshot look stale.

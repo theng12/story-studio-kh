@@ -190,6 +190,39 @@ describe('Check All Uploads', () => {
     assert.equal(cache[CHANNEL]?.videos['vid-studio']?.source, 'channel_listing')
   })
 
+  test('a deliberate check re-reads the listing even when the last one is recent, and finds a new Studio schedule', async () => {
+    const s = await setup()
+    // A COMPLETE listing, minutes old: fresh by the TTL rule, so the old code
+    // reused it and never saw a schedule made in YouTube Studio since.
+    const { recordYouTubePublicationObservations } = await import('../services/youtube-publication-cache.js')
+    await recordYouTubePublicationObservations({
+      project_slug: s.slug, channel_id: CHANNEL,
+      listing: { attempted_at: new Date().toISOString(), outcome: 'complete', videos: [] },
+    })
+    const fake = new FakeYouTube()
+    fake.respondMatching({ method: 'GET', match: CHANNELS, body: { items: [{ contentDetails: { relatedPlaylists: { uploads: 'UU-status' } } }] } })
+    fake.respondMatching({ method: 'GET', match: PLAYLIST, body: {
+      items: [{ snippet: { title: 'Scheduled In Studio', resourceId: { videoId: 'vid-new-schedule' } }, status: { privacyStatus: 'private' } }],
+    } })
+    fake.respondMatching({ method: 'GET', match: VIDEOS, body: { items: [{
+      id: 'vid-new-schedule', status: { uploadStatus: 'uploaded', privacyStatus: 'private', publishAt: '2026-11-20T15:00:00Z' },
+      snippet: { title: 'Scheduled In Studio', channelId: CHANNEL },
+    }] } })
+    __setYouTubeTransportForTests(fake.transport())
+
+    const { checkAllYouTubeUploads } = await import('../services/youtube-status-sync.js')
+    const result = await checkAllYouTubeUploads({ project_slug: s.slug, account_id: s.accountId })
+    assert.equal(result.outcome, 'ok')
+    // The listing WAS re-read, not reused.
+    assert.ok(fake.calls.some(call => call.path.startsWith('/youtube/v3/playlistItems')), 'the listing is read again')
+
+    const { readYouTubePublicationCache } = await import('../services/youtube-publication-cache.js')
+    const cache = await readYouTubePublicationCache(s.slug)
+    // The schedule YouTube confirms is recorded: the provider-confirmed date.
+    assert.equal(cache[CHANNEL]?.videos['vid-new-schedule']?.scheduled_for, '2026-11-20T15:00:00Z')
+    assert.equal(cache[CHANNEL]?.videos['vid-new-schedule']?.source, 'channel_listing')
+  })
+
   test('a listing that cannot be read is reported, and the operation that WAS checked is not lost', async () => {
     const s = await setup()
     const code = await s.episode('Known')

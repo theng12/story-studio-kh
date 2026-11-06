@@ -27,9 +27,7 @@ async function loadComponent(): Promise<Component> {
   ).toString('base64')}`)).default
 }
 
-const zones = SETTINGS_ZONES
-
-async function mountNav() {
+async function mountNav(zones = SETTINGS_ZONES) {
   const Component = await loadComponent()
   const selected = ref('connections')
   const gone: any[] = []
@@ -67,7 +65,7 @@ describe('Settings section navigation', () => {
     assert.equal(sections.length, 12)
     for (const entry of SETTINGS_INDEX) assert.ok(sections.includes(entry.section), `${entry.label} → ${entry.section}`)
     // Every anchor the index names is present in the page or one of its components.
-    const sources = ['../pages/projects/[slug]/settings.vue', '../components/ThisMacSettings.vue', '../components/PerformanceSettings.vue', '../components/BackupPanel.vue', '../components/DefaultModelsSettings.vue', '../components/DuplicateScreeningSettings.vue']
+    const sources = ['../pages/projects/[slug]/settings.vue', '../components/ThisMacSettings.vue', '../components/PerformanceSettings.vue', '../components/BackupPanel.vue', '../components/DefaultModelsSettings.vue', '../components/DuplicateScreeningSettings.vue', '../components/AppFilesSettings.vue', '../components/AppNotificationSettings.vue']
       .map(rel => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8')).join('\n')
     for (const entry of SETTINGS_INDEX) {
       assert.match(sources, new RegExp(`data-setting="${entry.anchor}"`), `anchor ${entry.anchor} exists`)
@@ -89,6 +87,31 @@ describe('Settings section navigation', () => {
       assert.equal(mounted.selected.value, 'publishing')
       assert.equal(mounted.gone[0]?.anchor, 'upload-schedule')
       assert.equal(input.value, '', 'the search clears after jumping')
+    } finally { mounted.destroy() }
+  })
+
+  test('channel-only navigation does not offer app settings through search', async () => {
+    const mounted = await mountNav(SETTINGS_ZONES.filter(zone => zone.id === 'project'))
+    try {
+      const input = mounted.host.querySelector<HTMLInputElement>('input[type="search"]')!
+      input.value = 'desktop alerts'
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+      await nextTick()
+      assert.equal(mounted.host.querySelectorAll('.settings-search-hit').length, 0)
+      assert.match(mounted.host.textContent!, /Nothing matches/)
+      input.value = 'schedule'
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+      await nextTick()
+      assert.ok(mounted.host.querySelectorAll('.settings-search-hit').length > 0)
+      input.value = "What's using space"
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+      await nextTick()
+      const storage = mounted.host.querySelector<HTMLButtonElement>('.settings-search-hit')!
+      assert.ok(storage, 'the retained channel storage breakdown stays searchable')
+      storage.click()
+      await nextTick()
+      assert.equal(mounted.selected.value, 'files')
+      assert.equal(mounted.gone[0]?.anchor, 'episode-storage')
     } finally { mounted.destroy() }
   })
 

@@ -1,0 +1,14 @@
+{
+  "pack_format": 1,
+  "pack_id": "com.storystudio.pack.metadata-formula.classic-chapters-first",
+  "publisher_id": "com.storystudio",
+  "key_id": "{{KEY_ID}}",
+  "version": "1.0.0",
+  "min_app_version": "{{MIN_APP_VERSION}}",
+  "lifecycle": "active",
+  "changelog": "First release of the Classic Chapters First pack: the built-in Chapters First metadata formula, republished under its own pack identity with its description architecture unchanged.",
+  "entitlement": {
+    "sku": "com.storystudio.sku.metadata-formula.classic-chapters-first",
+    "family": "com.storystudio.family.metadata-formula.classic-chapters-first"
+  }
+}

@@ -311,9 +311,10 @@ test('compiler/core closure is pure and local video has one implementation of mo
     'lib/final-render-recipe.ts', 'lib/render-hash-v1.ts', 'lib/video-effects.ts',
     'lib/video-frame-filter.ts', 'lib/color-grade.ts', 'lib/scene-effect-compiler.ts',
     'lib/grade-balance.ts', 'lib/ffmpeg-filter-escape.ts', 'lib/well-formed-text.ts',
+    'lib/contextual-cue-filters.ts', 'contracts/contextual-cue-position.ts',
     'contracts/scene-effects.ts', 'contracts/effect-loops.ts',
   ])
-  const external = new Set(['node:crypto', 'node:util'])
+  const external = new Set(['node:crypto', 'node:util', 'node:path'])
   const pending = ['lib/final-render-core.ts', 'lib/final-render-compiler.ts']
   const seen = new Set<string>()
   while (pending.length) {

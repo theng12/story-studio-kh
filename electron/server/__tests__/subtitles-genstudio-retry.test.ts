@@ -63,10 +63,9 @@ test('terminal transcription states and typed provider outcomes are classified w
  * charge for work that never happened — not a second charge for the same work,
  * which is the hazard every other retry path in this file exists to avoid.
  *
- * The guard therefore checks BOTH the code and the money. A capacity code
- * arriving with credits settled would mean that guarantee had stopped holding,
- * and the right response to an assumption you can no longer verify is to stop,
- * not to resubmit.
+ * The guard therefore checks the code and the job's own state — cancellation
+ * and the gateway's unknown-outcome hold stop it — never credit settlement:
+ * Story no longer tracks credits, so a legacy payload's numbers cannot decide.
  */
 
 function settledJob(over: Record<string, unknown>) {
@@ -90,16 +89,25 @@ test('a busy fleet is retryable — the credits came back and no worker ran', as
   }
 })
 
-test('a capacity code that took money is NOT retried', async () => {
+test('legacy or missing settlement does not decide — the code and the job state do', async () => {
   const { isFleetBusyTranscriptionFailure } = await import('../generators/subtitles.js')
-  // If credits were settled, a provider was paid and may have done the work.
-  // Resubmitting over that is the double-charge this whole file guards against,
-  // whatever the failure code claims.
+  // Story no longer tracks credits: the error's credit fields are null, so a
+  // legacy payload's settled/released numbers can neither grant nor deny the
+  // retry. Only the code and the job's own state decide.
+  const charged = new GenStudioTranscriptionTerminalFailureError(
+    settledJob({ failure_code: 'SITE_PLACEMENT_EXHAUSTED', settled_credits: 17, released_credits: 0 }),
+  )
+  assert.equal(charged.settledCredits, null, 'the error publishes no settlement to decide on')
+  assert.equal(isFleetBusyTranscriptionFailure(charged), true, 'a legacy settled payload does not decide')
   assert.equal(
     isFleetBusyTranscriptionFailure(new GenStudioTranscriptionTerminalFailureError(
-      settledJob({ failure_code: 'SITE_PLACEMENT_EXHAUSTED', settled_credits: 17, released_credits: 0 }),
+      settledJob({
+        failure_code: 'SITE_PLACEMENT_EXHAUSTED',
+        reserved_credits: undefined, settled_credits: undefined, released_credits: undefined,
+      }),
     )),
-    false,
+    true,
+    'missing settlement does not decide either',
   )
 })
 
@@ -128,6 +136,21 @@ test('a cancelled job is never resubmitted', async () => {
     )),
     false,
   )
+})
+
+test('an unknown-outcome hold is never resubmitted', async () => {
+  const { isFleetBusyTranscriptionFailure } = await import('../generators/subtitles.js')
+  // The gateway may still be holding a result that has not landed; a busy code
+  // on such a job must not buy a second transcription.
+  for (const over of [{ recovery_state: 'unknown_outcome' }, { recovery_required: true }]) {
+    assert.equal(
+      isFleetBusyTranscriptionFailure(new GenStudioTranscriptionTerminalFailureError(
+        settledJob({ failure_code: 'SITE_PLACEMENT_EXHAUSTED', ...over }),
+      )),
+      false,
+      JSON.stringify(over),
+    )
+  }
 })
 
 test('a TTS failure is not treated as a transcription retry', async () => {

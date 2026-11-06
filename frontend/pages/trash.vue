@@ -10,6 +10,7 @@
         <button class="btn btn-secondary btn-sm" :disabled="loading" @click="load">{{ loading ? 'Measuring…' : 'Refresh' }}</button>
       </template>
     </PageTitle>
+    <ApiDataStatus path="/trash" @retry="load" />
 
     <p v-if="error" class="trash-error" role="alert">{{ error }}</p>
     <p v-if="notice" class="trash-notice" role="status">{{ notice }}</p>

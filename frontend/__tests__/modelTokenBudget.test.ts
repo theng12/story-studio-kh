@@ -291,7 +291,7 @@ describe('a published limit names its author (HUB-20)', () => {
   test('the scene plan renders the sentence beside the limit it describes', () => {
     assert.match(scenePlan, /promptBudgetSourceNote/)
     assert.match(scenePlan, /describeUnstatedLimitSource\(liveModelLimits\.value\)/)
-    assert.match(scenePlan, /That limit is \{\{ promptBudgetSourceNote \}\}/)
+    assert.match(scenePlan, /The output limit is \{\{ promptBudgetSourceNote \}\}/)
   })
 
   test('the field travels from the gateway through the server whitelist', () => {

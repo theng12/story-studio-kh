@@ -244,6 +244,21 @@ async function findUniversalJob(jobId: string): Promise<Job | undefined> {
   return (await Promise.all(scopes.map(scope => jq.findJobs(scope, job => job.job_id === jobId)))).flat()[0]
 }
 
+/**
+ * Which scope's saved history still holds a job the queue's store has dropped.
+ *
+ * The universal removal path is asked for one job id with no scope, so the
+ * scopes are read one by one. The first scope whose saved jobs file still has
+ * the row owns it.
+ */
+async function removalScopeFor(jobId: string): Promise<string | undefined> {
+  const scopes = await allJobScopes()
+  for (const scope of scopes) {
+    if (await jq.savedJobExists(scope, jobId)) return scope
+  }
+  return undefined
+}
+
 function sendJobControlError(res: import('express').Response, error: unknown): boolean {
   if (!(error instanceof jq.JobControlError)) return false
   res.status(error.status).json({
@@ -713,7 +728,15 @@ router.post('/jobs/all/:jobId/abandon', async (req, res, next) => {
 
 router.delete('/jobs/all/:jobId', async (req, res) => {
   const existing = await findUniversalJob(req.params.jobId)
-  if (!existing) return res.status(404).json({ detail: 'Job not found' })
+  if (!existing) {
+    // The row is on the customer's list but no longer in the queue's store:
+    // remove it from the project's saved history so the list can clear.
+    const scope = await removalScopeFor(req.params.jobId)
+    if (!scope || !await jq.removeTerminalJobRow(scope, req.params.jobId)) {
+      return res.status(404).json({ detail: 'Job not found' })
+    }
+    return res.json({ ok: true })
+  }
   if (!jq.removeTerminalJob(existing.project_slug, req.params.jobId)) return sendTerminalOnlyConflict(res, existing)
   res.json({ ok: true })
 })
@@ -1030,7 +1053,15 @@ router.post('/projects/:slug/jobs/:jobId/abandon', async (req, res, next) => {
 
 router.delete('/projects/:slug/jobs/:jobId', async (req, res) => {
   const existing = (await jq.findJobs(req.params.slug, job => job.job_id === req.params.jobId))[0]
-  if (!existing || existing.project_slug !== req.params.slug) return res.status(404).json({ detail: 'Job not found' })
+  if (!existing || existing.project_slug !== req.params.slug) {
+    // A row the queue's store no longer holds is still on the customer's list
+    // when the project's saved history still has it. Remove it there so the
+    // list can clear; only a row nobody holds is a real "not found".
+    if (!await jq.removeTerminalJobRow(req.params.slug, req.params.jobId)) {
+      return res.status(404).json({ detail: 'Job not found' })
+    }
+    return res.json({ ok: true })
+  }
   if (!jq.removeTerminalJob(req.params.slug, req.params.jobId)) return sendTerminalOnlyConflict(res, existing)
   res.json({ ok: true })
 })

@@ -240,7 +240,7 @@ interface AssignmentView { project_slug: string; channel_id: string; assigned_at
 type Result = { kind: 'ok' | 'warn' | 'err'; message: string }
 
 const props = withDefaults(defineProps<{
-  slug: string
+  slug?: string
   scope?: 'all' | 'connections' | 'assignment'
 }>(), { scope: 'all' })
 const scope = computed(() => props.scope)
@@ -321,9 +321,12 @@ async function load(): Promise<void> {
   loadError.value = ''
   loadErrorCode.value = ''
   try {
+    if (scope.value !== 'connections' && !props.slug) throw new Error('Choose a channel before assigning its YouTube account.')
     const [connections, projectAssignment] = await Promise.all([
       get<{ application: ApplicationView | null; channels: ChannelView[] }>('/youtube/connections'),
-      get<{ assignment: AssignmentView | null }>(`/projects/${props.slug}/youtube/assignment`),
+      scope.value === 'connections'
+        ? Promise.resolve({ assignment: null })
+        : get<{ assignment: AssignmentView | null }>(`/projects/${props.slug}/youtube/assignment`),
     ])
     application.value = connections.application
     channels.value = connections.channels

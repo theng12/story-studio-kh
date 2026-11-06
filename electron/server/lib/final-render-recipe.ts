@@ -9,11 +9,11 @@ export type RenderPacketSyntax = {
 }
 
 type JsonObject = Record<string, unknown>
-type AssetRole = 'base_video' | 'premixed_audio' | 'overlay' | 'frame_background' | 'logo'
+type AssetRole = 'base_video' | 'premixed_audio' | 'overlay' | 'frame_background' | 'logo' | 'cue_label' | 'subtitle_ass' | 'subtitle_font'
 
 const SHA256 = /^[0-9a-f]{64}$/
 const ID = /^[a-z][a-z0-9_-]{0,63}$/
-const SAFE_NAME = /^(?<id>[a-z][a-z0-9_-]{0,63})\.(?<extension>mp4|mov|webm|wav|png|jpg|webp|gif|bmp|tiff)$/
+const SAFE_NAME = /^(?<id>[a-z][a-z0-9_-]{0,63})\.(?<extension>mp4|mov|webm|wav|png|jpg|webp|gif|bmp|tiff|ass|ttf|otf)$/
 const COLOR = /^(?:#[0-9A-F]{6}|black)$/
 const HEX_COLOR = /^#[0-9A-F]{6}$/
 const FPS = new Set([5, 24, 25, 30, 60])
@@ -26,6 +26,8 @@ const STAGES = [
   'aged_archive_film',
   'classic_letterbox',
   'presentation_frame',
+  'subtitle_stage',
+  'late_label_stage',
   'logo',
 ] as const
 
@@ -132,7 +134,87 @@ function addRef(refs: Map<string, AssetRole>, id: string, role: AssetRole): void
   refs.set(id, role)
 }
 
-function operation(value: unknown, duration: number, refs: Map<string, AssetRole>, index: number): number {
+function lateLabelRef(value: unknown, path: string, expected: string, refs: Map<string, AssetRole>): void {
+  const id = assetRef(value, path)
+  if (id !== expected) invalid(`${path} has an invalid late-label asset name`)
+  addRef(refs, id, 'cue_label')
+}
+
+/**
+ * The singleton subtitle stage (`studio.render.subtitle.v1`): one ASS document
+ * plus its verified bundled font closure. Font ids are the generated
+ * `subtitle_font_<4-digit>` names in ascending order — the deterministic order
+ * Story mints them in (sorted by the source bundled-manifest id) — so a reader
+ * never sees a source filename, bracketed or otherwise, and the list order is
+ * fixed on the wire. Every font record's sha256 must equal its manifest hash;
+ * that equality is checked in the manifest loop below, where the staged bytes
+ * are known.
+ */
+function subtitleOperation(value: unknown, refs: Map<string, AssetRole>, index: number): void {
+  const path = `recipe.operations[${index}]`
+  const op = exact(value, ['kind', 'contract', 'ass', 'fonts'], path)
+  if (op.kind !== 'subtitle_stage' || op.contract !== 'studio.render.subtitle.v1') invalid(`${path} contract is unsupported`)
+  addRef(refs, assetRef(op.ass, `${path}.ass`), 'subtitle_ass')
+  if (!Array.isArray(op.fonts) || op.fonts.length < 1) invalid(`${path}.fonts must be a nonempty array`)
+  op.fonts.forEach((raw, fontIndex) => {
+    const fontPath = `${path}.fonts[${fontIndex}]`
+    const font = exact(raw, ['asset', 'family', 'sha256'], fontPath)
+    const id = assetRef(font.asset, `${fontPath}.asset`)
+    if (id !== `subtitle_font_${String(fontIndex).padStart(4, '0')}`) {
+      invalid(`${fontPath}.asset must be the ordered generated font id`)
+    }
+    addRef(refs, id, 'subtitle_font')
+    const family = text(font.family, `${fontPath}.family`)
+    // The family is the bundled manifest's family name, never a filesystem path.
+    if (!family.trim() || family.includes('/') || family.includes('\\')) invalid(`${fontPath}.family is invalid`)
+    if (!SHA256.test(text(font.sha256, `${fontPath}.sha256`))) invalid(`${fontPath}.sha256 is invalid`)
+  })
+}
+
+function lateLabelOperation(value: unknown, duration: number, refs: Map<string, AssetRole>, index: number, fps: number): void {
+  const path = `recipe.operations[${index}]`
+  const op = exact(value, ['kind', 'contract', 'cue_id', 'enable', 'placement', 'motion', 'label', 'reveal', 'line', 'line_reveal'], path)
+  if (op.kind !== 'late_label_stage' || op.contract !== 'studio.render.late-label.v3') invalid(`${path} contract is unsupported`)
+  const cueId = text(op.cue_id, `${path}.cue_id`)
+  if (!ID.test(cueId)) invalid(`${path}.cue_id is invalid`)
+  const enable = exact(op.enable, ['start_sec', 'end_sec'], `${path}.enable`)
+  const start = number(enable.start_sec, `${path}.enable.start_sec`)
+  const end = number(enable.end_sec, `${path}.enable.end_sec`)
+  if (start < 0 || start >= duration || end <= start || end > duration) invalid(`${path}.enable is out of range`)
+  const placement = exact(op.placement, ['x_px', 'y_px'], `${path}.placement`)
+  if (integer(placement.x_px, `${path}.placement.x_px`) < 0 || integer(placement.y_px, `${path}.placement.y_px`) < 0) invalid(`${path}.placement is out of range`)
+  const motion = exact(op.motion, ['kind', 'entrance_sec'], `${path}.motion`)
+  const kind = oneOf(motion.kind, ['none', 'pop', 'slide', 'float', 'pulse', 'wipe', 'line-draw'], `${path}.motion.kind`)
+  if (motion.entrance_sec !== 0.3) invalid(`${path}.motion.entrance_sec is unsupported`)
+  if (index > 9999) invalid('late-label operation index exceeds 9999')
+  const stem = `cue_${String(index).padStart(4, '0')}_`
+  const ref = (target: unknown, suffix: string, refPath: string): void => lateLabelRef(target, refPath, `${stem}${suffix}`, refs)
+  const reveal = (target: unknown, purpose: 'r' | 'lr', revealPath: string): void => {
+    const item = exact(target, ['duration_sec', 'frames'], revealPath)
+    if (item.duration_sec !== 0.3 || !Array.isArray(item.frames)) invalid(`${revealPath} is invalid`)
+    const count = Math.max(2, Math.ceil(fps * 0.3) + 1)
+    if (item.frames.length !== count) invalid(`${revealPath}.frames has an invalid count`)
+    item.frames.forEach((raw, frameIndex) => {
+      const frame = exact(raw, ['asset', 'progress'], `${revealPath}.frames[${frameIndex}]`)
+      if (number(frame.progress, `${revealPath}.frames[${frameIndex}].progress`) !== frameIndex / (count - 1)) invalid(`${revealPath}.frames progress is invalid`)
+      ref(frame.asset, `${purpose}${String(frameIndex).padStart(4, '0')}`, `${revealPath}.frames[${frameIndex}].asset`)
+    })
+  }
+  if (kind === 'wipe') {
+    if (op.label !== null || op.line_reveal !== null || op.reveal === null) invalid(`${path} wipe fields are invalid`)
+    reveal(op.reveal, 'r', `${path}.reveal`)
+  } else {
+    if (op.label === null || op.reveal !== null) invalid(`${path} label fields are invalid`)
+    ref(exact(op.label, ['asset'], `${path}.label`).asset, 'label', `${path}.label.asset`)
+    if (kind === 'line-draw') {
+      if (op.line !== null || op.line_reveal === null) invalid(`${path} line-draw fields are invalid`)
+      reveal(op.line_reveal, 'lr', `${path}.line_reveal`)
+    } else if (op.line_reveal !== null) invalid(`${path}.line_reveal must be null`)
+  }
+  if (op.line !== null) ref(exact(op.line, ['asset'], `${path}.line`).asset, 'line', `${path}.line.asset`)
+}
+
+function operation(value: unknown, duration: number, refs: Map<string, AssetRole>, index: number, fps: number): number {
   const op = object(value, `recipe.operations[${index}]`)
   const kind = text(op.kind, `recipe.operations[${index}].kind`)
   const stage = STAGES.indexOf(kind as typeof STAGES[number])
@@ -199,6 +281,10 @@ function operation(value: unknown, duration: number, refs: Map<string, AssetRole
       addRef(refs, assetRef(closed.asset, `${path}.background.asset`), 'frame_background')
       inputMode(closed.input_mode, `${path}.background.input_mode`)
     } else invalid(`${path}.background.kind is unsupported`)
+  } else if (kind === 'late_label_stage') {
+    lateLabelOperation(op, duration, refs, index, fps)
+  } else if (kind === 'subtitle_stage') {
+    subtitleOperation(op, refs, index)
   } else {
     const item = exact(op, ['kind', 'asset', 'opacity', 'scale', 'anchor', 'margin_px', 'gate'], path)
     addRef(refs, assetRef(item.asset, `${path}.asset`), 'logo')
@@ -209,6 +295,19 @@ function operation(value: unknown, duration: number, refs: Map<string, AssetRole
     oneOf(item.gate, ['effects_gate', 'after_10_seconds', 'always'], `${path}.gate`)
   }
   return stage
+}
+
+export function validateFinalRenderEncode(value: unknown): void {
+  const encode = exact(value, ['container', 'requested_codec', 'requested_effort', 'crf', 'quality_cpu_preset', 'bitrate_kbps'], 'recipe.encode')
+  oneOf(encode.container, ['mp4', 'mov', 'webm'], 'recipe.encode.container')
+  oneOf(encode.requested_codec, ['h264', 'h265'], 'recipe.encode.requested_codec')
+  oneOf(encode.requested_effort, ['ultrafast', 'medium', 'slow', 'hardware'], 'recipe.encode.requested_effort')
+  const crf = integer(encode.crf, 'recipe.encode.crf')
+  const preset = oneOf(encode.quality_cpu_preset, ['ultrafast', 'medium', 'slow'], 'recipe.encode.quality_cpu_preset')
+  if (!new Set(['32/ultrafast', '28/ultrafast', '23/medium', '18/slow', '23/ultrafast']).has(`${crf}/${preset}`)) {
+    invalid('recipe.encode quality pair is unsupported')
+  }
+  if (encode.bitrate_kbps !== null) integerRange(encode.bitrate_kbps, 500, 100000, 'recipe.encode.bitrate_kbps')
 }
 
 function validate(value: unknown): RenderPacketSyntax {
@@ -232,25 +331,23 @@ function validate(value: unknown): RenderPacketSyntax {
   effectsGate(recipe.effects_gate, duration, 'recipe.effects_gate')
   if (!Array.isArray(recipe.operations)) invalid('recipe.operations must be an array')
   let lastStage = -1
+  const cueIds = new Set<string>()
   const seen = new Set<string>()
   recipe.operations.forEach((item, index) => {
-    const stage = operation(item, duration, refs, index)
+    const raw = object(item, `recipe.operations[${index}]`)
+    const kind = text(raw.kind, `recipe.operations[${index}].kind`)
+    const stage = operation(item, duration, refs, index, fps)
+    if (kind === 'late_label_stage') {
+      const cueId = text(raw.cue_id, `recipe.operations[${index}].cue_id`)
+      if (cueIds.has(cueId)) invalid('recipe.operations cue_id is duplicated')
+      cueIds.add(cueId)
+    }
     if (stage < lastStage) invalid('recipe.operations stage order is invalid')
-    const kind = (item as JsonObject).kind as string
-    if (kind !== 'overlay_layer' && seen.has(kind)) invalid(`recipe.operations repeats singleton ${kind}`)
+    if (kind !== 'overlay_layer' && kind !== 'late_label_stage' && seen.has(kind)) invalid(`recipe.operations repeats singleton ${kind}`)
     seen.add(kind)
     lastStage = stage
   })
-  const encode = exact(recipe.encode, ['container', 'requested_codec', 'requested_effort', 'crf', 'quality_cpu_preset', 'bitrate_kbps'], 'recipe.encode')
-  oneOf(encode.container, ['mp4', 'mov', 'webm'], 'recipe.encode.container')
-  oneOf(encode.requested_codec, ['h264', 'h265'], 'recipe.encode.requested_codec')
-  oneOf(encode.requested_effort, ['ultrafast', 'medium', 'slow', 'hardware'], 'recipe.encode.requested_effort')
-  const crf = integer(encode.crf, 'recipe.encode.crf')
-  const preset = oneOf(encode.quality_cpu_preset, ['ultrafast', 'medium', 'slow'], 'recipe.encode.quality_cpu_preset')
-  if (!new Set(['32/ultrafast', '28/ultrafast', '23/medium', '18/slow', '23/ultrafast']).has(`${crf}/${preset}`)) {
-    invalid('recipe.encode quality pair is unsupported')
-  }
-  if (encode.bitrate_kbps !== null) integerRange(encode.bitrate_kbps, 500, 100000, 'recipe.encode.bitrate_kbps')
+  validateFinalRenderEncode(recipe.encode)
 
   if (!Array.isArray(packet.manifest)) invalid('manifest must be an array')
   const ids = new Set<string>()
@@ -267,10 +364,25 @@ function validate(value: unknown): RenderPacketSyntax {
     const match = SAFE_NAME.exec(safeName)
     if (match?.groups?.id !== id || names.has(safeName)) invalid(`${path}.safe_name is invalid`)
     names.add(safeName)
-    const role = oneOf(entry.role, ['base_video', 'premixed_audio', 'overlay', 'frame_background', 'logo'], `${path}.role`) as AssetRole
+    const role = oneOf(entry.role, ['base_video', 'premixed_audio', 'overlay', 'frame_background', 'logo', 'cue_label', 'subtitle_ass', 'subtitle_font'], `${path}.role`) as AssetRole
+    if (role === 'cue_label' && match?.groups?.extension !== 'png') invalid(`${path}.safe_name must be PNG for a cue label`)
+    if (role === 'subtitle_ass' && match?.groups?.extension !== 'ass') invalid(`${path}.safe_name must be ASS for a subtitle document`)
+    if (role === 'subtitle_font' && !['ttf', 'otf'].includes(match?.groups?.extension ?? '')) {
+      invalid(`${path}.safe_name must be TTF or OTF for a subtitle font`)
+    }
     if (refs.get(id) !== role) invalid(`${path} does not match an exact recipe reference`)
     if (!SHA256.test(text(entry.sha256, `${path}.sha256`))) invalid(`${path}.sha256 is invalid`)
     if (integer(entry.size_bytes, `${path}.size_bytes`) <= 0) invalid(`${path}.size_bytes must be positive`)
+    // A font record's sha256 is the staged bytes' hash: the recipe promise and
+    // the manifest fact must be the same value, never two hashes of one file.
+    if (role === 'subtitle_font') {
+      const record = (recipe.operations as JsonObject[]).find(operationValue =>
+        operationValue.kind === 'subtitle_stage'
+        && Array.isArray(operationValue.fonts)
+        && (operationValue.fonts as JsonObject[]).some(font => (font.asset as JsonObject)?.logical_id === id))
+      const fontRecord = (record?.fonts as JsonObject[] | undefined)?.find(font => (font.asset as JsonObject)?.logical_id === id)
+      if (!fontRecord || fontRecord.sha256 !== entry.sha256) invalid(`${path} does not match its subtitle font record`)
+    }
   }
   if (ids.size !== refs.size || [...refs.keys()].some(id => !ids.has(id))) invalid('manifest/reference bijection is incomplete')
 

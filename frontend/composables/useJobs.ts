@@ -19,7 +19,7 @@
 // node:test (no Nuxt auto-import context). Nuxt's auto-imports remain
 // additive inside .vue files.
 import { ref, readonly, computed } from 'vue'
-import { useApi } from './useApi.js'
+import { useApi, invalidateProjectCache } from './useApi.js'
 import { useToast } from './useToast.js'
 import type { JobEnqueuedResponse, JobListResponse, JobStreamEvent } from '@shared/contracts'
 import { jobDisplayLabel } from '../utils/job-presentation.js'
@@ -136,9 +136,20 @@ function announceTransitions(next: Job[]) {
         const notice = jobCompletionNotice(job, label)
         if (notice.kind === 'success') success(notice.message)
         else info(notice.message)
+        // A finished job changed the project's episodes/channels on disk.
+        // Drop every cached read for that project so the next page mount
+        // shows the post-job picture, not the pre-job one (owner rule:
+        // nothing shown as current past a change).
+        invalidateProjectCache(job.project_slug, job.episode_id)
       }
-      else if (job.status === 'error') announceJobFailure(job)
-    } else if (!prev && failedWhileAway(job)) announceJobFailure(job)
+      else if (job.status === 'error') {
+        announceJobFailure(job)
+        invalidateProjectCache(job.project_slug, job.episode_id)
+      }
+    } else if (!prev && failedWhileAway(job)) {
+      announceJobFailure(job)
+      invalidateProjectCache(job.project_slug, job.episode_id)
+    }
   }
   previousStatuses.clear()
   for (const job of next) previousStatuses.set(job.job_id, job.status)
@@ -291,7 +302,7 @@ async function refreshFull(slug: string) {
   const revision = stateRevision
   const { get } = useApi()
   try {
-    const data = await get<JobListResponse>(`/projects/${slug}/jobs?view=stream`)
+    const data = await get<JobListResponse>(`/projects/${slug}/jobs?view=stream`, { cache: 'no-store' })
     // Before the first snapshot, concurrent confirmed changes are recorded
     // for reconciliation. They must not make the only authoritative fallback
     // snapshot look stale.

@@ -96,7 +96,7 @@ export function useThumbnailText(scope: {
   }
   async function loadVariants() {
     const current = generation
-    const result = await get<ThumbnailTextVariant[]>(`${path.value}/variants`)
+    const result = await get<ThumbnailTextVariant[]>(`${path.value}/variants`, { cache: 'no-store' })
     if (current === generation && scope.visible.value) variants.value = result
   }
   /**
@@ -105,7 +105,7 @@ export function useThumbnailText(scope: {
    */
   async function loadLanguageSettings() {
     const current = generation
-    const settings = await get<ThumbnailTextLanguageSettings>(`${path.value}/settings`)
+    const settings = await get<ThumbnailTextLanguageSettings>(`${path.value}/settings`, { cache: 'no-store' })
     if (current !== generation) return
     channelLanguage.value = settings.channel_language
     languageOverride.value = settings.override

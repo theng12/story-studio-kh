@@ -55,11 +55,14 @@
 import { computed, ref } from 'vue'
 import { searchSettings, type SettingEntry, type SettingsZoneDef } from '~/utils/settingsIndex'
 
-defineProps<{ zones: SettingsZoneDef[]; modelValue: string }>()
+const props = defineProps<{ zones: SettingsZoneDef[]; modelValue: string }>()
 const emit = defineEmits<{ 'update:modelValue': [value: string]; go: [hit: SettingEntry] }>()
 
 const query = ref('')
-const results = computed(() => searchSettings(query.value))
+const results = computed(() => {
+  const sections = new Set(props.zones.flatMap(zone => zone.sections.map(section => section.id)))
+  return searchSettings(query.value).filter(hit => sections.has(hit.section))
+})
 
 function go(hit: SettingEntry): void {
   emit('update:modelValue', hit.section)

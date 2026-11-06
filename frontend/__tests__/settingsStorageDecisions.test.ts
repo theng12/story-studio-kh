@@ -91,10 +91,12 @@ async function storageSummaryFragment() {
 }
 
 test('Free Up Space is one card: the two all-channel actions, then what is using space', () => {
-  const start = template.indexOf('data-setting="free-up-space"')
-  const card = template.slice(start, template.indexOf('</section>', template.indexOf('data-setting="episode-storage"')))
-  const order = ['<MediaCleanupPanel', 'data-setting="episode-storage"'].map(marker => card.indexOf(marker))
-  assert.ok(order.every((at, i) => at > 0 && (i === 0 || at > order[i - 1]!)), `card order ${order}`)
+  // v1.4.317 split: the all-channel Free Up Space card lives in <AppFilesSettings>;
+  // the channel page keeps only the read-only per-episode breakdown.
+  const appFiles = read('../components/AppFilesSettings.vue')
+  const appFilesTemplate = appFiles.slice(0, appFiles.indexOf('<script setup')).replace(/<!--[\s\S]*?-->/g, '')
+  const start = appFilesTemplate.indexOf('data-setting="free-up-space"')
+  const card = appFilesTemplate.slice(start, appFilesTemplate.indexOf('</section>', start))
   // The panel offers exactly the two all-channel actions, shrink first.
   const shrinkAll = panel.indexOf('Shrink Images (All Channels)')
   const cleanAll = panel.indexOf('Clean Up All Channels')
@@ -103,24 +105,24 @@ test('Free Up Space is one card: the two all-channel actions, then what is using
   for (const gone of ['This channel only', 'Other ways', 'Choose exactly which files', 'Convert PNG scenes to JPEG', 'data-setting="leftover-files"', 'data-setting="convert-png"', 'Free Up Space for {{ selected.length }} Selected']) {
     assert.ok(panel.indexOf(gone) < 0, `${gone} is removed from the panel`)
   }
-  // The verified-clear duplicate and the archive sweep are gone from the card.
+  // The archive sweep lives under "Where your files are" in the same panel, not in Free up space.
   assert.doesNotMatch(card, /clear-uploaded-finals|Clear uploaded final videos \(verified\)/)
   assert.doesNotMatch(card, /data-setting="move-uploaded"|Move uploaded videos to another drive/)
-  // The archive sweep now lives under "Where your files are", not in Free up space.
-  const where = template.slice(template.indexOf('Where your files are'), start)
+  const where = appFilesTemplate.slice(appFilesTemplate.indexOf('Where your files are'), start)
   assert.match(where, /data-setting="move-uploaded"/)
-  // The read-only breakdown stays, and nothing promises a permanent delete.
-  assert.match(card, /What's using space/)
-  assert.doesNotMatch(card, /permanent/i)
+  // The channel page's read-only breakdown stays on the channel card, and nothing
+  // anywhere promises a permanent delete.
+  assert.match(template, /data-setting="episode-storage"/)
+  assert.doesNotMatch(appFiles, /permanent/i)
 })
 
-test('"What\'s using space" is read-only and no longer lives under Project files & behavior', () => {
+test('"What\'s using space" is read-only and lives on the channel files tab only', () => {
   const view = template.slice(template.indexOf('data-setting="episode-storage"'), template.indexOf('</details>', template.indexOf('data-setting="episode-storage"')))
   assert.match(view, /What's using space/)
   assert.doesNotMatch(view, /cleanupRow|runBulkCleanup|col-actions|Verify &amp; clear|Verify & clear/)
-  const filesTab = template.slice(template.indexOf("activeTab === 'files'"))
-  assert.doesNotMatch(filesTab.slice(0, filesTab.indexOf('</template>')), /episode-storage|Space used by each episode/)
-  assert.match(read('../utils/settingsIndex.ts'), /section: 'maintenance', anchor: 'episode-storage'/)
+  assert.doesNotMatch(read('../components/AppFilesSettings.vue'), /episode-storage|Space used by each episode/,
+    'the per-episode breakdown stays a per-channel control')
+  assert.match(read('../utils/settingsIndex.ts'), /section: 'files', anchor: 'episode-storage'/)
 })
 
 test('the actual Settings storage fragment renders every unavailable summary metric honestly', async () => {

@@ -5,6 +5,10 @@
       <p>{{ sectionDescription }}</p>
     </header>
 
+    <DefaultModelsSettings v-if="section === 'all' || section === 'default-models'" />
+    <AppFilesSettings v-if="section === 'all' || section === 'files'" />
+    <BackupPanel v-if="section === 'all' || section === 'backup'" :library-path="libraryPath" />
+    <AppNotificationSettings v-if="section === 'all' || section === 'appearance'" />
     <PerformanceSettings v-if="section === 'all' || section === 'performance'" />
     <!-- Optional, in-app duplicate screening (owner 2026-10-27). Lives with the
          other "this Mac" knobs because the model is installed once per Mac. -->
@@ -91,24 +95,39 @@
       </div>
     </section>
 
+    <template v-if="section === 'all' || section === 'connections'">
+      <div data-setting="youtube-accounts"><YouTubeConnectionSettings scope="connections" /></div>
+      <div data-setting="social-accounts"><SocialPublishingSettings scope="connections" /></div>
+      <div data-setting="scene-analysis"><SceneAnalysisSettings /></div>
+      <AdvancedDisclosure label="Advanced: Gateway model catalog" data-setting="gateway-catalog">
+        <GenStudioCatalogSettings />
+      </AdvancedDisclosure>
+    </template>
+
     <p v-if="section === 'all' || section === 'connections'" class="security-note">The key stays hidden after saving and is kept only on this Mac.</p>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue'
-type ThisMacSection = 'all' | 'connections' | 'performance' | 'appearance'
+type ThisMacSection = import('../composables/useAppSettingsModal').AppSettingsSection
 const props = withDefaults(defineProps<{ section?: ThisMacSection; embedded?: boolean }>(), { section: 'all', embedded: false })
 const section = computed(() => props.section)
 const sectionTitle = computed(() => ({
   all: 'App settings',
-  connections: 'Gateway connection',
+  connections: 'Connections',
+  'default-models': 'Default models',
+  files: 'Files & maintenance',
+  backup: 'Backup & restore',
   performance: 'Performance & recovery',
   appearance: 'Appearance & notifications',
 }[section.value]))
 const sectionDescription = computed(() => ({
   all: 'Settings stored on this Mac and shared by every project.',
-  connections: 'The Gateway address and key this Mac uses for every AI job.',
+  connections: 'Gateway, publishing accounts and model connections shared by every channel.',
+  'default-models': 'Starting models for this Mac when no preset or remembered choice names one.',
+  files: 'Library folders, finished videos, storage and the video engine on this Mac.',
+  backup: 'Back up and restore your Story Studio library.',
   performance: 'How much work runs at once, and whether a confirmed failure may buy one replacement.',
   appearance: 'How Story Studio looks and writes generated text.',
 }[section.value]))
@@ -122,6 +141,7 @@ const { connection, refresh: refreshConnection } = useConnectionStatus()
 const { ask } = useConfirm()
 const { mode: themeMode, setMode: setTheme } = useTheme()
 const themeChoices: ThemeChoice[] = ['light', 'dark', 'system']
+const libraryPath = ref('')
 const url = ref('')
 const defaultUrl = ref('')
 const keyDraft = ref('')
@@ -137,24 +157,33 @@ const result = ref<{
 } | null>(null)
 
 async function load(): Promise<void> {
+  if (section.value === 'all' || section.value === 'backup') {
+    try {
+      libraryPath.value = (await get<{ path: string }>('/library')).path
+    } catch { /* BackupPanel reports its own availability; the folder picker still works. */ }
+  }
   // Each block loads on its own: one failed read used to stop every block below it, leaving the
   // emoji switch on its default for good.
-  try {
-    const [settings, keys] = await Promise.all([
-      get<{ url: string; default_url: string }>('/app-settings/genstudio'),
-      get<{ providers: ProviderRow[] }>('/app-settings/api-keys'),
-    ])
-    url.value = settings.url
-    defaultUrl.value = settings.default_url
-    savedKey.value = keys.providers.find(row => row.providerId === 'genstudio') || null
-  } catch {
-    result.value = { kind: 'err', message: 'Could not read the saved Gateway address and key. Close and reopen Settings to try again.' }
+  if (section.value === 'all' || section.value === 'connections') {
+    try {
+      const [settings, keys] = await Promise.all([
+        get<{ url: string; default_url: string }>('/app-settings/genstudio'),
+        get<{ providers: ProviderRow[] }>('/app-settings/api-keys'),
+      ])
+      url.value = settings.url
+      defaultUrl.value = settings.default_url
+      savedKey.value = keys.providers.find(row => row.providerId === 'genstudio') || null
+    } catch {
+      result.value = { kind: 'err', message: 'Could not read the saved Gateway address and key. Close and reopen Settings to try again.' }
+    }
   }
   // Best-effort: the emoji switch must never be what stops this panel loading.
-  try {
-    const emoji = await get<EmojiSetting>('/app-settings/emoji')
-    allowEmoji.value = emoji.allow_emoji_in_generated_text
-  } catch { /* leave it at the stated default */ }
+  if (section.value === 'all' || section.value === 'appearance') {
+    try {
+      const emoji = await get<EmojiSetting>('/app-settings/emoji')
+      allowEmoji.value = emoji.allow_emoji_in_generated_text
+    } catch { /* leave it at the stated default */ }
+  }
 }
 
 async function saveEmoji(box: HTMLInputElement): Promise<void> {

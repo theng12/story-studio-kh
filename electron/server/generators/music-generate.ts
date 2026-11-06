@@ -42,7 +42,7 @@ import {
   buildGenStudioMusicIdempotencyKey,
   generateMusicWithGenStudio,
   downloadGenStudioMusicTrack,
-  isGenStudioInsufficientCredits,
+  isGenStudioPaymentRefusal,
   listMusicModels,
 } from '../lib/genstudio-client.js'
 import {
@@ -673,7 +673,7 @@ export async function generateMusicLibraryTracks(job: Job): Promise<void> {
       } catch (error) {
         // Out of credits stops the whole run: every later request would fail
         // identically and charge nothing but time.
-        if (isGenStudioInsufficientCredits(error)) throw error
+        if (isGenStudioPaymentRefusal(error)) throw error
         // A cancel is the owner stopping the job, not this track failing: stop at once instead of
         // logging a failure and "continuing with the rest".
         if (jq.isCancelled(job.job_id)) throw new Error('Cancelled by user')

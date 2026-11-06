@@ -28,6 +28,7 @@ import {
 import { closingMusicWanted } from '../lib/final-video-check.js'
 import { resolveEpisodeMergedAudioFilename, writeSelectedMergedAudio } from '../lib/merged-audio-selection.js'
 import { MERGED_AUDIO_TOLERANCE_SEC } from '../lib/scene-plan-timeline.js'
+import { describeMergedAudioOpening } from './merged-audio-opening.js'
 
 /** A re-mix may not move the speech's start by more than this (the caption clock follows it). */
 const LEAD_IN_TOLERANCE_SEC = 0.1
@@ -77,6 +78,12 @@ async function readIntent(dir: string, code: string): Promise<RemixIntent | null
 
 const readText = (file: string) => fs.readFile(file, 'utf-8').catch(() => null)
 
+/** Both timings must be real numbers; `{}` or a partial opening is measured, never read as 0 or left to the preset. */
+function recordedOpening(record: any): boolean {
+  const o = record?.opening
+  return !!o && typeof o === 'object' && Number.isFinite(o.lead_in_sec) && Number.isFinite(o.music_lead_in_sec)
+}
+
 /** The recorded gap, intro and lead-in become the re-mix's own settings; the log says which is which. */
 function applyRecordedSettings(
   params: Record<string, any>,
@@ -94,8 +101,8 @@ function applyRecordedSettings(
     settings.push(`gap between chapters: ${params.gap_duration ?? 0} s — not recorded, the current Audio Assembly preset's`)
   }
   const opening = record?.opening
-  if (!opening || typeof opening !== 'object') {
-    settings.push('intro and music lead-in: not recorded, the current Audio Assembly preset\'s')
+  if (!recordedOpening(record)) {
+    settings.push('opening timing: not recorded, measuring it from the original audio')
     return null
   }
   const intro = opening.intro
@@ -161,7 +168,7 @@ export async function planClosingTailRemix(opts: {
   if (intent) {
     let base: any = null
     try { base = JSON.parse(intent.base_record_text) } catch { /* torn: recovery rolls it back */ }
-    const lead = Number(base?.opening?.lead_in_sec)
+    const lead = base?.opening?.lead_in_sec
     return {
       action: 'recover',
       wantedSec: wanted,
@@ -238,8 +245,25 @@ export async function planClosingTailRemix(opts: {
   const chapters = JSON.parse(await readText(path.join(paths.episode_dir, 'audio_chapters.json')) ?? 'null')
   const conflict = applyRecordedSettings(params, record, chapters, settings)
   if (conflict) return refuse(conflict)
+  let measuredLeadInSec: number | null = null
+  if (!recordedOpening(record)) {
+    const opening = await describeMergedAudioOpening({
+      mergedDir: dir, code, filename, mergedDurationSec: Number(record.duration_sec), episodeDir: paths.episode_dir,
+    })
+    if (opening.source === 'unmeasurable' || opening.lead_in_sec === null) {
+      return refuse(`the original opening timing cannot be measured: ${opening.reason || 'no measured lead-in was returned'}`)
+    }
+    measuredLeadInSec = opening.lead_in_sec
+    params.intro = { ...(params.intro || {}), enabled: false }
+    params.music = {
+      ...params.music,
+      lead_in_enabled: measuredLeadInSec > 0,
+      lead_in_seconds: measuredLeadInSec,
+    }
+    settings.push(`intro identity: not recorded; lead-in: ${measuredLeadInSec} s — recovered from the original audio evidence`)
+  }
   settings.push('voice level, music balance and fades, loudness target: not recorded, so the current Audio Assembly and Video Assembly presets apply')
-  const lead = Number(record.opening?.lead_in_sec)
+  const lead = record.opening?.lead_in_sec
   return {
     action: 'remix',
     wantedSec: wanted,
@@ -247,7 +271,7 @@ export async function planClosingTailRemix(opts: {
     params: { ...params, episode_id: code, write_mode: 'new', closing_tail_sec_cap: wanted, closing_post_audio: opts.postAudio },
     track: {
       dir, code, filename, episodeDir: paths.episode_dir, recordText,
-      durationSec: Number(record.duration_sec), leadInSec: Number.isFinite(lead) ? lead : null,
+      durationSec: Number(record.duration_sec), leadInSec: Number.isFinite(lead) ? lead : measuredLeadInSec,
     },
   }
 }
@@ -255,16 +279,22 @@ export async function planClosingTailRemix(opts: {
 /** What is wrong with a re-mixed track's record, in words; empty when it is the same narration with the tail. */
 function remixProblems(record: any, track: MergedTrack, wantedSec: number): string[] {
   const seconds = Number(wantedSec.toFixed(1))
-  const tail = Number(record.closing_tail_sec) || 0
-  const speech = Number(record.duration_sec) - tail
-  const lead = Number(record.opening?.lead_in_sec)
+  const tail = record.closing_tail_sec
+  const duration = record.duration_sec
+  const lead = record.opening?.lead_in_sec
   const problems: string[] = []
-  if (tail < wantedSec - 0.5) problems.push(`the re-mix carries a ${tail.toFixed(1)} s closing, not ${seconds} s`)
-  if (Math.abs(speech - track.durationSec) > MERGED_AUDIO_TOLERANCE_SEC) {
-    problems.push(`its narration came out ${speech.toFixed(1)} s instead of ${track.durationSec.toFixed(1)} s`)
+  // A field the record does not carry is missing evidence, never a pass: `NaN` made every comparison below false (AGENTS §6).
+  if (!Number.isFinite(tail)) problems.push('its record does not say how long its closing is')
+  else if (tail < wantedSec - 0.5) problems.push(`the re-mix carries a ${tail.toFixed(1)} s closing, not ${seconds} s`)
+  if (!Number.isFinite(duration)) problems.push('its record does not say how long its narration is')
+  else if (Math.abs(duration - tail - track.durationSec) > MERGED_AUDIO_TOLERANCE_SEC) {
+    problems.push(`its narration came out ${(duration - tail).toFixed(1)} s instead of ${track.durationSec.toFixed(1)} s`)
   }
-  if (track.leadInSec !== null && Math.abs(lead - track.leadInSec) > LEAD_IN_TOLERANCE_SEC) {
-    problems.push(`its lead-in came out ${lead.toFixed(2)} s instead of ${track.leadInSec.toFixed(2)} s`)
+  if (track.leadInSec !== null) {
+    if (!Number.isFinite(lead)) problems.push('its record does not say how long its lead-in is')
+    else if (Math.abs(lead - track.leadInSec) > LEAD_IN_TOLERANCE_SEC) {
+      problems.push(`its lead-in came out ${lead.toFixed(2)} s instead of ${track.leadInSec.toFixed(2)} s`)
+    }
   }
   return problems
 }

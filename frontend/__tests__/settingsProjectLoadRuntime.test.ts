@@ -8,6 +8,7 @@ import { createApp, h, nextTick, reactive, ref, type Component } from 'vue'
 import { projectSettingsSavePlan } from '../utils/projectSettingsSave.ts'
 
 const filename = fileURLToPath(new URL('../pages/projects/[slug]/settings.vue', import.meta.url))
+const appFilesName = fileURLToPath(new URL('../components/AppFilesSettings.vue', import.meta.url))
 
 function deferred<T>() {
   let resolve!: (value: T) => void
@@ -15,17 +16,36 @@ function deferred<T>() {
   return { promise, resolve }
 }
 
-async function loadPage(): Promise<Component> {
-  const { descriptor } = parse(readFileSync(filename, 'utf8'), { filename })
-  const script = compileScript(descriptor, { id: 'settings-project-load-runtime' })
+async function loadComponent(componentFilename: string, compileId: string, support: string): Promise<Component> {
+  const { descriptor } = parse(readFileSync(componentFilename, 'utf8'), { filename: componentFilename })
+  const script = compileScript(descriptor, { id: compileId })
   const vueUrl = await import.meta.resolve('vue')
-  const support = `
-    import { computed, defineComponent as _defineComponent, h, reactive, ref, watch } from ${JSON.stringify(vueUrl)}
+  const content = script.content
+    .replace(/^import[^\n]+\n/gm, '')
+    .replace('export default', 'const __sfc__ =')
+  const output = await transform(`${support}\n${content}\nconst setup = __sfc__.setup
+    __sfc__.setup = (props, ctx) => {
+      const state = setup(props, ctx)
+      globalThis.__settingsFixture.state = state
+      return () => h('main')
+    }
+    export default __sfc__`, { loader: 'ts', format: 'esm' })
+  return (await import(`data:text/javascript;base64,${Buffer.from(
+    output.code.replaceAll('"vue"', JSON.stringify(vueUrl)),
+  ).toString('base64')}`)).default
+}
+
+async function loadPage(): Promise<Component> {
+  return loadComponent(filename, 'settings-project-load-runtime', `
+    import { computed, defineComponent as _defineComponent, h, reactive, ref, watch } from ${JSON.stringify(await import.meta.resolve('vue'))}
     const definePageMeta = () => undefined
     const useAppTitle = () => undefined
     const onMounted = () => undefined
     const onBeforeUnmount = () => undefined
     const useRoute = () => globalThis.__settingsFixture.route
+    // The app-level hashes (ffmpeg, maintenance, about...) now belong to the
+    // /settings page; the channel page only redirects them there.
+    const useRouter = () => globalThis.__settingsFixture.router || { replace: async () => undefined }
     const useApi = () => globalThis.__settingsFixture.api
     const useProject = () => globalThis.__settingsFixture.projectState
     const useToast = () => ({ success: () => undefined, error: () => undefined, info: () => undefined })
@@ -41,21 +61,23 @@ async function loadPage(): Promise<Component> {
     const settingsAnchorTargetIds = () => []
     const projectSettingsSavePlan = (...args) => (globalThis.__settingsFixture.savePlan || (() => ({})))(...args)
     const genstudioStaleNote = () => ''
-    const SETTINGS_ZONES = [{ id: 'machine', title: 'This Mac', scope: '', sections: [{ id: 'maintenance', label: 'Files & maintenance', description: '' }, { id: 'writing', label: 'Writing & style', description: '' }, { id: 'publishing', label: 'Publishing', description: '' }] }]
-  `
-  const content = script.content
-    .replace(/^import[^\n]+\n/gm, '')
-    .replace('export default', 'const __sfc__ =')
-  const output = await transform(`${support}\n${content}\nconst setup = __sfc__.setup
-    __sfc__.setup = (props, ctx) => {
-      const state = setup(props, ctx)
-      globalThis.__settingsFixture.state = state
-      return () => h('main')
-    }
-    export default __sfc__`, { loader: 'ts', format: 'esm' })
-  return (await import(`data:text/javascript;base64,${Buffer.from(
-    output.code.replaceAll('"vue"', JSON.stringify(vueUrl)),
-  ).toString('base64')}`)).default
+    const CONTENT_LANGUAGE_OPTIONS = []
+    // The channel page shows only the project zone.
+    const SETTINGS_ZONES = [{ id: 'project', title: 'This Channel', scope: 'project', sections: [{ id: 'writing', label: 'Writing & style', description: '' }, { id: 'publishing', label: 'Publishing', description: '' }] }]
+  `)
+}
+
+// The app-level Files & maintenance panel (library, archive, FFmpeg, version)
+// lives in its own component; its runtime cases run against that source. The
+// mounted hooks must be REAL so the component's own mount-time status read runs.
+async function loadAppFiles(): Promise<Component> {
+  return loadComponent(appFilesName, 'app-files-settings-load-runtime', `
+    import { computed, defineComponent as _defineComponent, h, onBeforeUnmount, onMounted, reactive, ref, watch } from ${JSON.stringify(await import.meta.resolve('vue'))}
+    const useApi = () => globalThis.__settingsFixture.api
+    const useConfirm = () => ({ ask: async () => false })
+    const useToast = () => ({ success: () => undefined, error: () => undefined, info: () => undefined })
+    const useRuntimeConfig = () => globalThis.__settingsFixture.runtimeConfig || { public: {} }
+  `)
 }
 
 async function flush(): Promise<void> {
@@ -196,13 +218,16 @@ test('a project refresh cannot blank the hydrated YouTube category, and a delibe
 })
 
 // ── DS-11 (F-04) — the FFmpeg card fetches its status before proposing repairs ──
+// The card moved into <AppFilesSettings>, which owns the whole Files & maintenance
+// panel, so the card's status read happens on THAT component's mount rather than
+// when a channel tab is opened. The guard stays the same: no install action may be
+// offered for a status that was never read, and a failed check is unknown, not
+// "not installed" (§6).
 
-test('entering the FFmpeg tab reads the real status, and a failed check is unknown rather than "not installed"', async () => {
-  const route = reactive({ params: reactive({ slug: 'project-a' }), hash: '', query: {} })
-  const gets: string[] = []
+test('the app Files panel reads the FFmpeg status on mount, and a failed check is unknown rather than "not installed"', async () => {
   let ffmpegCheck: 'ok' | 'fail' = 'ok'
+  const gets: string[] = []
   const fixture: any = {
-    route,
     api: {
       get: async (path: string) => {
         gets.push(path)
@@ -218,24 +243,15 @@ test('entering the FFmpeg tab reads the real status, and a failed check is unkno
       },
       post: async () => ({}), put: async () => ({}), patch: async () => ({}), del: async () => ({}),
     },
-    projectState: {
-      project: ref(null), config: ref(null),
-      refreshConfig: async () => undefined, loadProject: async () => undefined,
-    },
   }
   ;(globalThis as any).__settingsFixture = fixture
-  const app = createApp(await loadPage())
+  const app = createApp(await loadAppFiles())
   const host = document.body.appendChild(document.createElement('div'))
   app.mount(host)
   await flush()
   try {
-    assert.equal(gets.includes('/ffmpeg/status'), false,
-      'mounting Settings must not probe FFmpeg for a tab the customer has not opened')
-
-    fixture.state.activeTab.value = 'maintenance'
-    await flush()
     assert.ok(gets.includes('/ffmpeg/status'),
-      'entering the tab that owns the card must fetch the real status before any repair action is offered')
+      'mounting the Files panel must fetch the real status before any repair action is offered')
     assert.equal(fixture.state.ffmpegStatus.value?.installed, true, 'a successful check stores the real status')
     assert.equal(fixture.state.ffmpegStatusError.value, '')
 
@@ -263,16 +279,14 @@ test('entering the FFmpeg tab reads the real status, and a failed check is unkno
 
 // v1.4.249 — the FFmpeg card is one plain sentence plus at most one fix button,
 // computed in `ffmpegState`. The fix button (a download) is never offered for a
-// status that was never read, a failed check, or a bundled copy.
+// status that was never read, a failed check, or a bundled copy. The card now
+// lives in <AppFilesSettings>.
 test('the FFmpeg card offers a download only for a real, fixable status', async () => {
-  const route = reactive({ params: reactive({ slug: 'project-a' }), hash: '', query: {} })
   const fixture: any = {
-    route,
     api: { get: async () => ({}), post: async () => ({}), put: async () => ({}), patch: async () => ({}), del: async () => ({}) },
-    projectState: { project: ref(null), config: ref(null), refreshConfig: async () => undefined, loadProject: async () => undefined },
   }
   ;(globalThis as any).__settingsFixture = fixture
-  const app = createApp(await loadPage())
+  const app = createApp(await loadAppFiles())
   const host = document.body.appendChild(document.createElement('div'))
   app.mount(host)
   await flush()
@@ -302,10 +316,10 @@ test('the FFmpeg card offers a download only for a real, fixable status', async 
 })
 
 test('the FFmpeg internals sit behind Advanced', () => {
-  const source = readFileSync(filename, 'utf8')
-  assert.match(source, /<AdvancedDisclosure label="Advanced: FFmpeg details">[\s\S]{0,400}ffmpegStatus\?\.path/,
+  const appFiles = readFileSync(appFilesName, 'utf8')
+  assert.match(appFiles, /<AdvancedDisclosure label="Advanced: FFmpeg details">[\s\S]{0,400}ffmpegStatus\?\.path/,
     'the resolved path lives behind Advanced, not on the card')
-  assert.match(source, /<details v-if="ffmpegStatus && ffmpegStatus\.source !== 'bundled'"/,
+  assert.match(appFiles, /<details v-if="ffmpegStatus && ffmpegStatus\.source !== 'bundled'"/,
     'the manual-install fallback must not appear for a status that was never read')
 })
 

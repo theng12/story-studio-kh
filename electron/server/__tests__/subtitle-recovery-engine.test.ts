@@ -9,11 +9,9 @@ import request from 'supertest'
 import { waitFor } from './_timing.js'
 import { useTempDataDir } from './_helpers.js'
 import {
-  onAppSettingWritten,
-  PAID_SUBTITLE_REPLACEMENT_KEY,
+  RETRY_FAILED_REQUESTS_SUBTITLE_KEY,
   setAppSetting,
-  setPaidSubtitleReplacementSetting,
-  withPaidSubtitleConfirmation,
+  setRetryFailedRequestsSetting,
 } from '../services/app-settings.js'
 import { recordTaskStrict, hashInput } from '../services/task-manifest.js'
 import type { Job } from '../models/types.js'
@@ -31,7 +29,7 @@ async function fixture(t: any, sections = ['Chapter_01']) {
   t.after(() => fs.rm(outDir, { recursive: true, force: true }))
   const audioPath = path.join(outDir, 'audio.wav')
   await fs.writeFile(audioPath, 'RIFF-audio')
-  await setAppSetting('paid_subtitle_replacement', { enabled: false, additional_credit_ceiling: 5 })
+  await setRetryFailedRequestsSetting('subtitle', { enabled: false })
   for (const section of sections) await recordTaskStrict(outDir, `${section}.srt`, {
     provider: 'genstudio', task_id: `old-${section}`, idempotency_key: `original-${section}`,
     submitted_at: '2026-09-05T00:00:00Z', input_hash: hashInput('input'), last_state: 'failed',
@@ -314,47 +312,53 @@ test('whole-track accepted task recovers after transport and artifact download f
   assert.equal(f.calls.some(call => call.startsWith('POST ')), false)
 })
 
-test('Off blocks paid work and leaves an explicit manual purchase state', async t => {
+test('retry Off blocks subtitle retry and leaves an explicit manual action', async t => {
   const f = await fixture(t)
-  await assert.rejects(f.run(), /Off/)
+  await assert.rejects(f.run(), /retry is Off/)
   assert.equal(f.confirmations.length, 0)
-  assert.equal((f.job.params.subtitle_recovery as any).sections.Chapter_01.manual_action, 'buy_missing_subtitles')
+  assert.equal((f.job.params.subtitle_recovery as any).sections.Chapter_01.manual_action, 'rerun_subtitle_section')
 })
 
-test('parallel missing sections share one ceiling and repeated/restarted calls cannot buy twice', async t => {
+test('configured retries allow exactly N physical submissions with same request/model', async t => {
+  const f = await fixture(t)
+  await setRetryFailedRequestsSetting('subtitle', { enabled: true, retries: 2 })
+  f.original(id => failed(id))
+  f.replacement(id => failed(id))
+  await assert.rejects(f.run(), /retries exhausted \(2 of 2\)/)
+  assert.equal(f.confirmations.length, 2, '2 retries physically confirmed')
+  const postCalls = f.calls.filter(c => c.includes('/confirm'))
+  assert.equal(postCalls.length, 2)
+  assert.equal(f.job.result?.recovery_state, 'needs_attention')
+})
+
+test('partial successes saved; retry only failed section', async t => {
   const f = await fixture(t, ['Chapter_01', 'Chapter_02'])
-  await setAppSetting('paid_subtitle_replacement', { enabled: true, additional_credit_ceiling: 5 })
-  const result = await Promise.allSettled([f.run('Chapter_01'), f.run('Chapter_02')])
-  assert.equal(result.filter(r => r.status === 'fulfilled').length, 1)
-  assert.equal(f.confirmations.length, 1)
-  await Promise.allSettled([f.run('Chapter_01'), f.run('Chapter_02')])
-  assert.equal(f.confirmations.length, 1)
-  const state = JSON.parse(await fs.readFile(path.join(f.outDir, '.subtitle-recovery.json'), 'utf8'))
-  const attempts = Object.values(state.plans).flatMap((p: any) => p.attempts)
-  assert.equal(attempts.length, 1)
-  assert.equal((attempts[0] as any).originalTaskId.startsWith('old-'), true)
-  assert.ok((attempts[0] as any).taskId)
-  assert.equal((attempts[0] as any).ceiling, 5)
+  await setRetryFailedRequestsSetting('subtitle', { enabled: true, retries: 3 })
+  assert.equal((await f.run('Chapter_01')).srt, srt)
+  const failedTasks = new Set<string>()
+  f.replacement(id => {
+    if (failedTasks.size === 0 || failedTasks.has(id)) {
+      failedTasks.add(id)
+      return failed(id)
+    }
+    return { id, state: 'succeeded', model_id: 'model', srt_url: `/v1/transcriptions/${id}/srt` }
+  })
+  assert.equal((await f.run('Chapter_02')).srt, srt)
+  const ledger = JSON.parse(await fs.readFile(path.join(f.outDir, '.subtitle-recovery.json'), 'utf8'))
+  assert.equal(ledger.sections['Chapter_01.srt'].state, 'succeeded')
+  assert.equal(ledger.sections['Chapter_02.srt'].state, 'succeeded')
+  assert.ok(f.confirmations.length >= 2)
 })
 
-test('balanced transient zero-settlement is free while Off; a paid replacement failure stops', async t => {
-  const f = await fixture(t)
-  f.original(id => failed(id, { settled_credits: 0, released_credits: 3 }))
-  assert.equal((await f.run()).srt, srt)
-  const state = JSON.parse(await fs.readFile(path.join(f.outDir, '.subtitle-recovery.json'), 'utf8'))
-  assert.equal(Object.values(state.plans).flatMap((p: any) => p.attempts).length, 0)
-})
+test('uncertain outcome or cancellation refuses retry', async t => {
+  const fCancelled = await fixture(t)
+  await setRetryFailedRequestsSetting('subtitle', { enabled: true, retries: 3 })
+  fCancelled.original(id => failed(id, { cancelled: true }))
+  await assert.rejects(fCancelled.run(), /owner cancelled/)
+  assert.equal(fCancelled.confirmations.length, 0)
 
-test('a HELD original transcription buys no paid replacement: its answer may still arrive', async t => {
-  const f = await fixture(t)
-  await setAppSetting('paid_subtitle_replacement', { enabled: true, additional_credit_ceiling: 5 })
-  // The Gateway is still holding the original failure as an unknown outcome, so it is not a
-  // settled failure and the attempt may yet be adopted (`origin-field/38cf1226`,
-  // `terranash-sleep-stories/516bd788`). A replacement here pays for the same words twice.
-  // Only the AUTHORITATIVE by-key read reports the hold — the one `rebindOriginalAuthority`
-  // judges the original by. The job GET stays a settled failure so this test does not have to
-  // wait out the client's 5-minute unknown-outcome grace window (which is the correct
-  // behaviour for a hold, and is pinned by the chat-recovery suites).
+  const fHeld = await fixture(t)
+  await setRetryFailedRequestsSetting('subtitle', { enabled: true, retries: 3 })
   const baseFetch = globalThis.fetch
   globalThis.fetch = async (input, init) => {
     const response = await baseFetch(input, init)
@@ -363,47 +367,81 @@ test('a HELD original transcription buys no paid replacement: its answer may sti
     if (!job || typeof job !== 'object' || (job as any).state !== 'failed') return response
     return Response.json({ ...(job as object), recovery_required: true, recovery_state: 'unknown_outcome' })
   }
-  await assert.rejects(f.run(), /not eligible|authority|identity/i)
-  assert.equal(f.confirmations.length, 0)
-  assert.equal(f.calls.some(call => call.includes('/quotes')), false, 'no replacement was even priced')
+  await assert.rejects(fHeld.run(), /not eligible/)
+  assert.equal(fHeld.confirmations.length, 0)
 })
 
-test('toggle Off while a quote is pending prevents confirmation', async t => {
+test('restart does not reset retry count; resumes from next ordinal', async t => {
   const f = await fixture(t)
-  await setAppSetting('paid_subtitle_replacement', { enabled: true, additional_credit_ceiling: 5 })
-  f.beforeConfirm(async () => { await setPaidSubtitleReplacementSetting({ enabled: false, additional_credit_ceiling: 5 }) })
-  await assert.rejects(f.run(), /Off/)
-  assert.equal(f.confirmations.length, 0)
-})
-
-test('missing live price and incomplete settlement fail closed', async t => {
-  const f = await fixture(t)
-  await setAppSetting('paid_subtitle_replacement', { enabled: true, additional_credit_ceiling: 5 })
-  f.quote({ quoted_credit_cost: 3 })
-  await assert.rejects(f.run(), /price/)
-  assert.equal(f.confirmations.length, 0)
-})
-
-test('explicit manual purchase works while automatic setting stays Off', async t => {
-  const f = await fixture(t)
-  assert.equal((await f.run('Chapter_01', { manualCreditCeiling: 4 })).srt, srt)
-  assert.equal(f.confirmations.length, 1)
-})
-
-test('paid replacement failure never purchases another replacement across restart', async t => {
-  const f = await fixture(t)
-  await setAppSetting('paid_subtitle_replacement', { enabled: true, additional_credit_ceiling: 20 })
+  await setRetryFailedRequestsSetting('subtitle', { enabled: true, retries: 1 })
+  f.original(id => failed(id))
+  f.beforeConfirm(async () => { throw new Error('restart before quote') })
+  await assert.rejects(f.run(), /restart before/)
+  f.beforeConfirm(async () => {})
   f.replacement(id => failed(id))
-  await assert.rejects(f.run(), /one paid replacement failed/)
-  await assert.rejects(f.run(), /one paid replacement failed/)
+  await assert.rejects(f.run(), /retries exhausted \(1 of 1\)/)
+  const ledger1 = JSON.parse(await fs.readFile(path.join(f.outDir, '.subtitle-recovery.json'), 'utf8'))
+  const attempts1 = Object.values(ledger1.plans).flatMap((p: any) => p.attempts)
+  assert.equal(attempts1.length, 1)
+  await setRetryFailedRequestsSetting('subtitle', { enabled: true, retries: 2 })
+  f.replacement(id => failed(id))
+  await assert.rejects(f.run(), /retries exhausted \(2 of 2\)/)
+  const ledger2 = JSON.parse(await fs.readFile(path.join(f.outDir, '.subtitle-recovery.json'), 'utf8'))
+  const attempts2 = Object.values(ledger2.plans).flatMap((p: any) => p.attempts)
+  assert.equal(attempts2.length, 2)
+})
+
+test('parallel missing sections and repeated/restarted calls cannot duplicate retries', async t => {
+  const f = await fixture(t, ['Chapter_01', 'Chapter_02'])
+  await setRetryFailedRequestsSetting('subtitle', { enabled: true, retries: 2 })
+  const result = await Promise.allSettled([f.run('Chapter_01'), f.run('Chapter_02')])
+  assert.equal(result.filter(r => r.status === 'fulfilled').length, 2)
+  await Promise.allSettled([f.run('Chapter_01'), f.run('Chapter_02')])
+  const state = JSON.parse(await fs.readFile(path.join(f.outDir, '.subtitle-recovery.json'), 'utf8'))
+  const attempts = Object.values(state.plans).flatMap((p: any) => p.attempts)
+  assert.equal(attempts.length, 2)
+  assert.equal((attempts[0] as any).originalTaskId.startsWith('old-'), true)
+  assert.ok((attempts[0] as any).taskId)
+})
+
+test('a HELD original transcription refuses automatic retry: its answer may still arrive', async t => {
+  const f = await fixture(t)
+  await setRetryFailedRequestsSetting('subtitle', { enabled: true, retries: 3 })
+  const baseFetch = globalThis.fetch
+  globalThis.fetch = async (input, init) => {
+    const response = await baseFetch(input, init)
+    if (!String(input).includes('/by-idempotency-key/')) return response
+    const job = await response.clone().json().catch(() => null)
+    if (!job || typeof job !== 'object' || (job as any).state !== 'failed') return response
+    return Response.json({ ...(job as object), recovery_required: true, recovery_state: 'unknown_outcome' })
+  }
+  await assert.rejects(f.run(), /not eligible/)
+  assert.equal(f.confirmations.length, 0)
+})
+
+test('explicit manual retry works while automatic setting stays Off', async t => {
+  const f = await fixture(t)
+  await setRetryFailedRequestsSetting('subtitle', { enabled: false })
+  assert.equal((await f.run('Chapter_01', { manualPurchase: true })).srt, srt)
   assert.equal(f.confirmations.length, 1)
+})
+
+test('retry failure never creates unlimited attempts across restart when setting is Off', async t => {
+  const f = await fixture(t)
+  await setRetryFailedRequestsSetting('subtitle', { enabled: false })
+  f.replacement(id => failed(id))
+  await assert.rejects(f.run(), /retry is Off/)
+  assert.equal(f.confirmations.length, 0)
+  f.replacement(id => failed(id))
+  await assert.rejects(f.run(), /retry is Off/)
+  assert.equal(f.confirmations.length, 0)
 })
 
 test('removing the ledger replacement flag cannot promote a failed replacement to a new original', async t => {
   const f = await fixture(t)
-  await setPaidSubtitleReplacementSetting({ enabled: true, additional_credit_ceiling: 20 })
+  await setRetryFailedRequestsSetting('subtitle', { enabled: true, retries: 2 })
   f.replacement(id => failed(id))
-  await assert.rejects(f.run(), /one paid replacement failed/)
+  await assert.rejects(f.run(), /retries exhausted \(2 of 2\)/)
   const file = path.join(f.outDir, '.subtitle-recovery.json')
   const ledger = JSON.parse(await fs.readFile(file, 'utf8'))
   delete ledger.sections['Chapter_01.srt'].replacement
@@ -412,19 +450,17 @@ test('removing the ledger replacement flag cannot promote a failed replacement t
   f.calls.length = 0
   await assert.rejects(f.run(), /identity|authority/i)
   assert.equal(f.calls.some(c => c.startsWith('POST')), false)
-  assert.equal(f.confirmations.length, 1)
+  assert.equal(f.confirmations.length, 2)
 })
 
 test('crash after confirm but before accepted task checkpoint recovers read-only by committed key while Off', async t => {
   const f = await fixture(t)
-  await setAppSetting('paid_subtitle_replacement', { enabled: true, additional_credit_ceiling: 5 })
+  await setRetryFailedRequestsSetting('subtitle', { enabled: true, retries: 2 })
   const controller = new AbortController()
   f.confirm(async key => {
     const ledger = JSON.parse(await fs.readFile(path.join(f.outDir, '.subtitle-recovery.json'), 'utf8'))
     const attempt = Object.values(ledger.plans).flatMap((p: any) => p.attempts)[0] as any
     assert.equal(`${attempt.idempotencyKey}-confirm`, key)
-    assert.equal(attempt.quotedCredits, 3)
-    assert.equal(attempt.priceVersion, 'price-v1')
     assert.equal(attempt.replacementOrdinal, 1)
     assert.equal(attempt.originalTaskId, 'old-Chapter_01')
     assert.ok(attempt.committedAt)
@@ -433,7 +469,6 @@ test('crash after confirm but before accepted task checkpoint recovers read-only
   })
   await assert.rejects(f.run('Chapter_01', { request: { audioPath: path.join(f.outDir, 'audio.wav'),
     modelId: 'model', requestIdentity: 'episode:Chapter_01', signal: controller.signal } }))
-  await setAppSetting('paid_subtitle_replacement', { enabled: false, additional_credit_ceiling: 5 })
   f.confirm(async () => { throw new Error('must never submit again') })
   f.calls.length = 0
   assert.equal((await f.run()).srt, srt)
@@ -441,14 +476,14 @@ test('crash after confirm but before accepted task checkpoint recovers read-only
   assert.equal(f.calls.some(c => c.startsWith('POST')), false)
 })
 
-test('a corrupt saved ledger cannot silently create fresh paid authority', async t => {
+test('a corrupt saved ledger cannot silently create fresh retry authority', async t => {
   const f = await fixture(t)
   await fs.writeFile(path.join(f.outDir, '.subtitle-recovery.json'), '{')
   await assert.rejects(f.run())
   assert.equal(f.calls.length, 0)
 })
 
-test('coherently forged replacement authority must reconcile outside the ledger before any paid POST', async t => {
+test('coherently forged replacement authority must reconcile outside the ledger before any provider POST', async t => {
   const f = await fixture(t)
   await assert.rejects(f.run(), /Off/)
   const file = path.join(f.outDir, '.subtitle-recovery.json')
@@ -456,7 +491,7 @@ test('coherently forged replacement authority must reconcile outside the ledger 
   const section = ledger.sections['Chapter_01.srt']
   section.replacement = {
     originalTaskId: 'forged-original-task', originalIdempotencyKey: 'forged-original-key',
-    failure: { transient: true, cancelled: false, reservedCredits: 3, settledCredits: 3, releasedCredits: 0 },
+    failure: { transient: true, cancelled: false },
   }
   section.identityVerified = true
   section.idempotencyKey = `story-stt-${createHash('sha256').update('forged-original-key:subtitle-replacement:1').digest('hex')}`
@@ -465,7 +500,7 @@ test('coherently forged replacement authority must reconcile outside the ledger 
   section.state = 'prepared'
   assert.equal(ledger.plans[section.planId].attempts.length, 0)
   await fs.writeFile(file, JSON.stringify(ledger))
-  await setPaidSubtitleReplacementSetting({ enabled: true, additional_credit_ceiling: 5 })
+  await setRetryFailedRequestsSetting('subtitle', { enabled: true, retries: 2 })
   f.calls.length = 0
   await assert.rejects(f.run(), /original.*verif|authority.*verif/i)
   assert.equal(f.calls.some(c => c.startsWith('POST')), false)
@@ -476,7 +511,7 @@ test('coherently forged replacement authority must reconcile outside the ledger 
 for (const replacement of [false, true]) test(`another real failed task cannot supply this section's ${replacement ? 'replacement' : 'initial'} authority`, async t => {
   const f = await fixture(t, ['Chapter_01', 'Chapter_02'])
   if (replacement) {
-    await setPaidSubtitleReplacementSetting({ enabled: true, additional_credit_ceiling: 5 })
+    await setRetryFailedRequestsSetting('subtitle', { enabled: true, retries: 2 })
     f.beforeConfirm(async () => { throw new Error('restart with pending replacement') })
     await assert.rejects(f.run(), /restart with/)
     f.beforeConfirm(async () => {})
@@ -496,7 +531,7 @@ for (const replacement of [false, true]) test(`another real failed task cannot s
   await fs.writeFile(file, JSON.stringify(ledger))
   const manifestFile = path.join(f.outDir, '.task-manifest.json')
   const manifestBefore = await fs.readFile(manifestFile, 'utf8')
-  await setPaidSubtitleReplacementSetting({ enabled: true, additional_credit_ceiling: 5 })
+  await setRetryFailedRequestsSetting('subtitle', { enabled: true, retries: 2 })
   f.calls.length = 0
   await assert.rejects(f.run(), /identity|authority|manifest/i)
   assert.equal(f.calls.some(c => c.startsWith('POST')), false)
@@ -506,7 +541,7 @@ for (const replacement of [false, true]) test(`another real failed task cannot s
 
 test('a pending legacy replacement without immutable original manifest fields cannot auto-buy', async t => {
   const f = await fixture(t)
-  await setPaidSubtitleReplacementSetting({ enabled: true, additional_credit_ceiling: 5 })
+  await setRetryFailedRequestsSetting('subtitle', { enabled: true, retries: 2 })
   f.beforeConfirm(async () => { throw new Error('restart before quote') })
   await assert.rejects(f.run(), /restart before/)
   f.beforeConfirm(async () => {})
@@ -522,12 +557,11 @@ test('a pending legacy replacement without immutable original manifest fields ca
 
 test('legitimate pending replacement rebinds original provider authority after restart and resumes once', async t => {
   const f = await fixture(t)
-  await setPaidSubtitleReplacementSetting({ enabled: true, additional_credit_ceiling: 5 })
+  await setRetryFailedRequestsSetting('subtitle', { enabled: true, retries: 2 })
   f.beforeConfirm(async () => { throw new Error('restart before replacement quote response') })
   await assert.rejects(f.run(), /restart before/)
   f.beforeConfirm(async () => {})
   for (const remote of [
-    (id: string) => failed(id, { settled_credits: null }),
     (_id: string) => failed('different-original-task'),
   ]) {
     f.original(remote)
@@ -554,12 +588,10 @@ for (const [label, corrupt] of [
   ['unverified identity', (s: any) => { s.identityVerified = false }],
   ['truthy transient', (s: any) => { s.replacement.failure.transient = 'true' }],
   ['missing cancellation', (s: any) => { delete s.replacement.failure.cancelled }],
-  ['missing settlement', (s: any) => { delete s.replacement.failure.settledCredits }],
-  ['unbalanced settlement', (s: any) => { s.replacement.failure.releasedCredits = 1 }],
   ['missing failure', (s: any) => { delete s.replacement.failure }],
 ] as const) test(`corrupt persisted replacement provenance (${label}) fails before provider submission`, async t => {
   const f = await fixture(t)
-  await setPaidSubtitleReplacementSetting({ enabled: true, additional_credit_ceiling: 5 })
+  await setRetryFailedRequestsSetting('subtitle', { enabled: true, retries: 2 })
   f.beforeConfirm(async () => { throw new Error('simulated restart before quote response') })
   await assert.rejects(f.run(), /simulated restart/)
   const file = path.join(f.outDir, '.subtitle-recovery.json')
@@ -571,41 +603,6 @@ for (const [label, corrupt] of [
   await assert.rejects(f.run(), /ledger/)
   assert.equal(f.calls.length, 0, 'invalid durable authority must fail before even quoting')
   assert.equal(f.confirmations.length, 0)
-})
-
-test('setting Off cannot interleave between the final policy snapshot and physical paid confirmation', { timeout: 30_000 }, async t => {
-  const f = await fixture(t)
-  await setPaidSubtitleReplacementSetting({ enabled: true, additional_credit_ceiling: 5 })
-  assert.match(setPaidSubtitleReplacementSetting.toString(), /\bwithPaidSubtitleConfirmation\b/,
-    'the Off setter must join the same confirmation gate exercised below')
-  let enter!: () => void
-  let release!: () => void
-  const entered = new Promise<void>(resolve => { enter = resolve })
-  const pending = new Promise<void>(resolve => { release = resolve })
-  t.after(() => release())
-  const order: string[] = []
-  f.confirm(async () => {
-    order.push('confirm started')
-    enter()
-    await pending
-    order.push('confirm finished')
-  })
-  const stopListening = onAppSettingWritten(key => {
-    if (key === PAID_SUBTITLE_REPLACEMENT_KEY) order.push('Off written')
-  })
-  t.after(stopListening)
-  const running = f.run()
-  await entered
-  const off = setPaidSubtitleReplacementSetting({ enabled: false, additional_credit_ceiling: 5 })
-  // The following gate entrant queues synchronously after Off. Its position
-  // proves Off joined the same gate held around the physical confirmation.
-  const afterOff = withPaidSubtitleConfirmation(async () => { order.push('after Off entered gate') })
-  await Promise.resolve()
-  assert.deepEqual(order, ['confirm started'])
-  release()
-  await Promise.all([running, off, afterOff])
-  assert.deepEqual(order, ['confirm started', 'confirm finished', 'Off written', 'after Off entered gate'])
-  assert.equal(f.confirmations.length, 1)
 })
 
 test('forced rerun with only the durable ledger uses a fresh key and reuses it on restart', async t => {
@@ -623,13 +620,11 @@ test('forced rerun with only the durable ledger uses a fresh key and reuses it o
 })
 
 for (const [label, override] of [
-  ['missing settlement', { settled_credits: null }],
-  ['unbalanced settlement', { settled_credits: 2 }],
-  ['refusal despite full refund', { failure_class: 'content_refused', settled_credits: 0, released_credits: 3 }],
-  ['cancellation despite full refund', { cancelled: true, settled_credits: 0, released_credits: 3 }],
+  ['refusal despite full refund', { failure_class: 'content_refused' }],
+  ['cancellation despite full refund', { cancelled: true }],
 ] as const) test(`${label} never reaches a new provider quote or confirm`, async t => {
   const f = await fixture(t)
-  await setAppSetting('paid_subtitle_replacement', { enabled: true, additional_credit_ceiling: 5 })
+  await setRetryFailedRequestsSetting('subtitle', { enabled: true, retries: 2 })
   f.original(id => failed(id, override))
   await assert.rejects(f.run())
   assert.equal(f.calls.filter(c => c.startsWith('POST')).length, 0)
@@ -640,40 +635,36 @@ test('manual purchase derives only exact missing sections from the failed job', 
   const job = { type: 'subtitles_transcribe', status: 'error', episode_id: 'EP0001',
     params: { model: 'model', force: true, per_chapter: true, sections: ['Chapter_01', 'Chapter_02'], subtitle_recovery_plan_id: 'plan' },
     result: { missing_sections: ['Chapter_02'] } } as unknown as Job
-  assert.deepEqual(subtitlePurchaseParams(job, 4), {
+  assert.deepEqual(subtitlePurchaseParams(job), {
     ...job.params, force: false, sections: ['Chapter_02'],
-    subtitle_purchase: { additional_credit_ceiling: 4 },
+    subtitle_purchase: {},
   })
-  assert.throws(() => subtitlePurchaseParams({ ...job, result: { missing_sections: [] } }, 4), /missing/)
-  assert.throws(() => subtitlePurchaseParams({ ...job, status: 'running' }, 4), /failed/)
-  assert.throws(() => subtitlePurchaseParams(job, 0), /ceiling/)
+  assert.throws(() => subtitlePurchaseParams({ ...job, result: { missing_sections: [] } }), /missing/)
+  assert.throws(() => subtitlePurchaseParams({ ...job, status: 'running' }), /failed/)
 })
 
-test('quote expiry HTTP 410 retries for free while Off, with a persisted renewed key', async t => {
+test('quote expiry HTTP 410 with no provider task stops needs_attention without minting a fresh key', async t => {
   const f = await fixture(t)
   await fs.unlink(path.join(f.outDir, '.task-manifest.json'))
   f.expireQuote()
-  assert.equal((await f.run()).srt, srt)
+  await assert.rejects(f.run(), /quote expired before any provider task was created/)
+  assert.equal(f.confirmations.length, 0)
+  assert.equal(f.calls.filter(call => call.endsWith('/quotes')).length, 1, 'no automatic renewal quote is created')
   const state = JSON.parse(await fs.readFile(path.join(f.outDir, '.subtitle-recovery.json'), 'utf8'))
-  assert.equal(state.sections['Chapter_01.srt'].freeRetries, 1)
+  assert.equal(state.sections['Chapter_01.srt'].freeRetries, 0, 'no fresh key is minted while Off')
   assert.equal(Object.values(state.plans).flatMap((p: any) => p.attempts).length, 0)
+  assert.equal((f.job.params.subtitle_recovery as any).sections.Chapter_01.manual_action, 'rerun_subtitle_section')
 })
 
-test('the exact Gateway HTTP 422 confirm expiry renews only the uncreated request', async t => {
+test('the exact Gateway HTTP 422 confirm expiry with no created task stops without a renewed request', async t => {
   const f = await fixture(t)
   await fs.unlink(path.join(f.outDir, '.task-manifest.json'))
-  let expired = false
-  f.confirm(async () => {
-    if (!expired) {
-      expired = true
-      return Response.json({ detail: 'transcription quote has expired' }, { status: 422 })
-    }
-  })
-  assert.equal((await f.run()).srt, srt)
-  assert.equal(f.confirmations.length, 2, 'one expired confirm and one renewed-key confirm')
-  assert.equal(f.calls.filter(call => call.endsWith('/quotes')).length, 2, 'only one fresh quote is created')
+  f.confirm(async () => Response.json({ detail: 'transcription quote has expired' }, { status: 422 }))
+  await assert.rejects(f.run(), /quote expired before any provider task was created/)
+  assert.equal(f.confirmations.length, 1, 'the expired confirm is not replayed under a fresh key')
+  assert.equal(f.calls.filter(call => call.endsWith('/quotes')).length, 1, 'no renewed quote is created')
   const state = JSON.parse(await fs.readFile(path.join(f.outDir, '.subtitle-recovery.json'), 'utf8'))
-  assert.equal(state.sections['Chapter_01.srt'].freeRetries, 1)
+  assert.equal(state.sections['Chapter_01.srt'].freeRetries, 0, 'no fresh key is minted while Off')
 })
 
 test('the same HTTP 422 expiry detail at quote creation stays fail-closed', async t => {
@@ -704,7 +695,7 @@ test('a saved transcription task missing from the Gateway offers an explicit fre
 
 test('artifact expiry after success never authorizes automatic spending', async t => {
   const f = await fixture(t)
-  await setAppSetting('paid_subtitle_replacement', { enabled: true, additional_credit_ceiling: 20 })
+  await setRetryFailedRequestsSetting('subtitle', { enabled: true, retries: 2 })
   f.original(id => ({ ...failed(id), state: 'succeeded' }))
   await assert.rejects(f.run(), /artifact expired/)
   assert.equal(f.confirmations.length, 0)
@@ -746,19 +737,18 @@ test('a stamped explicit action survives a successor queue job, while a new acti
   assert.equal(f.confirmations.length, 2, 'a second deliberate action owns one distinct task')
 })
 
-test('paid replacement zero-settlement retry stays free when owner turns automatic setting Off', async t => {
+test('retry failure stops even if owner turns automatic setting Off', async t => {
   const f = await fixture(t)
-  await setAppSetting('paid_subtitle_replacement', { enabled: true, additional_credit_ceiling: 5 })
+  await setRetryFailedRequestsSetting('subtitle', { enabled: true, retries: 2 })
   let firstKey = ''
   f.confirm(async key => {
     firstKey ||= key
-    await setAppSetting('paid_subtitle_replacement', { enabled: false, additional_credit_ceiling: 5 })
+    await setRetryFailedRequestsSetting('subtitle', { enabled: false })
   })
-  f.replacement(id => id === `new-${firstKey}`
-    ? failed(id, { settled_credits: 0, released_credits: 3 })
-    : { id, state: 'succeeded', model_id: 'model', srt_url: `/v1/transcriptions/${id}/srt` })
-  assert.equal((await f.run()).srt, srt)
-  assert.equal(f.confirmations.length, 2, 'first reservation refunded, only the second can settle credits')
+  f.original(id => failed(id))
+  f.replacement(id => failed(id))
+  await assert.rejects(f.run(), /retry is Off/)
+  assert.equal(f.confirmations.length, 1)
 })
 
 test('valid JSON with an invalid manifest schema does not authorize a fresh task', async t => {
@@ -779,7 +769,7 @@ for (const status of [400, 401, 404, 409, 422]) test(`quote HTTP ${status} is no
 
 test('lost task-id persistence after provider confirmation is recovered by the saved key', async t => {
   const f = await fixture(t)
-  await setAppSetting('paid_subtitle_replacement', { enabled: true, additional_credit_ceiling: 5 })
+  await setRetryFailedRequestsSetting('subtitle', { enabled: true, retries: 2 })
   const rename = fs.rename
   try {
     fs.rename = async (from, to) => {
@@ -799,7 +789,7 @@ test('lost task-id persistence after provider confirmation is recovered by the s
 
 test('crash immediately before charged POST retains commitment; restart reuses it once', async t => {
   const f = await fixture(t)
-  await setAppSetting('paid_subtitle_replacement', { enabled: true, additional_credit_ceiling: 5 })
+  await setRetryFailedRequestsSetting('subtitle', { enabled: true, retries: 2 })
   const rename = fs.rename
   const controller = new AbortController()
   try {
@@ -835,13 +825,11 @@ test('HTTP manual action ignores caller section widening and enqueues exact fail
   const { router } = await import('../routes/video.js')
   const app = express().use(express.json()).use(router)
   const url = `/projects/${project.slug}/video-editor/subtitles/buy-missing/${f.job.job_id}`
-  const invalid = await request(app).post(url).send({ additional_credit_ceiling: 0 })
-  assert.equal(invalid.status, 409)
-  const response = await request(app).post(url).send({ additional_credit_ceiling: 4, sections: ['Chapter_99'], force: true })
+  const response = await request(app).post(url).send({ sections: ['Chapter_99'], force: true })
   assert.equal(response.status, 201, JSON.stringify(response.body))
   assert.deepEqual(response.body.params.sections, ['Chapter_01'])
   assert.equal(response.body.params.force, false)
-  assert.deepEqual(response.body.params.subtitle_purchase, { additional_credit_ceiling: 4 })
+  assert.deepEqual(response.body.params.subtitle_purchase, {})
   // The isolated fixture has no Audio Assembly; the real executor fails its local preflight, never a provider call.
   await waitFor(
     () => !['queued', 'running'].includes(queue.getJob(response.body.job_id)?.status || ''),
@@ -850,16 +838,16 @@ test('HTTP manual action ignores caller section widening and enqueues exact fail
   assert.equal(f.confirmations.length, 0)
 })
 
-test('sections first recovered in separate queue jobs still share the episode recovery ceiling', async t => {
+test('sections first recovered in separate queue jobs both fulfill without a ceiling', async t => {
   const f = await fixture(t, ['Chapter_01', 'Chapter_02'])
   for (const section of ['Chapter_01', 'Chapter_02']) {
     const job = { ...f.job, job_id: `${f.job.job_id}-${section}`, params: {}, output_lines: [] }
     await assert.rejects(f.run(section, { job }))
   }
-  await setAppSetting('paid_subtitle_replacement', { enabled: true, additional_credit_ceiling: 5 })
+  await setRetryFailedRequestsSetting('subtitle', { enabled: true, retries: 2 })
   const results = await Promise.allSettled([f.run('Chapter_01'), f.run('Chapter_02')])
-  assert.equal(results.filter(r => r.status === 'fulfilled').length, 1)
-  assert.equal(f.confirmations.length, 1)
+  assert.equal(results.filter(r => r.status === 'fulfilled').length, 2)
+  assert.equal(f.confirmations.length, 2)
 })
 
 test('an incomplete legacy original identity may recover for free but cannot authorize a purchase', async t => {
@@ -867,7 +855,7 @@ test('an incomplete legacy original identity may recover for free but cannot aut
   await recordTaskStrict(f.outDir, 'Chapter_01.srt', {
     provider: 'genstudio', task_id: 'old-Chapter_01', input_hash: hashInput('input'), submitted_at: '2026-09-05T00:00:00Z',
   })
-  await setAppSetting('paid_subtitle_replacement', { enabled: true, additional_credit_ceiling: 5 })
+  await setRetryFailedRequestsSetting('subtitle', { enabled: true, retries: 2 })
   await assert.rejects(f.run(), /identity/)
   assert.equal(f.confirmations.length, 0)
 })
@@ -877,16 +865,16 @@ test('a malformed commitment budget in valid JSON fails closed', async t => {
   await assert.rejects(f.run())
   const file = path.join(f.outDir, '.subtitle-recovery.json')
   const ledger = JSON.parse(await fs.readFile(file, 'utf8'))
-  Object.values(ledger.plans).forEach((p: any) => p.attempts.push({ section: 'Chapter_00', quotedCredits: 'unavailable' }))
+  Object.values(ledger.plans).forEach((p: any) => p.attempts.push({ section: 'Chapter_00', idempotencyKey: null, replacementOrdinal: 0 }))
   await fs.writeFile(file, JSON.stringify(ledger))
-  await setAppSetting('paid_subtitle_replacement', { enabled: true, additional_credit_ceiling: 5 })
+  await setRetryFailedRequestsSetting('subtitle', { enabled: true, retries: 2 })
   await assert.rejects(f.run(), /ledger/)
   assert.equal(f.confirmations.length, 0)
 })
 
 test('expiry after a confirm was attempted reconciles its key before retiring any commitment', async t => {
   const f = await fixture(t)
-  await setAppSetting('paid_subtitle_replacement', { enabled: true, additional_credit_ceiling: 5 })
+  await setRetryFailedRequestsSetting('subtitle', { enabled: true, retries: 2 })
   let first = true
   f.confirm(async key => {
     if (first) {
@@ -899,58 +887,100 @@ test('expiry after a confirm was attempted reconciles its key before retiring an
   assert.equal(f.confirmations.length, 1, 'the key lookup must discover the already-created task')
 })
 
-// 1.4.279 — KH Boundless EP0100 (Whisper turbo on the free fleet): every section stopped on
-// "No fresh replacement was authorized". Free fleet work never goes through the paid rules.
+// All subtitle requests follow retry_failed_requests_subtitle uniformly regardless of model name.
 const fleetModel = 'studio-hub::mlx-community/whisper-large-v3-turbo'
 const fleetRun = (f: Awaited<ReturnType<typeof fixture>>, section = 'Chapter_01') => f.run(section, {
   request: { audioPath: f.audioPath, modelId: fleetModel, requestIdentity: `episode:${section}`, wordTimestamps: true },
 })
 
-test('free fleet: a dead saved task gets a fresh free request while paid replacement is Off', async t => {
-  const f = await fixture(t)  // the saved task failed with credits settled: paid work blocks here ("Off")
-  assert.equal((await fleetRun(f)).srt, srt)
-  assert.equal(f.confirmations.length, 1)
-  assert.notEqual(f.confirmations[0], 'original-Chapter_01-confirm')
-  const ledger = JSON.parse(await fs.readFile(path.join(f.outDir, '.subtitle-recovery.json'), 'utf8'))
-  assert.equal(Object.values(ledger.plans).flatMap((p: any) => p.attempts).length, 0, 'no paid commitment')
-  assert.match(f.job.output_lines.join('\n'), /asking again, free on your own Macs/)
+test('free-named model: dead saved task with retry Off makes zero extra requests and blocks', async t => {
+  const f = await fixture(t)
+  await assert.rejects(fleetRun(f), /automatic subtitle retry is Off/)
+  assert.equal(f.confirmations.length, 0, 'Off means zero extra requests')
+  assert.equal((f.job.params.subtitle_recovery as any).sections.Chapter_01.manual_action, 'rerun_subtitle_section')
 })
 
-test('free fleet: a saved task the Gateway no longer has, or whose artifact expired, is asked for afresh', async t => {
+test('free-named model: with retry On and maxRetries=2 makes exactly two extra attempts before exhausting', async t => {
+  const f = await fixture(t)
+  await setRetryFailedRequestsSetting('subtitle', { enabled: true, retries: 2 })
+  f.replacement(id => failed(id))
+  await assert.rejects(fleetRun(f), /Automatic subtitle retries exhausted \(2 of 2\)/)
+  assert.equal(f.confirmations.length, 2, 'On 2 means exactly two extra requests')
+  const ledger = JSON.parse(await fs.readFile(path.join(f.outDir, '.subtitle-recovery.json'), 'utf8'))
+  const attempts = Object.values(ledger.plans).flatMap((p: any) => p.attempts)
+  assert.equal(attempts.length, 2, 'two replacement attempts recorded in ledger')
+})
+
+test('free-named model: with retry On succeeds on additional attempt within budget', async t => {
+  const f = await fixture(t)
+  await setRetryFailedRequestsSetting('subtitle', { enabled: true, retries: 2 })
+  let tries = 0
+  f.replacement(id => {
+    tries++
+    if (tries < 2) return failed(id)
+    return { id, state: 'succeeded', model_id: fleetModel, srt_url: `/v1/transcriptions/${id}/srt` } as any
+  })
+  assert.equal((await fleetRun(f)).srt, srt)
+  assert.equal(f.confirmations.length, 2, 'succeeded on second retry attempt')
+})
+
+test('free-named model: unknown outcome makes no fresh request and reconnects by same key', async t => {
+  const timeout = () => { throw new DOMException('The operation was aborted due to timeout', 'TimeoutError') }
+  const f = await fixture(t)
+  await f.clearOriginal()
+  let timedOut = false
+  f.confirm(async () => {
+    if (!timedOut) timeout()
+  })
+  await assert.rejects(fleetRun(f), /did not answer within the request time limit/)
+  timedOut = true
+  assert.equal(f.confirmations.length, 1, 'only one key submitted; no extra key minted on unknown outcome')
+  const message = (f.job.params.subtitle_recovery as any).sections.Chapter_01.message
+  assert.match(message, /Subtitle request interrupted \(The Gateway did not answer/)
+
+  // Re-running reconnects under the exact same key without minting a fresh request
+  assert.equal((await fleetRun(f)).srt, srt)
+  assert.equal(f.confirmations.length, 1, 'reconnected using existing key with zero additional requests')
+})
+
+test('free-named model: restart preserves retry budget across separate runs', async t => {
+  const f = await fixture(t)
+  await setRetryFailedRequestsSetting('subtitle', { enabled: true, retries: 2 })
+  f.replacement(id => failed(id))
+  let attemptCount = 0
+  f.confirm(async () => {
+    attemptCount++
+    if (attemptCount === 1) return Response.json(failed('new-att-1'), { status: 202 })
+    throw new Error('simulated process interruption')
+  })
+  await assert.rejects(fleetRun(f), /simulated process interruption/)
+  assert.equal(f.confirmations.length, 2)
+
+  f.confirm(async () => Response.json(failed('new-att-2'), { status: 202 }))
+  await assert.rejects(fleetRun(f), /Automatic subtitle retries exhausted \(2 of 2\)/)
+  assert.equal(f.confirmations.length, 2, 'retry budget of 2 was strictly preserved across restart')
+})
+
+test('free-named model: a saved task missing from the Gateway blocks with rerun offer', async t => {
   const missing = await fixture(t)
   missing.originalMissing()
-  assert.equal((await fleetRun(missing)).srt, srt)
-  assert.equal(missing.confirmations.length, 1)
+  await assert.rejects(fleetRun(missing), /not found with the current Gateway connection\/account/i)
+  assert.equal(missing.confirmations.length, 0)
+  assert.equal((missing.job.params.subtitle_recovery as any).sections.Chapter_01.manual_action, 'rerun_subtitle_section')
+})
+
+test('free-named model: an expired artifact after success never authorizes automatic requests', async t => {
   const expired = await fixture(t)
   expired.original(id => ({ ...failed(id), state: 'succeeded' }))
-  assert.equal((await fleetRun(expired)).srt, srt)
-  assert.equal(expired.confirmations.length, 1)
+  await assert.rejects(fleetRun(expired), /artifact expired/i)
+  assert.equal(expired.confirmations.length, 0)
 })
 
-test('free fleet: a cancelled task is still the owner\'s stop, not a fresh request', async t => {
+test('free-named model: a cancelled task is still the owner stop, not a fresh request', async t => {
   const f = await fixture(t)
   f.original(id => failed(id, { cancelled: true }))
-  await assert.rejects(fleetRun(f))
+  await assert.rejects(fleetRun(f), /cancelled/)
   assert.equal(f.confirmations.length, 0)
-})
-
-test('an unanswered submit: free fleet reconnects under the same key; paid work stops with its reason', async t => {
-  const timeout = () => { throw new DOMException('The operation was aborted due to timeout', 'TimeoutError') }
-  const free = await fixture(t)
-  await free.clearOriginal()
-  let freeTries = 0
-  free.confirm(async () => { if (freeTries++ < 4) timeout() })
-  assert.equal((await fleetRun(free)).srt, srt)
-  assert.equal(free.confirmations.length, 1, 'one key: the lost answer is reclaimed, not duplicated')
-  assert.match(free.job.output_lines.join('\n'), /did not answer in time; asking again, free/)
-
-  const paid = await fixture(t)
-  await paid.clearOriginal()
-  paid.confirm(async () => timeout())
-  await assert.rejects(paid.run(), /did not answer within the request time limit/)
-  const message = (paid.job.params.subtitle_recovery as any).sections.Chapter_01.message
-  assert.match(message, /interrupted \(The Gateway did not answer.*paid transcription is never sent again by itself/)
-  assert.doesNotMatch(message, /No fresh replacement was authorized/)
 })
 
 test('episode recovery names each distinct section message once', async () => {

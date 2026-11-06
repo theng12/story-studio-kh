@@ -1,0 +1,78 @@
+{
+  "kind": "subtitle-style",
+  "schema_version": 1,
+  "id": "com.storystudio.subtitle-style.yellow-highlighter",
+  "name": "Yellow Highlighter",
+  "description": "The spoken word sits on a marker-pen block of colour.",
+  "approximation": "libass cannot draw a background behind ONE word — only behind a whole line. The block is a thick round-joined outline in the highlight colour, so it follows the shape of the letters instead of being a clean rectangle.",
+  "style": {
+    "schema_version": 2,
+    "typography": {
+      "font_family": "Avenir Next",
+      "font_size_px": 34,
+      "bold": true,
+      "italic": false,
+      "letter_spacing_px": 0,
+      "line_spacing_px": 0,
+      "all_caps": false,
+      "max_chars_per_line": 42,
+      "max_lines": 2,
+      "wrap_style": "engine"
+    },
+    "color": {
+      "primary_hex": "#FFFFFF",
+      "primary_opacity": 1,
+      "secondary_hex": null,
+      "secondary_opacity": 1,
+      "outline_hex": "#000000",
+      "outline_opacity": 1,
+      "shadow_hex": "#000000",
+      "shadow_opacity": 1,
+      "box_hex": "#000000",
+      "box_opacity": 1
+    },
+    "box": {
+      "mode": "none",
+      "padding_px": null,
+      "corner_radius_px": 12
+    },
+    "edge": {
+      "outline_px": 3,
+      "shadow_px": 0,
+      "shadow_offset_x_px": 0,
+      "shadow_offset_y_px": 0,
+      "blur_px": 0
+    },
+    "placement": {
+      "position": "bottom",
+      "align": "center",
+      "position_x_pct": null,
+      "position_y_pct": null,
+      "safe_margin_pct": 8,
+      "margin_px": 40
+    },
+    "animation": {
+      "type": "none",
+      "in_ms": 0,
+      "out_ms": 0,
+      "transform_ms": 0,
+      "pop_from_pct": 72,
+      "travel_px": 36
+    },
+    "word": {
+      "mode": "highlight",
+      "active_color_hex": "#131313",
+      "active_opacity": 1,
+      "inactive_color_hex": "#FFFFFF",
+      "inactive_opacity": 1,
+      "active_scale_pct": 118,
+      "transition_ms": 60,
+      "active_outline_hex": null,
+      "active_outline_opacity": 1,
+      "highlight_box": true,
+      "highlight_box_hex": "#FFE712",
+      "highlight_box_opacity": 1,
+      "highlight_box_px": 16
+    }
+  }
+}

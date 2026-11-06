@@ -1,0 +1,12 @@
+{
+ "kind": "lettering-style",
+ "schema_version": 1,
+ "id": "com.storystudio.lettering.text-gradient-ocean",
+ "name": "Gradient Ocean",
+ "description": "cool ocean gradient from teal to deep blue, soft luminous shine",
+ "axis": "text",
+ "phrase": "cool ocean gradient from teal to deep blue, soft luminous shine",
+ "preview_assets": [
+  "assets/text-gradient-ocean.webp"
+ ]
+}

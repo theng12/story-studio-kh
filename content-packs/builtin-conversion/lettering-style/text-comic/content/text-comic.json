@@ -1,0 +1,12 @@
+{
+ "kind": "lettering-style",
+ "schema_version": 1,
+ "id": "com.storystudio.lettering.text-comic",
+ "name": "Comic",
+ "description": "comic-book pop art, thick black outline, bold flat fill",
+ "axis": "text",
+ "phrase": "comic-book pop art, thick black outline, bold flat fill",
+ "preview_assets": [
+  "assets/text-comic.webp"
+ ]
+}

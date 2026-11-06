@@ -4,7 +4,10 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import path from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
 
-import { describeFinalRenderExport, type FinalRenderExportDescription } from '../lib/final-render-export.js'
+import { describeFinalRenderExport, finalRenderRequestedEncode, type FinalRenderExportDescription, type PreparedLogoAsset } from '../lib/final-render-export.js'
+import { logoCornerRadiusPct, logoShapeOf, writeShapedLogo } from '../lib/logo-shape.js'
+import { prepareFinalRenderLabelAssets } from '../lib/final-render-label-assets.js'
+import { prepareFinalRenderSubtitleAssets, type SubtitlePreparation } from '../lib/final-render-subtitle-assets.js'
 import { readInstalledStoryRenderProvenance } from '../lib/final-render-build-provenance.js'
 import { RenderProvenanceError, sameDescriptorPins } from '../lib/final-render-provenance-contract.js'
 import {
@@ -29,6 +32,7 @@ import {
   submitFinalRender,
   finalRenderDisplayLabel,
   validateSubmitBytes,
+  sameFinalRenderEncodeTuple,
   type FinalRenderBlobStatus,
   type FinalRenderCapabilities,
   type FinalRenderCancelView,
@@ -73,6 +77,13 @@ function sameRequestedEncode(entry: FinalRenderEncodeEntry, encode: Record<strin
     && entry.crf === encode.crf
     && entry.quality_cpu_preset === encode.quality_cpu_preset
     && entry.bitrate_kbps === (encode.bitrate_kbps ?? null)
+}
+
+/** The six requested fields, named plainly for the customer. No path, no secret, no credential. */
+function describeRequestedEncode(encode: Readonly<FinalRenderEncodeEntry>): string {
+  const cap = encode.bitrate_kbps === null ? 'no bitrate cap' : `${encode.bitrate_kbps} kbps bitrate cap`
+  return `container ${encode.container}, codec ${encode.requested_codec}, ${encode.requested_effort} effort, `
+    + `CRF ${encode.crf}, ${encode.quality_cpu_preset} CPU preset, ${cap}`
 }
 
 function destinationFacts(opts: PrepareOpts): {
@@ -244,10 +255,22 @@ export async function preparePrivateFinalRenderDescriptor(
   }
 
   const destination = destinationFacts(opts)
+  // The exact tuple this render asks for. The Gateway is asked about it directly when it is a
+  // well-formed requestable encode; the packet is built from the same helper, so the two agree.
+  const requested = finalRenderRequestedEncode(opts)
   let discovery: Awaited<ReturnType<typeof getFinalRenderCapabilities>>
   let access: Awaited<ReturnType<typeof readPrivateRenderAccess>>
+  const discoveryArgs: Parameters<typeof getFinalRenderCapabilities> = [requested ?? undefined]
+  // Cue compositions opt into the late-label contract explicitly and subtitle
+  // compositions opt into the subtitle contract; the subtitle contract takes the
+  // single `requested_contract` slot when both apply. Every other composition
+  // asks the unscoped question, so an old Gateway's answer is unchanged.
+  const contractScope: { requestedLateLabels?: boolean; requestedSubtitles?: boolean } = {}
+  if ((opts.contextualCues?.length ?? 0) > 0) contractScope.requestedLateLabels = true
+  if (opts.subtitles?.enabled) contractScope.requestedSubtitles = true
+  if (Object.keys(contractScope).length > 0) discoveryArgs[1] = contractScope
   try {
-    discovery = await getFinalRenderCapabilities()
+    discovery = await getFinalRenderCapabilities(...discoveryArgs)
     access = await readPrivateRenderAccess()
   } catch (error) {
     if (known) throw new Error('Existing private final render lineage requires recovery before local rendering.')
@@ -265,7 +288,73 @@ export async function preparePrivateFinalRenderDescriptor(
       + 'so this video stays on this Mac. The render is otherwise unchanged.')
     return null
   }
-  const description = describeFinalRenderExport(opts, discovery)
+  // Image-backed cue assets are rendered ONCE into the run's own scratch root, beside
+  // the merged master; staging copies them into the intent from there, and only files
+  // this prepare pass wrote are ever removed. Rendering happens before the description
+  // so any cue shape outside the contract stops here with its exact reason and does no
+  // image work at all. An old Gateway (no late_labels capability) never reaches the
+  // renderers: the description refuses it below with today's contextual-cues reason.
+  let lateLabels: Awaited<ReturnType<typeof prepareFinalRenderLabelAssets>> | undefined
+  if ((opts.contextualCues?.length ?? 0) > 0 && discovery.late_labels) {
+    lateLabels = await prepareFinalRenderLabelAssets({
+      cues: opts.contextualCues!,
+      frame_w: opts.w,
+      frame_h: opts.h,
+      fps: opts.quality.fps,
+      offset_sec: opts.sceneTimelineOffsetSec || 0,
+      dir: path.dirname(opts.videoInputPath),
+      log: line => opts.job.output_lines.push(line),
+    })
+    for (const cueId of [...lateLabels.drawtext_cue_ids, ...lateLabels.unknown_cue_ids]) {
+      opts.job.output_lines.push(`Contextual cue ${cueId} uses a template that renders only on this Mac, `
+        + 'so this video stays on this Mac. The render is otherwise unchanged.')
+    }
+  }
+  // The subtitle payload is prepared only when the paired Gateway actually
+  // advertised subtitle authority, and the failure keeps its exact reason and
+  // font family in the job log; the description below refuses with the same
+  // contract reason, so no partial stage ever leaves this Mac.
+  let subtitles: SubtitlePreparation | undefined
+  if (opts.subtitles?.enabled && discovery.subtitles) {
+    subtitles = await prepareFinalRenderSubtitleAssets({
+      srt_path: (opts.subtitles.srt_path || '').trim(),
+      style: opts.subtitles.style,
+      frame_w: opts.w,
+      frame_h: opts.h,
+      target_duration_sec: opts.targetDuration,
+      dir: path.dirname(opts.videoInputPath),
+    })
+    if (subtitles.ok) {
+      opts.job.output_lines.push(`Subtitles: ASS document ready · ${subtitles.prepared.fonts.length} bundled font`
+        + `${subtitles.prepared.fonts.length === 1 ? '' : 's'} · `
+        + subtitles.prepared.fonts.map(font => font.family).join(', '))
+    } else {
+      opts.job.output_lines.push(`Subtitles: ${subtitles.reason.replaceAll('_', ' ')} (${subtitles.detail}) — `
+        + 'so this video stays on this Mac. The render is otherwise unchanged.')
+    }
+  }
+  // A shaped logo is cut ONCE into the run's scratch root at the exact width the
+  // recipe's scale resolves to, so the remote graph overlays a normal still PNG.
+  // If the cut cannot be made the composition stays local (`logo_shape`) rather
+  // than sending the unshaped logo; the local lane then shows the logo as it is.
+  let logoAsset: PreparedLogoAsset | undefined
+  const logo = opts.logo
+  const logoShape = logoShapeOf(logo?.shape)
+  if (logo?.enabled && logo.image_path && logoShape !== 'none' && logo.position !== 'custom') {
+    const shapedPath = path.join(path.dirname(opts.videoInputPath), `logo-${logoShape}.png`)
+    try {
+      await fs.mkdir(path.dirname(shapedPath), { recursive: true })
+      const size = await writeShapedLogo(
+        logo.image_path, shapedPath, Math.round(opts.w * (logo.scale || 0.1)), logoShape, logo.corner_radius_pct,
+      )
+      logoAsset = { path: shapedPath }
+      opts.job.output_lines.push(`Logo shape: ${logoShape === 'circle' ? 'circle' : `rounded corners (${logoCornerRadiusPct(logo.corner_radius_pct)}%)`} · ${size.width}x${size.height}`)
+    } catch (error) {
+      opts.job.output_lines.push(`Logo shape: ${logoShape} could not be made (${(error as Error)?.message || error}) — `
+        + 'so this video stays on this Mac. The render is otherwise unchanged.')
+    }
+  }
+  const description = describeFinalRenderExport(opts, discovery, lateLabels, subtitles, logoAsset)
   if (description.kind !== 'exportable') {
     if (known) throw new Error('Existing private final render lineage requires recovery before local rendering.')
     opts.job.output_lines.push(`Private final render: this video stays on this Mac — the composition is not `
@@ -278,22 +367,54 @@ export async function preparePrivateFinalRenderDescriptor(
   // an older Gateway and keeps today's behavior. Without this check the packet would be
   // staged and accepted only to fail at the render boundary, so an unqualified encode
   // stays local with the user's settings untouched.
-  if (discovery.encode !== undefined
+  //
+  // When the Gateway echoed the exact tuple Story asked about, that scoped answer is the
+  // authority. In that scope `eligible` counts the Macs that support this exact encode whatever
+  // else they are doing, `idle` the ones that could take it now. An echo is never admission on
+  // its own — the exact tuple still has to be published.
+  const echoed = discovery.requested_encode !== undefined
+  let encodeMatched = false
+  const scopedTuple = discovery.requested_encode
+  if (scopedTuple !== undefined && discovery.encode !== undefined && discovery.encode !== null) {
+    const tuple = scopedTuple
+    encodeMatched = discovery.encode.entries.some(entry => sameFinalRenderEncodeTuple(entry, tuple))
+  }
+  // A count is not admission: the exact tuple has to be there too.
+  const busy = echoed && encodeMatched && discovery.idle === 0 && discovery.eligible > 0
+  const unsupported = echoed
+    ? !encodeMatched
+    : discovery.encode !== undefined
       && (discovery.encode === null
         || !discovery.encode.entries.some(entry =>
-          sameRequestedEncode(entry, description.recipe.encode as Record<string, any>)))) {
+          sameRequestedEncode(entry, description.recipe.encode as Record<string, any>)))
+  if (busy || unsupported) {
     if (known) throw new Error('Existing private final render lineage requires recovery before local rendering.')
-    // Two unrelated causes reach this branch and the owner acts on them differently. The Gateway
-    // publishes `encode: null` when NO candidate was eligible at all (`render_service.capabilities`
-    // intersects an empty list, and `fleet.render_encode_intersection` answers None for it) as well
-    // as when the eligible Macs share no encode. Telling a customer their encode is unqualified
-    // when the truth is "no Mac was free" is a reason they will act on wrongly, so name the cause
-    // the Gateway actually published.
-    opts.job.output_lines.push(discovery.eligible === 0
-      ? 'Private final render: no other Mac was free to take this render, so this video stays on '
-        + 'this Mac. The render is otherwise unchanged.'
-      : 'Private final render: this exact encode is not qualified for remote rendering, '
-        + 'so this video stays on this Mac. The render is otherwise unchanged.')
+    // The customer needs the reason and the exact settings that caused it. Nothing about the
+    // Gateway, the fleet or the machine appears here: no path, no identifier, no secret.
+    const requestedText = requested ? ` The render asked for ${describeRequestedEncode(requested)}.` : ''
+    if (busy) {
+      opts.job.output_lines.push('Private final render: a Mac that supports this exact encode is there, '
+        + `but none is free right now, so this video stays on this Mac.${requestedText} `
+        + 'The render is otherwise unchanged.')
+    } else if (echoed && discovery.eligible === 0) {
+      opts.job.output_lines.push('Private final render: no Mac is qualified for this exact encode, '
+        + `so this video stays on this Mac.${requestedText} The render is otherwise unchanged.`)
+    } else if (echoed) {
+      opts.job.output_lines.push('Private final render: this exact encode is not qualified for remote rendering, '
+        + `so this video stays on this Mac.${requestedText} The render is otherwise unchanged.`)
+    } else {
+      // Two unrelated causes reach this branch and the owner acts on them differently. The Gateway
+      // publishes `encode: null` when NO candidate was eligible at all (`render_service.capabilities`
+      // intersects an empty list, and `fleet.render_encode_intersection` answers None for it) as well
+      // as when the eligible Macs share no encode. Telling a customer their encode is unqualified
+      // when the truth is "no Mac was free" is a reason they will act on wrongly, so name the cause
+      // the Gateway actually published.
+      opts.job.output_lines.push(discovery.eligible === 0
+        ? 'Private final render: no other Mac was free to take this render, so this video stays on '
+          + `this Mac.${requestedText} The render is otherwise unchanged.`
+        : 'Private final render: this exact encode is not qualified for remote rendering, '
+          + `so this video stays on this Mac.${requestedText} The render is otherwise unchanged.`)
+    }
     return null
   }
   if (description.composition.still_tail_from_sec !== null) {
@@ -344,6 +465,17 @@ export async function preparePrivateFinalRenderDescriptor(
     },
     destination,
     loudness: structuredClone(loudness),
+    ...(lateLabels ? {
+      late_label_assets: {
+        labels: lateLabels.labels.map(label => ({
+          cue_id: label.cue_id,
+          label: label.label,
+          reveal: label.reveal,
+          line: label.line,
+          line_reveal: label.line_reveal,
+        })),
+      },
+    } : {}),
   })
 }
 

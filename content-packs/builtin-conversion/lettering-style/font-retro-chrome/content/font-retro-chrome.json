@@ -1,0 +1,12 @@
+{
+ "kind": "lettering-style",
+ "schema_version": 1,
+ "id": "com.storystudio.lettering.font-retro-chrome",
+ "name": "Retro Chrome",
+ "description": "retro 1970s chrome lettering, smooth curves, stacked reflections",
+ "axis": "font",
+ "phrase": "retro 1970s chrome lettering, smooth curves, stacked reflections",
+ "preview_assets": [
+  "assets/font-retro-chrome.webp"
+ ]
+}

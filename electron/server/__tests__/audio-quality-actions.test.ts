@@ -11,10 +11,7 @@ import {
   readAudioQualityProvenance,
   writeAudioQualityProvenance,
 } from '../services/audio-quality-store.js'
-import {
-  AudioQualityVerificationCreditCeilingError,
-  verifyAudioQualityCandidateRawTranscript,
-} from '../services/audio-quality-transcription.js'
+import { verifyAudioQualityCandidateRawTranscript } from '../services/audio-quality-transcription.js'
 import { hashSubtitleAudioSources } from '../services/subtitle-completion.js'
 import { useTempDataDir } from './_helpers.js'
 import { MOCK_GENSTUDIO_FULL_KEY, startMockGenStudioService } from './fixtures/mock-genstudio-service.js'
@@ -54,8 +51,6 @@ async function fixture(root: string, name: string) {
         sections: [SECTION],
         source_files: { [SECTION]: [activeFile] },
         mode: 'check_and_repair',
-        verification_credit_ceiling: 7,
-        verification_committed_credits: 0,
         verification_model_id: 'mock-whisper-v1',
         state: 'needs_approval',
         created_at: '2026-09-08T00:00:00.000Z',
@@ -123,7 +118,7 @@ void test('audio-quality store and raw-ASR helper fence staged promotion and hel
     assert.deepEqual(await sourceMap(value), [replacement])
   })
 
-  await t.test('a higher ceiling resumes the same staged action once, preserves its candidate choice, and promotes it', async () => {
+  await t.test('a confirmed candidate records the Gateway quote once, preserves its choice, and promotes it', async () => {
     const value = await fixture(temporary.dir, 'higher-ceiling')
     const transcriptInput = {
       job: JOB, actionId: ACTION, section: SECTION,
@@ -132,29 +127,17 @@ void test('audio-quality store and raw-ASR helper fence staged promotion and hel
       apiKey: MOCK_GENSTUDIO_FULL_KEY,
       transcription: { modelId: 'mock-whisper-v1', language: 'en' },
     }
-    await assert.rejects(
-      verifyAudioQualityCandidateRawTranscript({ ...transcriptInput, verification_credit_ceiling: 6 }),
-      error => error instanceof AudioQualityVerificationCreditCeilingError && error.quote.quoted_credit_cost === 7,
-    )
-    assert.equal(service.providerSubmissionCount('transcription'), 0, 'an above-ceiling quote never confirms ASR')
-    assert.equal(service.providerSubmissionCount('tts'), 0, 'a held candidate never regenerates TTS')
-
-    const held = await readAudioQualityProvenance(value.episodeDir)
-    held.actions![ACTION]!.verification_credit_ceiling = 7
-    await writeAudioQualityProvenance(value.episodeDir, held)
-    let reservations = 0
+    let quoted = 0
     await verifyAudioQualityCandidateRawTranscript({
       ...transcriptInput,
-      verification_credit_ceiling: 7,
       authorizeQuote: async quote => {
         assert.equal(quote.quoted_credit_cost, 7)
-        reservations++
-        await updateCommitted(value.episodeDir, quote.quoted_credit_cost || 0)
+        quoted++
       },
     })
-    assert.equal(reservations, 1)
+    assert.equal(quoted, 1, 'the owner-facing callback receives the Gateway figure exactly once')
     assert.equal(service.providerSubmissionCount('transcription'), 1)
-    assert.equal(service.providerSubmissionCount('tts'), 0, 'raising only ASR allowance never mints another TTS request')
+    assert.equal(service.providerSubmissionCount('tts'), 0, 'candidate verification never mints another TTS request')
 
     const promoted = await promoteAudioQualityCandidate(promotionInput(value))
     assert.deepEqual(await sourceMap(value), promoted[SECTION])
@@ -171,7 +154,6 @@ void test('audio-quality store and raw-ASR helper fence staged promotion and hel
       job: { ...JOB, project_slug: 'audio-quality-actions-restart' }, actionId: ACTION, section: SECTION,
       candidateAudioPath: path.join(value.candidateAudioDir, value.candidateFile), candidateOutDir: value.candidateOutDir,
       apiKey: MOCK_GENSTUDIO_FULL_KEY, transcription: { modelId: 'mock-whisper-v1', language: 'en' },
-      verification_credit_ceiling: 7,
     }
     await verifyAudioQualityCandidateRawTranscript(input)
     await verifyAudioQualityCandidateRawTranscript(input)
@@ -182,11 +164,3 @@ void test('audio-quality store and raw-ASR helper fence staged promotion and hel
     assert.equal(await fs.readFile(path.join(value.audioDir, value.activeFile), 'utf8'), 'active audio bytes')
   })
 })
-
-async function updateCommitted(episodeDir: string, cost: number): Promise<void> {
-  const current = await readAudioQualityProvenance(episodeDir)
-  const action = current.actions?.[ACTION]
-  assert.ok(action)
-  action.verification_committed_credits = (action.verification_committed_credits || 0) + cost
-  await writeAudioQualityProvenance(episodeDir, current)
-}

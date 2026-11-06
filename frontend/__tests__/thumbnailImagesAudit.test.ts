@@ -87,6 +87,8 @@ test('a row render uses the page builder and sends a UUID operation id with forc
   const app = await mountPanel(fx)
   try {
     assert.equal(fx.state.renderedCount.value, 1, 'an image with no prompt on this board is not "ready"')
+    assert.deepEqual(fx.state.comparisonImages.value.map((image: any) => image.number), [1],
+      'comparison includes only this board’s current prompts')
     assert.equal(fx.state.missingCount.value, 1)
     await fx.state.runOne(2)
     assert.deepEqual(fx.prepares, [[true, false]], 'rows build from the page and skip the bulk confirmation')
@@ -121,6 +123,7 @@ test('a job error reaches the row through the customer-safe text', async () => {
 
 const REVIEW_SUPPORT = `
   const PromptRow = {}
+  const PromptReviewOptionEditor = {}
   const useApi = () => ({ get: fx.get, post: fx.post, put: fx.put })
   const useToast = () => ({ success: () => {}, error: () => {}, show: () => {} })
   const useFreshGenerationAction = fx.useFreshGenerationAction
@@ -131,7 +134,9 @@ test('Prompt review drops a slow load for an earlier episode and saves to the ep
   const pending: Record<string, (v: any) => void> = {}
   const fx: any = {
     useFreshGenerationAction, emits: [], puts: [] as string[],
-    get: (path: string) => new Promise((resolve) => { pending[path.includes('EP-A') ? 'A' : 'B'] = resolve }),
+    get: (path: string) => path.endsWith('/image-prompts/options')
+      ? Promise.resolve({ schema: 1, auto_approve: false, options: {} })
+      : new Promise((resolve) => { pending[path.includes('EP-A') ? 'A' : 'B'] = resolve }),
     post: async () => ({}),
     put: (path: string) => { fx.puts.push(path); return new Promise(() => {}) },
   }
@@ -274,7 +279,8 @@ test('thumbnail counts come from the ONE shared rule: three options by default, 
   // The page's default and bounds come from the shared contract, not a second copy.
   assert.match(page, /thumb_count: DEFAULT_THUMBNAIL_COUNT,/)
   assert.match(page, /:min="THUMBNAIL_COUNT_MIN"/)
-  assert.match(page, /:max="THUMBNAIL_COUNT_MAX"/)
+  assert.doesNotMatch(page, /THUMBNAIL_COUNT_MAX/)
+  assert.doesNotMatch(contract, /THUMBNAIL_COUNT_MAX/)
   assert.match(page, /from '@shared\/thumbnail-counts'/)
   assert.equal((page.match(/thumb_count: 3\b/g) || []).length, 0, 'the default is not typed a second time')
 

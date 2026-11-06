@@ -206,6 +206,7 @@ describe('the registry declares what its instructions actually say', () => {
     playlists: { playlists: [{ name: 'Sleep', url: 'https://example.invalid' }] },
     support: { platforms: [{ kind: 'patreon', url: 'https://example.invalid' }] },
     metadata: { narrator_enabled: true, narrator_name: 'Vincent' },
+    'ai-disclosure': { text: 'Made with AI.' },
   }
   for (const def of METADATA_SECTION_LIST) {
     if (!def.promptLabel) continue

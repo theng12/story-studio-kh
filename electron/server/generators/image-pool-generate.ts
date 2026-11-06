@@ -33,7 +33,7 @@ import {
   terminalImageManifestEntry,
   tryRecoverImageFromManifestEntry,
 } from '../lib/manifest-recovery.js'
-import { GenStudioImageTerminalFailureError, buildGenStudioImageIdempotencyKey, isGenStudioInsufficientCredits } from '../lib/genstudio-client.js'
+import { GenStudioImageTerminalFailureError, buildGenStudioImageIdempotencyKey, isGenStudioPaymentRefusal } from '../lib/genstudio-client.js'
 import { fleetBusyRetryPlan, freeMacWaitLine, isFleetBusyFailure, isFreeMacPlan } from '../lib/genstudio-fleet-busy.js'
 import { imageRouteRetryDelayMs } from '../services/image-route-retry.js'
 import { resolveConfiguredAspectRatio, resolveConfiguredOutputOption, resolveImageModelConfig } from '../services/image-model-resolver.js'
@@ -391,6 +391,9 @@ export async function generateImagePoolImages(job: Job): Promise<jq.JobExecutorR
     // it, and the outer loop still goes on to the remaining items.
     let attemptNum = 1
     let zeroSettlementRetryPending = false
+    let retryDecisionScope: string | undefined
+    let currentDecisionOrdinal: number | undefined
+    let currentMaxRetries: number | undefined
     let retryItem = true
     while (retryItem) {
       retryItem = false
@@ -454,18 +457,25 @@ export async function generateImagePoolImages(job: Job): Promise<jq.JobExecutorR
             jq.recordPaidImageReplacementPublicReason(job, decision.public_reason)
             throw new Error(jq.PAID_IMAGE_REPLACEMENT_PUBLIC_MESSAGE)
           }
-          if (decision.action === 'safe-zero-settlement-retry') zeroSettlementRetryPending = true
+          if (decision.action === 'safe-zero-settlement-retry' || decision.action === 'retry') {
+            zeroSettlementRetryPending = true
+            if (decision.action === 'retry' && decision.scope) {
+              retryDecisionScope = decision.scope
+              currentDecisionOrdinal = decision.attempt_ordinal
+              currentMaxRetries = decision.max_retries
+            }
+          }
           if (decision.action === 'commit') replacementScope = decision.scope
         }
         const retryEntry = entry?.request_scope?.includes(':selector:')
           ? { ...entry, request_scope: logicalPaidScope(entry, baseScope) }
           : entry
-        let logicalScope = resolveImageRetryScope(retryEntry, baseScope).scope
+        let logicalScope = retryDecisionScope || resolveImageRetryScope(retryEntry, baseScope).scope
         let identity = originalSelector
           ? buildPaidImageOriginalIdentity({ prompt: item.prompt, selector: originalSelector, references: emptyReferences.inputs, baseScope: logicalScope })
           : null
-        let scope = replacementScope || (submittedRecoveryEntry ? entry!.replacement_scope! : '') || identity?.requestScope || logicalScope
-        let inputHash = replacementScope || submittedRecoveryEntry ? entry!.input_hash! : identity?.inputHash || hashInput(`${scope}\n${item.prompt}`)
+        let scope = (retryDecisionScope && identity ? identity.requestScope : replacementScope) || (submittedRecoveryEntry ? entry!.replacement_scope! : '') || identity?.requestScope || logicalScope
+        let inputHash = (retryDecisionScope && identity ? identity.inputHash : null) || (replacementScope || submittedRecoveryEntry ? entry!.input_hash! : identity?.inputHash || hashInput(`${scope}\n${item.prompt}`))
         const reclaimable = submittedRecoveryEntry || (entry
           && (entry.request_scope ? entry.input_hash === inputHash : true)
           && !replacementScope && !isTerminalGenStudioImageTaskFailure(entry)
@@ -521,12 +531,19 @@ export async function generateImagePoolImages(job: Job): Promise<jq.JobExecutorR
               jq.recordPaidImageReplacementPublicReason(job, decision.public_reason)
               throw new Error(jq.PAID_IMAGE_REPLACEMENT_PUBLIC_MESSAGE)
             }
-            if (decision.action === 'safe-zero-settlement-retry') zeroSettlementRetryPending = true
+            if (decision.action === 'safe-zero-settlement-retry' || decision.action === 'retry') {
+              zeroSettlementRetryPending = true
+              if (decision.action === 'retry' && decision.scope) {
+                retryDecisionScope = decision.scope
+                currentDecisionOrdinal = decision.attempt_ordinal
+                currentMaxRetries = decision.max_retries
+              }
+            }
           }
           const carriedRetry = carried.request_scope?.includes(':selector:')
             ? { ...carried, request_scope: logicalPaidScope(carried, baseScope) }
             : carried
-          logicalScope = resolveImageRetryScope(carriedRetry, baseScope).scope
+          logicalScope = retryDecisionScope || resolveImageRetryScope(carriedRetry, baseScope).scope
           identity = originalSelector
             ? buildPaidImageOriginalIdentity({ prompt: item.prompt, selector: originalSelector, references: emptyReferences.inputs, baseScope: logicalScope })
             : null
@@ -718,7 +735,7 @@ export async function generateImagePoolImages(job: Job): Promise<jq.JobExecutorR
       } catch (e: any) {
         // Running out of money is not a busy fleet. This rethrow stays first and
         // unchanged: no wait, no resubmission, the whole run stops.
-        if (isGenStudioInsufficientCredits(e)) throw e
+        if (isGenStudioPaymentRefusal(e)) throw e
         if (e instanceof GenStudioImageTerminalFailureError && attemptScope) {
           const failedTaskId = e.jobId || acceptedTaskId
           // Persist the settled failure BEFORE deciding to retry, so the next
@@ -754,6 +771,11 @@ export async function generateImagePoolImages(job: Job): Promise<jq.JobExecutorR
               })
               releasedZeroSettlementRetry = isReleasedZeroSettlementImageRetry(e, decision)
               zeroSettlementRetryPending ||= releasedZeroSettlementRetry
+              if (decision.action === 'retry' && decision.scope) {
+                retryDecisionScope = decision.scope
+                currentDecisionOrdinal = decision.attempt_ordinal
+                currentMaxRetries = decision.max_retries
+              }
               if (decision.action === 'wait') {
                 await jq.checkpointJobState(job)
                 return { kind: 'paid-image-wait' }
@@ -774,14 +796,16 @@ export async function generateImagePoolImages(job: Job): Promise<jq.JobExecutorR
           // settled-failed key, which returns the same failure forever.
           const retryPlan = imagePoolFleetBusyRetryPlan(e, attemptNum)
             || (releasedZeroSettlementRetry
-              ? { waitMs: imageRouteRetryDelayMs(attemptNum - 1), reason: 'The failed image was fully refunded', maxAttempts: attemptNum + 1 }
+              ? { waitMs: imageRouteRetryDelayMs(attemptNum - 1), reason: 'The failed image was fully refunded', maxAttempts: (currentMaxRetries ?? 3) + 1 }
               : null)
           if (retryPlan && failedTaskId && !jq.isCancelled(job.job_id) && !jq.isPauseRequested(job.job_id)) {
+            const ordinal = currentDecisionOrdinal ?? (attemptNum + 1)
+            const maxOrd = currentMaxRetries ?? retryPlan.maxAttempts
             job.output_lines.push(isFreeMacPlan(retryPlan) ? freeMacWaitLine(`item ${item.index + 1}`, e, retryPlan.waitMs) :
               `item ${item.index + 1}: ${retryPlan.reason.toLowerCase()} — nothing was charged, ` +
               'the credits came back whole. ' +
               `Waiting ${Math.round(retryPlan.waitMs / 1000)}s and asking again ` +
-              `(attempt ${attemptNum + 1}${releasedZeroSettlementRetry ? '' : ` of ${retryPlan.maxAttempts}`}).`,
+              `(retry attempt ${ordinal}${currentMaxRetries ? ` of ${maxOrd}` : ''}).`,
             )
             await waitForFleetCapacity(retryPlan.waitMs)
             // Re-read after the wait. Minutes passed, and a Cancel or a Pause

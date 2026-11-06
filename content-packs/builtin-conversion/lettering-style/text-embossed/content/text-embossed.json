@@ -1,0 +1,12 @@
+{
+ "kind": "lettering-style",
+ "schema_version": 1,
+ "id": "com.storystudio.lettering.text-embossed",
+ "name": "Embossed",
+ "description": "embossed metallic 3D bevel, subtle gold highlights",
+ "axis": "text",
+ "phrase": "embossed metallic 3D bevel, subtle gold highlights",
+ "preview_assets": [
+  "assets/text-embossed.webp"
+ ]
+}

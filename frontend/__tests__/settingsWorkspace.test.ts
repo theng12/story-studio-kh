@@ -22,11 +22,14 @@ const thisMacSettingsSource = readFileSync(
   'utf8',
 )
 
+const filesSource = readFileSync(new URL('../components/AppFilesSettings.vue', import.meta.url), 'utf8')
+const notificationsSource = readFileSync(new URL('../components/AppNotificationSettings.vue', import.meta.url), 'utf8')
+
 describe('Settings workspace navigation', () => {
   test('primary Settings groups use the shared modern panel shell', () => {
     // v1.4.249 — one block per section, no shared multi-section cards.
     const templateSource = settingsSource.slice(0, settingsSource.indexOf('<script setup'))
-    for (const id of ['connections', 'performance', 'appearance', 'maintenance', 'backup', 'identity', 'production', 'writing', 'publishing', 'files']) {
+    for (const id of ['identity', 'production', 'writing', 'publishing', 'files', 'safety']) {
       assert.equal(templateSource.match(new RegExp(`v-if="activeTab === '${id}'"`, 'g'))?.length, 1, `${id} renders from exactly one block`)
     }
     assert.doesNotMatch(templateSource, /\.includes\(activeTab\)/, 'no card is shared between sections')
@@ -34,23 +37,19 @@ describe('Settings workspace navigation', () => {
   })
 
   test('uses ten searchable destinations with exact links and explicit scopes', () => {
-    for (const id of ['connections', 'performance', 'appearance', 'maintenance', 'backup', 'identity', 'production', 'writing', 'publishing', 'files']) {
+    for (const id of ['identity', 'production', 'writing', 'publishing', 'files', 'safety']) {
       assert.match(settingsIndexSource, new RegExp(`id: '${id}'`), `${id} is addressable`)
     }
     assert.match(settingsSource, /<SettingsSectionNav v-model="activeTab" :zones="tabZones" @go="goToSetting" \/>/)
-    assert.match(settingsSource, /const tabZones = SETTINGS_ZONES/)
-    assert.match(settingsSource, /scope="connections"/)
+    assert.match(settingsSource, /const tabZones = SETTINGS_ZONES\.filter\(zone => zone\.id === 'project'\)/)
     assert.match(settingsSource, /scope="assignment"/)
-    assert.match(settingsSource, /section="performance"/)
-    assert.match(settingsSource, /section="appearance"/)
+    assert.doesNotMatch(settingsSource, /<ThisMacSettings|<DefaultModelsSettings|<BackupPanel|<AppNotificationSettings|<AppFilesSettings/)
   })
 
   test('maps every retired Settings hash to its replacement destination', () => {
-    const validSections = ['connections', 'performance', 'appearance', 'maintenance', 'backup', 'identity', 'production', 'writing', 'publishing', 'files']
+    const validSections = ['identity', 'production', 'writing', 'publishing', 'files', 'safety']
     const targetIds = settingsAnchorTargetIds(validSections)
     for (const [oldHash, destination] of [
-      ['app', 'connections'], ['models', 'connections'], ['youtube', 'connections'],
-      ['ffmpeg', 'maintenance'], ['notifications', 'appearance'], ['about', 'maintenance'],
       ['channel', 'identity'], ['format', 'production'], ['niche', 'identity'],
       ['styles', 'writing'], ['standards', 'writing'], ['folders', 'files'],
       ['storage', 'files'], ['confirmations', 'files'], ['project', 'files'],
@@ -221,10 +220,8 @@ describe('Settings workspace navigation', () => {
   })
 
   test('Gateway catalogs are account-scoped under App & Connections', () => {
-    assert.match(
-      settingsSource,
-      /activeTab === 'connections'[\s\S]*?<ThisMacSettings section="connections" embedded \/>[\s\S]*?<GenStudioCatalogSettings \/>/,
-    )
+    assert.match(thisMacSettingsSource, /section === 'connections'[\s\S]*?<GenStudioCatalogSettings \/>/)
+    assert.doesNotMatch(settingsSource, /<GenStudioCatalogSettings/)
     assert.doesNotMatch(settingsSource, /activeTab === 'models'/)
     assert.doesNotMatch(settingsSource, /id: 'models'/)
     assert.equal(LEGACY_SETTINGS_HASHES.models, 'connections')
@@ -233,7 +230,7 @@ describe('Settings workspace navigation', () => {
     assert.match(thisMacSettingsSource, /<h4>Gateway<\/h4>/)
     assert.match(thisMacSettingsSource, /Your GatewayKH on this Mac or network — it runs your free local models/)
     assert.match(thisMacSettingsSource, /Copy it from Gateway → Settings → Gateway API Key/)
-    assert.match(thisMacSettingsSource, /connections: 'Gateway connection'/)
+    assert.match(thisMacSettingsSource, /connections: 'Connections'/)
     assert.match(thisMacSettingsSource, /Studio Library: \{\{/)
     assert.doesNotMatch(thisMacSettingsSource, /<code>content:purchase<\/code>|Required scopes|GenStudio API key<\/label>/)
     assert.doesNotMatch(thisMacSettingsSource, /Sole AI boundary|Test scopes/)
@@ -244,7 +241,7 @@ describe('Settings workspace navigation', () => {
   test('Files: one "Where your files are" card with folder pickers; no storage map, no iCloud', () => {
     // v1.4.249 — "this library and your storage map thing is so confusing. and
     // i no longer use any icloud features."
-    const templateSource = settingsSource.slice(0, settingsSource.indexOf('<script setup')).replace(/<!--[\s\S]*?-->/g, '')
+    const templateSource = filesSource.slice(0, filesSource.indexOf('<script setup')).replace(/<!--[\s\S]*?-->/g, '')
     assert.match(templateSource, /Where your files are/)
     assert.match(templateSource, /<FolderField[\s\S]{0,120}label="Library folder"/)
     assert.match(templateSource, /<FolderField[\s\S]{0,120}label="Finished videos folder"/)
@@ -253,21 +250,21 @@ describe('Settings workspace navigation', () => {
     assert.doesNotMatch(templateSource, /storage map|overview-card|Cross-machine and cloud-folder notes/i)
     assert.doesNotMatch(templateSource, /iCloud|cloud sync|cloud-folder/i)
     assert.doesNotMatch(templateSource, /This is not\s+a setting/)
-    assert.match(settingsSource, /'\/library\/exports'/)
+    assert.match(filesSource, /'\/library\/exports'/)
     assert.match(settingsSource, /Small files that let an unfinished script carry on where it stopped/)
     assert.doesNotMatch(settingsSource, /Legacy video assembly presets/)
     assert.doesNotMatch(settingsSource, /legacy-video-assembly-presets/)
   })
 
   test('Notifications stages changes and guides setup through modern channel controls', () => {
-    assert.match(settingsSource, /<h3>Notifications<\/h3>/)
-    assert.match(settingsSource, /notification-status-grid/)
-    assert.match(settingsSource, /Set up Telegram/)
-    assert.match(settingsSource, /:type="showTelegramToken \? 'text' : 'password'"/)
-    assert.match(settingsSource, /Daily production brief/)
-    assert.match(settingsSource, /notificationsDirty/)
-    assert.match(settingsSource, /Save Notifications/)
-    assert.doesNotMatch(settingsSource, /@change="saveNotifSettings"/)
-    assert.doesNotMatch(settingsSource, /Saved automatically/)
+    assert.match(notificationsSource, /<h3>Notifications<\/h3>/)
+    assert.match(notificationsSource, /notification-status-grid/)
+    assert.match(notificationsSource, /Set up Telegram/)
+    assert.match(notificationsSource, /:type="showTelegramToken \? 'text' : 'password'"/)
+    assert.match(notificationsSource, /Daily production brief/)
+    assert.match(notificationsSource, /notificationsDirty/)
+    assert.match(notificationsSource, /Save Notifications/)
+    assert.doesNotMatch(notificationsSource, /@change="saveNotifSettings"/)
+    assert.doesNotMatch(notificationsSource, /Saved automatically/)
   })
 })

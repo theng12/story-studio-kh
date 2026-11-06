@@ -512,6 +512,15 @@ export interface ThumbnailScoringRun {
   summary: string
   /** True when nothing could be scored — the reason is on the record. */
   notScored: boolean
+  /**
+   * True only when EVERY candidate this run was explicitly set aside by a
+   * local rule. A candidate that was merely not measured (no model, a
+   * provider failure), a missing one, an unknown one or a real score of 0
+   * never makes this true — "all bad" is a fact about rejections only, and an
+   * empty candidate list is never all-bad (§6). For a later regeneration
+   * decision; this run does not act on it.
+   */
+  allBad: boolean
 }
 
 /**
@@ -549,9 +558,10 @@ export async function runThumbnailScoring(input: {
       pick: '',
       // Today's newest-version rule still resolves the upload — the switch
       // turns SCORING off, not the uploader's own rule.
-      resolved: sortByNewestVersion(input.candidates.map(candidate => candidate.filename))[0] || '',
+      resolved: chooseThumbnailPick({ pinned: input.pinned, scored: [], all: input.candidates.map(candidate => candidate.filename) })?.filename || '',
       summary: 'Automatic thumbnail picking is off for this channel, so nothing was scored.',
       notScored: true,
+      allBad: false,
     }
   }
   const record = await readThumbnailScoreRecord(episodeDir, input.episodeCode)
@@ -571,6 +581,10 @@ export async function runThumbnailScoring(input: {
   // Stage 1: the local rules.
   const survivors: Array<{ filename: string; path: string }> = []
   for (const candidate of input.candidates) {
+    if (!await fs.stat(candidate.path).then(stat => stat.isFile()).catch(() => false)) {
+      candidates.push(notScored(candidate.filename, 'The image file is missing or unavailable; it was not measured.'))
+      continue
+    }
     const rules = await applyThumbnailRules(candidate.path).catch(() => ({
       rejected: 'unreadable' as const,
       reason: 'the file could not be read as an image',
@@ -630,15 +644,36 @@ export async function runThumbnailScoring(input: {
       input.candidates.find(item => item.filename === candidate.filename)?.path || '',
     ).catch(() => '')
     if (hash) candidate.entry.sha256 = hash
+    // An unmeasured candidate never replaces a measurement of the SAME bytes:
+    // a run that could not score learns nothing about a file it already
+    // scored, and dropping the old score would silently un-pick it (§6).
+    const kept = nextCandidates[candidate.filename]
+    if (candidate.entry.state === 'not_scored'
+      && kept?.state === 'scored'
+      && kept.sha256 && kept.sha256 === candidate.entry.sha256) continue
     nextCandidates[candidate.filename] = candidate.entry
   }
 
   const scored = candidates.filter(candidate => candidate.entry.state === 'scored')
-  const pick = chooseThumbnailPick({
+  let pick = chooseThumbnailPick({
     pinned: input.pinned,
     scored,
     all: input.candidates.map(candidate => candidate.filename),
   })
+
+  // Incomplete scoring cannot displace a hash-bound pick; a pin still wins.
+  let keptReason: string | null = null
+  const priorPick = record.pick
+  const keptEntry = priorPick?.basis === 'score' ? nextCandidates[priorPick.filename] : undefined
+  if (pick?.basis !== 'manual_pin'
+    && candidates.some(candidate => candidate.entry.state === 'not_scored')
+    && priorPick?.basis === 'score'
+    && keptEntry?.state === 'scored'
+    && keptEntry.sha256
+    && record.candidates?.[priorPick.filename]?.sha256 === keptEntry.sha256) {
+    pick = { filename: priorPick.filename, basis: 'score' }
+    keptReason = `Scoring is incomplete (${candidates.find(c => c.entry.state === 'not_scored')?.entry.reason || 'a picture could not be measured'}), so the previous scored pick is kept.`
+  }
 
   const nextRecord: ThumbnailScoreRecord = {
     schema: THUMBNAIL_SCORE_SCHEMA,
@@ -663,11 +698,12 @@ export async function runThumbnailScoring(input: {
       // The reason says what ACTUALLY chose it. A pinned pick never borrows
       // the score's reason, because that would read as "the score chose
       // this" when the owner overruled it.
-      reason: pick.basis === 'score'
-        ? (chosen?.reason || 'The highest-scoring thumbnail.')
-        : pick.basis === 'manual_pin'
-          ? 'The owner pinned this thumbnail.'
-          : 'No picture could be scored, so the newest version was used.',
+      reason: keptReason
+        || (pick.basis === 'score'
+          ? (chosen?.reason || 'The highest-scoring thumbnail.')
+          : pick.basis === 'manual_pin'
+            ? 'The owner pinned this thumbnail.'
+            : 'No picture could be scored, so the newest version was used.'),
       at: now,
       basis: pick.basis,
     }
@@ -677,8 +713,9 @@ export async function runThumbnailScoring(input: {
   const nothingScored = !scored.length
   const summary = nothingScored
     ? `Thumbnails were not scored: ${candidates.find(c => c.entry.reason)?.entry.reason || 'no candidate could be measured.'}`
+      + (keptReason && nextRecord.pick ? ` Kept the previous pick, ${nextRecord.pick.filename}.` : '')
     : `Scored ${scored.length} thumbnail candidate(s); ${nextRecord.pick?.filename || 'none'} was picked`
-      + ` (${nextRecord.pick?.basis === 'score' ? 'highest score' : nextRecord.pick?.basis === 'manual_pin' ? 'owner’s pin' : 'newest version'}).`
+      + ` (${keptReason ? 'previous pick kept because scoring is incomplete' : nextRecord.pick?.basis === 'score' ? 'highest score' : nextRecord.pick?.basis === 'manual_pin' ? 'owner’s pin' : 'newest version'}).`
 
   // SCORING chose a file only when a score did. A pin is the owner's own
   // choice (not scoring's), and the newest-version fallback is today's rule
@@ -693,6 +730,7 @@ export async function runThumbnailScoring(input: {
     resolved: nextRecord.pick?.filename || '',
     summary,
     notScored: nothingScored,
+    allBad: candidates.length > 0 && candidates.every(candidate => candidate.entry.state === 'rejected_by_rule'),
   }
 }
 

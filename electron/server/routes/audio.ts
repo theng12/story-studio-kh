@@ -889,8 +889,6 @@ router.get('/projects/:slug/episodes/:code/audio-sections', async (req, res) => 
             action_id: action.action_id, source_fingerprint: action.source_fingerprint,
             sections: action.sections, state: active.state, model_id: active.model_id,
             verification: {
-              ...(active.credit_ceiling !== undefined ? { credit_ceiling: active.credit_ceiling } : {}),
-              ...(active.committed_credits !== undefined ? { committed_credits: active.committed_credits } : {}),
               quotes: Object.fromEntries(action.sections.flatMap(section => active.quotes[section]
                 ? [[section, active.quotes[section]]] : [])),
             },
@@ -917,12 +915,7 @@ router.get('/projects/:slug/episodes/:code/audio-sections', async (req, res) => 
             sections: action.sections,
             state: action.state,
             ...(action.candidate ? { candidate: { model_id: action.candidate.model_id, voice_id: action.candidate.voice_id } } : {}),
-            ...(action.verification_credit_ceiling !== undefined ? { verification: {
-              credit_ceiling: action.verification_credit_ceiling,
-              // model-drift-allow: local verification ledger begins at zero before a provider confirmation.
-              committed_credits: action.verification_committed_credits || 0,
-              ...(action.verification_quote ? action.verification_quote : {}),
-            } } : {}),
+            ...(action.verification_quote ? { verification: action.verification_quote } : {}),
             ...(action.refresh_needed ? { refresh_needed: action.refresh_needed } : {}),
           })
         }
@@ -1125,10 +1118,6 @@ router.post('/projects/:slug/episodes/:code/audio-quality/confirm', async (req, 
     if (req.body?.confirm_repair !== true) {
       return res.status(400).json({ detail: 'Confirm this selected quality repair before candidate audio can be generated.' })
     }
-    const ceiling = req.body?.verification_credit_ceiling
-    if (!Number.isSafeInteger(ceiling) || ceiling < 1) {
-      return res.status(400).json({ detail: 'Choose a positive whole-credit verification allowance for this repair.' })
-    }
     const candidate = req.body?.candidate_audio && typeof req.body.candidate_audio === 'object'
       ? req.body.candidate_audio as Record<string, unknown> : null
     const model = typeof candidate?.model === 'string' ? candidate.model.trim() : ''
@@ -1187,14 +1176,13 @@ router.post('/projects/:slug/episodes/:code/audio-quality/confirm', async (req, 
       if (typeof req.body?.source_fingerprint === 'string' && req.body.source_fingerprint !== action.source_fingerprint) {
         return res.status(409).json({ detail: 'This confirmation does not match the inspected source. Check the selected chapters again.' })
       }
+      // A held candidate is resumed by confirming the same model and voice again.
+      // There is no allowance left to raise: the Gateway owns every charge.
       const resumingHeldCandidate = action.state === 'needs_approval'
         && !!action.candidate
         && action.candidate.model_id === model
         && action.candidate.voice_id === voice
-        && typeof action.verification_credit_ceiling === 'number'
-        && ceiling > action.verification_credit_ceiling
-      if (action.candidate && !resumingHeldCandidate && (action.candidate.model_id !== model || action.candidate.voice_id !== voice
-        || action.verification_credit_ceiling !== ceiling)) {
+      if (action.candidate && !resumingHeldCandidate && (action.candidate.model_id !== model || action.candidate.voice_id !== voice)) {
         return res.status(409).json({ detail: 'This operation_id already belongs to a different candidate repair.' })
       }
       const candidateSpeed = resumingHeldCandidate && action.candidate?.speed !== undefined
@@ -1229,7 +1217,7 @@ router.post('/projects/:slug/episodes/:code/audio-quality/confirm', async (req, 
         controls: candidateControls,
         ...(candidateDelivery ? { delivery_instruction: candidateDelivery } : {}),
         force: true, no_overwrite: false,
-        quality_repair: { action_id: operationId!, source_fingerprint: action.source_fingerprint, verification_credit_ceiling: ceiling },
+        quality_repair: { action_id: operationId!, source_fingerprint: action.source_fingerprint },
       }, operationId!)
       const prior = (await jq.findJobs(slug, freshActionMatch(operationId!)))[0]
       if (prior) {
@@ -1245,8 +1233,6 @@ router.post('/projects/:slug/episodes/:code/audio-quality/confirm', async (req, 
         }
         currentAction.state = 'confirmed'
         currentAction.confirmed_at ||= new Date().toISOString()
-        currentAction.verification_credit_ceiling = ceiling
-        currentAction.verification_committed_credits ||= 0
         currentAction.verification_model_id ||= alternateModel
         currentAction.candidate = {
           model_id: model, voice_id: voice, speed: candidateSpeed,
@@ -1327,8 +1313,6 @@ router.post('/projects/:slug/episodes/:code/audio-quality/active-check/quote', a
           return res.json({ action_id: operationId, source_fingerprint: scope.source_fingerprint, model_id: alternateModel,
             sections: scope.sections.map(section => ({ slug: section, window: { kind: 'whole_chapter', fallback: true }, quote: priorQuotes[section] })),
             ...(total ? { total_quoted_credits: total } : {}), state: priorAction.active_check.state,
-            ...(priorAction.active_check.credit_ceiling !== undefined ? { verification_credit_ceiling: priorAction.active_check.credit_ceiling } : {}),
-            ...(priorAction.active_check.committed_credits !== undefined ? { verification_committed_credits: priorAction.active_check.committed_credits } : {}),
           })
         }
       }
@@ -1390,7 +1374,7 @@ router.post('/projects/:slug/episodes/:code/audio-quality/active-check/quote', a
   }
 })
 
-/** Confirm an already quoted active-audio ASR check within its stated ceiling. */
+/** Confirm an already quoted active-audio ASR check. */
 router.post('/projects/:slug/episodes/:code/audio-quality/active-check/confirm', async (req, res) => {
   try {
     const { slug, code } = req.params
@@ -1398,8 +1382,6 @@ router.post('/projects/:slug/episodes/:code/audio-quality/active-check/confirm',
     let operationId: string | null
     try { operationId = readOperationId(req.body, true) }
     catch (error) { return res.status(400).json({ detail: error instanceof Error ? error.message : 'Invalid operation_id.' }) }
-    const ceiling = req.body?.verification_credit_ceiling
-    if (!Number.isSafeInteger(ceiling) || ceiling < 1) return res.status(400).json({ detail: 'Choose a positive whole-credit verification allowance.' })
     if (typeof req.body?.source_fingerprint !== 'string' || !req.body.source_fingerprint) {
       return res.status(400).json({ detail: 'Confirm the exact quoted active-audio source.' })
     }
@@ -1418,11 +1400,10 @@ router.post('/projects/:slug/episodes/:code/audio-quality/active-check/confirm',
       }
       const params = stampFreshGenerationAction({ episode_id: code.toUpperCase(), model: active.model_id, sections: action.sections.join(','), speed: 1,
         force: false, no_overwrite: true,
-        quality_check: { action_id: operationId!, source_fingerprint: action.source_fingerprint, verification_credit_ceiling: ceiling },
+        quality_check: { action_id: operationId!, source_fingerprint: action.source_fingerprint },
       }, operationId!)
       const prior = (await jq.findJobs(slug, freshActionMatch(operationId!)))[0]
       const resumingHeldCheck = active.state === 'needs_approval'
-        && typeof active.credit_ceiling === 'number' && ceiling > active.credit_ceiling
       if (prior && !resumingHeldCheck) {
         if (prior.params.generation_action_fingerprint !== params.generation_action_fingerprint) return res.status(409).json({ detail: 'This operation_id belongs to a different active-audio check.' })
         return res.status(200).json({ ...prior, reused: true })
@@ -1433,8 +1414,6 @@ router.post('/projects/:slug/episodes/:code/audio-quality/active-check/confirm',
       await updateAudioQualityProvenance(paths.episode_dir, current => {
         const pending = current.actions?.[operationId!]?.active_check
         if (!pending || pending.state === 'no_issue_detected' || pending.state === 'review_needed') throw new Error('This active-audio check is no longer actionable.')
-        pending.credit_ceiling = ceiling
-        pending.committed_credits ||= 0
         pending.state = 'checking'
       })
       try {

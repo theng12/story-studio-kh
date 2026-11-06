@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
-  CREDIT_HOLD_MAX_MS,
   GenStudioAdmissionPool,
   type GenStudioAccountCapacity,
 } from '../lib/genstudio-admission.js'
@@ -9,7 +8,6 @@ import {
 const capacity = (
   overrides: Partial<GenStudioAccountCapacity> = {},
 ): GenStudioAccountCapacity => ({
-  credit_balance: 250,
   paid_concurrency_limit: 3,
   paid_active_jobs: 0,
   paid_queued_jobs: 0,
@@ -18,112 +16,12 @@ const capacity = (
   ...overrides,
 })
 
-test('insufficient credits reject same-key waiters without touching another key', async () => {
-  const pool = new GenStudioAdmissionPool(async apiKey => capacity({
-    credit_balance: apiKey === 'low-key' ? 76 : 20_000,
-    paid_concurrency_limit: 1,
-  }))
-  const activeGate = deferred()
-  const active = pool.run('low-key', undefined, async () => activeGate.promise)
-  let sameKeySubmitted = false
-  let fullKeySubmitted = false
-  const sameKey = pool.run('low-key', undefined, async () => { sameKeySubmitted = true })
-  const fullKey = pool.run('full-key', undefined, async () => { fullKeySubmitted = true })
-
-  await new Promise(resolve => setImmediate(resolve))
-  pool.noteInsufficientCredits('low-key', new Error('insufficient credits'))
-
-  await assert.rejects(sameKey, /insufficient credits/)
-  assert.equal(sameKeySubmitted, false)
-  assert.equal(fullKeySubmitted, true, 'an unrelated key keeps its own admission capacity')
-
-  activeGate.resolve()
-  await active
-  await fullKey
-  assert.equal(fullKeySubmitted, true)
-})
-
-test('a credit hold expires, so a constant-zero balance cannot disable a key forever', async (t) => {
-  // Break caught: a hold was released ONLY when the balance was strictly GREATER
-  // than when it was taken. That is the right test for a real account, but an
-  // endpoint reporting a permanent 0 can never satisfy it — so a single 402 would
-  // hold that API key for the life of the process and re-throw a stale error on
-  // every later request. gateway-kh never returns 402, so this is dormant today;
-  // it is what stops the next charging endpoint from bricking a key.
-  t.mock.timers.enable({ apis: ['Date'] })
-  try {
-    const pool = new GenStudioAdmissionPool(async () => capacity({ credit_balance: 0 }))
-    pool.noteInsufficientCredits('zero-key', new Error('insufficient credits'))
-
-    let suppressed = false
-    await assert.rejects(
-      pool.run('zero-key', undefined, async () => { suppressed = true }),
-      /insufficient credits/,
-    )
-    assert.equal(suppressed, false, 'the hold suppresses submission while it stands')
-
-    t.mock.timers.tick(CREDIT_HOLD_MAX_MS)
-
-    let afterExpiry = false
-    await pool.run('zero-key', undefined, async () => { afterExpiry = true })
-    assert.equal(afterExpiry, true, 'an expired hold no longer suppresses the request')
-  } finally {
-    t.mock.timers.reset()
-  }
-})
-
-test('a 402 cannot race another queued same-key request into dispatch', async () => {
-  const entered: Array<() => void> = []
-  const pool = new GenStudioAdmissionPool(async () => ({
-    credit_balance: 76,
-    paid_concurrency_limit: 1,
-    paid_active_jobs: 0,
-    paid_queued_jobs: 0,
-    max_queued_jobs: 100,
-    generation_submissions_per_minute: 120,
-  }))
-  let submissions = 0
-  const run = () => pool.run('low-key', undefined, async () => {
-    submissions++
-    await new Promise<void>(resolve => entered.push(resolve))
-  })
-  const first = run()
-  const second = run()
-  const third = run()
-  await new Promise(resolve => setImmediate(resolve))
-  pool.noteInsufficientCredits('low-key', new Error('insufficient credits'))
-  for (const resolve of entered) resolve()
-  await Promise.allSettled([first, second, third])
-
-  assert.equal(submissions, 1, 'only the already-dispatched request may settle')
-  await assert.rejects(run(), /insufficient credits/)
-  assert.equal(submissions, entered.length, 'no held request may enter work')
-})
-
-test('held key stays blocked until an authoritative balance increase', async () => {
-  let balance = 76
-  let reads = 0
-  const pool = new GenStudioAdmissionPool(async () => {
-    reads += 1
-    return capacity({ credit_balance: balance })
-  }, 60_000, 10)
-  await pool.refreshNow('same-key')
-  pool.noteInsufficientCredits('same-key', new Error('add credits, then Retry'))
-
-  let unchangedSubmitted = false
-  await assert.rejects(
-    pool.run('same-key', undefined, async () => { unchangedSubmitted = true }),
-    /add credits, then Retry/,
-  )
-  assert.equal(unchangedSubmitted, false)
-
-  balance = 2_000
-  let replenishedSubmitted = false
-  await pool.run('same-key', undefined, async () => { replenishedSubmitted = true })
-
-  assert.equal(replenishedSubmitted, true)
-  assert.ok(reads >= 3, 'held admission performs a fresh authoritative balance read')
-})
+// The four credit-hold tests that used to live here (same-key 402 rejection,
+// the expiring hold, the 402/dispatch race, and "blocked until a balance
+// increase") are gone with the credit hold itself. Story no longer waits on a
+// balance: a Gateway 402 is a terminal refusal carrying Gateway's reason, and
+// the admission pool never holds a job for credits. See
+// __tests__/genstudio-402-refusal.test.ts.
 
 const deferred = () => {
   let resolve!: () => void

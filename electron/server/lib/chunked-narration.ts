@@ -52,7 +52,7 @@ import { assertPipelineModelRequestCapabilities, callAi, callAiWithRetry, execut
 import { boundOutputTokensToContext, nonAsciiCharacterCount } from '../services/output-token-budget.js'
 import { pipelinePolicyInputFingerprint, type AssignedPipelineModelPolicy, type PipelinePolicyCheckpointStore } from './pipeline-model-policy.js'
 import { freshGenerationRequestIdentity } from './fresh-generation-action.js'
-import { GenStudioChatIncompleteError, isGenStudioInsufficientCredits, listChatModels } from './genstudio-client.js'
+import { GenStudioChatIncompleteError, isGenStudioPaymentRefusal, listChatModels } from './genstudio-client.js'
 import { stripGenStudioModelPrefix } from '../services/genstudio-model-migration.js'
 import { outlineOutputContract } from './story-output-contracts.js'
 import { getOutlineHeadroom } from '../services/app-settings.js'
@@ -210,11 +210,13 @@ const TYPICAL_PROMPT_TOKENS = 2000
  * is measured with the same "characters ÷ 4" approximation every other
  * prompt-size readout in the app uses; that is an estimate of OUR input, not a
  * words→tokens conversion of the answer, so it cannot under-request output the
- * way the old ratio did.
+ * way the old ratio did. The Gateway's published request ceiling
+ * (`max_request_tokens`) refuses a prompt that is too large for admission; it
+ * never lowers the answer, and an unpublished one enforces nothing.
  *
- * Throws when the published window cannot hold the prompt at all. Sending a
- * one-token ceiling and letting the provider cut the answer off is precisely
- * the silent zero this replaced.
+ * Throws when the published request ceiling or window cannot hold the prompt at
+ * all. Sending a one-token ceiling and letting the provider cut the answer off
+ * is precisely the silent zero this replaced.
  */
 export function expansionOutputTokenCap(
   budget: ChunkingBudget,
@@ -223,12 +225,22 @@ export function expansionOutputTokenCap(
 ): number | null {
   // The SAME bound every writing request now uses
   // (`boundOutputTokensToContext`): the published output ceiling, capped by the
-  // product's published context window minus this prompt. Only the wording of a
-  // refusal is local; the numbers are computed in one place.
+  // product's published context window minus this prompt, and refused when the
+  // prompt alone exceeds the Gateway's published request ceiling. Only the
+  // wording of a refusal is local; the numbers are computed in one place.
   const bounded = boundOutputTokensToContext(
     chunkingOutputBudget(budget.outputTokenCap), budget.contextWindowTokens, promptCharacters, promptNonAsciiCharacters,
+    budget.maxRequestTokens,
   )
   if (bounded.overflow) {
+    if (bounded.overflowLimit === 'request') {
+      throw new Error(
+        `This chapter request's instructions are about ${bounded.promptTokens.toLocaleString()} tokens, and `
+        + `${budget.productName || 'the selected writing model'} publishes a `
+        + `${(bounded.requestLimit as number).toLocaleString()}-token request limit, so the Gateway would refuse it. `
+        + 'Shorten the outline or pick a model with a larger request limit. Nothing was requested.',
+      )
+    }
     throw new Error(
       `This chapter request's instructions are about ${bounded.promptTokens.toLocaleString()} tokens, which leaves no room `
       + `inside ${budget.productName || 'the selected writing model'}'s published ${(bounded.contextWindowTokens as number).toLocaleString()}-token `
@@ -236,6 +248,11 @@ export function expansionOutputTokenCap(
     )
   }
   return bounded.maxTokens
+}
+
+// This estimates requested work only; it never reduces the published output allowance.
+export function expansionExpectedOutputTokens(batch: readonly OutlineEntry[], wordsPerChapter: number): number {
+  return Math.ceil(batch.reduce((words, entry) => words + effectiveWordTarget(entry, { wordsPerChapter }), 0) * OUTPUT_TOKENS_PER_WORD)
 }
 
 /**
@@ -246,8 +263,8 @@ export function expansionOutputTokenCap(
  * Expressed as `maximum` (not `workload`) on purpose: `workload`'s
  * `minimumTokens` is also what Studio Hub sizes a job's deadline from, so
  * putting the whole ceiling there would make every chapter batch a
- * four-hour job. `maximum` states "what may be sent" and lets the Hub size the
- * deadline from the fleet's measured answers instead.
+ * four-hour job. `maximum` states "what may be sent"; the separate expected-output
+ * hint describes the chapter targets, never this ceiling.
  */
 export function expansionRequestOutputBudget(
   budget: ChunkingBudget,
@@ -501,6 +518,9 @@ export interface ChunkingBudget {
    *  published. Together with `outputTokenCap` it is the only thing that may
    *  bound one expansion request (see `expansionOutputTokenCap`). */
   contextWindowTokens: number | null
+  /** The product's published `max_request_tokens` — the Gateway's input-side
+   *  admission line. `null` = nothing published, and nothing is refused for it. */
+  maxRequestTokens: number | null
   /** Words this product can produce in one call, per the same estimate.
    *  `null` whenever `outputTokenCap` is. */
   thresholdWords: number | null
@@ -515,6 +535,7 @@ function unresolvedChunkingBudget(): ChunkingBudget {
   return {
     outputTokenCap: null,
     contextWindowTokens: null,
+    maxRequestTokens: null,
     thresholdWords: null,
     productId: null,
     productName: null,
@@ -538,6 +559,7 @@ export async function resolveChunkingBudget(model: string): Promise<ChunkingBudg
     return {
       outputTokenCap: chunkingOutputBudget(product.max_output_tokens),
       contextWindowTokens: chunkingOutputBudget(product.context_window_tokens),
+      maxRequestTokens: chunkingOutputBudget(product.max_request_tokens),
       thresholdWords: chunkThresholdWords(product.max_output_tokens),
       productId: product.id,
       productName: product.display_name || product.id,
@@ -1850,6 +1872,7 @@ async function expandNarrativeSequential(
     const ctx = {
       slug: job.project_slug, jobId: job.job_id, signal: params.signal,
       ...requestOutput,
+      expectedOutputTokens: expansionExpectedOutputTokens(batch, params.wordsPerChapter),
       // Only queue-level manual Retry can stamp this server-owned scope after
       // a known terminal GenStudio chat job. Normal runs and paused/resumed
       // jobs leave it absent so lost-response recovery replays the same key.
@@ -1898,6 +1921,7 @@ async function expandNarrativeSequential(
       const recoveredRepairText = await withChosenModel(job, params, (model, recovery, checkpointAccepted, checkpointPrepared) => callAiWithRetry(
         model, params.systemPrompt, repairPrompt, params.apiKeys, true, {
           ...pipelineAttemptContext(ctx, recovery, checkpointAccepted, checkpointPrepared),
+          expectedOutputTokens: expansionExpectedOutputTokens(repairBatch, params.wordsPerChapter),
           recoverByIdempotencyKey: true,
           idempotencyKey: recovery?.idempotencyKey || job.genstudio_chat_recovery_key,
           allowedRecoveryKeys: recovery ? [recovery.idempotencyKey] : job.genstudio_chat_recovery_keys,
@@ -1995,6 +2019,7 @@ async function expandNarrativeSequential(
       // chapter that needed more (job 0857b744, 2026-10-25).
       const repairCtx = {
         ...ctx,
+        expectedOutputTokens: expansionExpectedOutputTokens(repairBatch, params.wordsPerChapter),
         ...expansionRequestOutputBudget(budget, expansionPromptCharacters(params.systemPrompt, repairPrompt), expansionPromptNonAsciiCharacters(params.systemPrompt, repairPrompt)),
       }
       const repairCheckpointKey = `${chapterCheckpointKey}:repair-${repairBatch.map(entry => entry.n).join('-')}`
@@ -2217,6 +2242,7 @@ async function expandListicleParallel(
         const ctx = {
           slug: job.project_slug, jobId: job.job_id, signal: params.signal,
           ...requestOutput,
+          expectedOutputTokens: expansionExpectedOutputTokens(batch, params.wordsPerChapter),
           // See narrative expansion above: this exists only for a deliberate
           // replacement after terminal GenStudio evidence, never for resume.
           requestIdentity: freshGenerationRequestIdentity(job, `chapters-${firstN}-${lastN}`) ?? (job.genstudio_chat_retry_scope
@@ -2287,7 +2313,7 @@ async function expandListicleParallel(
         // A normal finish that simply left a requested slot out.
         for (const entry of missing) unwritten.set(entry.n, 'the answer did not contain it')
       } catch (e: any) {
-        if (isGenStudioInsufficientCredits(e)) {
+        if (isGenStudioPaymentRefusal(e)) {
           creditFailure ||= e
           return
         }
@@ -2334,7 +2360,7 @@ async function expandListicleParallel(
  * override (v2 schema) wins over the global params target. Falls back to
  * 120 to keep the math safe for absurdly small inputs.
  */
-function effectiveWordTarget(entry: OutlineEntry, p: ChunkedNarrationParams): number {
+function effectiveWordTarget(entry: OutlineEntry, p: Pick<ChunkedNarrationParams, 'wordsPerChapter'>): number {
   const override = typeof entry.words_per_chapter === 'number' && entry.words_per_chapter > 0
     ? entry.words_per_chapter | 0
     : null

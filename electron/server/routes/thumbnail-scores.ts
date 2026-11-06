@@ -113,6 +113,7 @@ router.post('/projects/:slug/episodes/:code/thumbnail-scores', async (req, res) 
         resolved: '',
         summary: 'This episode has no thumbnail artwork to score.',
         not_scored: true,
+        all_bad: false,
       })
     }
     const pinned = await readSelectedThumbnail(slug, code, title, 'youtube').catch(() => null)
@@ -129,13 +130,12 @@ router.post('/projects/:slug/episodes/:code/thumbnail-scores', async (req, res) 
 
     res.json({
       record: run.record,
-      // `picked` is what SCORING chose — empty when nothing could be scored,
-      // so "no score" never reads as a pick. `resolved` is what the upload
-      // will take (a pin, the scored pick, or today's newest-version rule).
+      // Scoring may retain a hash-valid earlier pick when this run is incomplete.
       picked: run.pick,
       resolved: run.resolved,
       summary: run.summary,
       not_scored: run.notScored,
+      all_bad: run.allBad,
     })
   } catch (e: any) {
     // A crash here is still not a failed thumbnail step. The record stays as
@@ -146,6 +146,7 @@ router.post('/projects/:slug/episodes/:code/thumbnail-scores', async (req, res) 
       resolved: '',
       summary: `The thumbnails were not scored (${e?.message || 'unknown error'}).`,
       not_scored: true,
+      all_bad: false,
     })
   }
 })

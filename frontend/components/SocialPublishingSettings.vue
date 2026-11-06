@@ -118,7 +118,7 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
 
-const props = withDefaults(defineProps<{ slug: string; scope?: 'connections' | 'channel' }>(), {
+const props = withDefaults(defineProps<{ slug?: string; scope?: 'connections' | 'channel' }>(), {
   scope: 'connections',
 })
 defineEmits<{ (event: 'open-connections'): void }>()
@@ -203,6 +203,7 @@ async function load(): Promise<void> {
         drafts[provider.id].redirectUri = saved.redirect_uri
       }
     } else {
+      if (!props.slug) throw new Error('Choose a channel before changing where it posts.')
       const [settings, connections] = await Promise.all([
         get<{ platforms: AccountView['platform'][]; accounts: Array<{ platform: AccountView['platform']; account_id: string | null }> }>(
           `/projects/${props.slug}/social/settings`,

@@ -143,8 +143,10 @@ describe('the fleet-busy waits themselves end on pause', () => {
     const body = await read('services/subtitle-recovery.ts')
     assert.match(body, /const stopped = \(\) =>[\s\S]{0,180}?isPauseRequested\(job\.job_id\)/,
       'the shared subtitle stop predicate must include Pause')
-    assert.match(body, /await waitUnlessStopped\(delay, \(\) => !!stopped\(\)\)/,
-      'this was a bare setTimeout — up to five minutes with nothing watching')
+    assert.match(body, /for \(;;\) \{\s*if \(stopped\(\)\) throw/,
+      'every retry must recheck the owner stop before recovering or submitting')
+    assert.match(body, /beforePost: async \(\) => \{ if \(stopped\(\)\) throw/,
+      'Pause must also be checked at the actual submission boundary')
     assert.doesNotMatch(body, /await new Promise\(resolve => setTimeout\(resolve, delay\)\)/,
       'the un-interruptible sleep must be gone, not merely wrapped')
   })
@@ -185,7 +187,7 @@ describe('one refused clip no longer ends the episode', () => {
     for (const rethrow of [
       /if \(error instanceof jq\.JobPausedError \|\| jq\.isPauseRequested\(job\.job_id\)\) throw error/,
       /if \(jq\.isCancelled\(job\.job_id\)\) throw error/,
-      /if \(isGenStudioInsufficientCredits\(error\)\) throw error/,
+      /if \(isGenStudioPaymentRefusal\(error\)\) throw error/,
     ]) assert.match(batch, rethrow,
       'continuing past this would be wrong: the owner stopped it, or every later scene fails identically')
   })

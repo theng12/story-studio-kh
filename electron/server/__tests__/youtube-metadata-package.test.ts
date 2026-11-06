@@ -4,7 +4,7 @@ import path from 'node:path'
 import { afterEach, describe, test } from 'node:test'
 
 import { useTempDataDir } from './_helpers.js'
-import { buildYouTubeMetadataPackage, resolveYouTubeUploadSettings } from '../services/youtube-metadata-package.js'
+import { buildYouTubeMetadataPackage, metadataPackageFromFinalPayload, resolveYouTubeUploadSettings, uploadMetadataChecklist } from '../services/youtube-metadata-package.js'
 import { createProject } from '../services/project-manager.js'
 import { resolveEpisodePaths } from '../services/utils.js'
 
@@ -185,6 +185,49 @@ describe('youtube metadata package', () => {
     assert.deepEqual(JSON.parse(built.final_payload.snippet_json), built.snippet)
     assert.deepEqual(JSON.parse(built.final_payload.status_json), built.status)
     assert.equal(built.final_payload.source_sha256, built.source_sha256)
+  })
+
+  test('missing optional fields remain advisory and false disclosure is present', async () => {
+    const episode = await withEpisode({ tags: [] })
+    const built = await buildYouTubeMetadataPackage({
+      project_slug: episode.slug, episode_code: episode.episode_code,
+      privacy_status: 'private', mark_as_ai_generated: false,
+    })
+    const states = Object.fromEntries(built.checklist.map(item => [item.field, item.state]))
+    assert.deepEqual(states, {
+      title: 'present', description: 'present', tags: 'missing', thumbnail: 'missing',
+      schedule: 'missing', privacy: 'present', category: 'present', disclosure: 'present',
+    })
+    assert.equal(built.status.containsSyntheticMedia, false)
+    assert.deepEqual(JSON.parse(built.final_payload.snippet_json), built.snippet)
+    const frozen = metadataPackageFromFinalPayload(built.final_payload, 'EP0001')
+    assert.equal(frozen.checklist.find(item => item.field === 'thumbnail')?.state, 'not_checked')
+    assert.equal(frozen.package_revision, built.package_revision)
+  })
+
+  test('a frozen approval with a blank description refuses, naming the episode and asking for review again', () => {
+    const blankPayload = {
+      snippet_json: JSON.stringify({ title: 'A title', description: '  ', tags: [] }),
+      status_json: JSON.stringify({ privacyStatus: 'private', containsSyntheticMedia: false }),
+      source_sha256: 'x',
+    }
+    assert.throws(() => metadataPackageFromFinalPayload(blankPayload, 'EP0009'), (error: any) => {
+      assert.match(error.message, /EP0009 has a blank description/)
+      assert.match(error.message, /Review and confirm the exact video and YouTube details again/)
+      return true
+    })
+  })
+
+  test('checklist distinguishes supplied, missing and unchecked fields without mutation', () => {
+    const snippet = { title: ' ', description: '', tags: [' '], categoryId: '' }
+    const status = { privacyStatus: 'private' as const, publishAt: FUTURE, containsSyntheticMedia: true }
+    const before = JSON.stringify({ snippet, status })
+    const checklist = uploadMetadataChecklist(snippet, status, '/episode/thumbnail.webp')
+    assert.equal(checklist.find(item => item.field === 'title')?.state, 'missing')
+    assert.equal(checklist.find(item => item.field === 'tags')?.state, 'missing')
+    assert.equal(checklist.find(item => item.field === 'thumbnail')?.state, 'present')
+    assert.equal(checklist.find(item => item.field === 'schedule')?.state, 'present')
+    assert.equal(JSON.stringify({ snippet, status }), before)
   })
 
   test('a corrupt project config never falls back to app upload defaults', async () => {

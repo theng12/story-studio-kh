@@ -28,6 +28,7 @@ import { isCancelled } from '../services/job-queue.js'
 import { resolveEpisodePathsByCodeWithSidecar } from '../services/utils.js'
 import { resolveUploadMetadata } from '../lib/upload-metadata.js'
 import { setThumbnail } from '../lib/youtube-client.js'
+import { currentYouTubeThumbnail, previousYouTubeThumbnail, retainYouTubeThumbnail } from '../services/youtube-thumbnail-state.js'
 import {
   auditThumbnailCheckpointAtPath,
   checkpointThumbnailStateAtPath,
@@ -199,17 +200,23 @@ export async function generateThumbnailRefresh(job: Job): Promise<void> {
     const idea = (await im.getIdeas(slug, 'accepted'))
       .find(item => item.episode_code === record.episode_code)
     if (!idea) throw new Error(`Accepted idea not found for ${record.episode_code}.`)
-    const meta = await resolveUploadMetadata({
+    const previous = await previousYouTubeThumbnail(record)
+    const restoring = previous && params.thumbnail_filename === previous.filename
+    const thumbnailPath = restoring ? previous.path : (await resolveUploadMetadata({
       slug,
       episode_code: record.episode_code,
       fallback_title: idea.title || record.episode_code,
       platform: 'youtube',
       ...(params.thumbnail_filename ? { thumbnail_filename: params.thumbnail_filename } : {}),
-    })
-    if (!meta.thumbnailPath || !existsSync(meta.thumbnailPath)) {
+    })).thumbnailPath
+    if (!thumbnailPath || !existsSync(thumbnailPath)) {
       throw new Error(`No local thumbnail is available for ${record.episode_code}. Make or pin one first.`)
     }
 
+    job.progress = 15
+    job.output_lines.push('Reading and retaining the current YouTube thumbnail before replacement.')
+    const before = await currentYouTubeThumbnail(record, credential.accountId)
+    await retainYouTubeThumbnail(record, before.url)
     const startedAt = new Date().toISOString()
     const started = await updateYouTubeOperation({
       project_slug: slug,
@@ -231,9 +238,12 @@ export async function generateThumbnailRefresh(job: Job): Promise<void> {
         slug,
         accountId: credential.accountId,
         videoId: record.video_id,
-        filePath: meta.thumbnailPath,
+        filePath: thumbnailPath,
       })
       remoteAccepted = true
+      job.progress = 75
+      job.output_lines.push('YouTube accepted the thumbnail. Reading the live thumbnail back.')
+      await currentYouTubeThumbnail(record, credential.accountId)
       await updatePinnedYouTubeOperation({
         project_slug: slug,
         operation_id: record.operation_id,
@@ -251,7 +261,16 @@ export async function generateThumbnailRefresh(job: Job): Promise<void> {
       })
     } catch (error) {
       if (remoteAccepted) {
-        throw new Error('YouTube accepted the thumbnail, but Story Studio could not record the result. Check YouTube Studio before trying again.')
+        await updatePinnedYouTubeOperation({
+          project_slug: slug, operation_id: record.operation_id,
+          expected_revision: started.revision, expected_channel_id: record.channel_id,
+          mutate(current) {
+            current.actions.push({ action_id: `action_${randomUUID()}`, action: 'thumbnail_update',
+              classification: 'independent_post_accept', state: 'uncertain',
+              occurred_at: new Date().toISOString(), error_code: 'accepted_readback_or_record_unavailable' })
+          },
+        }).catch(() => {})
+        throw new Error('YouTube accepted the thumbnail, but its readback or saved result could not be verified. Check YouTube Studio before trying again.')
       }
       await updatePinnedYouTubeOperation({
         project_slug: slug,

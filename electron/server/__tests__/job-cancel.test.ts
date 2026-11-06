@@ -353,7 +353,7 @@ describe('remote cancellation checkpoints', () => {
     assert.deepEqual(claims.sort(), [false, true])
     assert.equal(jq.getJob(job.job_id)?.remote_cancellations?.['voice.tts:claim-target']?.status, 'submitting')
     await jq.reconcileRemoteCancellationFromProvider(job.job_id, 'voice.tts', 'claim-target', {
-      state: 'succeeded', released_credits: 0,
+      state: 'succeeded',
     })
     assert.equal(jq.getJob(job.job_id)?.remote_cancellations?.['voice.tts:claim-target']?.status, 'rejected')
     release()
@@ -380,6 +380,8 @@ describe('remote cancellation checkpoints', () => {
     await jq.reconcileRemoteCancellationFromProvider(job.job_id, 'voice.tts', 'settlement-target', {
       state: 'failed',
       dispatch_state: 'pre_dispatch',
+      // Gateway may still publish settlement alongside the outcome; Story's cancellation
+      // evidence no longer stores any of it.
       reserved_credits: 13,
       settled_credits: 0,
       released_credits: 13,
@@ -389,18 +391,25 @@ describe('remote cancellation checkpoints', () => {
     release()
     assert.deepEqual(
       {
+        status: evidence?.status,
         dispatch_state: evidence?.dispatch_state,
+        cancelled: evidence?.cancelled,
         reserved_credits: evidence?.reserved_credits,
         settled_credits: evidence?.settled_credits,
         released_credits: evidence?.released_credits,
       },
       {
+        status: 'confirmed',
         dispatch_state: 'pre_dispatch',
-        reserved_credits: 13,
-        settled_credits: 0,
-        released_credits: 13,
+        cancelled: true,
+        reserved_credits: undefined,
+        settled_credits: undefined,
+        released_credits: undefined,
       },
     )
+    for (const field of ['reserved_credits', 'settled_credits', 'released_credits'] as const) {
+      assert.equal(field in (evidence ?? {}), false, `${field} must be omitted, not stored as a figure`)
+    }
   })
 
   for (const scenario of [

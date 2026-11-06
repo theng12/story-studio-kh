@@ -169,28 +169,42 @@ describe('the rule itself', () => {
     assert.equal(isFleetBusyFailure(tts, 'tts'), true)
   })
 
-  test('money settled means stop, whatever the code says', () => {
+  test('legacy or missing settlement never decides — the code and the job state do', () => {
+    // Story no longer tracks credits: the error's credit fields are null, so
+    // whatever a legacy payload still carries in settled/released cannot gate
+    // the retry. Only the code, cancellation, modality and the
+    // unknown-outcome hold decide.
+    const code = 'SITE_PLACEMENT_EXHAUSTED'
+    const charged = new GenStudioTranscriptionTerminalFailureError(
+      job({ failure_code: code, settled_credits: 20, released_credits: 0 }))
+    assert.equal(isFleetBusyFailure(charged), true, 'a charged legacy payload does not decide')
+    assert.equal(charged.settledCredits, null, 'the error publishes no settlement to decide on')
+    for (const over of [
+      { failure_code: code, reserved_credits: undefined },
+      { failure_code: code, settled_credits: undefined },
+      { failure_code: code, released_credits: undefined },
+      { failure_code: code, settled_credits: 1, released_credits: 19 },
+      { failure_code: code, released_credits: 19 },
+    ]) {
+      assert.equal(isFleetBusyFailure(new GenStudioTranscriptionTerminalFailureError(job(over))), true,
+        'missing or partial legacy settlement never decides either')
+    }
+  })
+
+  test('cancelled and unknown-outcome jobs are never retried, whatever the code says', () => {
+    const code = 'SITE_PLACEMENT_EXHAUSTED'
     assert.equal(isFleetBusyFailure(new GenStudioTranscriptionTerminalFailureError(
-      job({ failure_code: 'SITE_PLACEMENT_EXHAUSTED', settled_credits: 20, released_credits: 0 }))), false)
+      job({ failure_code: code, cancelled: true }))), false, "the owner's instruction stands")
+    assert.equal(isFleetBusyFailure(new GenStudioTranscriptionTerminalFailureError(
+      job({ failure_code: code, recovery_state: 'unknown_outcome' }))), false,
+      'a gateway hold may still resolve to real work')
+    assert.equal(isFleetBusyFailure(new GenStudioTranscriptionTerminalFailureError(
+      job({ failure_code: code, recovery_required: true }))), false)
   })
 
   test('exhausted failover is not the shared no-worker fleet-busy case', () => {
     assert.equal(isFleetBusyFailure(new GenStudioTranscriptionTerminalFailureError(
       job({ failure_code: 'SITE_FAILOVER_EXHAUSTED' }))), false)
-  })
-
-  test('requires a complete zero-settled, fully released triad', () => {
-    const code = 'SITE_PLACEMENT_EXHAUSTED'
-    const cases = [
-      [{ failure_code: code, reserved_credits: undefined }, false, 'missing reservation'],
-      [{ failure_code: code, settled_credits: undefined }, false, 'missing settlement'],
-      [{ failure_code: code, released_credits: undefined }, false, 'missing release'],
-      [{ failure_code: code, settled_credits: 1, released_credits: 19 }, false, 'charged'],
-      [{ failure_code: code, released_credits: 19 }, false, 'partial release'],
-    ] as const
-    for (const [over, expected, name] of cases) {
-      assert.equal(isFleetBusyFailure(new GenStudioTranscriptionTerminalFailureError(job(over))), expected, name)
-    }
   })
 
   test('the waits are minutes and bounded', () => {

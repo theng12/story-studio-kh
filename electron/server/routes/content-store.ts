@@ -92,7 +92,6 @@ function upstreamFailure(error: GenStudioContentStoreApiError, requiredScope: 'c
     bundle_component_unavailable: 'A pinned component of this Content Store bundle is no longer available.',
     discount_misconfigured: 'GenStudio cannot safely quote this Content Store discount right now.',
     entitlement_revoked: 'GenStudio reports that this content entitlement is revoked.',
-    insufficient_credits: 'This GenStudio account does not have enough content-spendable credits.',
     not_entitled: 'This Content Pack is not available to this GenStudio account.',
     product_unavailable: 'This Content Store product is not available.',
     quote_rejected: 'GenStudio rejected the saved Content Store quote.',
@@ -107,17 +106,12 @@ function upstreamFailure(error: GenStudioContentStoreApiError, requiredScope: 'c
       detail: 'GenStudio refused this Content Store request without a recognized public reason.',
     } }
   }
-  const credits = error.status === 402 ? {
-    required_credits: error.refusal.required_credits,
-    available_credits: error.refusal.available_credits,
-    shortfall_credits: error.refusal.shortfall_credits,
-  } : {}
   const recall = error.status === 410 && error.code === 'release_recalled' ? {
     recall_reason: typeof error.refusal.recall_reason === 'string' ? error.refusal.recall_reason : null,
     recalled_at: typeof error.refusal.recalled_at === 'string' ? error.refusal.recalled_at : null,
     terminal: true,
   } : {}
-  return { status: error.status, body: { code: error.code, detail: safeDetail, ...credits, ...recall } }
+  return { status: error.status, body: { code: error.code, detail: safeDetail, ...recall } }
 }
 
 function localFailure(error: ContentStoreLocalError): ContentStoreFailure {

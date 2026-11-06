@@ -1,0 +1,12 @@
+{
+ "kind": "lettering-style",
+ "schema_version": 1,
+ "id": "com.storystudio.lettering.text-neon",
+ "name": "Neon",
+ "description": "neon glow, vibrant electric light",
+ "axis": "text",
+ "phrase": "neon glow, vibrant electric light",
+ "preview_assets": [
+  "assets/text-neon.webp"
+ ]
+}

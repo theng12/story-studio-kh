@@ -68,7 +68,7 @@ export const SAFETY_CHECKS: readonly SafetyCheckDef[] = [
   c('Script and research', 'outline_approved', 'Outline approved before chapters', 'Writing chapters from an outline you have not seen.', 'off'),
   c('Script and research', 'all_chapters_written', 'Every outline chapter written', 'A script with a missing chapter (a hole in the narration).', 'block'),
   c('Script and research', 'chapter_once', 'Each chapter used only once', 'A chapter read twice in the narration.', 'off'),
-  c('Script and research', 'lost_writing_request', 'Lost writing request', 'A writing answer the Gateway lost after it was sent (resent once).', 'off'),
+  c('Script and research', 'lost_writing_request', 'Lost writing request', 'A writing answer with an unknown outcome. Its original request is checked before any new work.', 'off'),
   c('Models, keys and money', 'gateway_key', 'Gateway key and credits', 'Sending work with no key or no credits.', 'block'),
   c('Models, keys and money', 'model_available', 'Model is available', 'Using a model that is gone, locked or switched off.', 'block'),
   c('Models, keys and money', 'paid_not_repeated', 'Paid work is not repeated by itself', 'Being charged twice for paid pictures, voice or transcription.', 'warn'),

@@ -65,7 +65,7 @@ function fn(name: string): string {
 }
 
 test('one renderer choice sits inside the existing Motion controls; no extra action was added', () => {
-  assert.match(source, /<strong>Motion controls<\/strong>/)
+  assert.match(source, /<strong>Motion controls[\s\S]{0,800}?<\/strong>/)
   assert.match(source, /aria-label="Motion renderer"/)
   assert.match(source, /<option value="image_to_video">Image to video<\/option>/)
   assert.match(source, /<option value="sketch_draw">Sketch Draw<\/option>/)
@@ -116,7 +116,7 @@ test('the renderer is a channel choice that never moves a pen; the channel defau
   assert.doesNotMatch(save, /\b(pen|sketchPen|episodePen|penChoice)\b\s*[:.]/, 'saving the renderer sends no pen')
   assert.match(save, /clipRenderer\.value = acceptedRenderer/)
   assert.match(source, /\/projects\/\$\{slug\.value\}\/motion-presentation/)
-  assert.match(source, /Make this the channel default/)
+  assert.match(source, /<button v-if="isSketchDraw && penLoaded && episodePen && episodePen !== channelPen"[^>]*>Set as channel default</)
   assert.match(fn('setChannelPenDefault'), /\{ renderer: clipRenderer\.value, pen \}/)
 })
 

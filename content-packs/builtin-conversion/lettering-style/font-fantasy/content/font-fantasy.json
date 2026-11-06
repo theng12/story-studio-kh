@@ -1,0 +1,12 @@
+{
+ "kind": "lettering-style",
+ "schema_version": 1,
+ "id": "com.storystudio.lettering.font-fantasy",
+ "name": "Fantasy",
+ "description": "mystical fantasy font",
+ "axis": "font",
+ "phrase": "mystical fantasy font",
+ "preview_assets": [
+  "assets/font-fantasy.webp"
+ ]
+}

@@ -60,7 +60,7 @@ import {
   type GenStudioVideoVariant,
   type GenStudioVideoModel,
   type GenStudioVideoRequest,
-  isGenStudioInsufficientCredits,
+  isGenStudioPaymentRefusal,
 } from '../lib/genstudio-client.js'
 import { resolveGenStudioModelId, VIDEO_MODEL_UNAVAILABLE_MESSAGE } from '../services/genstudio-model-migration.js'
 import { fleetBusyRetryPlan, freeMacWaitLine, isFleetBusyFailure, isFreeMacPlan } from '../lib/genstudio-fleet-busy.js'
@@ -1063,7 +1063,7 @@ export async function generateSceneClipsBatchJob(job: Job): Promise<void> {
         // charge nothing but time).
         if (error instanceof jq.JobPausedError || jq.isPauseRequested(job.job_id)) throw error
         if (jq.isCancelled(job.job_id)) throw error
-        if (isGenStudioInsufficientCredits(error)) throw error
+        if (isGenStudioPaymentRefusal(error)) throw error
         const reason = error instanceof Error ? error.message : String(error)
         clipFailures.push(`${scene.id}: ${reason}`)
         job.output_lines.push(`✗ ${scene.id} failed: ${reason}. Continuing with the remaining scene(s).`)

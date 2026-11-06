@@ -101,6 +101,7 @@ void test('confirmed audio-quality candidate survives queue reload, preserves ol
     const actionId = String(check.body.action_id)
     assert.equal(actionId, CHECK_ACTION)
 
+    await jq.setQueuePaused(true)
     const held = await request(app)
       .post(`/api/projects/${project.slug}/episodes/${episodeId}/audio-quality/confirm`)
       .send({ operation_id: actionId, confirm_repair: true, verification_credit_ceiling: 6,
@@ -108,25 +109,12 @@ void test('confirmed audio-quality candidate survives queue reload, preserves ol
         candidate_audio: { model: 'mock-tts-v1', voice: 'mock-voice', speed: 1 } })
     assert.equal(held.status, 201, JSON.stringify(held.body))
     const heldJobId = jobIdOf(held.body)
-    await terminal(heldJobId, 'above-ceiling candidate')
-    assert.equal(jq.getJob(heldJobId)?.status, 'error')
-    assert.equal(service.providerSubmissionCount('tts'), 3, 'candidate TTS was submitted once after the two ordinary source requests')
-    assert.equal(service.providerSubmissionCount('transcription'), 0, 'above-ceiling alternate ASR quote was never confirmed')
-    assert.deepEqual(await fs.readFile(path.join(paths.audio_dir, activeFile)), oldBytes, 'held candidate never overwrites active audio')
+    assert.equal(jq.getJob(heldJobId)?.status, 'queued')
+    assert.equal(service.providerSubmissionCount('tts'), 2, 'queued candidate has not submitted TTS')
+    assert.equal(service.providerSubmissionCount('transcription'), 0, 'queued candidate has not confirmed ASR')
+    assert.deepEqual(await fs.readFile(path.join(paths.audio_dir, activeFile)), oldBytes, 'queued candidate never overwrites active audio')
 
-    await waitFor(async () => (
-      (await qualityStore.readAudioQualityProvenance(paths.episode_dir)).actions?.[actionId]?.state === 'needs_approval'
-    ), { label: 'held quality action to persist', timeoutMs: 2_000 })
-    const heldAction = (await qualityStore.readAudioQualityProvenance(paths.episode_dir)).actions?.[actionId]
-    assert.equal(heldAction?.state, 'needs_approval', JSON.stringify({
-      action: heldAction,
-      job: jq.getJob(heldJobId),
-    }))
-    assert.equal(heldAction?.candidate?.model_id, 'mock-tts-v1')
-    assert.equal(heldAction?.candidate?.voice_id, 'mock-voice')
-
-    // Simulate an app stop after the remote candidate TTS was accepted but
-    // before this quality action reached its local ASR/refresh stage. Boot
+    // Simulate an app stop before executor admission. Boot
     // must retain the server-stamped quality branch and reclaim it; it must
     // never fall through to ordinary active-audio generation.
     await jq._waitForJobPersistenceForTesting()
@@ -148,6 +136,7 @@ void test('confirmed audio-quality candidate survives queue reload, preserves ol
     }, { label: 'candidate job persistence to become idle before boot reload', timeoutMs: 2_000 })
     const { registerAllExecutors } = await import('../boot/executors.js')
     registerAllExecutors({ loadSettings: false })
+    await jq.setQueuePaused(false)
     await jq.getJobs(project.slug)
     await waitFor(() => {
       const status = jq.getJob(heldJobId)?.status
@@ -155,19 +144,14 @@ void test('confirmed audio-quality candidate survives queue reload, preserves ol
     }, { label: 'boot-recovered quality candidate', timeoutMs: 15_000 })
     const bootRecovered = jq.getJob(heldJobId)
     assert.equal(bootRecovered?.params?.quality_repair?.action_id, actionId)
-    assert.equal(service.providerSubmissionCount('tts'), 3,
-      'boot recovery reclaims the candidate task instead of submitting ordinary active audio')
-    assert.deepEqual(await fs.readFile(path.join(paths.audio_dir, activeFile)), oldBytes,
-      'boot recovery cannot overwrite active audio before candidate promotion')
-
-    const resumed = await request(app)
+    const resumedJobId = heldJobId
+    const replay = await request(app)
       .post(`/api/projects/${project.slug}/episodes/${episodeId}/audio-quality/confirm`)
       .send({ operation_id: actionId, confirm_repair: true, verification_credit_ceiling: 7,
         source_fingerprint: check.body.repair.source_fingerprint,
         candidate_audio: { model: 'mock-tts-v1', voice: 'mock-voice', speed: 1 } })
-    assert.ok([200, 201].includes(resumed.status), JSON.stringify(resumed.body))
-    const resumedJobId = jobIdOf(resumed.body)
-    await terminal(resumedJobId, 'resumed candidate')
+    assert.equal(replay.status, 409, JSON.stringify(replay.body))
+    assert.match(replay.body.detail, /selected audio or script changed/i, 'promotion invalidates the old source fingerprint')
     const candidateJob = jq.getJob(resumedJobId)
     assert.equal(candidateJob?.status, 'done')
     const refreshJobId = String(candidateJob?.result?.quality_repair?.refresh_job_id || '')
@@ -182,8 +166,8 @@ void test('confirmed audio-quality candidate survives queue reload, preserves ol
     assert.deepEqual(selectedBeforeRefresh, promotedFiles, JSON.stringify({ promotedCheckpoint, promotedSidecar }))
     await terminal(refreshJobId, 'candidate Audio Assembly refresh')
     assert.equal(jq.getJob(refreshJobId)?.status, 'done', JSON.stringify(jq.getJob(refreshJobId)))
-    assert.equal(service.providerSubmissionCount('tts'), 3, 'raising only ASR allowance reuses staged candidate TTS')
-    assert.equal(service.providerSubmissionCount('transcription'), 1, 'higher ceiling confirms exactly one alternate ASR task')
+    assert.equal(service.providerSubmissionCount('tts'), 3, 'replaying a legacy ceiling submits no additional candidate TTS')
+    assert.equal(service.providerSubmissionCount('transcription'), 1, 'explicit confirmation submits exactly one alternate ASR task')
 
     const repaired = (await qualityStore.readAudioQualityProvenance(paths.episode_dir)).actions?.[actionId]
     assert.equal(repaired?.state, 'fixed')
@@ -344,17 +328,18 @@ void test('boot reclaims an accepted candidate TTS task into private staging wit
     await terminal(candidateJobId, 'boot-recovered accepted candidate')
     const recovered = jq.getJob(candidateJobId)
     assert.equal(recovered?.params?.quality_repair?.action_id, RECOVERED_CANDIDATE_ACTION)
-    assert.equal(recovered?.status, 'error', JSON.stringify(recovered))
+    assert.equal(recovered?.status, 'done', JSON.stringify(recovered))
+    assert.equal(recovered?.result?.quality_repair?.state, 'still_needs_review')
     assert.equal(service.requests.filter(entry => entry.method === 'POST' && entry.path === '/v1/audio/jobs').length, physicalTtsPostsBeforeBoot,
       'boot reattaches to the accepted task instead of replaying a TTS POST')
     assert.equal(service.providerSubmissionCount('tts'), 2, 'only base narration and the pre-crash accepted candidate reached the provider')
-    assert.equal(service.providerSubmissionCount('transcription'), 0, 'the held verification quote was not confirmed')
+    assert.equal(service.providerSubmissionCount('transcription'), 1, 'recovery confirms ASR once despite the retired legacy ceiling')
     assert.equal(await fs.stat(path.join(paths.episode_dir, '.audio-quality-candidates', RECOVERED_CANDIDATE_ACTION, 'audio', baseFile)).then(stat => stat.size > 0).catch(() => false), true,
       'recovery writes the provider artifact only into the action-private candidate directory')
     assert.deepEqual(await fs.readFile(path.join(paths.audio_dir, baseFile)), originalAudio)
     assert.equal(await fs.readFile(path.join(paths.episode_dir, 'audio_chapters.json'), 'utf8'), originalMap)
     assert.equal(await fs.readFile(path.join(paths.subtitles_dir, srtFile), 'utf8'), originalSrt)
-    assert.equal((await qualityStore.readAudioQualityProvenance(paths.episode_dir)).actions?.[RECOVERED_CANDIDATE_ACTION]?.state, 'needs_approval')
+    assert.equal((await qualityStore.readAudioQualityProvenance(paths.episode_dir)).actions?.[RECOVERED_CANDIDATE_ACTION]?.state, 'still_needs_review')
 
     const assertTerminalRemotePreservesActive = async (actionId: string, remote: 'failed' | 'cancelled') => {
       const checkedTerminal = await request(app).post(`/api/projects/${project.slug}/episodes/${code}/audio-quality/check`).send({
