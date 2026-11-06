@@ -108,16 +108,38 @@
             </button>
             <ThumbnailTemplatePicker :key="shellLibraryRevision" v-model="form.thumbnail.thumbnail_shell_id" @change="applyThumbnailShell" />
             <div class="shell-upload">
-              <label>Vision model for a new picture
-                <select v-model="thumbnailVisionModel" class="select" :disabled="extractingThumbRef">
-                  <option value="" disabled>Choose a vision model…</option>
-                  <option v-for="model in thumbnailVisionModels" :key="model.id" :value="model.id">{{ model.display_name || model.id }}</option>
-                </select>
-              </label>
-              <p v-if="thumbnailVisionLoadError" class="text-muted" role="alert">{{ thumbnailVisionLoadError }}</p>
-              <button type="button" class="btn btn-secondary" :disabled="extractingThumbRef || !thumbnailVisionModel" @click="extractThumbReferenceStyle">
-                {{ extractingThumbRef ? 'Analysing…' : 'Upload your own' }}
-              </button>
+              <div class="form-group">
+                <label>Vision model for a new picture</label>
+                <ModelMenu
+                  v-model="thumbnailVisionModel"
+                  class="vision-model-select"
+                  :options="thumbnailVisionModelMenuOptions"
+                  media-type="llm"
+                  title="Thumbnail reference analysis model"
+                  search-placeholder="Search vision models…"
+                  loading-label="Checking vision models…"
+                  :loading="thumbnailVisionLoading"
+                  :disabled="extractingThumbRef"
+                  :catalogue-error="thumbnailVisionLoadError"
+                />
+              </div>
+              <p v-if="selectedThumbnailVisionModel" class="text-muted text-xs hint-line">
+                Reads {{ selectedThumbnailVisionModel.max_input_images }} image · {{ selectedThumbnailVisionModel.accepted_image_mime_types.map(type => type.replace(/^image\//, '').toUpperCase()).join(', ') }} files · up to {{ Math.round(selectedThumbnailVisionModel.max_image_bytes / 1024 / 1024) }} MB and {{ selectedThumbnailVisionModel.max_image_dimension }}px on the longest side
+              </p>
+              <div class="flex gap-2 items-center flex-wrap">
+                <button type="button" class="btn btn-secondary" :disabled="extractingThumbRef || !thumbnailVisionModel" @click="extractThumbReferenceStyle">
+                  {{ extractingThumbRef ? 'Analysing…' : 'Upload your own' }}
+                </button>
+                <button
+                  v-if="thumbnailVisionLoadError || !thumbnailVisionModels.length"
+                  type="button"
+                  class="btn btn-ghost"
+                  :disabled="thumbnailVisionLoading"
+                  @click="loadThumbnailVisionModels"
+                >
+                  {{ thumbnailVisionLoading ? 'Checking Vision Models…' : 'Retry Vision Models' }}
+                </button>
+              </div>
               <p class="text-muted text-xs">Reads the picture once and saves a reusable Shell in your library.</p>
             </div>
           </div>
@@ -1193,6 +1215,8 @@ async function replaceAllThumbnailPrompts() {
 .hint-line { margin-top: 4px; }
 
 /* Vision-model menu sits inline without truncating long model names. */
+
+.vision-model-select { width: min(420px, 100%); }
 
 /* Progress bar */
 .progress-bar {

@@ -264,12 +264,13 @@ describe('shared model menus', () => {
     assert.match(modelSurfaces.broll, /media-type="transcription"/)
     assert.match(modelSurfaces.sceneReview, /<ImageModelPicker/)
     assert.doesNotMatch(modelSurfaces.sceneReview, /Rewrite LLM|<ModelSelector/)
-    // 1.4.384: the prompt writer is still the shared menu on this page. The
-    // reference-analysis vision control moved into the Shell flow, which reads
-    // its live Gateway vision-only route directly
+    // 1.4.384: the prompt writer is still the shared menu on this page, and
+    // the Shell flow's reference-analysis vision control is the same shared
+    // menu over its live Gateway vision-only route
     // (thumbnailReferenceVision.test.ts pins that route and its options).
     assert.match(modelSurfaces.imagePrompts, /<ModelSelector/)
     assert.match(modelSurfaces.imagePrompts, /label="Prompt model"/)
+    assert.match(modelSurfaces.imagePrompts, /:options="thumbnailVisionModelMenuOptions"/)
     // 1.4.384: the Channel Characters page is a redirect adapter; its shared
     // record editor lives on the Character Sheet. That editor's reference
     // describing control (the character vision model menu) is still on the

@@ -67,14 +67,32 @@
           <span v-else class="tte-shell-empty" data-testid="tte-shell-pending">Preview pending</span>
         </div>
         <div class="tte-shell-controls">
-          <label class="tte-prop">
+          <div class="tte-prop">
             <span class="tte-prop-label">Vision model (read live; used once, when a picture is analysed)</span>
-            <select v-model="visionModelId" class="select" data-testid="tte-vision-model" :disabled="visionLoading">
-              <option value="" disabled>{{ visionLoading ? 'Loading vision models…' : 'Choose a vision model…' }}</option>
-              <option v-for="m in visionModels" :key="m.id" :value="m.id">{{ modelLabel(m) }}</option>
-            </select>
-          </label>
+            <ModelMenu
+              v-model="visionModelId"
+              :options="visionModelMenuOptions"
+              media-type="llm"
+              title="Shell picture analysis model"
+              search-placeholder="Search vision models…"
+              loading-label="Loading vision models…"
+              :loading="visionLoading"
+              :disabled="shellBusy"
+              :catalogue-error="visionError"
+              data-testid="tte-vision-model"
+            />
+          </div>
           <p v-if="visionError" class="tte-shell-error" data-testid="tte-vision-error">{{ visionError }}</p>
+          <button
+            v-if="visionError"
+            type="button"
+            class="btn btn-sm btn-ghost"
+            data-testid="tte-vision-retry"
+            :disabled="visionLoading"
+            @click="loadVisionModels"
+          >
+            {{ visionLoading ? 'Checking vision models…' : 'Retry Vision Models' }}
+          </button>
           <button
             type="button"
             class="btn btn-sm btn-secondary"
@@ -274,6 +292,7 @@
 import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useApi } from '~/composables/useApi'
 import { useToast } from '~/composables/useToast'
+import { thumbnailVisionModelMenuOption, type ThumbnailVisionModel } from '~/utils/thumbnail-vision-model-menu'
 import {
   buildOverlaySvg,
   layoutTextZone,
@@ -349,7 +368,8 @@ const savedId = ref('')
 const previewKey = ref(Date.now())
 const shellPreviewFailed = ref(false)
 const shellBusy = ref(false)
-const visionModels = ref<VisionModel[]>([])
+const visionModels = ref<ThumbnailVisionModel[]>([])
+const visionModelMenuOptions = computed(() => visionModels.value.map(model => thumbnailVisionModelMenuOption(model)))
 const visionLoading = ref(false)
 const visionError = ref('')
 const visionModelId = ref('')
@@ -437,8 +457,6 @@ function blankTemplate(): Template {
 
 // ── Shell picture + layout note ─────────────────────────────────────────────
 
-interface VisionModel { id: string; display_name?: string; deprecation_warning?: string | null }
-
 /**
  * The real id this session saves to: a new template created here, or the id
  * an analysis returned (analysing a built-in source forks it server-side and
@@ -459,18 +477,13 @@ const shellPreviewSrc = computed(() => {
 const canvasBgSrc = computed(() => (shellPreviewSrc.value && !shellPreviewFailed.value ? shellPreviewSrc.value : placeholderSrc))
 watch(shellPreviewSrc, () => { shellPreviewFailed.value = false })
 
-function modelLabel(m: VisionModel) {
-  const name = m.display_name || m.id
-  return m.deprecation_warning ? `${name} — ${m.deprecation_warning}` : name
-}
-
 /** Live Gateway vision choices (AGENTS §1) — read when the editor opens,
  *  never remembered past it. Only the analysis needs one. */
 async function loadVisionModels() {
   visionLoading.value = true
   visionError.value = ''
   try {
-    const r = await get<{ models: VisionModel[] }>('/thumbnail-templates/vision/models')
+    const r = await get<{ models: ThumbnailVisionModel[] }>('/thumbnail-templates/vision/models')
     visionModels.value = Array.isArray(r.models) ? r.models : []
     if (!visionModels.value.length) {
       visionError.value = 'The Gateway has published no vision model for Shell analysis right now.'

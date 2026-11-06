@@ -19,12 +19,21 @@ test('thumbnail reference analysis shows only qualified Gateway vision models', 
   assert.match(route, /supports_structured_output/)
   assert.match(route, /thumbnail-reference\/vision-models/)
   assert.match(page, /thumbnailVisionModels/)
-  // The page's Shell flow and the Shell editor both read the same qualified
-  // route; neither holds a list of its own.
+  // The page's Shell flow and the Shell editor both present the same
+  // qualified Gateway rows through the shared menu and option builder — price,
+  // retirement and relaxed-shelf facts come from the live rows, not a
+  // hand-built list.
   assert.match(page, /\/projects\/\$\{slug\.value\}\/thumbnail-reference\/vision-models/)
-  assert.match(page, /v-for="model in thumbnailVisionModels"/)
+  assert.match(page, /<ModelMenu/)
+  assert.match(page, /:options="thumbnailVisionModelMenuOptions"/)
+  assert.match(page, /:catalogue-error="thumbnailVisionLoadError"/)
+  assert.match(page, /Retry Vision Models/)
   assert.match(editor, /\/thumbnail-templates\/vision\/models/)
-  assert.match(editor, /v-for="m in visionModels"/)
+  assert.match(editor, /thumbnailVisionModelMenuOption/)
+  assert.match(editor, /<ModelMenu/)
+  assert.match(editor, /:options="visionModelMenuOptions"/)
+  assert.match(editor, /:catalogue-error="visionError"/)
+  assert.match(editor, /Retry Vision Models/)
   const option = thumbnailVisionModelMenuOption({
     id: 'vision-priced', display_name: 'Vision priced', supported_detail_levels: ['high'],
     max_input_images: 1, accepted_image_mime_types: ['image/png'], max_image_bytes: 1,
