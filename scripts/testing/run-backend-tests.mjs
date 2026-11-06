@@ -461,6 +461,8 @@ export const SERIAL_TEST_FILES = [
   'app-secrets-store-hardening.test.ts',
   // MEASURED, 2026-11-06 — flushProjectNow hydration failed in pooled 383 R3; unchanged file passed alone (29/29, 1/1 file, exit 0).
   'episode-status-cache.test.ts',
+  // MEASURED, 2026-11-06 — external-final appearance timed out in pooled 383 R6; unchanged file passed alone (1/1 test, 1/1 file, exit 0).
+  'episode-status-external-final-watch.test.ts',
 ]
 
 /**
