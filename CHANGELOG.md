@@ -10,13 +10,13 @@ What's new in each release. Newest first.
 - Choose channel intro music explicitly in the Intro editor. Apply rebuilds that episode's audio with its saved Audio Assembly preset and selects the completed new track. Episodes without a selection keep their existing audio path, and no default or preset is rewritten.
 - Chapter titles can use an explicitly selected channel font, with fitting and wrapping for English and Khmer. Approximate previews say so; existing title rendering stays unchanged when no font is selected.
 - Character Sheet shows a channel's full character roster without requiring an episode. Each character record belongs to that one channel, with its own channel voice profile and references; there are no shared cross-channel profiles, and the episode cast stays separate. Old Channel Characters links lead to the matching channel.
-- Character migration copies one verified snapshot of each channel's same identities, channel voice and references. Legacy records remain an untouched fallback; there is no custom undo engine.
+- Character migration takes a verified backup, then copies each assigned character into its channel with the same identity, channel voice and references. The originals stay untouched; there is no custom undo engine.
 - Removing a job from the list now hides it instead of deleting it, and hidden job history can be restored.
 - Sound and label cue timing is checked independently: a label cue that landed outside its scene can be repaired, and sounds are rechecked against their own plan stamp instead of the label's.
 - Sketch Draw scenes that start black are now recognised by the final video check.
 - Cancelling an effects edit no longer leaves its draft in the shared read cache.
 - Style descriptions were corrected for 50 authoring-only styles without changing their preview images; two live style descriptions were also corrected at source only.
-- These changes apply to new videos, including newer videos for channels already past December. Finished videos are not re-rendered, and saved choices are not backfilled.
+- These changes apply to new videos from December onward. A channel whose schedule is already past December applies them only to its even newer videos. Finished videos are untouched, and saved choices are not backfilled.
 - Assembly popups keep space around their content and controls on desktop and small screens. The effects toolbar wraps inside the dialog instead of clipping its search and category buttons.
 
 ## v1.4.383 — 2026-11-06
