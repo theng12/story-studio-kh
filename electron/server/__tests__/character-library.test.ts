@@ -37,6 +37,18 @@ async function writeLegacy(id: string, record: Record<string, unknown>, files: R
   for (const [name, body] of Object.entries(files)) await fs.writeFile(path.join(dir, name), body)
 }
 
+function channelRoot(): string {
+  return path.join(pm.projectsRoot(), '.character-library', '_channels')
+}
+
+function manifestFile(runId: string): string {
+  return path.join(channelRoot(), '_migration', runId, 'manifest.json')
+}
+
+async function exists(file: string): Promise<boolean> {
+  return fs.access(file).then(() => true, () => false)
+}
+
 describe('character-library channel ownership', () => {
   before(async () => {
     tmp = await useTempDataDir()
@@ -135,5 +147,95 @@ describe('character-library channel ownership', () => {
     assert.equal(undo.refused[0]?.character_id, 'edited')
     assert.equal(await cl.getChannelCharacter(SLUG_A, 'kept'), null)
     assert.equal((await cl.getChannelCharacter(SLUG_A, 'edited'))?.description, 'changed after migration')
+  })
+
+  test('migration rejects traversal, absolute and symlinked reference files', async () => {
+    const outside = path.join(pm.projectsRoot(), 'outside.png')
+    await fs.writeFile(outside, 'outside')
+    await writeLegacy('traversal', { id: 'traversal', name: 'T', description: 'd', projects: [SLUG_A], references: { images: ['../outside.png'] } })
+    await writeLegacy('absolute', { id: 'absolute', name: 'A', description: 'd', projects: [SLUG_A], references: { images: [outside] } })
+    await writeLegacy('linked', { id: 'linked', name: 'L', description: 'd', projects: [SLUG_A], references: { images: ['link.png'] } })
+    await fs.symlink(outside, path.join(pm.projectsRoot(), '.character-library', 'linked', 'link.png'))
+
+    const preview = await cl.previewChannelMigration()
+    assert.equal(preview.copies_planned, 0)
+    assert.deepEqual(preview.conflicts.map(c => c.reason), ['invalid', 'invalid', 'invalid'])
+
+    const applied = await cl.applyChannelMigration()
+    assert.equal(applied.copies_created, 0)
+    assert.equal(await exists(path.join(channelRoot(), SLUG_A, 'traversal')), false)
+    assert.equal(await exists(path.join(channelRoot(), SLUG_A, 'linked')), false)
+  })
+
+  test('undo rejects dot and path-like run ids', async () => {
+    for (const bad of ['.', '..', '../escape', 'a/b']) {
+      await assert.rejects(() => cl.undoChannelMigration(bad), /Invalid migration run id/)
+    }
+  })
+
+  test('an orphan channel assignment is reported and creates no channel folder', async () => {
+    await writeLegacy('orphan', { id: 'orphan', name: 'Orphan', description: 'd', projects: ['ghost-channel'] })
+    const preview = await cl.previewChannelMigration()
+    assert.equal(preview.copies_planned, 0)
+    assert.equal(preview.conflicts[0]?.reason, 'channel_missing')
+    const applied = await cl.applyChannelMigration()
+    assert.equal(applied.copies_created, 0)
+    assert.equal(await exists(path.join(channelRoot(), 'ghost-channel')), false)
+  })
+
+  test('apply snapshots verified source bytes and records backup path and hashes', async () => {
+    await writeLegacy('snap', {
+      id: 'snap', name: 'Snap', description: 'd', projects: [SLUG_A], references: { images: ['pic.png'] },
+    }, { 'pic.png': 'pic-bytes' })
+    const sourceRecord = await fs.readFile(path.join(pm.projectsRoot(), '.character-library', 'snap', 'character.json'), 'utf8')
+
+    const report = await cl.applyChannelMigration()
+    const manifest = JSON.parse(await fs.readFile(manifestFile(report.run_id!), 'utf8'))
+    const entry = manifest.entries[0]
+    assert.equal(entry.backup_dir, path.join(channelRoot(), '_migration', report.run_id!, 'backup', 'snap'))
+    assert.equal(await fs.readFile(path.join(entry.backup_dir, 'character.json'), 'utf8'), sourceRecord)
+    assert.equal(await fs.readFile(path.join(entry.backup_dir, 'pic.png'), 'utf8'), 'pic-bytes')
+    assert.equal(typeof entry.backup_record_sha, 'string')
+    assert.deepEqual(Object.keys(entry.backup_files), ['pic.png'])
+    assert.equal(await fs.readFile(path.join(pm.projectsRoot(), '.character-library', 'snap', 'pic.png'), 'utf8'), 'pic-bytes')
+  })
+
+  test('undo reconciles a pending entry whose published copy matches exactly', async () => {
+    await writeLegacy('crash', { id: 'crash', name: 'Crash', description: 'd', projects: [SLUG_A] })
+    const report = await cl.applyChannelMigration()
+    const file = manifestFile(report.run_id!)
+    const manifest = JSON.parse(await fs.readFile(file, 'utf8'))
+    manifest.entries[0].status = 'pending'
+    manifest.entries[0].error = undefined
+    await fs.writeFile(file, `${JSON.stringify(manifest, null, 2)}\n`)
+
+    const undo = await cl.undoChannelMigration(report.run_id!)
+    assert.equal(undo.removed, 1)
+    assert.equal(await cl.getChannelCharacter(SLUG_A, 'crash'), null)
+  })
+
+  test('undo refuses a manifest target that is not the exact channel and id folder', async () => {
+    await writeLegacy('exact', { id: 'exact', name: 'Exact', description: 'd', projects: [SLUG_A] })
+    const report = await cl.applyChannelMigration()
+    const file = manifestFile(report.run_id!)
+    const manifest = JSON.parse(await fs.readFile(file, 'utf8'))
+    manifest.entries[0].target_dir = path.join(channelRoot(), SLUG_B, 'exact')
+    await fs.writeFile(file, `${JSON.stringify(manifest, null, 2)}\n`)
+
+    const undo = await cl.undoChannelMigration(report.run_id!)
+    assert.equal(undo.removed, 0)
+    assert.equal(undo.refused[0]?.reason, 'invalid')
+    assert.equal((await cl.getChannelCharacter(SLUG_A, 'exact'))?.id, 'exact')
+  })
+
+  test('concurrent creates cannot overwrite the same channel record', async () => {
+    const results = await Promise.allSettled([
+      cl.createChannelCharacter(SLUG_A, { id: 'race', name: 'One', description: 'd' }),
+      cl.createChannelCharacter(SLUG_A, { id: 'race', name: 'Two', description: 'd' }),
+    ])
+    assert.equal(results.filter(r => r.status === 'fulfilled').length, 1)
+    const rejected = results.find(r => r.status === 'rejected') as PromiseRejectedResult
+    assert.equal((rejected.reason as { status?: number }).status, 409)
+    assert.ok(['One', 'Two'].includes((await cl.getChannelCharacter(SLUG_A, 'race'))?.name || ''))
   })
 })
