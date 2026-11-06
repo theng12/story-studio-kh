@@ -13,7 +13,6 @@
  *   POST   /api/character-library/:id/...         → 409 read-only (use project routes)
  *   GET    /api/character-library/channel-migration/preview
  *   POST   /api/character-library/channel-migration/apply
- *   POST   /api/character-library/channel-migration/undo  { run_id }
  */
 
 import { Router } from 'express'
@@ -38,14 +37,6 @@ router.get('/character-library/channel-migration/preview', async (_req, res) => 
 router.post('/character-library/channel-migration/apply', async (_req, res) => {
   try { res.json(await cl.applyChannelMigration()) }
   catch (e: any) { res.status(500).json({ detail: e.message }) }
-})
-
-router.post('/character-library/channel-migration/undo', async (req, res) => {
-  try {
-    const runId = typeof req.body?.run_id === 'string' ? req.body.run_id : ''
-    if (!runId) return res.status(400).json({ detail: 'run_id is required' })
-    res.json(await cl.undoChannelMigration(runId))
-  } catch (e: any) { res.status(500).json({ detail: e.message }) }
 })
 
 router.get('/character-library', async (req, res) => {

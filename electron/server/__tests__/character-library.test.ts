@@ -42,10 +42,6 @@ function channelRoot(): string {
   return path.join(pm.projectsRoot(), '.character-library', '_channels')
 }
 
-function manifestFile(runId: string): string {
-  return path.join(channelRoot(), '_migration', runId, 'manifest.json')
-}
-
 async function exists(file: string): Promise<boolean> {
   return fs.access(file).then(() => true, () => false)
 }
@@ -129,19 +125,43 @@ describe('character-library channel ownership', () => {
     assert.equal(await cl.getChannelCharacter(SLUG_A, 'shared'), null)
   })
 
-  test('apply copies legacy per channel, preserves id and reference bytes', async () => {
-    await writeLegacy('shared', { id: 'shared', name: 'Shared', description: 'd', projects: [SLUG_A, SLUG_B], references: { images: ['one.png'] } }, { 'one.png': 'img' })
+  test('apply copies each channel assignment, preserving id, voice and reference bytes', async () => {
+    await writeLegacy('shared', {
+      id: 'shared', name: 'Shared', description: 'd', projects: [SLUG_A, SLUG_B],
+      speech: { voiceId: 'base' },
+      channel_profiles: { [SLUG_A]: { speech: { voiceId: 'voice-a' } }, [SLUG_B]: { speech: { voiceId: 'voice-b' } } },
+      references: { images: ['one.png'] },
+    }, { 'one.png': 'img' })
     const report = await cl.applyChannelMigration()
     assert.equal(report.copies_created, 2)
-    assert.ok(report.run_id)
     const a = await cl.getChannelCharacter(SLUG_A, 'shared')
     const b = await cl.getChannelCharacter(SLUG_B, 'shared')
+    assert.equal(a?.id, 'shared')
     assert.deepEqual(a?.projects, [SLUG_A])
+    assert.deepEqual(a?.speech, { voiceId: 'voice-a' })
     assert.deepEqual(b?.projects, [SLUG_B])
+    assert.deepEqual(b?.speech, { voiceId: 'voice-b' })
     assert.equal(await fs.readFile(path.join(cl.channelCharacterDir(SLUG_A, 'shared'), 'one.png'), 'utf8'), 'img')
     const legacy = await cl.getLibraryCharacter('shared')
     assert.deepEqual(legacy?.projects, [SLUG_A, SLUG_B], 'legacy source is never rewritten')
-    assert.equal((await cl.previewChannelMigration()).already_present, 2)
+    const backup = path.join(channelRoot(), '_migration', report.run_id!, 'backup', 'shared')
+    assert.equal(await fs.readFile(path.join(backup, 'character.json'), 'utf8'), await fs.readFile(path.join(pm.projectsRoot(), '.character-library', 'shared', 'character.json'), 'utf8'))
+    assert.equal(await fs.readFile(path.join(backup, 'one.png'), 'utf8'), 'img')
+  })
+
+  test('repeat apply is idempotent and never overwrites an edited copy', async () => {
+    await writeLegacy('idem', { id: 'idem', name: 'Idem', description: 'd', projects: [SLUG_A] })
+    assert.equal((await cl.applyChannelMigration()).copies_created, 1)
+
+    const second = await cl.applyChannelMigration()
+    assert.equal(second.copies_created, 0)
+    assert.equal(second.already_present, 1)
+
+    await cl.updateChannelCharacter(SLUG_A, 'idem', { description: 'edited after migration' })
+    const third = await cl.applyChannelMigration()
+    assert.equal(third.copies_created, 0)
+    assert.equal(third.conflicts[0]?.reason, 'target_changed')
+    assert.equal((await cl.getChannelCharacter(SLUG_A, 'idem'))?.description, 'edited after migration')
   })
 
   test('project-local same id is a loud conflict and copies nothing', async () => {
@@ -152,19 +172,6 @@ describe('character-library channel ownership', () => {
     assert.equal(report.conflicts[0]?.reason, 'project_local_conflict')
     assert.equal(await cl.getChannelCharacter(SLUG_A, 'aria'), null)
     assert.equal((await cm.listOwnCharacters(SLUG_A)).length, 1)
-  })
-
-  test('undo refuses an edited copy and moves only verified copies to Trash', async () => {
-    await writeLegacy('kept', { id: 'kept', name: 'Kept', description: 'd', projects: [SLUG_A] })
-    await writeLegacy('edited', { id: 'edited', name: 'Edited', description: 'd', projects: [SLUG_A] })
-    const report = await cl.applyChannelMigration()
-    await cl.updateChannelCharacter(SLUG_A, 'edited', { description: 'changed after migration' })
-    const undo = await cl.undoChannelMigration(report.run_id!)
-    assert.equal(undo.removed, 1)
-    assert.equal(undo.refused.length, 1)
-    assert.equal(undo.refused[0]?.character_id, 'edited')
-    assert.equal(await cl.getChannelCharacter(SLUG_A, 'kept'), null)
-    assert.equal((await cl.getChannelCharacter(SLUG_A, 'edited'))?.description, 'changed after migration')
   })
 
   test('migration rejects traversal, absolute and symlinked reference files', async () => {
@@ -185,12 +192,6 @@ describe('character-library channel ownership', () => {
     assert.equal(await exists(path.join(channelRoot(), SLUG_A, 'linked')), false)
   })
 
-  test('undo rejects dot and path-like run ids', async () => {
-    for (const bad of ['.', '..', '../escape', 'a/b']) {
-      await assert.rejects(() => cl.undoChannelMigration(bad), /Invalid migration run id/)
-    }
-  })
-
   test('an orphan channel assignment is reported and creates no channel folder', async () => {
     await writeLegacy('orphan', { id: 'orphan', name: 'Orphan', description: 'd', projects: ['ghost-channel'] })
     const preview = await cl.previewChannelMigration()
@@ -201,49 +202,19 @@ describe('character-library channel ownership', () => {
     assert.equal(await exists(path.join(channelRoot(), 'ghost-channel')), false)
   })
 
-  test('apply snapshots verified source bytes and records backup path and hashes', async () => {
+  test('apply snapshots verified source bytes and leaves the original unchanged', async () => {
     await writeLegacy('snap', {
       id: 'snap', name: 'Snap', description: 'd', projects: [SLUG_A], references: { images: ['pic.png'] },
     }, { 'pic.png': 'pic-bytes' })
-    const sourceRecord = await fs.readFile(path.join(pm.projectsRoot(), '.character-library', 'snap', 'character.json'), 'utf8')
+    const legacyDir = path.join(pm.projectsRoot(), '.character-library', 'snap')
+    const sourceRecord = await fs.readFile(path.join(legacyDir, 'character.json'), 'utf8')
 
     const report = await cl.applyChannelMigration()
-    const manifest = JSON.parse(await fs.readFile(manifestFile(report.run_id!), 'utf8'))
-    const entry = manifest.entries[0]
-    assert.equal(entry.backup_dir, path.join(channelRoot(), '_migration', report.run_id!, 'backup', 'snap'))
-    assert.equal(await fs.readFile(path.join(entry.backup_dir, 'character.json'), 'utf8'), sourceRecord)
-    assert.equal(await fs.readFile(path.join(entry.backup_dir, 'pic.png'), 'utf8'), 'pic-bytes')
-    assert.equal(typeof entry.backup_record_sha, 'string')
-    assert.deepEqual(Object.keys(entry.backup_files), ['pic.png'])
-    assert.equal(await fs.readFile(path.join(pm.projectsRoot(), '.character-library', 'snap', 'pic.png'), 'utf8'), 'pic-bytes')
-  })
-
-  test('undo reconciles a pending entry whose published copy matches exactly', async () => {
-    await writeLegacy('crash', { id: 'crash', name: 'Crash', description: 'd', projects: [SLUG_A] })
-    const report = await cl.applyChannelMigration()
-    const file = manifestFile(report.run_id!)
-    const manifest = JSON.parse(await fs.readFile(file, 'utf8'))
-    manifest.entries[0].status = 'pending'
-    manifest.entries[0].error = undefined
-    await fs.writeFile(file, `${JSON.stringify(manifest, null, 2)}\n`)
-
-    const undo = await cl.undoChannelMigration(report.run_id!)
-    assert.equal(undo.removed, 1)
-    assert.equal(await cl.getChannelCharacter(SLUG_A, 'crash'), null)
-  })
-
-  test('undo refuses a manifest target that is not the exact channel and id folder', async () => {
-    await writeLegacy('exact', { id: 'exact', name: 'Exact', description: 'd', projects: [SLUG_A] })
-    const report = await cl.applyChannelMigration()
-    const file = manifestFile(report.run_id!)
-    const manifest = JSON.parse(await fs.readFile(file, 'utf8'))
-    manifest.entries[0].target_dir = path.join(channelRoot(), SLUG_B, 'exact')
-    await fs.writeFile(file, `${JSON.stringify(manifest, null, 2)}\n`)
-
-    const undo = await cl.undoChannelMigration(report.run_id!)
-    assert.equal(undo.removed, 0)
-    assert.equal(undo.refused[0]?.reason, 'invalid')
-    assert.equal((await cl.getChannelCharacter(SLUG_A, 'exact'))?.id, 'exact')
+    const backup = path.join(channelRoot(), '_migration', report.run_id!, 'backup', 'snap')
+    assert.equal(await fs.readFile(path.join(backup, 'character.json'), 'utf8'), sourceRecord)
+    assert.equal(await fs.readFile(path.join(backup, 'pic.png'), 'utf8'), 'pic-bytes')
+    assert.equal(await fs.readFile(path.join(legacyDir, 'character.json'), 'utf8'), sourceRecord)
+    assert.equal(await fs.readFile(path.join(legacyDir, 'pic.png'), 'utf8'), 'pic-bytes')
   })
 
   test('concurrent creates cannot overwrite the same channel record', async () => {

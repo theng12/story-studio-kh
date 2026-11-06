@@ -490,13 +490,6 @@ interface MigrationEntry {
   /** Chosen once in buildPlan so re-deriving the copy is byte-identical. */
   target_created_at?: string
   source_files: Record<string, string>
-  target_files: Record<string, string>
-  /** Verified copy of the source bytes, written before any channel publish. */
-  backup_dir?: string
-  backup_record_sha?: string
-  backup_files?: Record<string, string>
-  status: 'pending' | 'copied' | 'failed'
-  error?: string
 }
 
 export interface CharacterMigrationConflict {
@@ -542,20 +535,6 @@ async function legacyCreatedAt(record: Character, sourceDir: string): Promise<st
 
 function migrationRoot(): string {
   return path.join(channelsRoot(), MIGRATION_ROOT)
-}
-
-function manifestPath(runId: string): string {
-  return path.join(migrationRoot(), runId, 'manifest.json')
-}
-
-function validRunId(runId: string): string {
-  const value = String(runId || '').trim()
-  // Exactly the id applyChannelMigration generates: ISO timestamp (":" and "."
-  // swapped for "-") plus eight hex characters. No "." or ".." can pass.
-  if (!/^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z-[0-9a-f]{8}$/.test(value)) {
-    throw new Error(`Invalid migration run id '${value}'`)
-  }
-  return value
 }
 
 async function buildPlan(): Promise<{
@@ -655,8 +634,6 @@ async function buildPlan(): Promise<{
         target_record_sha: targetRecordSha,
         target_created_at: targetCreatedAt,
         source_files: sourceFiles,
-        target_files: { ...sourceFiles },
-        status: 'pending',
       })
     }
   }
@@ -681,7 +658,7 @@ async function discardStaging(dir: string, channel: string, characterId: string)
 async function migrateEntry(entry: MigrationEntry): Promise<CharacterMigrationConflict | null> {
   const stageDir = path.join(channelsRoot(), entry.channel, `.staging-${entry.character_id}-${randomUUID()}`)
   try {
-    // Re-read the immutable source at apply time; a manifest is not proof.
+    // Re-read the immutable source at apply time; the snapshot is not the source of truth.
     if (!existsSync(path.join(entry.source_dir, 'character.json'))) {
       return { character_id: entry.character_id, channel: entry.channel, reason: 'source_changed', detail: 'Legacy source record disappeared.' }
     }
@@ -706,7 +683,7 @@ async function migrateEntry(entry: MigrationEntry): Promise<CharacterMigrationCo
     }
     await fs.writeFile(path.join(stageDir, 'character.json'), recordBody(expectedRecord))
 
-    // Verify the staged snapshot against the source bytes, not just the manifest.
+    // Verify the staged copy against the source bytes.
     if (await sha256File(path.join(stageDir, 'character.json')) !== entry.target_record_sha) {
       await discardStaging(stageDir, entry.channel, entry.character_id)
       return { character_id: entry.character_id, channel: entry.channel, reason: 'source_changed', detail: 'Staged record did not match the verified copy.' }
@@ -754,19 +731,12 @@ async function migrateEntry(entry: MigrationEntry): Promise<CharacterMigrationCo
   }
 }
 
-interface MigrationSnapshot {
-  dir: string
-  record_sha: string
-  files: Record<string, string>
-}
-
 /**
  * Copy the verified legacy bytes into the run folder before any channel is
- * published. The legacy store stays read-only; this backup is the recovery
- * copy the manifest points at.
+ * published. The legacy store stays read-only; this is the one recovery copy.
  */
-async function snapshotSources(runDir: string, entries: MigrationEntry[]): Promise<Map<string, MigrationSnapshot | Error>> {
-  const snapshots = new Map<string, MigrationSnapshot | Error>()
+async function snapshotSources(runDir: string, entries: MigrationEntry[]): Promise<Map<string, Error | null>> {
+  const snapshots = new Map<string, Error | null>()
   for (const entry of entries) {
     if (snapshots.has(entry.character_id)) continue
     try {
@@ -787,7 +757,7 @@ async function snapshotSources(runDir: string, entries: MigrationEntry[]): Promi
       for (const [filename, expected] of Object.entries(entry.source_files)) {
         if (await sha256File(path.join(dir, filename)) !== expected) throw new Error(`Backup reference '${filename}' failed verification.`)
       }
-      snapshots.set(entry.character_id, { dir, record_sha: entry.source_record_sha, files: { ...entry.source_files } })
+      snapshots.set(entry.character_id, null)
     } catch (e: any) {
       snapshots.set(entry.character_id, e instanceof Error ? e : new Error(String(e)))
     }
@@ -800,125 +770,28 @@ export async function applyChannelMigration(): Promise<CharacterMigrationReport>
   const { entries, report } = await buildPlan()
   const runId = `${new Date().toISOString().replace(/[:.]/g, '-')}-${randomUUID().slice(0, 8)}`
   report.run_id = runId
-  const manifest = {
-    run_id: runId,
-    created_at: new Date().toISOString(),
-    source: 'legacy-flat',
-    entries,
-  }
-  const runDir = path.dirname(manifestPath(runId))
+  const runDir = path.join(migrationRoot(), runId)
   await fs.mkdir(runDir, { recursive: true })
+  // Snapshot every source before the first channel publish.
   const snapshots = await snapshotSources(runDir, entries)
+
   for (const entry of entries) {
-    const snapshot = snapshots.get(entry.character_id)
-    if (!snapshot || snapshot instanceof Error) {
-      entry.status = 'failed'
-      entry.error = snapshot instanceof Error ? snapshot.message : 'Backup snapshot failed.'
-      report.conflicts.push({ character_id: entry.character_id, channel: entry.channel, reason: 'source_changed', detail: entry.error })
+    if (!snapshots.has(entry.character_id)) {
+      report.conflicts.push({ character_id: entry.character_id, channel: entry.channel, reason: 'source_changed', detail: 'Backup snapshot is missing.' })
       continue
     }
-    entry.backup_dir = snapshot.dir
-    entry.backup_record_sha = snapshot.record_sha
-    entry.backup_files = snapshot.files
-  }
-  // Manifest with every source hash and backup path is on disk BEFORE the first copy.
-  await writeJsonAtomic(manifestPath(runId), manifest)
-
-  for (const entry of manifest.entries) {
-    if (entry.status === 'failed') continue
+    const snapshotError = snapshots.get(entry.character_id)
+    if (snapshotError) {
+      report.conflicts.push({ character_id: entry.character_id, channel: entry.channel, reason: 'source_changed', detail: snapshotError.message })
+      continue
+    }
     const conflict = await migrateEntry(entry)
     if (conflict) {
-      entry.status = 'failed'
-      entry.error = conflict.detail
       report.conflicts.push(conflict)
     } else {
-      entry.status = 'copied'
       report.copies_created++
       report.copies.push({ character_id: entry.character_id, channel: entry.channel, target_dir: entry.target_dir })
     }
-    await writeJsonAtomic(manifestPath(runId), manifest)
   }
-  return report
-}
-
-export interface CharacterMigrationUndoReport {
-  run_id: string
-  removed: number
-  already_absent: number
-  refused: CharacterMigrationConflict[]
-  missing_manifest: boolean
-}
-
-/** '' when the folder is exactly the copy this run planned, else the change found. */
-async function targetMismatch(target: string, entry: MigrationEntry): Promise<string> {
-  const expected = new Set(['character.json', ...Object.keys(entry.source_files)])
-  try {
-    const names = await fs.readdir(target)
-    for (const name of names) {
-      if (!expected.has(name)) return `extra file '${name}'`
-    }
-    if (await sha256File(path.join(target, 'character.json')) !== entry.target_record_sha) return 'character.json changed'
-    for (const [filename, hash] of Object.entries(entry.source_files)) {
-      if (await sha256File(path.join(target, filename)) !== hash) return `reference '${filename}' changed`
-    }
-  } catch (e: any) { return e.message }
-  return ''
-}
-
-/** Undo one run. Changed copies are refused: an edit is never thrown away. */
-export async function undoChannelMigration(runIdInput: string): Promise<CharacterMigrationUndoReport> {
-  const runId = validRunId(runIdInput)
-  const file = manifestPath(runId)
-  if (!existsSync(file)) {
-    return { run_id: runId, removed: 0, already_absent: 0, refused: [], missing_manifest: true }
-  }
-  const manifest = JSON.parse(await fs.readFile(file, 'utf-8')) as { entries: MigrationEntry[] }
-  const report: CharacterMigrationUndoReport = { run_id: runId, removed: 0, already_absent: 0, refused: [], missing_manifest: false }
-
-  for (const entry of manifest.entries) {
-    let target: string
-    try { target = channelCharacterDir(entry.channel, entry.character_id) }
-    catch (e: any) {
-      report.refused.push({ character_id: entry.character_id, channel: entry.channel, reason: 'invalid', detail: e.message })
-      continue
-    }
-    // Only the exact channel/id folder this run computed may be undone.
-    if (typeof entry.target_dir !== 'string' || path.resolve(entry.target_dir) !== path.resolve(target)) {
-      report.refused.push({ character_id: entry.character_id, channel: entry.channel, reason: 'invalid', detail: 'Manifest target is not this channel/id folder.' })
-      continue
-    }
-    if (entry.status === 'pending') {
-      // Crash after the atomic rename but before the manifest write: adopt the
-      // pending copy only when it is byte-for-byte what this run planned.
-      if (existsSync(target) && !await targetMismatch(target, entry)) entry.status = 'copied'
-      else continue
-    }
-    if (entry.status !== 'copied') continue
-    if (!existsSync(target)) { report.already_absent++; continue }
-
-    let changed = ''
-    let absent = false
-    // Same per-record lock updateChannelCharacter uses, so a writer cannot edit
-    // between the verification and the move.
-    await withLock(path.join(target, 'character.json'), async () => {
-      if (!existsSync(target)) { absent = true; return }
-      changed = await targetMismatch(target, entry)
-      if (changed) return
-      moveToTrashSync(
-        target,
-        path.join(libraryTrashDir(pm.projectsRoot()), CHARACTER_TRASH, entry.channel, entry.character_id),
-        'character-migration-undo',
-      )
-    })
-    if (absent) { report.already_absent++; continue }
-    if (changed) {
-      report.refused.push({ character_id: entry.character_id, channel: entry.channel, reason: 'target_changed', detail: `Copy was edited (${changed}); it was left in place.` })
-      continue
-    }
-    entry.status = 'failed'
-    entry.error = 'undone'
-    report.removed++
-  }
-  await writeJsonAtomic(file, manifest)
   return report
 }

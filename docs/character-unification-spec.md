@@ -42,14 +42,17 @@ Ordinary GET requests never migrate and never write. The global
 
 ## Migration
 
-Migration is explicit, copy-only, verifiable, and reversible:
+Migration is explicit, copy-only and verifiable:
 
 - `GET  /api/character-library/channel-migration/preview`
 - `POST /api/character-library/channel-migration/apply`
-- `POST /api/character-library/channel-migration/undo`
 
-It creates one channel namespace copy per legacy assignment. Originals stay untouched
-until the user removes them through the normal restorable Trash path.
+Before the first channel publish, apply writes one verified snapshot of each legacy
+record's `character.json` and reference bytes under
+`.character-library/_channels/_migration/<run>/backup/<id>/`. It then creates one
+channel namespace copy per legacy assignment, preserving the id and that channel's
+voice. Originals stay untouched and remain the read-only fallback; a repeat apply
+reports existing copies instead of overwriting them. There is no undo engine.
 
 ## Frontend
 
