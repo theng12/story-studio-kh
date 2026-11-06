@@ -14,7 +14,9 @@
   "style_bible": "Old-master oil painting in the seventeenth-century northern European manner. Compose around one clear subject or a small grouping, arranged sparingly. Ground the scene in a deep umber-to-black background with no visible background detail. Light everything with one cool light from the upper left, falling off quickly into shadow; keep highlights small and specular on glossy and moist surfaces. Render in thick layered oil glazes with soft painterly edges, visible impasto only on the brightest highlights, fine craquelure, and a subtle varnish sheen, as if photographed under museum lighting. Palette: warm earth browns, ochre, muted crimson, olive, bone white, with cool grey-blue only in the light source. Framing is close and quiet, viewpoint at or just below eye level, ample dark negative space above the subject. Keep the style content-independent: no copied composition.",
   "negative_prompt": "flat vector, cartoon, anime, pixel art, watercolor, pastel, gouache, photorealistic photograph, 3D render, CGI, neon, saturated modern colours, bright even studio lighting, white background, lens flare, bokeh, readable text, lettering, captions, logos, watermarks, signatures, frames, borders, UI elements, copied reference composition",
   "preview_assets": [
-    "assets/old-master-still-life.webp"
+    "assets/old-master-still-life.webp",
+    "assets/old-master-still-life-scene.webp",
+    "assets/old-master-still-life-face.webp"
   ],
   "compatible_formula_ids": [
     "com.storystudio.formula.sleep-history-compilation",
