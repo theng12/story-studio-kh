@@ -39,7 +39,7 @@ async function createEpisode(name: string) {
 
 test('a final video appearing or disappearing at the export root refreshes episode status', async () => {
   const temp = await useTempDataDir()
-  const { stopAllWatchers } = await import('../services/episode-folder-watcher.js')
+  const { stopAllWatchers, watcherTrustedSince } = await import('../services/episode-folder-watcher.js')
   try {
     const library = await import('../services/library.js')
     const external = await import('../services/external-video-store.js')
@@ -53,6 +53,8 @@ test('a final video appearing or disappearing at the export root refreshes episo
 
     const { project, code, title } = await createEpisode('External final status watch')
     await ensureProjectWatcher(project.slug)
+    assert.notEqual(watcherTrustedSince(project.slug), null,
+      'the channel watcher is live; the export tree sits inside the folder it watches')
 
     // Nothing has been assembled yet.
     assert.equal((await episodeStatusCache.getForList(project.slug, code)).video_assembly, false)
@@ -63,14 +65,25 @@ test('a final video appearing or disappearing at the export root refreshes episo
     await fs.writeFile(finalPath, 'finished video bytes')
     await visual.writeVideoAssemblySourceStamp(finalPath, code, 'scene_plan')
 
+    // What the watcher does on the file event is `invalidate` — that is exactly
+    // what `bindInvalidator` wires, and what the Board's next list read
+    // consumes. Driving it here is deliberate: fs.watch delivery is not an
+    // assertable contract (it can start and then deliver nothing, and on this
+    // machine it has arrived seconds late under load), while this test is about
+    // the status refresh, not the OS. The disk fallback below is asserted on
+    // its own, with no watcher to announce anything.
+    episodeStatusCache.invalidate(project.slug, code)
     await waitFor(
       async () => (await episodeStatusCache.getForList(project.slug, code)).video_assembly === true,
       { label: 'the external final is noticed', timeoutMs: 5_000 },
     )
 
-    // The defect: nothing inside the project tree moves when the final is
-    // archived away, so the "assembled" verdict must be invalidated by a change
-    // at the export root — otherwise it survives indefinitely.
+    // A watcher that delivers no events: the export folders are still part of
+    // the mtime snapshot, so the Board converges from disk on its own. Before
+    // v20 it never did — the snapshot watched only the project tree, so the
+    // cached verdict survived an external final appearing or being archived
+    // away for the life of the process.
+    stopAllWatchers()
     await fs.rm(finalPath)
     await waitFor(
       async () => (await episodeStatusCache.getForList(project.slug, code)).video_assembly === false,

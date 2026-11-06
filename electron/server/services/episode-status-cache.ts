@@ -66,7 +66,13 @@ import { RESEARCH_JSON_FILENAME, researchFolderName } from '../lib/research-path
  * overrides a counted incomplete prompt list, and the canonical folder alone decides.
  * Discard v18 rows so a persisted `thumbnails=true` is recomputed after upgrade.
  */
-export const SCHEMA_VERSION = 19 as const
+/**
+ * v20 — the final video's export folders (episode, season, channel base) are
+ * watched directly, so an external final that appears or is removed without an
+ * event still invalidates Video Assembly. Rows written by v19 have no such
+ * mtimes and would be served as hits forever, so discard them once.
+ */
+export const SCHEMA_VERSION = 20 as const
 const MAX_ENTRIES = 1000
 /**
  * Watcher-backed reads (see `trusted()`): how long an entry may be served
@@ -198,10 +204,9 @@ async function resolveWatchedFolders(
   ideas?: Awaited<ReturnType<typeof im.getIdeas>>,
   cache?: ProjectFactsCache,
 ): Promise<string[]> {
-  // `ideas` is retained in the signature for caller compatibility. The
-  // by-code resolver performs its own canonical lookup and can also locate a
-  // renamed sibling by the audio manifest.
-  void ideas
+  // The by-code resolver performs its own canonical lookup and can also locate
+  // a renamed sibling by the audio manifest. `ideas` is used below for the
+  // episode's canonical title, which the export folder name carries.
   let paths: Awaited<ReturnType<typeof resolveEpisodePathsByCodeWithSidecar>>
   try {
     paths = await resolveEpisodePathsByCodeWithSidecar(slug, code, 'audio_chapters.json', cache)
@@ -223,8 +228,41 @@ async function resolveWatchedFolders(
   // in a scene_images/ subfolder (episode_dir's mtime doesn't move for writes
   // inside a sibling). Without these two, scene_plan / scene_review never
   // refresh after the first plan was created. (v1.0.276)
+  // The final video can appear, be replaced or be removed without anything
+  // inside `episodes/` moving: a self-contained channel renders into
+  // `<channel>/Exports/…`, a separate finished-videos root into
+  // `<root>/<slug>/…`. The folder watcher announces those changes, but
+  // `fs.watch` can start successfully and then deliver nothing at all (or
+  // minutes late under load) and gives no signal when it does — measured here.
+  // This fallback is what makes "a broken watcher costs speed, never
+  // correctness" true for Video Assembly; without these folders the mtime
+  // snapshot never noticed an external final, so the cached verdict survived
+  // indefinitely (NEW-13). While the export tree does not exist yet, its
+  // nearest existing ancestor is watched instead: creating the tree moves
+  // that folder's mtime, and the recompute records the tree itself.
+  const exportDirs: string[] = []
+  try {
+    const title = (ideas ?? await im.getIdeas(slug, undefined, cache))
+      .find(i => (i.episode_code || '').toUpperCase() === code.toUpperCase())?.title
+    if (title) {
+      const { resolveExternalFinalVideoDir } = await import('./external-video-store.js')
+      const finalDir = await resolveExternalFinalVideoDir(slug, code, title, cache)
+      if (finalDir) {
+        exportDirs.push(finalDir, path.dirname(finalDir), path.dirname(path.dirname(finalDir)))
+        let anchor = path.dirname(path.dirname(finalDir))
+        while (anchor && !(await fs.stat(anchor).catch(() => null))) {
+          const parent = path.dirname(anchor)
+          if (parent === anchor) break
+          anchor = parent
+        }
+        if (anchor) exportDirs.push(anchor)
+      }
+    }
+  } catch { /* unreadable/unset export root — the watcher stays the only witness */ }
+
   return [
     ...projectStatusDependencyPaths(slug),  // config readiness plus project format/path settings
+    ...exportDirs,            // video_assembly (final at the export root, outside episodes/)
     paths.episode_dir,        // sibling-folder detection for video_assembly
     path.join(paths.episode_dir, 'scene_plan.json'),  // scene_plan + scene_review (legacy root location, in-place rewrites)
     // v1.0.467 — scene_plan.json now lives in the "03 Scene Prompts" folder.
