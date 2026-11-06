@@ -752,6 +752,7 @@ void electronApp.whenReady().then(async () => {
       logCrash('orphan-reap', e)
     }
     await createWindow(port)
+    if (isShuttingDown) return
     // ── Notifications ─────────────────────────────────────────────────────
     // Subscribe to the queue's event bus so long-running single jobs and
     // completed batches pop an OS notification. Runs after createWindow so
@@ -862,6 +863,8 @@ void electronApp.whenReady().then(async () => {
       }).catch(e => logCrash('app-updater', e))
     }
   } catch (e) {
+    // Quitting cancels an in-flight window load; a modal here would block that quit.
+    if (isShuttingDown) return
     logCrash('startup', e)
     dialog.showErrorBox(
       'Story Studio failed to start',

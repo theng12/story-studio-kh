@@ -105,7 +105,8 @@ test('step_preset: Warn leaves the step with no preset out and runs the rest; Bl
   for (const mode of ['warn', 'block']) {
     const { slug, episodeId } = await seed(SCRIPT, { step_preset: mode })
     // Research beside writing is left out before preset checks; thumbnail
-    // prompts need only the writing step already selected here.
+    // prompts need only the writing step already selected here (see the
+    // research pin below).
     const res = await preflight(slug, episodeId, ['script-only', 'image_prompts'])
     if (mode === 'block') {
       assert.equal(res.status, 422, JSON.stringify(res.body))
@@ -244,10 +245,32 @@ test('a usable research step is still enqueued when selected alone', async () =>
   try {
     const config = { ...SCRIPT, ...preset('research_presets', 'research_last_preset') }
     const { slug, episodeId } = await seed(config, { step_preset: 'warn' })
-    // Beside writing, research is left out by design and runs inside the writing job.
+    // Research ALONE: with writing ticked beside it, preflight leaves research
+    // out inline (pinned below) and no research_run is planned.
     const res = await runBatch(slug, episodeId, ['research'])
     assert.equal(res.status, 201, JSON.stringify(res.body))
     assert.deepEqual(plannedTypes(res.body), ['research_run'])
+  } finally {
+    await jq.setQueuePaused(false)
+  }
+})
+
+test('research requested with writing is left out with a warning and never blocks the batch', async () => {
+  await jq.setQueuePaused(true)
+  try {
+    // step_preset Block and NO research preset: the old expectation here was a
+    // 422 missing_preset. Research+writing is decided inline instead — the
+    // switch follows at run time and research must never block writing (§9).
+    const { slug, episodeId } = await seed(SCRIPT, { step_preset: 'block' })
+    const steps = ['research', 'script-only']
+    const dry = await preflight(slug, episodeId, steps)
+    assert.equal(dry.status, 200, JSON.stringify(dry.body))
+    assert.ok(dry.body.warnings.some((w: string) => /never blocks writing/.test(w)), dry.body.warnings.join('\n'))
+    assert.deepEqual(dry.body.steps_left_out.map((s: any) => s.step), ['research'])
+
+    const res = await runBatch(slug, episodeId, steps)
+    assert.equal(res.status, 201, JSON.stringify(res.body))
+    assert.deepEqual(plannedTypes(res.body), ['outline_only', 'expand_chapters'])
   } finally {
     await jq.setQueuePaused(false)
   }

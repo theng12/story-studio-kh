@@ -286,7 +286,9 @@ export async function smokeLaunch(appPath, { timeoutMs = 120_000, log = () => {}
     outcome = await launchAndProve()
     termStage = 'launch proof completed'
   } finally {
+    const shutdownStarted = Date.now()
     const settled = await stopChild(child, { exited: () => exited !== null })
+    log(`  shutdown: ${settled ? 'exited' : 'still running'} after ${Date.now() - shutdownStarted}ms; exit=${JSON.stringify(exited)}`)
     evidence = {
       stage: `SIGTERM requested after ${termStage}`,
       pid: Number.isInteger(child.pid) ? child.pid : null,

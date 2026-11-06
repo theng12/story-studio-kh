@@ -457,6 +457,8 @@ export const SERIAL_TEST_FILES = [
   'job-queue-genstudio-resume.test.ts',
   // MEASURED, 2026-11-04 — "returns measured Trash totals while free-space measurement remains in flight" failed in the pooled 380 gate (30 ms timeout, expected 24/24, got null/null); passed alone (6/6, exit 0, 1/1 file).
   'storage-space-summary-timeout.test.ts',
+  // MEASURED, 2026-11-05 — "concurrent child processes retain both a provider update and a dedicated anchor append" timed out in the pooled 382 R3 gate: the parent polled 217 times over 2625 ms wall clock (test frame 3586 ms) against a 2586 ms scheduled-time budget waiting for a cold node+tsx child to boot, which waitFor's budget cannot credit — it measures the WAITING process's scheduling, not the child's. The same file then passed 5 of 5 alone (33/33, exit 0, ~12 s each). It holds two real child processes, like app-update.test.ts.
+  'app-secrets-store-hardening.test.ts',
   // MEASURED, 2026-11-06 — flushProjectNow hydration failed in pooled 383 R3; unchanged file passed alone (29/29, 1/1 file, exit 0).
   'episode-status-cache.test.ts',
 ]
