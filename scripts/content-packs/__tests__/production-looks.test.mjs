@@ -89,16 +89,48 @@ const slugs = Object.keys(STYLES).sort()
  */
 const SUCCESSOR_VERSION = '1.0.1'
 const successorDirectories = slugs.map(slug => `${slug}-v${SUCCESSOR_VERSION}`)
+// 2026-11-06 text patches: archived source inventory with the same identity and
+// previews, not shipped receipts. Each patches the 1.0.1 successor it follows,
+// because the 1.0.0 tree predates the three-preview backfill.
+const TEXT_PATCH_DIRECTORIES = [
+  { directory: 'pixel-art-story-v1.0.2', predecessor: 'pixel-art-story-v1.0.1' },
+  { directory: 'retro-paint-fantasy-v1.0.2', predecessor: 'retro-paint-fantasy-v1.0.1' },
+]
 const parseJson = async path => JSON.parse(await readFile(path, 'utf8'))
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex')
 
-test('production looks contain exactly the six receipt-authorized source trees and their successors', async () => {
+test('production looks contain exactly the six receipt-authorized source trees, their successors and archived text patches', async () => {
   const styleRoot = new URL('style/', ROOT)
   const entries = await readdir(styleRoot, { withFileTypes: true })
   assert.deepEqual(
     entries.filter(entry => entry.isDirectory()).map(entry => entry.name).sort(),
-    [...slugs, ...successorDirectories].sort(),
+    [...slugs, ...successorDirectories, ...TEXT_PATCH_DIRECTORIES.map(patch => patch.directory)].sort(),
   )
+
+  // A text patch changes prose only: same identity, same preview bytes, and it
+  // is archived source, never a receipt for something that shipped.
+  for (const { directory: patchDir, predecessor } of TEXT_PATCH_DIRECTORIES) {
+    const baseRoot = new URL(`style/${predecessor}/`, ROOT)
+    const patchRoot = new URL(`style/${patchDir}/`, ROOT)
+    const patch = await parseJson(new URL('pack.json', patchRoot))
+    const base = await parseJson(new URL('pack.json', baseRoot))
+    assert.equal(patch.pack_id, base.pack_id, `${patchDir} must keep the same pack identity`)
+    assert.ok(patch.version > base.version, `${patchDir} must be a later version`)
+
+    const assetNames = await readdir(new URL('assets/', baseRoot))
+    assert.deepEqual(await readdir(new URL('assets/', patchRoot)), assetNames)
+    for (const name of assetNames) {
+      assert.deepEqual(
+        await readFile(new URL(`assets/${name}`, patchRoot)),
+        await readFile(new URL(`assets/${name}`, baseRoot)),
+        `${patchDir}/${name} must be byte-identical to ${predecessor}`,
+      )
+    }
+
+    const patchDoc = await parseJson(new URL('content/visual-style.json', patchRoot))
+    const baseDoc = await parseJson(new URL('content/visual-style.json', baseRoot))
+    assert.notEqual(patchDoc.style_bible, baseDoc.style_bible, `${patchDir} must genuinely change its prose`)
+  }
 
   const registry = await parseJson(REGISTRY)
   assert.ok(registry.revision >= 43, `registry revision ${registry.revision} predates the production-looks reservation`)

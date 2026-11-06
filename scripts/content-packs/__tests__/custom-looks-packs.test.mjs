@@ -158,6 +158,16 @@ const STYLES = [
   },
 ]
 
+// 2026-11-06 text patches: same identity and previews in a later version
+// directory, prose-only edits. They are archived source inventory, not shipped
+// receipts and not additional styles; the fifteen adopted styles stay as listed.
+const TEXT_PATCH_DIRECTORIES = [
+  'cosy-night-pixel-art-v1.0.1',
+  'dark-folk-horror-gouache-v1.0.1',
+  'painterly-prehistoric-life-v1.0.1',
+  'warm-cosy-interior-illustration-v1.0.2',
+]
+
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex')
 const readJson = async path => JSON.parse(await readFile(path, 'utf8'))
 
@@ -170,12 +180,38 @@ function definingText(bible) {
     .toLowerCase()
 }
 
-test('the collection is exactly the fifteen adopted styles, at their reserved ids', async () => {
+test('the collection is exactly the fifteen adopted styles plus their archived text patches', async () => {
   const dirs = (await readdir(STYLE_ROOT, { withFileTypes: true }))
     .filter(entry => entry.isDirectory())
     .map(entry => entry.name)
     .sort()
-  assert.deepEqual(dirs, STYLES.map(style => style.slug).sort())
+  assert.deepEqual(dirs, [...STYLES.map(style => style.slug), ...TEXT_PATCH_DIRECTORIES].sort())
+})
+
+test('a text patch keeps its identity and previews, changing only its prose', async () => {
+  for (const patchDir of TEXT_PATCH_DIRECTORIES) {
+    const baseSlug = patchDir.replace(/-v\d+\.\d+\.\d+$/, '')
+    const baseDir = join(STYLE_ROOT, baseSlug)
+    const patch = await readJson(join(STYLE_ROOT, patchDir, 'pack.json'))
+    const base = await readJson(join(baseDir, 'pack.json'))
+    assert.equal(patch.pack_id, base.pack_id, `${patchDir} must keep the same pack identity`)
+    assert.ok(patch.version > base.version, `${patchDir} must be a later version`)
+
+    // Same previews, same bytes: a patch may not change what is drawn.
+    const assetNames = await readdir(join(baseDir, 'assets'))
+    assert.deepEqual(await readdir(join(STYLE_ROOT, patchDir, 'assets')), assetNames)
+    for (const name of assetNames) {
+      assert.deepEqual(
+        await readFile(join(STYLE_ROOT, patchDir, 'assets', name)),
+        await readFile(join(baseDir, 'assets', name)),
+        `${patchDir}/${name} must be byte-identical to ${baseSlug}`,
+      )
+    }
+
+    const patchDoc = await readJson(join(STYLE_ROOT, patchDir, 'content', 'visual-style.json'))
+    const baseDoc = await readJson(join(baseDir, 'content', 'visual-style.json'))
+    assert.notEqual(patchDoc.style_bible, baseDoc.style_bible, `${patchDir} must genuinely change its prose`)
+  }
 })
 
 test('every pack declares its reserved identity, entitlement and manifest contract', async () => {

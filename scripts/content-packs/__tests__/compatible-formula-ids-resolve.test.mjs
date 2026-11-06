@@ -63,6 +63,20 @@ const KNOWN_UNRESOLVED = new Set([
   'content-packs/free-starters/topic/historical-wars-treaties-world-order-v1.0.1/content/topic-pack.json::com.storystudio.formula.hidden-mechanics-history',
   'content-packs/free-starters/topic/natural-world-animals/content/topic-pack.json::com.storystudio.formula.listicle-explainer',
   'content-packs/free-starters/topic/natural-world-animals-v1.0.1/content/topic-pack.json::com.storystudio.formula.listicle-explainer',
+  // 2026-11-06 same-ID text patches: archived source that inherits the debt above
+  // (a prose-only patch does not change compatible ids). These are not shipped
+  // receipts, and the debt is still open in each patch until a later source fixes it.
+  'content-packs/free-starters/thumbnail/curiosity-question-cartoon-v1.0.2/content/thumbnail-recipe.json::com.storystudio.formula.fungi',
+  'content-packs/free-starters/thumbnail/curiosity-question-cartoon-v1.0.2/content/thumbnail-recipe.json::com.storystudio.formula.insects',
+  'content-packs/free-starters/thumbnail/curiosity-question-cartoon-v1.0.2/content/thumbnail-recipe.json::com.storystudio.formula.plants',
+  'content-packs/rebuilt/style/academic-classical-oil-v2-v1.0.2/content/visual-style.json::com.storystudio.formula.sleep-history-compilation-v2',
+  'content-packs/rebuilt/style/academic-classical-oil-v2-v1.0.2/content/visual-style.json::com.storystudio.formula.sleep-story-v2',
+  'content-packs/rebuilt/style/academic-classical-oil-v2-v1.0.2/content/visual-style.json::com.storystudio.formula.history-explained-v2',
+  'content-packs/rebuilt/style/academic-classical-oil-v2-v1.0.2/content/visual-style.json::com.storystudio.formula.human-behavior-explained-v2',
+  // New 2026-11-02 standalone style: it names the never-published '-v2' Formula
+  // ids too. Recorded as exact debt rather than silently widening the allowlist.
+  'content-packs/standalone-looks/style/oil-deep-glaze-v2/content/visual-style.json::com.storystudio.formula.sleep-story-v2',
+  'content-packs/standalone-looks/style/oil-deep-glaze-v2/content/visual-style.json::com.storystudio.formula.sleep-history-compilation-v2',
 ])
 
 async function collectJsonFiles(dirUrl, out) {

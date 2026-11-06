@@ -395,7 +395,7 @@ test('a dry run reports the gates and builds nothing', async () => {
   assert.deepEqual(await readdir(outputDirectory).catch(() => []), [], 'a dry run must not create archives')
 })
 
-test('the shipped Production Looks packs still pass their gates and match what was filed', async () => {
+test('Production Looks sources still pass their gates, with archived text patches told apart from shipped receipts', async () => {
   const result = await shipContentPacks({
     selectors: ['content-packs/production-looks/style/*'],
     outputDirectory: await temporaryDirectory('story-ship-unfiled-'),
@@ -403,14 +403,23 @@ test('the shipped Production Looks packs still pass their gates and match what w
   })
 
   assert.deepEqual(result.refusals, [])
-  // Twelve, not six: the 2026-09-08 preview backfill gave each of the six a
-  // 1.0.1 successor in a sibling directory, and the selector is a glob over
-  // that directory. Both generations must pass the same gates — the successor
-  // is what a buyer now acquires, and the predecessor is still on the shelf.
-  assert.equal(result.packs.length, 12)
+  // Twelve shipped receipts: six 1.0.0 trees and the 2026-09-08 preview-backfill
+  // 1.0.1 successor beside each. The glob also finds two 2026-11-06 same-ID text
+  // patches; they are authored archived source, not something that shipped, so
+  // they are counted apart from the twelve and never treated as filed receipts.
+  assert.equal(result.packs.length, 14)
   assert.deepEqual(
     [...new Set(result.packs.map(pack => pack.version))].sort(),
-    ['1.0.0', '1.0.1'],
+    ['1.0.0', '1.0.1', '1.0.2'],
+  )
+  const shipped = result.packs.filter(pack => pack.version !== '1.0.2')
+  assert.equal(shipped.length, 12)
+  assert.deepEqual(
+    result.packs.filter(pack => pack.version === '1.0.2').map(pack => pack.source_path).sort(),
+    [
+      'content-packs/production-looks/style/pixel-art-story-v1.0.2',
+      'content-packs/production-looks/style/retro-paint-fantasy-v1.0.2',
+    ],
   )
   for (const pack of result.packs) {
     assert.equal(pack.gates.registry_status, 'authored')

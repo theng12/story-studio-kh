@@ -292,16 +292,38 @@ test('free Starter sources preserve 45 lineages and every versioned successor', 
     'content-packs/free-starters/formula/practical-motivation-v1.0.2/pack.json',
     'content-packs/free-starters/formula/sleep-story-v1.0.2/pack.json',
     'content-packs/free-starters/style/minimal-stick-figure-explainer-v1.0.2/pack.json',
+    'content-packs/free-starters/style/paleo-documentary-tableau-v1.0.2/pack.json',
     'content-packs/free-starters/style/prehistoric-stick-cartoon-v1.0.2/pack.json',
+    'content-packs/free-starters/style/sepia-ink-wash-v1.0.2/pack.json',
+    'content-packs/free-starters/thumbnail/curiosity-question-cartoon-v1.0.2/pack.json',
+    'content-packs/free-starters/thumbnail/documentary-label-tableau-v1.0.2/pack.json',
+    'content-packs/free-starters/thumbnail/prehistoric-discovery-v1.0.2/pack.json',
     'content-packs/free-starters/topic/habits-momentum-v1.0.2/pack.json',
     'content-packs/free-starters/topic/historical-wars-treaties-world-order-v1.0.2/pack.json',
   ])
   assert.ok(secondSuccessors.every(({ source }) => source.version === '1.0.2'))
+  // Five of these are 2026-11-06 same-ID text patches: archived source with
+  // neutral prose, not new lineages and not shipped receipts. Each keeps the
+  // pack_id of the 1.0.1 source it patches.
+  const textPatchPaths = [
+    'content-packs/free-starters/style/paleo-documentary-tableau-v1.0.2/pack.json',
+    'content-packs/free-starters/style/sepia-ink-wash-v1.0.2/pack.json',
+    'content-packs/free-starters/thumbnail/curiosity-question-cartoon-v1.0.2/pack.json',
+    'content-packs/free-starters/thumbnail/documentary-label-tableau-v1.0.2/pack.json',
+    'content-packs/free-starters/thumbnail/prehistoric-discovery-v1.0.2/pack.json',
+  ]
+  for (const relative of textPatchPaths) {
+    const patch = packSources.find(row => row.relative === relative)
+    const predecessor = packSources.find(row => row.relative === relative.replace(/-v1\.0\.2\/pack\.json$/, '-v1.0.1/pack.json'))
+    assert.ok(patch && predecessor, `${relative} must patch an existing 1.0.1 source`)
+    assert.equal(patch.source.pack_id, predecessor.source.pack_id, `${relative} must keep its pack identity`)
+  }
   // The 1.0.3 roots, likewise unpinned until now. Six are the 2026-10-25
   // Formula modernization on packs that were already 1.0.2 (their opening
   // recipe, so `-v1.0.3`); Sleep Story 1.0.3 is the 2026-10-26 tiered Sleep
   // rhythm (owner decision), shipped as a successor rather than edited into the
-  // published 1.0.2 bytes.
+  // published 1.0.2 bytes. Prehistoric Stick Cartoon 1.0.3 is a 2026-11-06
+  // same-ID text patch on the style that was already past 1.0.2.
   const thirdSuccessors = packSources.filter(({ relative }) => /-v1\.0\.3\/pack\.json$/.test(relative))
   assert.deepEqual(thirdSuccessors.map(({ relative }) => relative).sort(), [
     'content-packs/free-starters/formula/ancient-humans-v1.0.3/pack.json',
@@ -311,6 +333,7 @@ test('free Starter sources preserve 45 lineages and every versioned successor', 
     'content-packs/free-starters/formula/natural-world-explained-v1.0.3/pack.json',
     'content-packs/free-starters/formula/pov-your-life-as-v1.0.3/pack.json',
     'content-packs/free-starters/formula/sleep-story-v1.0.3/pack.json',
+    'content-packs/free-starters/style/prehistoric-stick-cartoon-v1.0.3/pack.json',
     // 1.4.369: the supersession version that marks the old Wars pack `replaced`
     // in favour of the merged wars-treaties-world-order-v2. No new content.
     'content-packs/free-starters/topic/historical-wars-treaties-world-order-v1.0.3/pack.json',
