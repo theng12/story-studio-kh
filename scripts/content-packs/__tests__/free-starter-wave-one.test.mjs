@@ -170,9 +170,16 @@ test('approved preview bytes are copied unchanged and all unblocked sources buil
   for (const [relativePath, hash] of Object.entries(approvedCopies)) {
     assert.equal(createHash('sha256').update(await readFile(new URL(relativePath, WAVE))).digest('hex'), hash)
   }
+  // The 1.0.0 originals stay immutable and refuse the subject-free publisher
+  // guard; build the same-identity successors that actually ship.
+  const buildPatches = {
+    'style/prehistoric-stick-cartoon': 'style/prehistoric-stick-cartoon-v1.0.3',
+    'style/paleo-documentary-tableau': 'style/paleo-documentary-tableau-v1.0.2',
+  }
   const unblocked = channels.flatMap(channel => channel.components.map(component => [component.kindSlug, component.componentSlug]))
   for (const [kind, slug] of unblocked) {
-    const source = sourceDirectory(new URL(`${kind}/${slug}/`, WAVE))
+    const buildSlug = buildPatches[`${kind}/${slug}`] ?? `${kind}/${slug}`
+    const source = sourceDirectory(new URL(`${buildSlug}/`, WAVE))
     const first = join(temporary, `${kind}-${slug}-first.sspack`)
     const second = join(temporary, `${kind}-${slug}-second.sspack`)
     await buildContentPack({ sourceDirectory: source, privateKeyPath, outputPath: first, ...RELEASE })

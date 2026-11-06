@@ -28,7 +28,7 @@ const RESTORED_RECIPES = [
 ]
 
 const QUALIFIED_SOURCES = [
-  'content-packs/legacy-thumbnail-restoration/style/hand-drawn-hardship-cartoon',
+  'content-packs/legacy-thumbnail-restoration/style/hand-drawn-hardship-cartoon-v1.0.2',
   'content-packs/legacy-thumbnail-restoration/thumbnail/prehistoric-survival-title-card',
   'content-packs/legacy-thumbnail-restoration/thumbnail/dreamlike-story-title-card',
   'content-packs/legacy-thumbnail-restoration/style/dreamlike-luminous-sleep-illustration',

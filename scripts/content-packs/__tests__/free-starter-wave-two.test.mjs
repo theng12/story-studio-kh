@@ -93,7 +93,7 @@ test('approved wave two preview bytes remain unchanged and every unblocked sourc
   }
   for (const [path, hash] of Object.entries(approved)) assert.equal(createHash('sha256').update(await readFile(new URL(path, WAVE))).digest('hex'), hash)
   const { buildContentPack, validateContentPack } = await import('../lib.mjs')
-  const unblocked = ['formula/economics-of', 'formula/human-behavior-explained', 'formula/history-explained', 'formula/pov-your-life-as', 'topic/economics-businesses', 'topic/human-behavior-social-dynamics', 'topic/historical-wars-treaties-world-order', 'topic/pov-historical-occupations', 'style/hand-drawn-editorial-diagram', 'style/minimal-stick-figure-explainer', 'style/sepia-ink-wash', 'style/cinematic-photoreal', 'thumbnail/annotated-business-board', 'thumbnail/centered-hero-headline', 'thumbnail/portrait-block-right']
+  const unblocked = ['formula/economics-of', 'formula/human-behavior-explained', 'formula/history-explained', 'formula/pov-your-life-as', 'topic/economics-businesses', 'topic/human-behavior-social-dynamics', 'topic/historical-wars-treaties-world-order', 'topic/pov-historical-occupations', 'style/hand-drawn-editorial-diagram', 'style/minimal-stick-figure-explainer', 'style/sepia-ink-wash-v1.0.2', 'style/cinematic-photoreal', 'thumbnail/annotated-business-board', 'thumbnail/centered-hero-headline', 'thumbnail/portrait-block-right']
   for (const source of unblocked) {
     const first = join(temporary, `${source.replace('/', '-')}-first.sspack`)
     const second = join(temporary, `${source.replace('/', '-')}-second.sspack`)
