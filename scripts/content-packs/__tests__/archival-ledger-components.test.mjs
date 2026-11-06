@@ -175,7 +175,35 @@ const REPLACED = [
   },
 ]
 
-const STOCKABLE = [...COMPONENTS, ...SUCCESSORS, ...REPLACED]
+// Owner text patches 2026-11-06: same identity, new version, prose-only edits.
+// They are not SUCCESSORS — that list must ship MORE content — and they are not
+// REPLACED — they stay active and ship the same previews, byte for byte.
+const TEXT_PATCHES = [
+  {
+    kind: 'style',
+    slug: 'archival-documentary-reconstruction-v1.0.2',
+    predecessorSlug: 'archival-documentary-reconstruction-v1.0.1',
+    version: '1.0.2',
+    document: 'visual-style.json',
+    packId: 'com.storystudio.pack.style.archival-documentary-reconstruction',
+    itemId: 'com.storystudio.style.archival-documentary-reconstruction',
+    family: 'com.storystudio.family.style.archival-documentary-reconstruction',
+    sku: 'com.storystudio.sku.style.archival-documentary-reconstruction',
+  },
+  {
+    kind: 'thumbnail',
+    slug: 'archival-map-investigation-v1.0.1',
+    predecessorSlug: 'archival-map-investigation',
+    version: '1.0.1',
+    document: 'thumbnail-recipe.json',
+    packId: 'com.storystudio.pack.thumbnail.archival-map-investigation',
+    itemId: 'com.storystudio.thumbnail.archival-map-investigation',
+    family: 'com.storystudio.family.thumbnail.archival-map-investigation',
+    sku: 'com.storystudio.sku.thumbnail.archival-map-investigation',
+  },
+]
+
+const STOCKABLE = [...COMPONENTS, ...SUCCESSORS, ...REPLACED, ...TEXT_PATCHES]
 
 function sourceDirectory(component) {
   return new URL(`${component.kind}/${component.slug}/`, PAID_SOURCE)
@@ -394,6 +422,40 @@ test('a versioned successor ships beside its predecessor rather than replacing i
       : ['previews', document => document.preview_assets.length]
     assert.ok(countOf(successorSource.document) > countOf(predecessorSource.document),
       `${successor.slug} must not ship fewer ${measure} than ${predecessor.slug}`)
+  }
+})
+
+test('a text patch keeps its identity and previews, changing only its document', async () => {
+  for (const patch of TEXT_PATCHES) {
+    const predecessor = [...COMPONENTS, ...SUCCESSORS].find(component => component.slug === patch.predecessorSlug)
+    assert.ok(predecessor, `${patch.slug} must name the version it patches`)
+
+    const predecessorSource = await readComponentSource(predecessor)
+    const patchSource = await readComponentSource(patch)
+
+    // Same product and entitlement; a strictly later version in its own source.
+    assert.equal(patchSource.manifest.pack_id, predecessorSource.manifest.pack_id)
+    assert.equal(patchSource.manifest.entitlement.sku, predecessorSource.manifest.entitlement.sku)
+    assert.equal(patchSource.manifest.entitlement.family, predecessorSource.manifest.entitlement.family)
+    assert.equal(patchSource.document.id, predecessorSource.document.id)
+    assert.equal(patchSource.document.kind, predecessorSource.document.kind)
+    assert.notEqual(patchSource.manifest.version, predecessorSource.manifest.version)
+    assert.equal(patchSource.directory.pathname === predecessorSource.directory.pathname, false)
+
+    assert.equal(patchSource.manifest.key_id, 'com.storystudio.key.archival-ledger')
+    assert.equal(patchSource.manifest.min_app_version, '{{MIN_APP_VERSION}}')
+    assert.equal(patchSource.manifest.lifecycle, 'active')
+    assert.equal(patchSource.documents.length, 1)
+
+    // A text patch changes prose only: the same previews, in the same order,
+    // with the same bytes. Dropping a backfilled preview is a content change,
+    // which requires a successor rather than a patch.
+    assert.deepEqual(patchSource.document.preview_assets, predecessorSource.document.preview_assets)
+    assert.deepEqual(patchSource.assetNames.sort(), predecessorSource.assetNames.sort())
+    for (const asset of patchSource.assets) {
+      assert.deepEqual(await readFile(new URL(asset.path, patchSource.directory)), await readFile(new URL(asset.path, predecessorSource.directory)))
+    }
+    assert.notDeepEqual(patchSource.document, predecessorSource.document)
   }
 })
 

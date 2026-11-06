@@ -139,4 +139,24 @@ export const paidComponentRegistry = [
     family: 'com.storystudio.family.topic.archival-ledger.wars-treaties-world-order',
     sourceDirectory: 'topic/wars-treaties-world-order-v1.0.2',
   },
+  // Owner text patches 2026-11-06: same identity, new version, prose only.
+  // The 1.0.1 backfilled three previews; both patches ship the same previews.
+  {
+    packId: 'com.storystudio.pack.style.archival-documentary-reconstruction',
+    itemId: 'com.storystudio.style.archival-documentary-reconstruction',
+    kind: 'visual-style',
+    version: '1.0.2',
+    sku: 'com.storystudio.sku.style.archival-documentary-reconstruction',
+    family: 'com.storystudio.family.style.archival-documentary-reconstruction',
+    sourceDirectory: 'style/archival-documentary-reconstruction-v1.0.2',
+  },
+  {
+    packId: 'com.storystudio.pack.thumbnail.archival-map-investigation',
+    itemId: 'com.storystudio.thumbnail.archival-map-investigation',
+    kind: 'thumbnail-recipe',
+    version: '1.0.1',
+    sku: 'com.storystudio.sku.thumbnail.archival-map-investigation',
+    family: 'com.storystudio.family.thumbnail.archival-map-investigation',
+    sourceDirectory: 'thumbnail/archival-map-investigation-v1.0.1',
+  },
 ]
