@@ -21,8 +21,9 @@ import { existsSync, readFileSync } from 'node:fs'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import test from 'node:test'
-import { fileURLToPath, pathToFileURL } from 'node:url'
+import { fileURLToPath } from 'node:url'
 import { useTempDataDir } from './_helpers.js'
+import { loadRelease383AudioMerge, release383Source } from './_release-383-baseline.js'
 import { MOCK_GENSTUDIO_FULL_KEY, startMockGenStudioService } from './fixtures/mock-genstudio-service.js'
 
 const temp = await useTempDataDir()
@@ -55,8 +56,7 @@ test.after(async () => {
   await temp.cleanup()
 })
 
-const BASELINE_383 = fileURLToPath(new URL('../../../../release-383/electron/server/generators/audio-merge.ts', import.meta.url))
-const BASELINE_PRESENT = existsSync(BASELINE_383)
+const BASELINE_383 = 'electron/server/generators/audio-merge.ts'
 
 /** One episode, one 2-second chapter on disk — isolated fixture, ffmpeg sine only. */
 async function episodeWithChapter() {
@@ -103,10 +103,8 @@ async function episodeWithChapter() {
   return { slug: project.slug, outputRoot, run, sine, completion }
 }
 
-void test('no selection: release/1.4.383 fallback stays intact and the fixture merges with no intro', {
-  skip: BASELINE_PRESENT ? false : `release-383 baseline not present at ${BASELINE_383} — source comparison not checked`,
-}, async () => {
-  const baseline = readFileSync(BASELINE_383, 'utf8')
+void test('no selection: release/1.4.383 fallback stays intact and the fixture merges with no intro', async () => {
+  const baseline = release383Source(BASELINE_383)
   const current = readFileSync(fileURLToPath(new URL('../generators/audio-merge.ts', import.meta.url)), 'utf8')
   // The lines that DEFINE the no-selection path must be byte-identical in
   // both releases: if a future edit changes today's output, it changes these.
@@ -138,12 +136,8 @@ void test('no selection: release/1.4.383 fallback stays intact and the fixture m
   assert.ok(!legacy.output_lines.some((l: string) => l.includes('Channel intro frozen')), 'legacy path must not report a channel freeze')
 })
 
-void test('no selection: the ACTUAL release-383 generator and release-384 decode to byte-identical PCM', {
-  skip: BASELINE_PRESENT ? false : `release-383 baseline not present at ${BASELINE_383} — actual generator comparison not run`,
-}, async () => {
-  const baseline = await import(pathToFileURL(BASELINE_383).href) as {
-    generateAudioMerge: (job: any) => Promise<unknown>
-  }
+void test('no selection: the ACTUAL release-383 generator and release-384 decode to byte-identical PCM', async () => {
+  const baseline = await loadRelease383AudioMerge()
   assert.equal(typeof baseline.generateAudioMerge, 'function', 'the release-383 generator must load and run')
 
   // Same fixture, no intro choice on either side; separate projects so neither

@@ -27,7 +27,7 @@ import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import test, { after } from 'node:test'
-import { existsSync, readFileSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 
 import { prepareSceneClips } from '../generators/video.js'
@@ -42,6 +42,7 @@ import { clearFontManifestCache, fontsResourceDir, readFontManifest } from '../l
 import { frameTextUnit } from '../lib/render-canvas.js'
 import { tinyVideoBytes } from './fixtures/tiny-video.js'
 import { useTempDataDir } from './_helpers.js'
+import { release383Source } from './_release-383-baseline.js'
 import type { VideoChapterTitles } from '../models/types.js'
 
 const ONE_PIXEL_PNG = Buffer.from(
@@ -49,9 +50,6 @@ const ONE_PIXEL_PNG = Buffer.from(
   'base64',
 )
 const PARAMS = { type: 'ken-burns', zoom_start: 100, zoom_end: 108, parallax_direction: 'right', parallax_speed: 2, breathe_amplitude: 2, breathe_base_zoom: 103 } as const
-
-const BASELINE_383 = fileURLToPath(new URL('../../../../release-383/electron/server/generators/video.ts', import.meta.url))
-const BASELINE_PRESENT = existsSync(BASELINE_383)
 
 const scratch: string[] = []
 const cleanups: Array<() => Promise<void>> = []
@@ -134,8 +132,8 @@ const yValues = (chain: string, h: number): number[] => (chain.match(/:y=([^,]+)
 
 // ── No selection = the release-383 render ────────────────────────────────────
 
-test('no selection: the helpers that build the legacy drawtext are byte-identical to release-383', { skip: BASELINE_PRESENT ? undefined : 'release-383 baseline not present' }, () => {
-  const baseline = readFileSync(BASELINE_383, 'utf8')
+test('no selection: the helpers that build the legacy drawtext are byte-identical to release-383', () => {
+  const baseline = release383Source('electron/server/generators/video.ts')
   const current = readFileSync(fileURLToPath(new URL('../generators/video.ts', import.meta.url)), 'utf8')
   // The functions whose RETURNED strings make up the legacy chapter drawtext.
   // If any of them moves, no-selection output moves — so they must not.
