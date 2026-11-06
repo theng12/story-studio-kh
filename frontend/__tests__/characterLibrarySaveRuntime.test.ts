@@ -29,8 +29,7 @@ async function loadEditor(): Promise<Component> {
     const useAppTitle = () => undefined
     const useRoute = () => ({ query: {} })
     const useRouter = () => ({ replace: async () => undefined })
-    const useCharacterLibrary = () => F.cl
-    const useCharacters = () => ({ getOne: async (id) => ({ id, name: 'X', description: 'd' }) })
+    const useCharacters = () => F.chars
     const useApi = () => ({ get: async () => [], post: async () => ({}), put: async (path, body) => F.put(path, body), del: F.del })
     const useConfirm = () => ({ ask: async () => true })
     const useToast = () => ({ success: () => undefined, error: (m) => F.errors.push(m) })
@@ -59,12 +58,13 @@ async function mount(overrides: Record<string, unknown> = {}) {
     updates: [] as any[],
     calls,
     put: async (path: string, body: any) => { calls.push(`put:${path}`); return { id: 'c1', name: 'X', description: 'd', ...body } },
-    cl: {
+    chars: {
       list: async () => [],
       create: async (p: any) => { calls.push('create'); return { id: 'new-1', ...p, references: { images: [] } } },
       update: async (id: string, p: any) => { f.updates.push(JSON.parse(JSON.stringify(p))); calls.push(`update:${id}:${JSON.stringify(p.archetype ?? p.references?.images)}`); return { id, name: 'X', description: 'd', ...p } },
       uploadReferenceImage: async () => { calls.push('upload'); throw new Error('Image is larger than 5 MB') },
       getOne: async (id: string) => ({ id, name: 'X', description: 'd', references: { images: ['b.png'] } }),
+      removeReferenceImage: async (id: string, filename: string) => f.del(`/projects/kh/characters/${id}/reference-image/${filename}`),
     },
     del: async (path: string) => { calls.push(`del:${path}`); return { id: 'c1', name: 'X', description: 'd', references: { images: ['b.png'] } } },
   }
@@ -72,9 +72,7 @@ async function mount(overrides: Record<string, unknown> = {}) {
   const app = createApp(await loadEditor(), {
     visible: true,
     character: null,
-    origin: 'library',
     slug: 'kh',
-    channels: [],
     ...overrides,
   })
   const host = document.body.appendChild(document.createElement('div'))
@@ -126,7 +124,7 @@ test('reference order and deletion are staged, then saved together', async () =>
     assert.deepEqual(state.stagedDeletes.value, ['a.png'], 'delete is staged, not sent')
 
     await state.saveCharacter()
-    assert.ok(calls.includes('del:/character-library/c1/reference-image/a.png'), calls.join(' | '))
+    assert.ok(calls.includes('del:/projects/kh/characters/c1/reference-image/a.png'), calls.join(' | '))
     assert.equal(f.updates.length, 1, 'Save sends one canonical record update')
     assert.deepEqual(f.updates[0].references.images, ['b.png'], 'the record update carries the staged portrait order')
     assert.deepEqual(state.editing.value.references.images, ['b.png'])
@@ -144,9 +142,7 @@ test('Escape closes the editor only while nothing has changed', async () => {
   })
   try {
     await flush()
-    assert.equal(state.editorDirty.value, false, 'opening (and rendering empty voice profiles) is not a change')
-    state.profileFor('kh')
-    assert.equal(state.editorDirty.value, false)
+    assert.equal(state.editorDirty.value, false, 'opening the record is not a change')
     state.draft.name = 'Y'
     assert.equal(state.editorDirty.value, true)
     // Reopening the same record re-seeds it — the draft is back to clean.

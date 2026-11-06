@@ -148,8 +148,8 @@ describe('workspace design system', () => {
       assert.match(page, /<WorkspaceHero/, `${pageName} must use WorkspaceHero`)
       assert.doesNotMatch(page, /class="page-header"/, `${pageName} must not restore a one-off header`)
     }
-    assert.match(characterRecordEditor, /Channel voice profiles/)
-    assert.match(characterRecordEditor, /Channel labels/)
+    assert.match(characterRecordEditor, /<h3>Voice<\/h3>/)
+    assert.match(characterRecordEditor, /Stored on this channel only/)
   })
 
   test('the shared action bar uses named regions and accessible control sizing', () => {

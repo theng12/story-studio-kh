@@ -79,27 +79,26 @@ test('the editor stages changes until Save and gates close on dirty state', () =
   assert.match(editorScript, /stagedDeletes/)
 })
 
-test('canonical reads and reference URLs follow the record source origin', () => {
-  // openEdit refuses to seed the editor from the collapsed list record.
-  assert.match(rosterScript, /record\.source === 'library' \? 'library' : 'project'/)
-  assert.match(rosterScript, /cl\.getOne\(record\.id\)/)
-  assert.match(editorScript, /recordOrigin\.value === 'library'\s*\?\s*`\/api\/character-library/)
-  assert.match(editorScript, /`\/projects\/\$\{encodeURIComponent\(props\.slug\)\}\/characters/)
-  // The collapsed speech of the project view must never be written back as
-  // the canonical record: library saves go through channel_profiles seeded
-  // from the canonical record's own profiles.
-  assert.match(editorScript, /c\.channel_profiles\?\.\[slug\]\?\.speech/)
+test('the roster and editor read and write only this channel’s record routes', () => {
+  // The roster reads the canonical record through the channel route before edit.
+  assert.match(rosterScript, /cm\.getOne\(record\.id\)/)
+  assert.match(rosterScript, /const cm = useCharacters/)
+  assert.doesNotMatch(rosterScript, /useCharacterLibrary|character-library/)
+  // The editor has no global-library path: every record call is project-scoped.
+  assert.doesNotMatch(editorScript, /useCharacterLibrary|character-library|recordOrigin/)
+  assert.match(editorScript, /const chars = useCharacters/)
+  assert.match(editorScript, /chars\.(create|update|getOne|uploadReferenceImage|removeReferenceImage)/)
+  assert.match(editorScript, /`\/api\/projects\/\$\{encodeURIComponent\(props\.slug\)\}\/characters/)
 })
 
-test('shared identity edits name the other channels; one channel voice edit keeps the rest', () => {
-  assert.match(editorSource, /Shared with other channels/)
-  assert.match(editorSource, /sharedWithNames\.join\(', '\)/)
-  // Payload carries every selected channel's profile and the full label set.
-  assert.match(editorScript, /projects: \[\.\.\.selectedChannels\.value\]/)
-  assert.match(editorScript, /profiles\[slug\] = \{ speech: \{\s*\.\.\.speech, voiceProvider: 'genstudio'\s*\} \}/)
-  // Unchecking this channel removes only this channel's label/profile — the
-  // rest of the payload is untouched (backend unassigns, never deletes).
-  assert.match(editorSource, /Unchecking this channel removes the character from this channel only/)
+test('a character carries one channel voice, with no assignment or multi-channel controls', () => {
+  assert.doesNotMatch(editorScript, /channel_profiles|selectedChannels|voiceProfiles|toggleChannel|Channel labels|Shared with other channels/)
+  assert.doesNotMatch(rosterScript, /channel_profiles|assignedSlugs|projects\?\.length|useCharacterLibrary/)
+  assert.match(rosterScript, /record\.source === 'library'/, 'legacy rows are identified honestly')
+  assert.match(rosterSource, /legacy · read-only/, 'legacy rows say they are read-only')
+  assert.match(editorScript, /const voice = reactive<CharacterSpeech>/)
+  assert.match(editorScript, /speech: Object\.values\(voice\)\.some\(Boolean\) \? \{ \.\.\.voice \} : \{\}/)
+  assert.match(editorSource, /<VoicePicker/)
 })
 
 // ── Runtime (real SFC compile) ───────────────────────────────────────────────
@@ -150,27 +149,17 @@ function rosterSupport(vueUrl: string): string {
   return `
     ${VUE_IMPORTS}${JSON.stringify(vueUrl)}
     const useCharacters = () => globalThis.__job5Fixture.chars
-    const useCharacterLibrary = () => globalThis.__job5Fixture.cl
-    const useApi = () => globalThis.__job5Fixture.api
     const useToast = () => ({ success: (m) => globalThis.__job5Fixture.toasts.push(m), error: (m) => globalThis.__job5Fixture.errors.push(m) })
   `
 }
 
 function editorSupport(vueUrl: string): string {
-  // useApi/useConfirm must FORWARD at call time: the editor destructures
-  // `const { del, put } = useApi()` / `const { ask } = useConfirm()` once at
-  // setup, so a plain object swap on the fixture would never reach the
-  // captured binding and a deferred override would never be entered.
+  // useConfirm must FORWARD at call time: the editor destructures
+  // `const { ask } = useConfirm()` once at setup, so a plain object swap on the
+  // fixture would never reach the captured binding.
   return `
     ${VUE_IMPORTS}${JSON.stringify(vueUrl)}
-    const useCharacterLibrary = () => globalThis.__job5Fixture.cl
     const useCharacters = () => globalThis.__job5Fixture.chars
-    const useApi = () => ({
-      get: (...a) => globalThis.__job5Fixture.api.get(...a),
-      post: (...a) => globalThis.__job5Fixture.api.post(...a),
-      put: (...a) => globalThis.__job5Fixture.api.put(...a),
-      del: (...a) => globalThis.__job5Fixture.api.del(...a),
-    })
     const useConfirm = () => ({ ask: (...a) => globalThis.__job5Fixture.confirm.ask(...a) })
     const useToast = () => ({ success: (m) => globalThis.__job5Fixture.toasts.push(m), error: (m) => globalThis.__job5Fixture.errors.push(m) })
   `
@@ -189,12 +178,6 @@ async function mountRoster() {
     list: async () => { calls.push('chars.list'); return f.listResult },
     getOne: async (id: string) => { calls.push(`chars.getOne:${id}`); return f.canonical[id] },
   }
-  f.cl = {
-    getOne: async (id: string) => { calls.push(`cl.getOne:${id}`); return f.canonical[id] },
-  }
-  f.api = {
-    get: async (path: string) => { calls.push(`get:${path}`); return path === '/projects' ? f.projects : [] },
-  }
   ;(globalThis as any).__job5Fixture = f
 
   const vueUrl = await import.meta.resolve('vue')
@@ -212,23 +195,16 @@ async function mountEditor(props: Record<string, unknown>) {
   const errors: string[] = []
   const toasts: string[] = []
   const f: any = { calls, errors, toasts, created: 0, confirm: { ask: async () => true } }
-  f.cl = {
-    create: async (p: any) => { f.created++; calls.push(`cl.create:${JSON.stringify({ name: p.name, projects: p.projects })}`); return { id: 'new-1', ...p, references: { images: [] }, source: 'project', scope: 'project', schemaVersion: 1, created_at: 'now' } },
-    update: async (id: string, p: any) => { calls.push(`cl.update:${id}:${JSON.stringify(p)}`); return { id, ...p, references: p.references || { images: [] }, source: 'project', scope: 'project', schemaVersion: 1, created_at: 'now' } },
-    getOne: async (id: string) => { calls.push(`cl.getOne:${id}`); return { id, name: 'X', description: 'd', references: { images: [] } } },
-    uploadReferenceImage: async () => { calls.push('cl.upload'); throw new Error('Image is larger than 5 MB') },
-  }
   f.chars = {
-    create: async (p: any) => { f.created++; calls.push('chars.create'); return { id: 'new-1', ...p } },
-    update: async (id: string, p: any) => { calls.push(`chars.update:${id}:${JSON.stringify(p)}`); return { id, ...p } },
-    getOne: async (id: string) => { calls.push(`chars.getOne:${id}`); return { id, name: 'X', description: 'd' } },
-    uploadReferenceImage: async () => { calls.push('chars.upload'); throw new Error('boom') },
+    create: async (p: any) => { f.created++; calls.push(`chars.create:${JSON.stringify({ name: p.name, speech: p.speech })}`); return { id: 'new-1', ...p, references: { images: [] }, source: 'project', scope: 'project', schemaVersion: 1, created_at: 'now' } },
+    update: async (id: string, p: any) => { calls.push(`chars.update:${id}:${JSON.stringify(p)}`); return { id, ...p, references: p.references || { images: [] }, source: 'project', scope: 'project', schemaVersion: 1, created_at: 'now' } },
+    getOne: async (id: string) => { calls.push(`chars.getOne:${id}`); return { id, name: 'X', description: 'd', references: { images: [] } } },
+    uploadReferenceImage: async () => { calls.push('chars.upload'); throw new Error('Image is larger than 5 MB') },
+    removeReferenceImage: async (id: string, filename: string) =>
+      await f.api.del(`/projects/kh/characters/${id}/reference-image/${filename}`),
   }
   f.api = {
-    put: async (path: string, body: any) => { calls.push(`put:${path}:${JSON.stringify(body)}`); return { ok: true, config: body } },
     del: async (path: string) => { calls.push(`del:${path}`); return { id: 'c1', references: { images: [] } } },
-    get: async () => ({}),
-    post: async () => ({}),
   }
   ;(globalThis as any).__job5Fixture = f
 
@@ -246,7 +222,7 @@ test('roster lists only project-scope records; openEdit reads the canonical reco
   const { f, state, calls, unmount } = await mountRoster()
   try {
     f.listResult = [
-      { id: 'aria', name: 'Aria', description: 'knight', scope: 'project', source: 'library', projects: ['kh', 'en'], references: { images: [] }, schemaVersion: 1, created_at: 'now' },
+      { id: 'aria', name: 'Aria', description: 'knight', scope: 'project', source: 'project', projects: ['kh'], references: { images: [] }, schemaVersion: 1, created_at: 'now' },
       { id: 'old-ep', name: 'Old Episode Guest', description: 'legacy', scope: 'episode', source: 'project', references: { images: [] }, schemaVersion: 1, created_at: 'now' },
       { id: 'legacy', name: 'Legacy Local', description: 'own file', scope: 'project', source: 'project', references: { images: [] }, schemaVersion: 1, created_at: 'now' },
     ]
@@ -256,23 +232,38 @@ test('roster lists only project-scope records; openEdit reads the canonical reco
 
     const ids = state.records.value.map((r: any) => r.id)
     assert.deepEqual(ids, ['aria', 'legacy'], 'episode-scope legacy records stay out of the roster')
-    assert.ok(calls.includes('get:/projects'))
 
-    // Canonical read: library origin goes through /character-library, and the
-    // editor receives the FULL record (channel_profiles intact), not the
-    // collapsed list item.
+    // Canonical read goes through this channel's route and the editor receives
+    // the full record.
     f.canonical.aria = {
       id: 'aria', name: 'Aria', description: 'knight', scope: 'project', source: 'project',
-      projects: ['kh', 'en'],
-      speech: { voiceId: 'collapsed' },
-      channel_profiles: { kh: { speech: { voiceId: 'v-kh' } }, en: { speech: { voiceId: 'v-en' } } },
+      projects: ['kh'],
+      speech: { voiceId: 'v-kh' },
       references: { images: [] }, schemaVersion: 1, created_at: 'now',
     }
     await state.openEdit(state.records.value.find((r: any) => r.id === 'aria'))
     await flush()
-    assert.ok(calls.includes('cl.getOne:aria'), `canonical library read, calls=${calls.join('|')}`)
-    assert.equal(state.editing.value.channel_profiles.en.speech.voiceId, 'v-en', 'editor holds the full canonical profiles')
+    assert.ok(calls.includes('chars.getOne:aria'), `canonical channel read, calls=${calls.join('|')}`)
+    assert.equal(state.editing.value.speech.voiceId, 'v-kh', 'editor holds the channel record')
     assert.equal(state.editorVisible.value, true)
+  } finally {
+    unmount()
+  }
+})
+
+test('legacy rows are read-only and never read through the global library', { skip: depsSkip }, async () => {
+  const { f, state, calls, unmount } = await mountRoster()
+  try {
+    f.listResult = [
+      { id: 'old', name: 'Old Shared', description: 'legacy', scope: 'project', source: 'library', projects: ['kh'], references: { images: [] }, schemaVersion: 1, created_at: 'now' },
+    ]
+    await state.load()
+    await flush()
+
+    assert.equal(state.legacyCount.value, 1, 'the roster names the legacy row')
+    await state.openEdit(state.records.value[0])
+    assert.deepEqual(calls, ['chars.list'], `legacy edit made no canonical read, calls=${calls.join('|')}`)
+    assert.equal(state.editorVisible.value, false, 'legacy row did not open an editor')
   } finally {
     unmount()
   }
@@ -282,9 +273,7 @@ test('a failed reference upload after create updates the same record on the next
   const { f, state, calls, errors, unmount } = await mountEditor({
     visible: true,
     character: null,
-    origin: 'library',
     slug: 'kh',
-    channels: [{ slug: 'kh', name: 'Khmer Channel' }],
   })
   try {
     state.draft.name = 'Ana'
@@ -294,7 +283,7 @@ test('a failed reference upload after create updates the same record on the next
     await flush()
 
     assert.equal(f.created, 1, 'record created once')
-    assert.ok(calls.some(c => c.startsWith('cl.upload')), `upload attempted, calls=${calls.join('|')}`)
+    assert.ok(calls.some(c => c.startsWith('chars.upload')), `upload attempted, calls=${calls.join('|')}`)
     assert.match(errors[0], /was saved, but the image could not be added: Image is larger than 5 MB/)
     assert.equal(state.editing.value?.id, 'new-1', 'editor points at the created record after the partial failure')
 
@@ -302,28 +291,23 @@ test('a failed reference upload after create updates the same record on the next
     await state.saveCharacter()
     await flush()
     assert.equal(f.created, 1, 'no duplicate character on retry')
-    assert.ok(calls.some(c => c.startsWith('cl.update:new-1')), `retry updated, calls=${calls.join('|')}`)
+    assert.ok(calls.some(c => c.startsWith('chars.update:new-1')), `retry updated, calls=${calls.join('|')}`)
   } finally {
     unmount()
   }
 })
 
-test('editing one channel voice keeps every other channel profile and label; Cancel saves nothing', { skip: depsSkip }, async () => {
+test('the channel voice is saved on this channel only; Cancel saves nothing', { skip: depsSkip }, async () => {
   const canonical = {
     id: 'aria', name: 'Aria', description: 'knight', scope: 'project', source: 'project',
-    projects: ['kh', 'en'],
-    channel_profiles: {
-      kh: { speech: { voiceId: 'v-kh', voiceProvider: 'genstudio' } },
-      en: { speech: { voiceId: 'v-en', tonation: 'soft', voiceProvider: 'genstudio' } },
-    },
+    projects: ['kh'],
+    speech: { voiceId: 'v-kh', tonation: 'warm' },
     references: { images: [] }, schemaVersion: 1, created_at: 'now',
   }
   const { f, state, calls, unmount } = await mountEditor({
     visible: true,
     character: canonical,
-    origin: 'library',
     slug: 'kh',
-    channels: [{ slug: 'kh', name: 'Khmer Channel' }, { slug: 'en', name: 'English Channel' }],
   })
   try {
     // Cancel first: staged edits are discarded with zero API calls.
@@ -331,17 +315,16 @@ test('editing one channel voice keeps every other channel profile and label; Can
     state.requestClose()
     assert.deepEqual(calls, [], 'Cancel never persists')
 
-    state.voiceProfiles.kh.voiceId = 'v-kh-new'
+    state.voice.voiceId = 'v-kh-new'
     await state.saveCharacter()
     await flush()
 
-    const update = calls.find(c => c.startsWith('cl.update:'))
+    const update = calls.find(c => c.startsWith('chars.update:'))
     assert.ok(update, `update called, calls=${calls.join('|')}`)
-    const payload = JSON.parse(update!.slice('cl.update:aria:'.length))
-    assert.equal(payload.channel_profiles.en.speech.voiceId, 'v-en', 'other channel voice preserved')
-    assert.equal(payload.channel_profiles.en.speech.tonation, 'soft', 'other channel delivery note preserved')
-    assert.deepEqual([...payload.projects].sort(), ['en', 'kh'], 'assignments preserved')
-    assert.equal(payload.channel_profiles.kh.speech.voiceId, 'v-kh-new', 'current channel voice updated')
+    const payload = JSON.parse(update!.slice('chars.update:aria:'.length))
+    assert.deepEqual(payload.speech, { voiceId: 'v-kh-new', tonation: 'warm' }, 'this channel voice updated')
+    assert.equal(payload.projects, undefined, 'no assignment labels in the payload')
+    assert.equal(payload.channel_profiles, undefined, 'no multi-channel profiles in the payload')
   } finally {
     unmount()
   }
@@ -357,9 +340,7 @@ test('portrait/delete are staged: Cancel persists nothing, Save applies them in 
   const { state, calls, unmount } = await mountEditor({
     visible: true,
     character: canonical,
-    origin: 'library',
     slug: 'kh',
-    channels: [{ slug: 'kh', name: 'Khmer Channel' }],
   })
   try {
     await state.makePortrait('b.png')
@@ -379,8 +360,8 @@ test('portrait/delete are staged: Cancel persists nothing, Save applies them in 
     await state.removeReference('a.png')
     await state.saveCharacter()
     await flush()
-    const delAt = calls.findIndex(c => c.startsWith('del:/character-library/aria/reference-image/a.png'))
-    const updAt = calls.findIndex(c => c.startsWith('cl.update:aria:'))
+    const delAt = calls.findIndex(c => c.startsWith('del:/projects/kh/characters/aria/reference-image/a.png'))
+    const updAt = calls.findIndex(c => c.startsWith('chars.update:aria:'))
     assert.ok(delAt >= 0, `staged delete applied on Save, calls=${calls.join('|')}`)
     assert.ok(updAt >= 0, `record save applied on Save, calls=${calls.join('|')}`)
     assert.ok(delAt < updAt, 'delete lands before the record write')
@@ -401,13 +382,11 @@ test('a save completing after a record switch cannot touch the new editor state'
   const { f, state, toasts, unmount } = await mountEditor({
     visible: true,
     character: canonical,
-    origin: 'library',
     slug: 'kh',
-    channels: [{ slug: 'kh', name: 'Khmer Channel' }],
   })
   try {
     let release!: () => void
-    f.cl.update = (id: string, p: any) => new Promise((resolve) => {
+    f.chars.update = (id: string, p: any) => new Promise((resolve) => {
       release = () => resolve({
         id, name: 'A-SAVED', description: p.description, projects: p.projects,
         references: { images: ['a.png'] }, source: 'project', scope: 'project',
@@ -442,9 +421,7 @@ test('a DELETE resolving after a record switch cannot drain the new session stag
   const { f, state, unmount } = await mountEditor({
     visible: true,
     character: canonical,
-    origin: 'library',
     slug: 'kh',
-    channels: [{ slug: 'kh', name: 'Khmer Channel' }],
   })
   try {
     // Stage a delete in session one, then hold the DELETE mid-save.
@@ -487,9 +464,7 @@ test('a delete confirm resolving after a record switch stages nothing in the new
   const { f, state, calls, unmount } = await mountEditor({
     visible: true,
     character: canonical,
-    origin: 'library',
     slug: 'kh',
-    channels: [{ slug: 'kh', name: 'Khmer Channel' }],
   })
   try {
     let releaseConfirm!: () => void

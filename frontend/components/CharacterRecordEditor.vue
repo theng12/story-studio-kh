@@ -1,6 +1,10 @@
 <!--
-  Shared Channel Character record editor — moved out of pages/character-library.vue
-  so the Character Sheet roster can host the same editor instead of linking away.
+  Channel Character record editor — hosted by the Character Sheet roster.
+
+  A character belongs to exactly one channel (owner, 2026-11-06). Every read
+  and write goes through /projects/:slug/characters, so this editor never
+  touches the global character-library store and never offers channel
+  assignment or multi-channel voice profiles.
 
   Behaviour preserved from the library editor:
   - staged draft: nothing persists until Save Character; Cancel/close never save
@@ -8,13 +12,7 @@
   - partial-reference-upload recovery: record saves first, the pending image
     uploads after; a failed upload keeps the editor open pointing at the saved
     record so the next Save retries the upload instead of creating a duplicate
-  - reference images: preview-failure states, Make Portrait, Delete (library
-    records only — the project route has no reference-image DELETE)
-
-  `origin` is the source of the canonical record: 'library' records edit through
-  /character-library (shared identity, channel labels, per-channel voice
-  profiles); 'project' records are legacy per-project files whose folder IS the
-  assignment (no channel labels, top-level speech only).
+  - reference images: preview-failure states, Make Portrait, Delete
 -->
 <template>
   <Modal
@@ -29,31 +27,13 @@
     <form class="character-editor" @submit.prevent="saveCharacter">
       <header class="editor-header">
         <div>
-          <span class="workspace-section-eyebrow">{{ editing ? 'Edit shared record' : 'Create shared record' }}</span>
+          <span class="workspace-section-eyebrow">{{ editing ? 'Edit channel character' : 'New channel character' }}</span>
           <h2 id="character-record-editor-title">{{ editing ? (draft.name || editing.name) : 'New channel character' }}</h2>
         </div>
         <button type="button" class="btn btn-sm btn-secondary" @click="requestClose">Close</button>
       </header>
 
       <div class="editor-scroll">
-        <WorkspaceNotice
-          v-if="sharedWithNames.length"
-          class="mt-3"
-          tone="info"
-          title="Shared with other channels"
-        >
-          Identity, description and reference images are one shared record — changes here also apply to
-          {{ sharedWithNames.join(', ') }}.
-        </WorkspaceNotice>
-        <WorkspaceNotice
-          v-else-if="editing && recordOrigin === 'project'"
-          class="mt-3"
-          tone="info"
-          title="Lives in this channel only"
-        >
-          This record is stored inside this channel, so it cannot be assigned to other channels from here.
-        </WorkspaceNotice>
-
         <section class="editor-section">
           <div class="section-body">
             <h3>Identity</h3>
@@ -78,7 +58,7 @@
             </label>
             <label class="form-group">
               <span>Reference image</span>
-              <small>Stored with the shared character and reused by every assigned channel. Max 5 MB. The first image is the portrait.</small>
+              <small>Stored on this channel only. Max 5 MB. The first image is the portrait.</small>
               <input class="input file-input" type="file" accept="image/*" @change="onReferencePicked" />
             </label>
             <div v-if="draftImages.length" class="reference-strip">
@@ -100,7 +80,6 @@
                   <span v-if="draftImages[0] === filename" class="text-xs text-muted">Portrait</span>
                   <button v-else type="button" class="btn btn-sm btn-ghost" title="Use this image as the character's portrait" @click="makePortrait(filename)">Make Portrait</button>
                   <button
-                    v-if="recordOrigin === 'library'"
                     type="button"
                     class="btn btn-sm btn-ghost"
                     :title="`Delete ${filename}`"
@@ -113,46 +92,25 @@
           </div>
         </section>
 
-        <section v-if="recordOrigin === 'library'" class="editor-section">
+        <section class="editor-section">
           <div class="section-body">
-            <h3>Channel labels</h3>
-            <p class="section-help">Select every channel where this character should appear. This controls availability; it does not make copies. Unchecking this channel removes the character from this channel only — the shared record and its other channels stay.</p>
-            <div class="channel-options">
-              <label v-for="channel in channels" :key="channel.slug" :class="['channel-option', { selected: selectedChannels.has(channel.slug) }]">
-                <input type="checkbox" :checked="selectedChannels.has(channel.slug)" @change="toggleChannel(channel.slug)" />
-                <span><strong>{{ channel.name }}</strong><small>{{ channel.slug }}</small></span>
+            <h3>Voice</h3>
+            <p class="section-help">This channel's voice for the character. Voices are read live from your Gateway; the channel default is used when none is set.</p>
+            <div class="voice-fields">
+              <label class="form-group voice-picker-field">
+                <span>Voice</span>
+                <VoicePicker
+                  :model-value="voice.voiceId || null"
+                  :project-slug="slug"
+                  :scope-to-model="false"
+                  default-label="Use channel default"
+                  @update:model-value="voice.voiceId = $event || undefined"
+                />
               </label>
-            </div>
-          </div>
-        </section>
-
-        <section v-if="voiceSlugs.length" class="editor-section">
-          <div class="section-body">
-            <h3>Channel voice profiles</h3>
-            <p class="section-help">Each channel may use a different Gateway voice and delivery note for this same character. Voices are read live from your Gateway.</p>
-            <div class="voice-profile-list">
-              <div v-for="voiceSlug in voiceSlugs" :key="voiceSlug" class="voice-profile-card">
-                <div class="voice-profile-title">
-                  <div><strong>{{ channelName(voiceSlug) }}</strong><span>{{ voiceSlug }}</span></div>
-                  <span :class="['profile-state', { ready: profileFor(voiceSlug).voiceId }]">{{ profileFor(voiceSlug).voiceId ? 'Voice set' : 'Uses default' }}</span>
-                </div>
-                <div class="voice-fields">
-                  <label class="form-group voice-picker-field">
-                    <span>Voice</span>
-                    <VoicePicker
-                      :model-value="profileFor(voiceSlug).voiceId || null"
-                      :project-slug="voiceSlug"
-                      :scope-to-model="false"
-                      default-label="Use channel default"
-                      @update:model-value="profileFor(voiceSlug).voiceId = $event || undefined"
-                    />
-                  </label>
-                </div>
-                <label class="form-group">
-                  <span>Delivery note</span>
-                  <input v-model.trim="profileFor(voiceSlug).tonation" class="input" placeholder="soft, slow, reassuring" />
-                </label>
-              </div>
+              <label class="form-group">
+                <span>Delivery note</span>
+                <input v-model.trim="voice.tonation" class="input" placeholder="soft, slow, reassuring" />
+              </label>
             </div>
           </div>
         </section>
@@ -171,16 +129,12 @@
 import { ref, computed, reactive, watch } from 'vue'
 import type { Character, CharacterSpeech } from '../composables/useCharacters.js'
 
-type RecordOrigin = 'library' | 'project'
-
 const props = defineProps<{
   visible: boolean
-  /** Full canonical record (channel_profiles intact). Null = create. */
+  /** Full channel record. Null = create. */
   character: Character | null
-  origin: RecordOrigin
-  /** The channel hosting the roster — always assignable, never removable on create. */
+  /** The channel this character belongs to. */
   slug: string
-  channels: Array<{ slug: string; name: string }>
 }>()
 
 const emit = defineEmits<{
@@ -188,17 +142,14 @@ const emit = defineEmits<{
   saved: [character: Character]
 }>()
 
-const cl = useCharacterLibrary()
 const chars = useCharacters(() => props.slug)
-const { del, put } = useApi()
 const { ask } = useConfirm()
 const { success, error: showError } = useToast()
 
 const editing = ref<Character | null>(null)
 const saving = ref(false)
 const draft = reactive({ name: '', archetype: '', description: '' })
-const selectedChannels = ref(new Set<string>())
-const voiceProfiles = reactive<Record<string, CharacterSpeech>>({})
+const voice = reactive<CharacterSpeech>({})
 const pendingReference = ref<File | null>(null)
 // Staged reference changes: the visible image order and the images marked for
 // deletion. Nothing here touches the server until Save — Cancel discards both.
@@ -208,36 +159,33 @@ const stagedDeletes = ref<string[]>([])
 // save captures it once and checks it after each await, so a late completion
 // can never write into a different record's editor state.
 let editorSession = 0
-// Which endpoints this record lives on. Create always lands in the library
-// (POST /character-library), so a fresh record never starts as 'project'.
-const recordOrigin = ref<RecordOrigin>('library')
 const canSave = computed(() => !!draft.name.trim() && !!draft.description.trim())
 const editorSnapshot = ref('')
-// profileFor() adds empty profiles while rendering, so only filled ones count.
-const editorState = () => JSON.stringify([draft, [...selectedChannels.value], Object.entries(voiceProfiles).filter(([, p]) => Object.values(p).some(Boolean)), draftImages.value, stagedDeletes.value, !!pendingReference.value])
+const editorState = () => JSON.stringify([draft, { ...voice }, draftImages.value, stagedDeletes.value, !!pendingReference.value])
 const editorDirty = computed(() => props.visible && editorState() !== editorSnapshot.value)
+
+function resetVoice() {
+  for (const key of Object.keys(voice)) delete (voice as Record<string, unknown>)[key]
+}
 
 function resetEditor() {
   draft.name = ''
   draft.archetype = ''
   draft.description = ''
-  selectedChannels.value = new Set()
-  for (const key of Object.keys(voiceProfiles)) delete voiceProfiles[key]
+  resetVoice()
   pendingReference.value = null
   draftImages.value = []
   stagedDeletes.value = []
   editing.value = null
 }
 
-/** Seed the staged draft from the canonical record every time the modal opens. */
+/** Seed the staged draft from the channel record every time the modal opens. */
 function seed() {
   editorSession++
   saving.value = false
   resetEditor()
-  recordOrigin.value = props.character ? props.origin : 'library'
   const c = props.character
   if (!c) {
-    selectedChannels.value = new Set([props.slug])
     editorSnapshot.value = editorState()
     return
   }
@@ -246,16 +194,7 @@ function seed() {
   draft.archetype = c.archetype || ''
   draft.description = c.description
   draftImages.value = [...(c.references?.images || [])]
-  if (recordOrigin.value === 'library') {
-    selectedChannels.value = new Set(c.projects?.length ? c.projects : [props.slug])
-    for (const slug of selectedChannels.value) {
-      voiceProfiles[slug] = { ...(c.channel_profiles?.[slug]?.speech || {}) }
-    }
-  } else {
-    // Per-project record: the folder is the assignment, speech is top-level.
-    selectedChannels.value = new Set([props.slug])
-    voiceProfiles[props.slug] = { ...(c.speech || {}) }
-  }
+  Object.assign(voice, c.speech || {})
   editorSnapshot.value = editorState()
 }
 
@@ -268,51 +207,19 @@ function requestClose() {
   emit('close')
 }
 
-function toggleChannel(slug: string) {
-  const next = new Set(selectedChannels.value)
-  if (next.has(slug)) {
-    next.delete(slug)
-    delete voiceProfiles[slug]
-  } else {
-    next.add(slug)
-    voiceProfiles[slug] ||= {}
-  }
-  selectedChannels.value = next
-}
-
-function profileFor(slug: string): CharacterSpeech {
-  return (voiceProfiles[slug] ||= {})
-}
-
-function channelName(slug: string): string {
-  return props.channels.find(channel => channel.slug === slug)?.name || slug
-}
-
-/** Other channels whose shared identity/references this edit touches. */
-const sharedWithNames = computed(() => {
-  if (recordOrigin.value !== 'library' || !editing.value) return []
-  return [...selectedChannels.value].filter(slug => slug !== props.slug).map(channelName)
-})
-
-/** Voice cards: one per assigned channel (library) or just this channel (project). */
-const voiceSlugs = computed(() =>
-  recordOrigin.value === 'library' ? [...selectedChannels.value] : (editing.value ? [props.slug] : []),
-)
-
 async function saveCharacter() {
   if (!canSave.value || saving.value) return
   const session = editorSession
   const stale = () => session !== editorSession
   saving.value = true
   try {
-    // Staged deletions first: the library DELETE removes the record entry and
-    // moves the file to Trash in one step; the record save below then writes
-    // the final staged image list (order included) over the top.
+    // Staged deletions first: DELETE removes the record entry and moves the
+    // file to the channel's Trash in one step; the record save below then
+    // writes the final staged image list (order included) over the top.
     while (stagedDeletes.value.length && editing.value) {
-      if (recordOrigin.value !== 'library') { stagedDeletes.value = []; break }
       const filename = stagedDeletes.value[0]
       const targetId = editing.value.id
-      await del<Character>(`/character-library/${encodeURIComponent(targetId)}/reference-image/${encodeURIComponent(filename)}`)
+      await chars.removeReferenceImage(targetId, filename)
       // Stale check BEFORE touching state: a seed() during the await means
       // stagedDeletes now belongs to the newly opened record, and filtering
       // here would drain the new session's staged list.
@@ -320,42 +227,20 @@ async function saveCharacter() {
       stagedDeletes.value = stagedDeletes.value.filter(f => f !== filename)
     }
 
-    let saved: Character
-    if (recordOrigin.value === 'library') {
-      const profiles: NonNullable<Character['channel_profiles']> = {}
-      for (const slug of selectedChannels.value) {
-        const speech = voiceProfiles[slug]
-        if (speech && Object.values(speech).some(Boolean)) {
-          profiles[slug] = { speech: { ...speech, voiceProvider: 'genstudio' } }
-        }
-      }
-      const payload: Partial<Character> & Pick<Character, 'name' | 'description'> = {
-        name: draft.name.trim(),
-        archetype: draft.archetype,  // '' clears the role
-        description: draft.description.trim(),
-        projects: [...selectedChannels.value],
-        channel_profiles: profiles,
-        scope: 'project',
-        // Staged order/deletions land here; a create has no images yet (the
-        // pending upload below adds the first one after the record exists).
-        ...(editing.value ? { references: { ...editing.value.references, images: [...draftImages.value] } } : {}),
-      }
-      // From here on this is an existing record: if the upload below fails, the
-      // next Save updates it instead of creating a duplicate.
-      saved = editing.value
-        ? await cl.update(editing.value.id, payload)
-        : await cl.create(payload)
-    } else {
-      const speech = voiceProfiles[props.slug]
-      const payload: Partial<Character> & Pick<Character, 'name' | 'description'> = {
-        name: draft.name.trim(),
-        archetype: draft.archetype,
-        description: draft.description.trim(),
-        speech: speech && Object.values(speech).some(Boolean) ? { ...speech } : {},
-        references: { ...editing.value!.references, images: [...draftImages.value] },
-      }
-      saved = await cmUpdate(editing.value!.id, payload)
+    const payload: Partial<Character> & Pick<Character, 'name' | 'description'> = {
+      name: draft.name.trim(),
+      archetype: draft.archetype,  // '' clears the role
+      description: draft.description.trim(),
+      speech: Object.values(voice).some(Boolean) ? { ...voice } : {},
+      // Staged order/deletions land here; a create has no images yet (the
+      // pending upload below adds the first one after the record exists).
+      ...(editing.value ? { references: { ...editing.value.references, images: [...draftImages.value] } } : {}),
     }
+    // From here on this is an existing record: if the upload below fails, the
+    // next Save updates it instead of creating a duplicate.
+    let saved: Character = editing.value
+      ? await chars.update(editing.value.id, payload)
+      : await chars.create(payload)
     // A record/channel switch (seed) or Cancel during an await ends this
     // session: keep the roster honest with server truth, but never touch the
     // editor state that now belongs to another record.
@@ -365,12 +250,12 @@ async function saveCharacter() {
     emit('saved', saved)
     if (pendingReference.value) {
       try {
-        await uploadReference(saved.id, pendingReference.value)
+        await chars.uploadReferenceImage(saved.id, pendingReference.value)
       } catch (e: any) {
         if (!stale()) showError(`"${saved.name}" was saved, but the image could not be added: ${e?.data?.detail || e?.message || 'upload failed'}`)
         return
       }
-      saved = await fetchCanonical(saved.id)
+      saved = await chars.getOne(saved.id)
       if (stale()) { emit('saved', saved); return }
       editing.value = saved
       draftImages.value = [...(saved.references?.images || draftImages.value)]
@@ -386,34 +271,16 @@ async function saveCharacter() {
   }
 }
 
-// ── Origin-routed persistence ────────────────────────────────────────────────
-// The resolved project view collapses channel speech, so reads and writes
-// always follow the record's source origin — never the collapsed project view.
-
-async function cmUpdate(id: string, payload: Partial<Character>): Promise<Character> {
-  return await put<Character>(`/projects/${encodeURIComponent(props.slug)}/characters/${encodeURIComponent(id)}`, payload)
-}
-
-async function fetchCanonical(id: string): Promise<Character> {
-  return recordOrigin.value === 'library' ? await cl.getOne(id) : await chars.getOne(id)
-}
-
-async function uploadReference(id: string, file: File): Promise<unknown> {
-  return recordOrigin.value === 'library'
-    ? await cl.uploadReferenceImage(id, file)
-    : await chars.uploadReferenceImage(id, file)
-}
-
 // Reference ordering and deletion are STAGED in draftImages/stagedDeletes —
 // no write happens until Save. Cancel discards them untouched.
 
 async function removeReference(filename: string) {
-  if (recordOrigin.value !== 'library' || !editing.value) return
+  if (!editing.value) return
   // Capture identity before the confirm dialog: if the record/channel switches
   // while it is open, resolving it must not stage anything in the new session.
   const session = editorSession
   const targetId = editing.value.id
-  if (!await ask({ title: `Delete ${filename}?`, message: 'The image is removed from this character for every channel. A copy is kept in the character’s _trash folder.', confirmLabel: 'Delete Image', danger: true })) return
+  if (!await ask({ title: `Delete ${filename}?`, message: 'The image is removed from this character on this channel. A copy is kept in the channel’s _trash folder.', confirmLabel: 'Delete Image', danger: true })) return
   if (session !== editorSession || editing.value?.id !== targetId) return
   draftImages.value = draftImages.value.filter(f => f !== filename)
   if (!stagedDeletes.value.includes(filename)) stagedDeletes.value = [...stagedDeletes.value, filename]
@@ -453,9 +320,7 @@ function retryReferencePreview(filename: string) {
 function referenceUrl(filename: string): string {
   const id = encodeURIComponent(editing.value?.id || '')
   const file = encodeURIComponent(filename)
-  const path = recordOrigin.value === 'library'
-    ? `/api/character-library/${id}/reference-image/${file}`
-    : `/api/projects/${encodeURIComponent(props.slug)}/characters/${id}/reference-image/${file}`
+  const path = `/api/projects/${encodeURIComponent(props.slug)}/characters/${id}/reference-image/${file}`
   return referencePreviewVersion.value ? `${path}?preview=${referencePreviewVersion.value}` : path
 }
 </script>
@@ -475,17 +340,6 @@ function referenceUrl(filename: string): string {
 .field-grid, .voice-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .form-group { display: flex; flex-direction: column; gap: 6px; margin-top: 14px; font-size: 12px; }
 .file-input { padding: 8px; }
-.channel-options { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 8px; margin-top: 14px; }
-.channel-option { display: flex; align-items: center; gap: 10px; padding: 12px; border: 1px solid var(--border); border-radius: 10px; cursor: pointer; background: var(--bg-secondary); }
-.channel-option.selected { border-color: var(--accent); background: rgba(245, 193, 88, .08); }
-.channel-option span, .channel-option small { display: block; }
-.channel-option small { color: var(--text-muted); margin-top: 2px; }
-.voice-profile-list { display: flex; flex-direction: column; gap: 10px; margin-top: 14px; }
-.voice-profile-card { padding: 16px; border: 1px solid var(--border); border-radius: 12px; background: var(--bg-secondary); }
-.voice-profile-title { display: flex; justify-content: space-between; gap: 10px; }
-.voice-profile-title div span { display: block; color: var(--text-muted); font-size: var(--font-xs); margin-top: 2px; }
-.profile-state { color: var(--text-muted); font-size: var(--font-xs); text-transform: uppercase; letter-spacing: .09em; }
-.profile-state.ready { color: #63d995; }
 .voice-picker-field :deep(.voice-picker) { width: 100%; }
 .reference-strip { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 10px; }
 .reference-card { width: 132px; display: flex; flex-direction: column; gap: 6px; }

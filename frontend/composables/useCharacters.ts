@@ -109,7 +109,14 @@ export function useCharacters(slug: SlugSource) {
     )
   }
 
-  return { list, listForEpisode, getOne, create, update, promote, remove, uploadReferenceImage }
+  /** Remove one reference image from a channel-owned character. */
+  async function removeReferenceImage(id: string, filename: string): Promise<Character> {
+    return await del<Character>(
+      `/projects/${getSlug()}/characters/${encodeURIComponent(id)}/reference-image/${encodeURIComponent(filename)}`,
+    )
+  }
+
+  return { list, listForEpisode, getOne, create, update, promote, remove, uploadReferenceImage, removeReferenceImage }
 }
 
 function fileToBase64(file: File): Promise<string> {
