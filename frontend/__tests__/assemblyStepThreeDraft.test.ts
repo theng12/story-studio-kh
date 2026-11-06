@@ -121,6 +121,12 @@ describe('step 3 popup wiring', () => {
     }
     assert.doesNotMatch(page, /AnimationsCatalog|loadAnimationsCatalog|revealLibrary|loadRevealPlan/)
 
+    // The owner's boundary is two-sided: transitions and title/chapter styling stay here.
+    assert.match(popup, /<TransitionPicker/)
+    assert.match(popup, /v-model="titleMotion\.timeline\.title_image\.enabled"/)
+    assert.match(popup, /v-model="titleMotion\.effects\.title_card\.enabled"/)
+    assert.match(popup, /v-model="titleMotion\.effects\.chapter_titles\.enabled"/)
+
     // The separate Motion Review step still owns the pen, reveal style and line weight.
     const motionReview = readFileSync(new URL('../pages/projects/[slug]/motion-review.vue', import.meta.url), 'utf8')
     assert.match(motionReview, /<option value="sketch_draw">Sketch Draw<\/option>/)
