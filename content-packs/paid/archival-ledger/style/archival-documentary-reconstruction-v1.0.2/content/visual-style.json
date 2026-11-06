@@ -11,8 +11,8 @@
     "photographic reconstruction",
     "old film"
   ],
-  "style_bible": "original archival documentary photographic reconstruction, candid observational staging rather than theatrical posing, warm charcoal-sepia monochrome, restrained contrast with softly lifted highlights and deep but readable blacks, natural lens falloff, subtle silver-gelatin emulsion grain, faint dust and occasional hairline scratches, gently uneven exposure, soft vignette, modest depth of field, documentary atmosphere, convincing early photographic texture while remaining an explicitly created reconstruction rather than a claimed recovered source",
-  "negative_prompt": "modern objects, contemporary clothing, glossy colour photography, vivid saturation, cinematic blockbuster lighting, polished CGI, painterly illustration, ink wash, cartoon, copied historical photograph, famous-person likeness unless explicitly requested, fabricated readable newspaper claims, propaganda poster styling, subtitles, captions, labels, logos, watermark, player UI, borders, letterbox bars, extreme film damage that obscures the subject",
+  "style_bible": "photographic reconstruction, candid observational staging rather than theatrical posing, warm charcoal-sepia monochrome, restrained contrast with softly lifted highlights and deep but readable blacks, natural lens falloff, subtle silver-gelatin emulsion grain, faint dust and occasional hairline scratches, gently uneven exposure, soft vignette, modest depth of field, convincing monochrome photographic texture",
+  "negative_prompt": "glossy colour photography, vivid saturation, cinematic blockbuster lighting, polished CGI, painterly illustration, ink wash, cartoon, copied photograph, specific living person's likeness, readable captions, labels, logos, watermark, player UI, borders, letterbox bars, extreme film damage that obscures the subject",
   "preview_assets": [
     "assets/archival-documentary-reconstruction.webp",
     "assets/archival-documentary-reconstruction-scene.webp",
