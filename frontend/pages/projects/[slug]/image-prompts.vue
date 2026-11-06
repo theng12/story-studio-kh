@@ -397,7 +397,12 @@ const thumbnailVisionLoading = ref(false)
 const thumbnailVisionLoadError = ref('')
 // Called through an arrow rather than passed to `map` directly: `map` hands its
 // callback the array index second, and the options bag is what carries `now`.
-const thumbnailVisionModelMenuOptions = computed(() => thumbnailVisionModels.value.map(model => thumbnailVisionModelMenuOption(model)))
+const thumbnailVisionModelMenuOptions = computed(() => thumbnailVisionModels.value.map(model => {
+  const option = thumbnailVisionModelMenuOption(model)
+  // Owner, 2026-11-06: owner-facing menus carry no cost annotation. Opt in to
+  // the shared row's identity, queue shelf and retirement facts only.
+  return { id: option.id, label: option.label, group: option.group, groupNote: option.groupNote, meta: option.meta, badges: option.badges }
+}))
 const selectedThumbnailVisionModel = computed(() => thumbnailVisionModels.value.find(model => model.id === thumbnailVisionModel.value) || null)
 
 // Lights the Thumbnail Prompts nav pulse while a run is going.

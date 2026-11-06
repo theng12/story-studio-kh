@@ -369,7 +369,12 @@ const previewKey = ref(Date.now())
 const shellPreviewFailed = ref(false)
 const shellBusy = ref(false)
 const visionModels = ref<ThumbnailVisionModel[]>([])
-const visionModelMenuOptions = computed(() => visionModels.value.map(model => thumbnailVisionModelMenuOption(model)))
+const visionModelMenuOptions = computed(() => visionModels.value.map(model => {
+  const option = thumbnailVisionModelMenuOption(model)
+  // Owner, 2026-11-06: owner-facing menus carry no cost annotation. Opt in to
+  // the shared row's identity, queue shelf and retirement facts only.
+  return { id: option.id, label: option.label, group: option.group, groupNote: option.groupNote, meta: option.meta, badges: option.badges }
+}))
 const visionLoading = ref(false)
 const visionError = ref('')
 const visionModelId = ref('')

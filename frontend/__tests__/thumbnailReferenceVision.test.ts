@@ -20,9 +20,8 @@ test('thumbnail reference analysis shows only qualified Gateway vision models', 
   assert.match(route, /thumbnail-reference\/vision-models/)
   assert.match(page, /thumbnailVisionModels/)
   // The page's Shell flow and the Shell editor both present the same
-  // qualified Gateway rows through the shared menu and option builder — price,
-  // retirement and relaxed-shelf facts come from the live rows, not a
-  // hand-built list.
+  // qualified Gateway rows through the shared menu and option builder — queue
+  // shelf and retirement facts come from the live rows, not a hand-built list.
   assert.match(page, /\/projects\/\$\{slug\.value\}\/thumbnail-reference\/vision-models/)
   assert.match(page, /<ModelMenu/)
   assert.match(page, /:options="thumbnailVisionModelMenuOptions"/)
@@ -41,8 +40,13 @@ test('thumbnail reference analysis shows only qualified Gateway vision models', 
     output_credits_per_million_tokens: 3, minimum_credits: 1, price_version: 'v1',
   })
   assert.equal(option.group, 'Gateway · Vision only')
-  assert.equal(option.price, '2 credits / 1M input tokens · 3 credits / 1M output tokens')
-  assert.match(option.priceTitle, /minimum of 1 credit applies/i)
+  // Owner, 2026-11-06: owner-facing menus carry no price annotation. Both
+  // owning SFCs opt in to the shared row's queue shelf and retirement facts
+  // only, so a builder price can never reappear in this UI.
+  for (const surface of [page, editor]) {
+    assert.doesNotMatch(surface, /price/i)
+    assert.match(surface, /groupNote: option\.groupNote/)
+  }
   assert.match(page, /Vision model for a new picture/)
   assert.match(page, /Upload your own/)
   assert.match(page, /saves a reusable Shell in your library/)
