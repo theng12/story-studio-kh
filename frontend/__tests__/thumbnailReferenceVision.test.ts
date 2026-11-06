@@ -45,7 +45,9 @@ test('thumbnail reference analysis shows only qualified Gateway vision models', 
   // only, so a builder price can never reappear in this UI.
   for (const surface of [page, editor]) {
     assert.doesNotMatch(surface, /price/i)
+    assert.match(surface, /group: option\.group/)
     assert.match(surface, /groupNote: option\.groupNote/)
+    assert.match(surface, /badges: option\.badges/)
   }
   assert.match(page, /Vision model for a new picture/)
   assert.match(page, /Upload your own/)

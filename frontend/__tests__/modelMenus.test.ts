@@ -47,12 +47,13 @@ describe('shared model menus', () => {
     assert.match(modelMenu, /badge\.title \|\| badge\.label/)
     assert.match(modelMenu, /catalogNoticeHref/)
     assert.match(modelMenu, /selectableOptionCount/)
-    // Every published fact the anchored panel carried still renders.
+    // Every non-price published fact the anchored panel carried still renders.
     assert.match(modelMenu, /v-if="option\.description"/)
     assert.match(modelMenu, /v-if="option\.meta"/)
     assert.match(modelMenu, /model-menu-option-provider/)
-    assert.match(modelMenu, /model-menu-option-price/)
-    assert.match(modelMenu, /Published rate/)
+    // Owner, 2026-11-06: owner-facing pickers show no price row.
+    assert.doesNotMatch(modelMenu, /model-menu-option-price|Published rate/)
+    assert.doesNotMatch(modelMenu, /v-if="option\.(price|priceTitle|priceNote)"/)
     assert.match(modelMenu, /option\.provider/)
     assert.match(modelMenu, /option\.disabledReason/)
     assert.match(modelMenu, /\{\{ catalogNotice \}\}/)
@@ -71,7 +72,7 @@ describe('shared model menus', () => {
     assert.match(modelMenu, /props\.options\.length \? `\$\{selectableOptionCount\.value\} available` : ''/)
   })
 
-  test('account-locked teaser models remain visible with price but cannot be selected', () => {
+  test('account-locked teaser models remain visible but cannot be selected', () => {
     assert.match(modelMenu, /:aria-disabled="option\.disabled \|\| undefined"/)
     assert.match(modelMenu, /if \(option\.disabled\) return/)
     assert.match(modelSelector, /genStudioModelLockReason\(model\)/)
@@ -137,25 +138,16 @@ describe('shared model menus', () => {
     assert.doesNotMatch(appSettings, /provider_id:\s*(?!.*req\.params)/)
   })
 
-  test('every priced ModelMenu modality maps its published rate through the shared price row', () => {
-    assert.match(modelSelector, /describeChatRate/)
-    assert.match(modelSelector, /price:\s*rate\.text/)
-    assert.match(modelSelector, /priceTitle:\s*rate\.title/)
-    assert.match(modelSurfaces.audio, /describeVoiceRate/)
-    assert.match(modelSurfaces.audio, /price:\s*rate\.text/)
-    assert.match(modelSurfaces.audio, /priceTitle:\s*rate\.title/)
-    assert.match(imagePicker, /describeImageModelRate/)
-    assert.match(imagePicker, /price:\s*rate\.text/)
-    assert.match(imagePicker, /priceTitle:\s*rate\.title/)
-    assert.match(modelSurfaces.motion, /describeVideoModelRate/)
-    assert.match(modelSurfaces.motion, /price:\s*rate\.text/)
-    assert.match(modelSurfaces.motion, /priceTitle:\s*rate\.title/)
-    assert.match(transcriptionCatalog, /describeTranscriptionRate/)
-    assert.match(transcriptionCatalog, /price:\s*rate\.text/)
-    assert.match(transcriptionCatalog, /priceTitle:\s*rate\.title/)
-    assert.match(modelSurfaces.research, /describeWebResearchRate/)
-    assert.match(modelSurfaces.research, /price:\s*rate\.text/)
-    assert.match(modelSurfaces.research, /priceTitle:\s*rate\.title/)
+  test('owner-facing model menus render no price row', () => {
+    // Owner, 2026-11-06: prices are not shown in owner-facing model pickers.
+    // Every surface reaches the customer through this shared row.
+    assert.doesNotMatch(modelMenu, /model-menu-option-price|Published rate/)
+    assert.doesNotMatch(modelMenu, /v-if="option\.(price|priceTitle|priceNote)"/)
+    // The row still carries the facts a choice is made on.
+    assert.match(modelMenu, /option\.provider/)
+    assert.match(modelMenu, /option\.meta/)
+    assert.match(modelMenu, /option\.disabledReason/)
+    assert.match(modelMenu, /option\.description/)
   })
 
   test('thumbnail generator enables reference guidance only for qualified Gateway models', () => {
