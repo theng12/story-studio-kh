@@ -1,5 +1,5 @@
 {
-  "revision": 433,
+  "revision": 435,
   "batches": [
     {
       "revision": 2,
@@ -8940,6 +8940,42 @@
           }
         ]
       }
+    },
+    {
+      "revision": 434,
+      "receipt_ref": "authoring:ef2b0f115ed9fb53528843267204c588b7c7d05fa014fe4c600ecd3e58654fcb",
+      "request": {
+        "expected_revision": 433,
+        "coordinator": {
+          "task": "style-subject-neutralization",
+          "branch": "release/1.4.384"
+        },
+        "proposal_ref": "Owner 2026-11-01: all art style must be neutral and only apply style. Text-only patch to remove the last subject-implying words from the bold-illustrated-history style bible without rewriting the published 1.0.3 artifact.",
+        "records": [
+          {
+            "pack_id": "com.storystudio.pack.style.bold-illustrated-history",
+            "item_id": "com.storystudio.style.bold-illustrated-history",
+            "version": "1.0.4",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "visual-style",
+            "source_path": "content-packs/illustrated-history/style/bold-illustrated-history-v1.0.4",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.style.bold-illustrated-history",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.style.bold-illustrated-history",
+                "status": "proposed"
+              }
+            }
+          }
+        ]
+      }
     }
   ],
   "transitions": [
@@ -15190,6 +15226,23 @@
         "receipt_ref": "authoring:72039eaac7f94ccc5013de4e8a504c5e5a880233983f22e8ebdfe362ed7c8cb8",
         "pack_id": "com.storystudio.pack.thumbnail.night-glaze-title-v2",
         "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 435,
+      "transition_ref": "lifecycle:d8d000ef9e70c91ed248e2d59e2a321238d454d97e07b14c854007ac20a7db5f",
+      "request": {
+        "expected_revision": 434,
+        "coordinator": {
+          "task": "style-subject-neutralization",
+          "branch": "release/1.4.384"
+        },
+        "receipt_ref": "authoring:ef2b0f115ed9fb53528843267204c588b7c7d05fa014fe4c600ecd3e58654fcb",
+        "pack_id": "com.storystudio.pack.style.bold-illustrated-history",
+        "version": "1.0.4",
         "changes": {
           "status": "authored"
         }
@@ -25072,6 +25125,29 @@
         },
         "sku": {
           "id": "com.storystudio.sku.thumbnail.night-glaze-title-v2",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:ef2b0f115ed9fb53528843267204c588b7c7d05fa014fe4c600ecd3e58654fcb",
+      "pack_id": "com.storystudio.pack.style.bold-illustrated-history",
+      "item_id": "com.storystudio.style.bold-illustrated-history",
+      "version": "1.0.4",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "visual-style",
+      "source_path": "content-packs/illustrated-history/style/bold-illustrated-history-v1.0.4",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.style.bold-illustrated-history",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.style.bold-illustrated-history",
           "status": "proposed"
         }
       }
