@@ -296,6 +296,8 @@ async function createWindow(port: number) {
   // A page with unsaved edits asks to confirm unload (beforeunload). Without this handler
   // Electron cancels a reload or window close silently, which looks like a frozen app.
   mainWindow.webContents.on('will-prevent-unload', (event) => {
+    // Marker so a SIGTERM-timeout log can show an unsaved-edits modal was open; no data.
+    console.log('[shutdown] beforeunload prompt opening')
     const choice = dialog.showMessageBoxSync(mainWindow!, {
       type: 'warning',
       buttons: ['Stay', 'Discard and leave'],
@@ -896,10 +898,13 @@ let isShuttingDown = false
 const SHUTDOWN_DRAIN_MS = 800
 electronApp.on('before-quit', (event) => {
   if (isShuttingDown) return
+  // Stage markers for the smoke's SIGTERM-timeout report; no behavior change.
+  console.log('[shutdown] before-quit event')
   // Say what happens to running jobs before they stop. Headless server mode has no window to ask in.
   // An update quit never asks: a drain that hit its 30-minute ceiling would stall at the dialog.
   const warning = isQuittingForUpdate() ? null : formatQuitWarning(getQueueStats().running)
   if (warning && mainWindow && !mainWindow.isDestroyed()) {
+    console.log('[shutdown] quit-warning dialog opening')
     const choice = dialog.showMessageBoxSync(mainWindow, {
       type: 'warning', buttons: ['Quit', 'Cancel'], defaultId: 0, cancelId: 1,
       message: warning.title, detail: warning.body,
@@ -911,6 +916,7 @@ electronApp.on('before-quit', (event) => {
   }
   isShuttingDown = true
   event.preventDefault()
+  console.log('[shutdown] server close requested')
   try { if (server) server.close() } catch (e) { logCrash('shutdown-server-close', e) }
   try {
     const pids = killAllTrackedChildren()
@@ -921,11 +927,18 @@ electronApp.on('before-quit', (event) => {
     logCrash('shutdown-killchildren', e)
   }
   void drainJobPersistenceForShutdown(SHUTDOWN_DRAIN_MS).then(drained => {
+    console.log(`[shutdown] job persistence drained: ${drained}`)
     if (drained) clearRunningFlag()
     else console.error('[shutdown] Job persistence did not drain before the shutdown deadline; preserving the running flag for recovery.')
+    console.log('[shutdown] final quit requested')
     electronApp.quit()
   }).catch(e => {
     logCrash('shutdown-job-persistence', e)
+    console.log('[shutdown] final quit requested')
     electronApp.quit()
   })
+})
+
+electronApp.on('will-quit', () => {
+  console.log('[shutdown] will-quit event')
 })

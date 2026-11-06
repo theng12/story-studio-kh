@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { TERM_GRACE_MS, TERM_POLL_MS, finalizeLaunchSandbox, stopChild } from '../smoke-launch-artifact.mjs'
+import { TERM_GRACE_MS, TERM_POLL_MS, finalizeLaunchSandbox, shutdownMarkerLines, stopChild } from '../smoke-launch-artifact.mjs'
 
 // These tests drive the real exported functions the smoke launch uses — the
 // settle and the retention decision — with stub children and a private temp
@@ -74,6 +74,24 @@ describe('smoke launch TERM-only stop', () => {
     assert.equal(TERM_GRACE_MS, 5_000)
     assert.equal(TERM_POLL_MS, 100)
     assert.equal(TERM_GRACE_MS / TERM_POLL_MS, 50)
+  })
+
+  test('the shutdown-marker filter keeps only stage lines, never URLs or raw output', () => {
+    const output = [
+      'Backend running on https://127.0.0.1:61611',
+      '[shutdown] before-quit event',
+      'GET /api/health 200',
+      '[shutdown] server close requested',
+      '    [shutdown] will-quit event',
+    ].join('\n')
+    assert.deepEqual(shutdownMarkerLines(output), [
+      '[shutdown] before-quit event',
+      '[shutdown] server close requested',
+      '[shutdown] will-quit event',
+    ])
+    assert.equal(shutdownMarkerLines('').length, 0, 'no markers, no evidence lines')
+    const repeated = Array.from({ length: 25 }, (_, index) => `[shutdown] stage ${index}`)
+    assert.deepEqual(shutdownMarkerLines(repeated.join('\n')), repeated.slice(-20), 'retain only the last 20 markers')
   })
 })
 
