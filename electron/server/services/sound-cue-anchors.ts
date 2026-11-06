@@ -345,13 +345,18 @@ export async function recheckCuesAfterReplan(
   // stamp means this run did not re-cut anything and the same lines would be
   // repeated on every prompt regeneration after it. Escapes that survive that
   // are still reported by Sound & Labels itself, where the person can act.
+  //
+  // Each timeline owns its own stamp. A current label file says nothing about
+  // the sounds beside it: they may still have been saved under an earlier
+  // plan, and letting the label stamp return early hid exactly that drift.
   const planStamp = typeof plan.generated_at === 'string' ? plan.generated_at : ''
-  if (labels?.source_scene_plan_generated_at && planStamp
-    && labels.source_scene_plan_generated_at === planStamp) return []
+  const currentForPlan = (stamp: unknown) => !!stamp && !!planStamp && stamp === planStamp
+  const labelsCurrent = currentForPlan(labels?.source_scene_plan_generated_at)
   const subtitles = await readEpisodeCueTiming(stitchedSrtFile)
   const sounds = await readSoundDesignTimeline(scenePlanPath)
+  const soundsCurrent = currentForPlan(sounds?.source_scene_plan_generated_at)
   const lines: string[] = []
-  if (labels) {
+  if (labels && !labelsCurrent) {
     const result = reconcileAnchoredCues(labels.cues, plan, subtitles)
     if (result.moved.length) {
       lines.push(
@@ -363,7 +368,7 @@ export async function recheckCuesAfterReplan(
     }
     for (const escape of findSceneEscapes(labels, plan, subtitles)) lines.push(escape.detail)
   }
-  if (sounds) {
+  if (sounds && !soundsCurrent) {
     const result = reconcileAnchoredCues(sounds.cues, plan, subtitles)
     if (result.moved.length) {
       lines.push(

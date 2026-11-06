@@ -333,4 +333,26 @@ describe('A re-plan that shifts scenes re-checks the cues and says so', () => {
       assert.equal(findSceneEscapes(reread, plan, subtitles).length, 0)
     } finally { await fs.rm(dir, { recursive: true, force: true }) }
   })
+
+  test('a current label timeline does not silence sound drift', async () => {
+    // The label file already belongs to this plan; the sound file does not.
+    // The label stamp must not return early for the sounds beside it.
+    const { dir, planPath, srtPath } = await withEpisode([erieCanalOpens], plan.generated_at)
+    try {
+      await fs.writeFile(path.join(dir, 'sound_design.json'), JSON.stringify({
+        schema_version: 2,
+        generated_at: '2026-10-20T00:00:00.000Z',
+        source_scene_plan_generated_at: '2026-10-20T00:00:00.000Z',
+        settings: {},
+        cues: [{
+          id: 'sound-lockport', kind: 'spot', label: 'lock gates', scene_id: 'ep0006-scene-0004',
+          anchor_word: 'Erie Canal', start_sec: 1, end_sec: 3, clip: 'gate.wav', gain_db: -12,
+          status: 'approved', created_at: 'now', updated_at: 'now',
+        }],
+      }))
+      const lines = await recheckCuesAfterReplan(planPath, plan, srtPath)
+      assert.ok(lines.some(line => /1 sound cue\(s\) follow their scene/.test(line)), lines.join('\n'))
+      assert.ok(!lines.some(line => /label\(s\) follow their scene/.test(line)), 'a current label file stays quiet')
+    } finally { await fs.rm(dir, { recursive: true, force: true }) }
+  })
 })
