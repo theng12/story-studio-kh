@@ -20,6 +20,7 @@ import { getApiKey } from '../services/app-secrets-store.js'
 import { callChatWithGenStudio, chatImageEligibility, listChatModels, uploadImageSourceWithGenStudio, type GenStudioChatModel } from '../lib/genstudio-client.js'
 import { JSON_OBJECT_OUTPUT_CONTRACT } from '../lib/json-output-contract.js'
 import * as tl from '../services/thumbnail-template-loader.js'
+import { firstParam } from './content-pack-route-support.js'
 import type { ThumbnailTemplate } from '../models/types.js'
 
 export const router = Router()
@@ -89,7 +90,8 @@ function parseComposition(raw: string): Record<string, unknown> {
  * safe to put in a named preset or a queued Pipeline snapshot.
  */
 router.get(['/projects/:slug/thumbnail-reference/vision-models', '/thumbnail-templates/vision/models'], async (req, res) => {
-  if (req.params.slug && !await pm.getProject(req.params.slug)) return res.status(404).json({ detail: 'Project not found' })
+  const slug = firstParam(req.params.slug)
+  if (slug && !await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
   try {
     const apiKey = await getApiKey('genstudio')
     if (!apiKey) return res.status(400).json({ detail: 'Add a Gateway API Key first.' })
@@ -129,7 +131,7 @@ router.get(['/projects/:slug/thumbnail-reference/vision-models', '/thumbnail-tem
 })
 
 router.post(['/projects/:slug/thumbnail-reference/analyze', '/thumbnail-templates/:shellTemplateId/analyze'], async (req, res) => {
-  const slug = req.params.slug || ''
+  const slug = firstParam(req.params.slug)
   if (slug && !await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
   const sourcePath = typeof req.body?.source_path === 'string' ? req.body.source_path.trim() : ''
   const modelId = typeof req.body?.model_id === 'string' ? req.body.model_id.trim() : ''
