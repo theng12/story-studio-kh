@@ -1123,6 +1123,37 @@ export function clampVideoDurationToFrame(durationSec: number, fps: number): num
   return durationSec + Number.EPSILON >= 1 / fps ? durationSec : 0
 }
 
+/**
+ * A scene body exists only in whole frames: FFmpeg writes `round(duration × fps)` frames per clip.
+ * Keeping the plan's float durations and only extending the last clip is not enough — `buildConcatList`
+ * sums `clip.duration` to place the tail, so the other clips' sub-frame remainders stay in that sum
+ * while their rendered frames do not: MineePod EP0018's original 2243.38s became a 2243.683333s
+ * planner sum over a 2243.4s body, the tail shrank by 0.28s, and the join landed on the same
+ * 2268.100s against a 2268.380s target. Normalise EVERY scene to an exact frame count and give the
+ * accumulated remainder to the last scene, so the planner sum is the frame count the clips render.
+ */
+export function frameExactSceneDurations(durations: number[], fps: number): number[] {
+  if (!Number.isFinite(fps) || fps <= 0 || !durations.length) return [...durations]
+  const frames = durations.map(duration => Math.round(duration * fps))
+  // `ceil` (not round) so the body covers the planned end; the epsilon absorbs binary remainders.
+  const coveredFrames = Math.ceil(durations.reduce((sum, duration) => sum + duration, 0) * fps - 1e-9)
+  const missingFrames = Math.max(0, coveredFrames - frames.reduce((sum, value) => sum + value, 0))
+  frames[frames.length - 1]! += missingFrames
+  return frames.map(value => value / fps)
+}
+
+/**
+ * The post-audio tail renders in whole frames too. Round its end UP to the next frame boundary so
+ * the body + tail reach the planned target instead of stopping up to half a frame short; the clip
+ * encoders then produce exactly the frames this number describes.
+ */
+export function frameExactTailDuration(targetDuration: number, sceneEndTime: number, fps: number): number {
+  if (!Number.isFinite(fps) || fps <= 0) return 0
+  const remaining = clampVideoDurationToFrame(Math.max(0, targetDuration - sceneEndTime), fps)
+  if (remaining <= 0) return 0
+  return Math.ceil(remaining * fps - 1e-9) / fps
+}
+
 export function splitFadeToBlackDuration(
   postDuration: number,
   requestedFadeDuration: number,
@@ -3751,6 +3782,12 @@ export async function generateVideo(job: Job): Promise<VideoAssemblyDisposition>
       )
     }
 
+    // The clip encoder writes a whole number of frames per scene; make the timeline say the same
+    // number so the join guard measures a renderable length, not a floating-point wish.
+    if (sceneClipDurations.length) {
+      sceneClipDurations = frameExactSceneDurations(sceneClipDurations, quality.fps)
+    }
+
     let sceneClips: string[] = []
     if (authoritativeAssets.visual_source !== 'image_pool') {
       sceneClips = await prepareSceneClips(
@@ -4098,6 +4135,9 @@ export async function generateVideo(job: Job): Promise<VideoAssemblyDisposition>
           + `${poolReveals.scenes.length} still(s) planned; scene track `
           + `${sceneClipDurations.reduce((sum, value) => sum + value, 0).toFixed(1)}s`,
         )
+      }
+      if (sceneClipDurations.length) {
+        sceneClipDurations = frameExactSceneDurations(sceneClipDurations, quality.fps)
       }
       planTransitionTail = 0
       if (exactSceneTiming && sceneClipDurations.length >= 2 && req.transition && req.transition !== 'none' && getTransition(req.transition)?.xfade) {
@@ -6552,10 +6592,7 @@ async function buildConcatList(
     // Treat sub-frame remainders as zero. The fitted scene timeline often
     // equals targetDuration mathematically but differs by ~1e-13 in binary
     // floating point; passing that value to lavfi's color duration fails.
-    const postDuration = clampVideoDurationToFrame(
-      Math.max(0, targetDuration - sceneEndTime),
-      quality.fps,
-    )
+    const postDuration = frameExactTailDuration(targetDuration, sceneEndTime, quality.fps)
 
     if (postDuration > 0) {
       // Pinning codec/colourspace on every post-audio clip so it can be
