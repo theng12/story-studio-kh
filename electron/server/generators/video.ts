@@ -60,6 +60,7 @@ import {
   finalCheckOptionsFor,
   type FinalCheckExpectation, type FinalCheckIntro, type FinalCheckResult, type PlannedSectionGaps,
 } from '../lib/final-video-check.js'
+import { sketchSceneBlankStartsForEpisode } from '../services/final-check-expectation.js'
 import { withLock } from '../lib/atomic-store.js'
 import { estimateBytesForStep, getFreeBytes, formatBytes } from '../lib/disk.js'
 import { getWorkTempDir } from '../lib/work-tempdir.js'
@@ -4443,6 +4444,11 @@ export async function generateVideo(job: Job): Promise<VideoAssemblyDisposition>
       sectionGaps: await readPlannedSectionGaps(episodeDir),
       ...(introClipForCheck ? { intro: introClipForCheck } : {}),
     })
+    // The check's Sketch Draw exemptions come from this episode's own Scene Plan and clip
+    // receipts (never a guessed reveal); no plan or receipt leaves black judged as before.
+    finalCheckExpected.scene_blank_starts = await sketchSceneBlankStartsForEpisode(
+      project_slug, code, episodeDir, finalCheckExpected.speech_end_sec,
+    )
     let encodeSucceeded = false
     try {
       const compositionResult = await runFinalComposition({

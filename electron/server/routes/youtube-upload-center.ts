@@ -108,6 +108,7 @@ import {
 } from '../lib/final-video-check.js'
 import {
   expectationFromFrozenShape, finalFreezeStateFor, finalFreezeStates, planlessExpectationFor,
+  sketchSceneBlankStartsForEpisode,
 } from '../services/final-check-expectation.js'
 import {
   applyScheduleAssignmentsWithRollback, computeSlots, episodeOrderShifts, getActivePlanId, getPlan,
@@ -3454,6 +3455,12 @@ router.post('/projects/:slug/youtube/final-check', async (req, res) => {
         ? Number(recorded!.speech_end_sec)
         : await speechEndSecForEpisode(slug, episodeCode, sourcePaths.episode_dir),
     }
+    // A render's own windows describe the file it made; an older/plan-less verdict takes them
+    // from the episode's own Scene Plan and clip receipts, never from a guessed reveal.
+    expected.scene_blank_starts = expected.scene_blank_starts
+      ?? await sketchSceneBlankStartsForEpisode(
+        slug, episodeCode, sourcePaths.episode_dir, expected.speech_end_sec,
+      )
     // A plan-less verdict written before the tail field carried an explicit answer holds the check's
     // own zero placeholder with no `tail_unknown` marker beside it. That zero is not a placement: it
     // is indistinguishable from "this file drew no tail", so the check must say it cannot place the
