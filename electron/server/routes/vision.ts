@@ -208,6 +208,8 @@ router.post(['/projects/:slug/thumbnail-reference/analyze', '/thumbnail-template
     }
     const remote = await uploadImageSourceWithGenStudio(apiKey, storedPath)
     if (model.max_image_dimension > 0 && Math.max(remote.width, remote.height) > model.max_image_dimension) {
+      // A plain reference copy is per-request; a Shell picture is content-addressed and shared.
+      if (!shellAuthoring) await fs.rm(storedPath, { force: true })
       return res.status(422).json({ detail: `Reference image exceeds this model’s ${model.max_image_dimension}px dimension limit.` })
     }
     const result = await callChatWithGenStudio(apiKey, {
