@@ -1236,12 +1236,19 @@ test('rejects a registry file that grows beyond its bound after opening', async 
   const root = await temporaryRepository()
   t.after(() => rm(root, { recursive: true, force: true }))
   const copy = join(root, 'content-packs', 'authoring-registry.json')
+  // Mirrors authoring-registry.mjs MAX_REGISTRY_BYTES, which is not exported.
+  const MAX_REGISTRY_BYTES = 8 * 1024 * 1024
   const original = await readFile(copy)
-  await writeFile(copy, Buffer.concat([original, Buffer.alloc(7 * 1024 * 1024, 0x20)]))
+  // The registry keeps growing; pad from its real size so the opened handle is
+  // under the bound and only the append below can exceed it.
+  const initial = Buffer.concat([original, Buffer.alloc(MAX_REGISTRY_BYTES - original.length - 1024, 0x20)])
+  assert.ok(initial.length < MAX_REGISTRY_BYTES)
+  await writeFile(copy, initial)
 
   const validating = validateAuthoringRegistry({ registryPath: copy, repositoryRoot: root })
-  await appendFile(copy, Buffer.alloc(2 * 1024 * 1024, 0x20))
-  await assert.rejects(validating, /byte limit|changed while being read|grew/i)
+  const rejected = assert.rejects(validating, /byte limit|changed while being read|grew/i)
+  await appendFile(copy, Buffer.alloc(64 * 1024, 0x20))
+  await rejected
 })
 
 test('rejects a registry path replaced after its handle opens', async (t) => {
