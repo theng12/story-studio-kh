@@ -307,6 +307,20 @@ test('queue auto-retries one terminal free-fleet image under a fresh key and pre
     }
     client.clearGenStudioCatalogCache()
     await import('../providers/image/genstudio.js')
+    const { _setJobAutoRetryDelaysForTesting, resolveJobAutoRetryPolicy } = await import('../services/job-retry-policy.js')
+    // The product property is the published SCHEDULE: a fleet hiccup lasts
+    // minutes, so a free image retry waits about a minute rather than two
+    // seconds. The queue's wait itself is compressed through the existing seam
+    // (AGENTS §10) instead of faking the global clock — a faked clock makes every
+    // other deadline in the run read the wrong time and the wait unable to report.
+    assert.deepEqual(
+      resolveJobAutoRetryPolicy({ type: 'continuity_render', params: { model: FREE_FLEET_IMAGE_MODEL } }).delays_ms,
+      [60_000, 300_000],
+      'a fleet hiccup lasts minutes, so the free retry waits about a minute rather than two seconds',
+    )
+    // Long enough that the scheduled `next_retry_at` is observable (the job
+    // clears it on success), short enough that the second attempt is not a wait.
+    _setJobAutoRetryDelaysForTesting(1_000)
 
     const { project, episodeId, paths } = await createContinuityFixture('Free fleet queue retry')
     projectSlug = project.slug
@@ -338,23 +352,9 @@ test('queue auto-retries one terminal free-fleet image under a fresh key and pre
       label: 'free image waits before its automatic retry', timeoutMs: 10_000,
     })
     assert.equal(jq.getJob(queuedJobId)?.auto_retry?.max_attempts, 3)
-    assert.ok(Date.parse(jq.getJob(queuedJobId)!.auto_retry!.next_retry_at!) - Date.now() > 50_000,
-      'a fleet hiccup lasts minutes, so the free retry waits about a minute rather than two seconds')
-    // Fast-forward the retry wait: the clock jumps two minutes every quarter second.
-    const realNow = Date.now
-    let skipped = 0
-    Date.now = () => realNow() + skipped
-    const clock = setInterval(() => { skipped += 2 * 60_000 }, 250)
-    try {
-      // Each jump is credited back to waitFor's scheduled-time budget; only its
-      // wall-clock backstop would read the fake clock, so it is lifted here.
-      await waitFor(() => ['done', 'error'].includes(jq.getJob(queuedJobId)?.status || ''), {
-        label: 'free image queue auto-retry finishes', timeoutMs: 10_000, maxWallClockMs: Number.POSITIVE_INFINITY,
-      })
-    } finally {
-      clearInterval(clock)
-      Date.now = realNow
-    }
+    await waitFor(() => ['done', 'error'].includes(jq.getJob(queuedJobId)?.status || ''), {
+      label: 'free image queue auto-retry finishes', timeoutMs: 10_000,
+    })
     const completedJob = jq.getJob(queuedJobId)!
     assert.equal(completedJob.status, 'done', completedJob.error || completedJob.output_lines.join('\n'))
     assert.equal(completedJob.auto_retry?.attempt, 2)
@@ -378,6 +378,7 @@ test('queue auto-retries one terminal free-fleet image under a fresh key and pre
     assert.equal(submissions[1]!.idempotencyKey, expectedRetryKey, 'terminal task id produces one reproducible retry identity')
     assert.deepEqual(completedJob.params.scene_ids, ['scene-001'], 'the next attempt is narrowed to unresolved images')
   } finally {
+    ;(await import('../services/job-retry-policy.js'))._setJobAutoRetryDelaysForTesting(null)
     globalThis.fetch = originalFetch
     const client = await import('../lib/genstudio-client.js')
     client.clearGenStudioCatalogCache()
