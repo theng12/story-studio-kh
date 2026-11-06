@@ -18,6 +18,7 @@ What's new in each release. Newest first.
 - Style descriptions were corrected for 50 authoring-only styles without changing their preview images; two live style descriptions were also corrected at source only.
 - These changes apply to new videos from December onward. A channel whose schedule is already past December applies them only to its even newer videos. Finished videos are untouched, and saved choices are not backfilled.
 - Assembly popups keep space around their content and controls on desktop and small screens. The effects toolbar wraps inside the dialog instead of clipping its search and category buttons.
+- Gateway connection details and Sign Out sit together in the left sidebar instead of floating over page buttons. The top bar keeps connection and job information without a credit-balance display.
 
 ## v1.4.383 — 2026-11-06
 

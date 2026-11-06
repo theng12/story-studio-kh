@@ -130,7 +130,7 @@ You'll see the login page. Enter the credentials you set above. The full Story S
 
 Bookmark the URL.
 
-A small connection-status banner sits in the bottom-right of every page showing the host, your username, a colored dot for round-trip latency, and a **Sign Out** button.
+On channel pages, the left sidebar groups the Gateway connection status, the host and your username, and a small **Sign Out** button. The connection block stays in the sidebar so it cannot cover page actions.
 
 ### Mirror your folder layout on both Macs (recommended)
 
