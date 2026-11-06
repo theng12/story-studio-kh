@@ -12,7 +12,7 @@
     "scientific illustration",
     "soft depth"
   ],
-  "style_bible": "painterly editorial tableau with a softly hand-painted finish, calm wide composition with clear foreground, midground, and distant layers, readable representative forms with natural proportions, soft atmospheric depth with mist, sun shafts or hazy air, serene teal shadows, mossy greens, warm dawn amber, volcanic ochre, gentle controlled texture, spacious visual rest, quiet premium editorial mood, no glossy CGI look, no artificial spectacle",
+  "style_bible": "painterly editorial tableau with a softly hand-painted finish, calm wide composition with layered depth where the scene provides it, readable representative forms with natural proportions, soft atmospheric depth only where the scene's own air provides it, serene teal shadows, muted greens, warm amber, ochre, gentle controlled texture, spacious visual rest, quiet premium editorial mood, no glossy CGI look, no artificial spectacle",
   "negative_prompt": "text, captions, typography, logo, watermark, player UI, letterbox bars, channel branding, copied composition, photoreal live-action look, glossy CGI plastic, generic sci-fi, horror gore, distorted anatomy, extra limbs, dense collage, frantic action, oversharpened detail",
   "preview_assets": [
     "assets/paleo-documentary-tableau.webp",

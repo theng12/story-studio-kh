@@ -12,7 +12,7 @@
     "flat color",
     "annotation"
   ],
-  "style_bible": "Draw with uneven black ink contours, flat limited fills, and sparse paper-like backgrounds. Where figures appear, keep them anatomically coherent and expressive, with clear eyes, limbs and posture; where an animal appears, keep its species-defining features readable. Use a tactile hand-drawn annotation texture only where the selected thumbnail recipe asks for it; keep one readable focal subject and avoid crowding the frame. Favor warm moss, muted leaf green, cream, charcoal, faded gold, and quiet earth tones over glossy dramatic lighting.",
+  "style_bible": "Draw with uneven black ink contours, flat limited fills, and sparse paper-like backgrounds. Any subject the scene supplies stays anatomically coherent and expressive, with clear eyes, limbs and posture where it has them, and keeps its identifying features readable. Use a tactile hand-drawn annotation texture only where the selected thumbnail recipe asks for it; keep one readable focal subject and avoid crowding the frame. Favor warm moss, muted leaf green, cream, charcoal, faded gold, and quiet earth tones over glossy dramatic lighting.",
   "negative_prompt": "Reject photoreal stock imagery, glossy CGI, copied channel branding, duplicate captions, watermarks/logos, violent cruelty, malformed anatomy, malformed text, dense collage, cluttered labels, neon colors, and copied trade dress.",
   "preview_assets": [
     "assets/hand-drawn-hardship-cartoon.webp",

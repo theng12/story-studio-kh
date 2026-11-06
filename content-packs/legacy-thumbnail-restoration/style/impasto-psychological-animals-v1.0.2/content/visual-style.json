@@ -12,7 +12,7 @@
     "figurative",
     "editorial"
   ],
-  "style_bible": "Render thick impasto oil paint with visible palette-knife ridges, dry-brush edges, matte pigment, and muted melancholy. Give one clear focal subject a psychologically legible posture or gesture; where it is a figure, keep anatomically coherent limbs; where it is an animal, keep its species-defining features readable; keep the expression calm and editorial. Use parchment cream, smoky umber, charcoal, muted rust, and restrained dusty color. Maintain strong figure-ground separation, one dominant subject, and generous breathing room. When the retained thumbnail recipe calls for it, leave an optional opposing title-safe band rather than painting text into the image.",
+  "style_bible": "Render thick impasto oil paint with visible palette-knife ridges, dry-brush edges, matte pigment, and muted melancholy. Give one clear focal subject a psychologically legible posture or gesture; keep its anatomy coherent and its identifying features readable; keep the expression calm and editorial. Use parchment cream, smoky umber, charcoal, muted rust, and restrained dusty color. Maintain strong figure-ground separation, one dominant subject, and generous breathing room. When the retained thumbnail recipe calls for it, leave an optional opposing title-safe band rather than painting text into the image.",
   "negative_prompt": "Reject cute simplified character design, photoreal stock photography, glossy CGI, neon color, copied trade dress, episode text, watermarks/logos, malformed limbs, malformed anatomy, malformed text, dense collage, crowd scenes, and duplicate captions.",
   "preview_assets": [
     "assets/impasto-psychological-animals.webp",
