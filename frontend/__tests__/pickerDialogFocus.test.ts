@@ -160,12 +160,10 @@ function mountPicker(ticks: number) {
 }
 
 describe('picker dialog opening focus', () => {
-  test('ModelMenu shows a dedicated published rate without hiding the model description', async () => {
+  test('ModelMenu renders no published rate and keeps the model description', async () => {
     const { host, unmount } = await mountModelMenu()
     try {
-      const price = host.querySelector<HTMLElement>('.model-menu-option-price')
-      assert.equal(price?.textContent?.trim(), 'Published rate · 12 credits / 1M input tokens · 24 credits / 1M output tokens')
-      assert.equal(price?.title, 'The Gateway publishes this token rate. The final charge depends on actual usage.')
+      assert.equal(host.querySelector('.model-menu-option-price'), null)
       assert.equal(
         host.querySelector<HTMLElement>('.model-menu-option-description')?.textContent?.trim(),
         'A balanced model for routine work.',
@@ -175,7 +173,7 @@ describe('picker dialog opening focus', () => {
     }
   })
 
-  test('thumbnail vision selection mounts its live input and output rates with the published minimum', async () => {
+  test('thumbnail vision selection renders no price row and keeps its vision metadata', async () => {
     const option = thumbnailVisionModelMenuOption({
       id: 'vision-live-v1',
       display_name: 'Live Vision',
@@ -191,10 +189,14 @@ describe('picker dialog opening focus', () => {
     })
     const { host, unmount } = await mountModelMenu([option], option.id)
     try {
-      const price = host.querySelector<HTMLElement>('.model-menu-option-price')
-      assert.equal(price?.textContent?.trim(), 'Published rate · 12 credits / 1M input tokens · 24 credits / 1M output tokens')
-      assert.match(price?.title || '', /minimum of 3 credits/i)
-      assert.match(price?.title || '', /Live Vision/)
+      assert.equal(host.querySelector('.model-menu-option-price'), null)
+      assert.equal(
+        host.querySelector<HTMLElement>('.model-menu-option-meta')?.textContent?.trim(),
+        '1 image · high detail',
+      )
+      const badges = [...host.querySelectorAll<HTMLElement>('.model-menu-badge')]
+        .map(badge => badge.textContent?.trim())
+      assert.deepEqual(badges, ['Vision', 'JSON'])
     } finally {
       unmount()
     }
