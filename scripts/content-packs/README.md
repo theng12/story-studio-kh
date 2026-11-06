@@ -6,7 +6,7 @@ contact GenStudio, purchase content, activate a pack, or modify customer content
 
 ## Art styles apply style only
 
-Owner, 2026-11-01: "all art style must be neutral and only apply style. no other elements should it affect." A `style_bible` says how things are drawn: line, colour, shadow, texture, composition, light. It never says what to draw. Scene prompts alone decide subjects. Any named subject leaks into unrelated scenes on a model that reads the whole prompt, even inside a condition or a limit, and so do genre words and required subject classes. Colour names such as "bone white" are fine. Keep safety limits, phrased generally.
+Owner, 2026-11-01: "all art style must be neutral and only apply style. no other elements should it affect." A `style_bible` says how things are drawn: line, colour, shadow, texture, composition, light. It never says what to draw. Scene prompts alone decide subjects. Any named subject leaks into unrelated scenes on a model that reads the whole prompt, even inside a condition or a limit, and so do genre words and required subject classes. Colour names such as "bone white" are fine. Keep safety limits, phrased generally. A subject-word check runs at build time and stops the build if it finds a flagged word in `style_bible`; passing it does not replace a test drawing, because a text check can't prove what a model draws.
 
 ## Authoring registry
 

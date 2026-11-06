@@ -1,0 +1,29 @@
+{
+  "kind": "visual-style",
+  "schema_version": 1,
+  "id": "com.storystudio.style.oil-deep-glaze-v2",
+  "name": "Deep Glaze Nocturne",
+  "description": "Dark painterly oil for night viewing — a near-black teal ground, warm bronze and amber light, soft low-contrast edges and visible brushwork. Calm and settled, never bright and never frightening.",
+  "category": "Illustration",
+  "tags": [
+    "dark",
+    "painterly",
+    "oil",
+    "nocturne",
+    "sleep"
+  ],
+  "style_bible": "Painted in deep glazes over a near-black teal ground that shows through every passage, so the darkest areas read as depth rather than empty space. Light arrives from one side and settles slowly, thin and warm in bronze and amber, touching only the planes that face it while everything else falls away into soft coloured shadow. Figures are blocked in with broad confident strokes and soft edges, form suggested by value and a single warm accent rather than drawn in detail. Surfaces keep their paint: visible brush drag, a thin raised ridge where light gathers, tooth showing through the thin passages. Contrast stays low to mid, nothing jumps, and even the deepest shadows hold a trace of colour instead of going flat black. Edges soften toward the margins with a gentle vignette and nothing is sharply cut out. The result is calm, slow and settled, made for quiet viewing before sleep.",
+  "negative_prompt": "flat even lighting, bright cheerful palette, vivid saturated colour, neon, glossy 3D render, clean flat vector, hard cut-out edges, crushed pure black with no colour left in the shadows, harsh white highlights, comic outlines, lettering of any kind",
+  "preview_assets": [
+    "assets/oil-deep-glaze-v2.webp",
+    "assets/oil-deep-glaze-v2-scene.webp",
+    "assets/oil-deep-glaze-v2-hardest.webp"
+  ],
+  "compatible_formula_ids": [
+    "com.storystudio.formula.sleep-story-v2",
+    "com.storystudio.formula.sleep-history-compilation-v2",
+    "com.storystudio.formula.calm-science-for-sleep",
+    "com.storystudio.formula.illustrated-history-for-sleep",
+    "com.storystudio.formula.mythology-for-sleep"
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "kind": "visual-style",
+  "schema_version": 1,
+  "id": "com.storystudio.style.warm-cosy-interior-illustration",
+  "name": "Warm Cosy Interior Illustration",
+  "description": "Warm painted illustration with soft digital brushwork in browns, cream and amber with muted greens, inviting and quiet, detailed and never photographic.",
+  "category": "Illustration",
+  "tags": [
+    "cosy",
+    "warm light",
+    "painterly digital",
+    "warm browns",
+    "amber",
+    "muted greens",
+    "inviting",
+    "calm"
+  ],
+  "style_bible": "A warm image painted in soft digital brush, in the register of an illustrated magazine plate rather than a photograph. Medium and surface: soft painterly digital art with visible brush groupings — broad blended planes, looser scumbled strokes across surfaces, and a few crisper marks reserved for the nearest forms. There is no photographic texture, no lens blur and no three-dimensional gloss. Palette: warm browns, cream and amber across the lit surfaces, held against muted greens. Warm colours dominate; the greens stay quiet and slightly grey rather than forming a competing scheme. Lighting: gentle warm light — one or two warm sources inside the frame, each with a soft halo and a gentle falloff that lets the corners settle into a warm half-dark. Cool light may enter as a clearly weaker secondary note. Never an even flood of light and never a harsh key. Composition: real depth — a near surface in the foreground, a middle plane, and a further plane beyond. Clean and uncluttered enough to read at card size, inviting and calm, with no drama. No recognisable brand or legible lettering. Keep the contract content-independent: no copied composition.",
+  "negative_prompt": "photoreal, photograph, photorealistic, camera render, 3D render, CGI, glossy plastic, lens blur, depth of field bokeh, HDR, harsh key light, even studio lighting, white background, empty bare room, flat vector, cel shading, thick ink outline, anime, cartoon mascot, chibi, neon, oversaturated, dramatic event, violence, legible signage, brand logo, menu lettering, captions, signature, watermark, border, frame, copied reference composition",
+  "preview_assets": [
+    "assets/warm-cosy-interior-illustration.webp",
+    "assets/warm-cosy-interior-illustration-scene.webp",
+    "assets/warm-cosy-interior-illustration-hardest.webp"
+  ],
+  "compatible_formula_ids": []
+}

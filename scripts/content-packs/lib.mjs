@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url'
 import JSZip from 'jszip'
 import { register } from 'tsx/esm/api'
 import { validateAuthoringRegistry } from './authoring-registry.mjs'
+import { checkStylePack, formatSubjectFailures, formatSubjectWarnings } from './subject-check.mjs'
 
 const unregisterTsx = register()
 const [{ ContentPackDocumentSchema, ContentPackManifestSchema, isBundleOnlyCoordinationManifest }, { verifyContentPackArchive, verifyDeliveryAttestedContentPackArchive }] = await Promise.all([
@@ -346,6 +347,12 @@ async function loadSourceManifest(sourceDirectory, onSourceEnumerated, onBeforeS
     }
     contents.push({ path: file.relativePath, bytes, document })
   }
+  // Subject-word check: style_bible must not name subjects, description is warning only.
+  const subjectResult = await checkStylePack(contents.map(c => c.document), sourceManifest.pack_id)
+  const subjectFailureMessage = formatSubjectFailures(subjectResult.failures)
+  if (subjectFailureMessage) fail(subjectFailureMessage)
+  const subjectWarningMessage = formatSubjectWarnings(subjectResult.warnings)
+  if (subjectWarningMessage) process.stderr.write(`${subjectWarningMessage}\n`)
   const otherFiles = []
   for (const file of source.files.filter(file => file.relativePath.startsWith('assets/'))) {
     otherFiles.push({ path: file.relativePath, bytes: await snapshotSourceFile(file, onBeforeSourceRead) })

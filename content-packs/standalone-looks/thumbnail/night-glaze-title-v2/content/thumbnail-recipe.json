@@ -1,0 +1,66 @@
+{
+  "kind": "thumbnail-recipe",
+  "schema_version": 1,
+  "id": "com.storystudio.thumbnail.night-glaze-title-v2",
+  "name": "Night Glaze Title",
+  "description": "One clear focal subject on a deep dark ground, lit by a single warm accent, with the real episode title in large cream serif type in the upper left over the quiet side of the frame. Nothing in the picture is brighter than the title. Works with any dark, low-light art style.",
+  "layout": "hero",
+  "category": "Sleep Story",
+  "tags": [
+    "dark",
+    "low light",
+    "single accent",
+    "cream title",
+    "serif",
+    "episode title",
+    "calm",
+    "16:9"
+  ],
+  "aspect_ratio": "16:9",
+  "title_mode": "ai",
+  "composition_guidance": "One clear focal subject on a deep teal-black ground, lit by a single warm accent, with the title carried in large cream type over the quiet side of the frame. When the picture is drawn, compose it so the focal subject sits in the right half and stays out of the left 45% of the frame, which is held back as quiet dark ground for the title. Let deep shadow fill most of the frame. The warm accent is bronze or amber and covers no more than a third of the frame. Keep the bottom-left corner quiet and dark as well. The active Visual Style stays the final authority for medium, line, texture and how anything is drawn; this recipe controls only the framing, the light and the title.",
+  "composition_rules": [
+    "Hold the left 45% of the frame back as quiet dark ground for the title, and place the focal subject in the right half, outside that zone.",
+    "Draw the exact episode title in large cream (about #F4E8CE) type, left-aligned in the upper left, in a high-contrast old-style serif at bold weight, over the dark ground rather than over the brightest part of the picture.",
+    "Reach contrast with the dark ground behind the letters, not with an outline or a stroke around them.",
+    "Give the picture one warm accent light only, covering no more than a third of the frame; do not add a second competing light source.",
+    "Let deep shadow fill most of the frame, and keep everything in the picture dimmer than the title.",
+    "Keep the bottom-left corner quiet and dark, clear of the title, so a small channel line can sit there."
+  ],
+  "required_elements": [
+    "one clear focal subject",
+    "one warm accent light",
+    "large cream title on the quiet dark side",
+    "quiet dark bottom-left corner"
+  ],
+  "avoid_elements": [
+    "bright or washed-out frames, and anything brighter than the title",
+    "a second competing light source",
+    "busy collages or more than one competing focal subject",
+    "outlines, strokes or drop-shadow-only type that depends on the picture behind it",
+    "invented bait headlines, and a channel name repeated inside the headline",
+    "metallic, neon, comic, distressed, or horror lettering treatments",
+    "any text beyond the episode title",
+    "logos, watermarks or copied trade dress"
+  ],
+  "headline_mode": "episode-title",
+  "headline_guidance": "Use the real episode title exactly as given. Do not invent a bait line, do not shorten it, and do not restate the channel name in the headline. Set it in large cream serif type, left-aligned, wrapped over as few lines as will keep the smallest word readable at card size.",
+  "default_text_style": "white",
+  "default_font_style": "serif",
+  "default_text_position": "top",
+  "headline_formats": [
+    "{EPISODE_TITLE}"
+  ],
+  "visual_style_guidance": "Deep teal-black ground, warm bronze or amber highlights covering no more than a third of the frame, deep shadows, low-to-mid contrast, no bright washes, nothing glossy. Mood is calm, unhurried, settled and low light, with no tension.",
+  "preview_assets": [
+    "assets/night-glaze-title-1.webp",
+    "assets/night-glaze-title-2.webp"
+  ],
+  "compatible_formula_ids": [
+    "com.storystudio.formula.sleep-story",
+    "com.storystudio.formula.illustrated-history-for-sleep",
+    "com.storystudio.formula.mythology-for-sleep",
+    "com.storystudio.formula.calm-science-for-sleep",
+    "com.storystudio.formula.sleep-history-compilation"
+  ]
+}

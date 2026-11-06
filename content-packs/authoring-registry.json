@@ -1,5 +1,5 @@
 {
-  "revision": 425,
+  "revision": 433,
   "batches": [
     {
       "revision": 2,
@@ -8772,6 +8772,174 @@
           }
         ]
       }
+    },
+    {
+      "revision": 426,
+      "receipt_ref": "authoring:72039eaac7f94ccc5013de4e8a504c5e5a880233983f22e8ebdfe362ed7c8cb8",
+      "request": {
+        "expected_revision": 425,
+        "coordinator": {
+          "task": "style-subject-neutralization",
+          "branch": "release/1.4.384"
+        },
+        "proposal_ref": "Owner 2026-11-01: all art style must be neutral and only apply style. Owner 2026-11-02: sleep channels get darker scene imagery (Deep Glaze Nocturne) and a Night Glaze Title thumbnail companion. Neutralized sources are new immutable versions; earlier published versions stay untouched. Recovered from stranded branch content/style-subject-check-376 and re-authored at revision 425.",
+        "records": [
+          {
+            "pack_id": "com.storystudio.pack.style.bold-illustrated-history",
+            "item_id": "com.storystudio.style.bold-illustrated-history",
+            "version": "1.0.3",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "visual-style",
+            "source_path": "content-packs/illustrated-history/style/bold-illustrated-history-v1.0.3",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.style.bold-illustrated-history",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.style.bold-illustrated-history",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.style.cinematic-historical-illustration",
+            "item_id": "com.storystudio.style.cinematic-historical-illustration",
+            "version": "1.0.2",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "visual-style",
+            "source_path": "content-packs/illustrated-history/style/cinematic-historical-illustration-v1.0.2",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.style.cinematic-historical-illustration",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.style.cinematic-historical-illustration",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.style.archival-documentary-reconstruction",
+            "item_id": "com.storystudio.style.archival-documentary-reconstruction",
+            "version": "1.0.2",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "visual-style",
+            "source_path": "content-packs/paid/archival-ledger/style/archival-documentary-reconstruction-v1.0.2",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.style.archival-documentary-reconstruction",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.style.archival-documentary-reconstruction",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.style.old-master-still-life",
+            "item_id": "com.storystudio.style.old-master-still-life",
+            "version": "1.0.2",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "visual-style",
+            "source_path": "content-packs/sleep-history/style/old-master-still-life-v1.0.2",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.style.old-master-still-life",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.style.old-master-still-life",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.style.warm-cosy-interior-illustration",
+            "item_id": "com.storystudio.style.warm-cosy-interior-illustration",
+            "version": "1.0.2",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "visual-style",
+            "source_path": "content-packs/custom-looks/style/warm-cosy-interior-illustration-v1.0.2",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.style.warm-cosy-interior-illustration",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.style.warm-cosy-interior-illustration",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.style.oil-deep-glaze-v2",
+            "item_id": "com.storystudio.style.oil-deep-glaze-v2",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "visual-style",
+            "source_path": "content-packs/standalone-looks/style/oil-deep-glaze-v2",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.style.oil-deep-glaze-v2",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.style.oil-deep-glaze-v2",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.thumbnail.night-glaze-title-v2",
+            "item_id": "com.storystudio.thumbnail.night-glaze-title-v2",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "thumbnail-recipe",
+            "source_path": "content-packs/standalone-looks/thumbnail/night-glaze-title-v2",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.thumbnail.night-glaze-title-v2",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.thumbnail.night-glaze-title-v2",
+                "status": "proposed"
+              }
+            }
+          }
+        ]
+      }
     }
   ],
   "transitions": [
@@ -14902,6 +15070,125 @@
         },
         "receipt_ref": "authoring:5170c0564b75679b21329d85eef0f76e892d6ed2ce67d29a7fe48a77929e4d0a",
         "pack_id": "com.storystudio.pack.lettering.text-white",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 427,
+      "transition_ref": "lifecycle:cbf624f5471af91cb8133698004d5afb341d018110bd3fc189421a840fe62edf",
+      "request": {
+        "expected_revision": 426,
+        "coordinator": {
+          "task": "style-subject-neutralization",
+          "branch": "release/1.4.384"
+        },
+        "receipt_ref": "authoring:72039eaac7f94ccc5013de4e8a504c5e5a880233983f22e8ebdfe362ed7c8cb8",
+        "pack_id": "com.storystudio.pack.style.bold-illustrated-history",
+        "version": "1.0.3",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 428,
+      "transition_ref": "lifecycle:4b4f069c8bcc7d743d0313d73c28a4580ba7b2d552198a5d320bca9824471fe0",
+      "request": {
+        "expected_revision": 427,
+        "coordinator": {
+          "task": "style-subject-neutralization",
+          "branch": "release/1.4.384"
+        },
+        "receipt_ref": "authoring:72039eaac7f94ccc5013de4e8a504c5e5a880233983f22e8ebdfe362ed7c8cb8",
+        "pack_id": "com.storystudio.pack.style.cinematic-historical-illustration",
+        "version": "1.0.2",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 429,
+      "transition_ref": "lifecycle:8cc5ec1fe572b4232982b8d45b63a02afcc7d63c4ac3b1933152a577286dc0ec",
+      "request": {
+        "expected_revision": 428,
+        "coordinator": {
+          "task": "style-subject-neutralization",
+          "branch": "release/1.4.384"
+        },
+        "receipt_ref": "authoring:72039eaac7f94ccc5013de4e8a504c5e5a880233983f22e8ebdfe362ed7c8cb8",
+        "pack_id": "com.storystudio.pack.style.archival-documentary-reconstruction",
+        "version": "1.0.2",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 430,
+      "transition_ref": "lifecycle:39c922a9d02cda824a92f581740128cb3a60185569b1e9dbd662ed058ece994c",
+      "request": {
+        "expected_revision": 429,
+        "coordinator": {
+          "task": "style-subject-neutralization",
+          "branch": "release/1.4.384"
+        },
+        "receipt_ref": "authoring:72039eaac7f94ccc5013de4e8a504c5e5a880233983f22e8ebdfe362ed7c8cb8",
+        "pack_id": "com.storystudio.pack.style.old-master-still-life",
+        "version": "1.0.2",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 431,
+      "transition_ref": "lifecycle:32dabb11d3fb86d754948beea0fbc755a388932bef216cb40e811ddfb26b9c1b",
+      "request": {
+        "expected_revision": 430,
+        "coordinator": {
+          "task": "style-subject-neutralization",
+          "branch": "release/1.4.384"
+        },
+        "receipt_ref": "authoring:72039eaac7f94ccc5013de4e8a504c5e5a880233983f22e8ebdfe362ed7c8cb8",
+        "pack_id": "com.storystudio.pack.style.warm-cosy-interior-illustration",
+        "version": "1.0.2",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 432,
+      "transition_ref": "lifecycle:77aa6318fa178ad8ece150bf47f4c5eb4443b56a4714c92cf6dbacdbfb247c06",
+      "request": {
+        "expected_revision": 431,
+        "coordinator": {
+          "task": "style-subject-neutralization",
+          "branch": "release/1.4.384"
+        },
+        "receipt_ref": "authoring:72039eaac7f94ccc5013de4e8a504c5e5a880233983f22e8ebdfe362ed7c8cb8",
+        "pack_id": "com.storystudio.pack.style.oil-deep-glaze-v2",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 433,
+      "transition_ref": "lifecycle:33749fb8502f722d8342885007e6075be43ce0e1c89d67cedafbbda5acd2c1f8",
+      "request": {
+        "expected_revision": 432,
+        "coordinator": {
+          "task": "style-subject-neutralization",
+          "branch": "release/1.4.384"
+        },
+        "receipt_ref": "authoring:72039eaac7f94ccc5013de4e8a504c5e5a880233983f22e8ebdfe362ed7c8cb8",
+        "pack_id": "com.storystudio.pack.thumbnail.night-glaze-title-v2",
         "version": "1.0.0",
         "changes": {
           "status": "authored"
@@ -24624,6 +24911,167 @@
         },
         "sku": {
           "id": "com.storystudio.sku.lettering.text-white",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:72039eaac7f94ccc5013de4e8a504c5e5a880233983f22e8ebdfe362ed7c8cb8",
+      "pack_id": "com.storystudio.pack.style.bold-illustrated-history",
+      "item_id": "com.storystudio.style.bold-illustrated-history",
+      "version": "1.0.3",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "visual-style",
+      "source_path": "content-packs/illustrated-history/style/bold-illustrated-history-v1.0.3",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.style.bold-illustrated-history",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.style.bold-illustrated-history",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:72039eaac7f94ccc5013de4e8a504c5e5a880233983f22e8ebdfe362ed7c8cb8",
+      "pack_id": "com.storystudio.pack.style.cinematic-historical-illustration",
+      "item_id": "com.storystudio.style.cinematic-historical-illustration",
+      "version": "1.0.2",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "visual-style",
+      "source_path": "content-packs/illustrated-history/style/cinematic-historical-illustration-v1.0.2",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.style.cinematic-historical-illustration",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.style.cinematic-historical-illustration",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:72039eaac7f94ccc5013de4e8a504c5e5a880233983f22e8ebdfe362ed7c8cb8",
+      "pack_id": "com.storystudio.pack.style.archival-documentary-reconstruction",
+      "item_id": "com.storystudio.style.archival-documentary-reconstruction",
+      "version": "1.0.2",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "visual-style",
+      "source_path": "content-packs/paid/archival-ledger/style/archival-documentary-reconstruction-v1.0.2",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.style.archival-documentary-reconstruction",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.style.archival-documentary-reconstruction",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:72039eaac7f94ccc5013de4e8a504c5e5a880233983f22e8ebdfe362ed7c8cb8",
+      "pack_id": "com.storystudio.pack.style.old-master-still-life",
+      "item_id": "com.storystudio.style.old-master-still-life",
+      "version": "1.0.2",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "visual-style",
+      "source_path": "content-packs/sleep-history/style/old-master-still-life-v1.0.2",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.style.old-master-still-life",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.style.old-master-still-life",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:72039eaac7f94ccc5013de4e8a504c5e5a880233983f22e8ebdfe362ed7c8cb8",
+      "pack_id": "com.storystudio.pack.style.warm-cosy-interior-illustration",
+      "item_id": "com.storystudio.style.warm-cosy-interior-illustration",
+      "version": "1.0.2",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "visual-style",
+      "source_path": "content-packs/custom-looks/style/warm-cosy-interior-illustration-v1.0.2",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.style.warm-cosy-interior-illustration",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.style.warm-cosy-interior-illustration",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:72039eaac7f94ccc5013de4e8a504c5e5a880233983f22e8ebdfe362ed7c8cb8",
+      "pack_id": "com.storystudio.pack.style.oil-deep-glaze-v2",
+      "item_id": "com.storystudio.style.oil-deep-glaze-v2",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "visual-style",
+      "source_path": "content-packs/standalone-looks/style/oil-deep-glaze-v2",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.style.oil-deep-glaze-v2",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.style.oil-deep-glaze-v2",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:72039eaac7f94ccc5013de4e8a504c5e5a880233983f22e8ebdfe362ed7c8cb8",
+      "pack_id": "com.storystudio.pack.thumbnail.night-glaze-title-v2",
+      "item_id": "com.storystudio.thumbnail.night-glaze-title-v2",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "thumbnail-recipe",
+      "source_path": "content-packs/standalone-looks/thumbnail/night-glaze-title-v2",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.thumbnail.night-glaze-title-v2",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.thumbnail.night-glaze-title-v2",
           "status": "proposed"
         }
       }

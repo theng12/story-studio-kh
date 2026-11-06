@@ -1,0 +1,15 @@
+{
+  "pack_format": 1,
+  "pack_id": "com.storystudio.pack.thumbnail.night-glaze-title-v2",
+  "publisher_id": "com.storystudio",
+  "key_id": "{{KEY_ID}}",
+  "version": "1.0.0",
+  "min_app_version": "{{MIN_APP_VERSION}}",
+  "lifecycle": "active",
+  "changelog": "First release of the Night Glaze Title recipe: one clear focal subject on a deep teal-black ground, one warm accent light, and a large cream serif title held in the upper left over the quiet side of the frame. Two previews drawn with the Deep Glaze Nocturne look, titled through the app's own text layer.",
+  "entitlement": {
+    "sku": "com.storystudio.sku.thumbnail.night-glaze-title-v2",
+    "family": "com.storystudio.family.thumbnail.night-glaze-title-v2"
+  },
+  "dependencies": []
+}

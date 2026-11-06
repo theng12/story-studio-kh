@@ -1,0 +1,15 @@
+{
+  "pack_format": 1,
+  "pack_id": "com.storystudio.pack.style.old-master-still-life",
+  "publisher_id": "com.storystudio",
+  "key_id": "{{KEY_ID}}",
+  "version": "1.0.2",
+  "min_app_version": "{{MIN_APP_VERSION}}",
+  "lifecycle": "active",
+  "entitlement": {
+    "sku": "com.storystudio.sku.style.old-master-still-life",
+    "family": "com.storystudio.family.style.old-master-still-life"
+  },
+  "dependencies": [],
+  "changelog": "Subject wording removed; style text only."
+}

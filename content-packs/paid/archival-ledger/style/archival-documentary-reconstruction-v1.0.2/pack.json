@@ -1,0 +1,14 @@
+{
+  "pack_format": 1,
+  "pack_id": "com.storystudio.pack.style.archival-documentary-reconstruction",
+  "publisher_id": "com.storystudio",
+  "key_id": "com.storystudio.key.archival-ledger",
+  "version": "1.0.2",
+  "min_app_version": "{{MIN_APP_VERSION}}",
+  "lifecycle": "active",
+  "changelog": "Subject wording removed; style text only.",
+  "entitlement": {
+    "sku": "com.storystudio.sku.style.archival-documentary-reconstruction",
+    "family": "com.storystudio.family.style.archival-documentary-reconstruction"
+  }
+}

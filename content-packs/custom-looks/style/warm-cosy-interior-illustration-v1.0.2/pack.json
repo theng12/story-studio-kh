@@ -1,0 +1,15 @@
+{
+  "pack_format": 1,
+  "pack_id": "com.storystudio.pack.style.warm-cosy-interior-illustration",
+  "publisher_id": "com.storystudio",
+  "key_id": "{{KEY_ID}}",
+  "version": "1.0.2",
+  "min_app_version": "{{MIN_APP_VERSION}}",
+  "lifecycle": "active",
+  "changelog": "Subject wording removed; style text only.",
+  "entitlement": {
+    "sku": "com.storystudio.sku.style.warm-cosy-interior-illustration",
+    "family": "com.storystudio.family.style.warm-cosy-interior-illustration"
+  },
+  "dependencies": []
+}

@@ -1,0 +1,246 @@
+{
+  "_comment": "Subject words flagged in style_bible text. A style says how things are drawn, never what to draw. Each entry is a word or phrase that implies a subject, prop, place, era, genre, or subject-implying mood. Compound phrases like 'bone white' are listed first so the shorter token 'bone' does not false-flag inside them. Per-pack allows carry a reason — no hard-coded rule without a way out.",
+  "compounds": [
+    "candle gold",
+    "bone white",
+    "ivory white",
+    "cool blue shadow",
+    "warm blue shadow",
+    "cool blue",
+    "warm amber",
+    "cool light",
+    "warm light",
+    "warm brown",
+    "cool grey",
+    "warm grey",
+    "cool gray",
+    "warm gray"
+  ],
+  "words": [
+    {
+      "word": "medieval",
+      "kind": "era/genre"
+    },
+    {
+      "word": "fantasy",
+      "kind": "genre"
+    },
+    {
+      "word": "martial-arts",
+      "kind": "genre"
+    },
+    {
+      "word": "martial arts",
+      "kind": "genre"
+    },
+    {
+      "word": "grim",
+      "kind": "mood"
+    },
+    {
+      "word": "regal",
+      "kind": "mood"
+    },
+    {
+      "word": "heroic",
+      "kind": "mood"
+    },
+    {
+      "word": "majestic",
+      "kind": "mood"
+    },
+    {
+      "word": "blood",
+      "kind": "subject"
+    },
+    {
+      "word": "bone",
+      "kind": "subject"
+    },
+    {
+      "word": "skull",
+      "kind": "subject"
+    },
+    {
+      "word": "castle",
+      "kind": "place/prop"
+    },
+    {
+      "word": "ship",
+      "kind": "prop"
+    },
+    {
+      "word": "sword",
+      "kind": "prop"
+    },
+    {
+      "word": "weapon",
+      "kind": "prop"
+    },
+    {
+      "word": "animal",
+      "kind": "subject"
+    },
+    {
+      "word": "dog",
+      "kind": "subject"
+    },
+    {
+      "word": "cat",
+      "kind": "subject"
+    },
+    {
+      "word": "horse",
+      "kind": "subject"
+    },
+    {
+      "word": "dragon",
+      "kind": "subject"
+    },
+    {
+      "word": "knight",
+      "kind": "subject"
+    },
+    {
+      "word": "warrior",
+      "kind": "subject"
+    },
+    {
+      "word": "soldier",
+      "kind": "subject"
+    },
+    {
+      "word": "king",
+      "kind": "subject"
+    },
+    {
+      "word": "queen",
+      "kind": "subject"
+    },
+    {
+      "word": "princess",
+      "kind": "subject"
+    },
+    {
+      "word": "wizard",
+      "kind": "subject"
+    },
+    {
+      "word": "witch",
+      "kind": "subject"
+    },
+    {
+      "word": "ghost",
+      "kind": "subject"
+    },
+    {
+      "word": "demon",
+      "kind": "subject"
+    },
+    {
+      "word": "angel",
+      "kind": "subject"
+    },
+    {
+      "word": "harbour",
+      "kind": "place"
+    },
+    {
+      "word": "harbor",
+      "kind": "place"
+    },
+    {
+      "word": "forest",
+      "kind": "place"
+    },
+    {
+      "word": "jungle",
+      "kind": "place"
+    },
+    {
+      "word": "mountain",
+      "kind": "place"
+    },
+    {
+      "word": "desert",
+      "kind": "place"
+    },
+    {
+      "word": "ocean",
+      "kind": "place"
+    },
+    {
+      "word": "dinosaur",
+      "kind": "subject"
+    },
+    {
+      "word": "prehistoric",
+      "kind": "era"
+    },
+    {
+      "word": "wildlife",
+      "kind": "subject"
+    },
+    {
+      "word": "portrait",
+      "kind": "subject"
+    },
+    {
+      "word": "mythological",
+      "kind": "genre"
+    },
+    {
+      "word": "mythology",
+      "kind": "genre"
+    },
+    {
+      "word": "lantern",
+      "kind": "prop"
+    },
+    {
+      "word": "lamp",
+      "kind": "prop"
+    },
+    {
+      "word": "candle",
+      "kind": "prop"
+    },
+    {
+      "word": "torch",
+      "kind": "prop"
+    },
+    {
+      "word": "fire",
+      "kind": "prop"
+    },
+    {
+      "word": "flame",
+      "kind": "prop"
+    },
+    {
+      "word": "banner",
+      "kind": "prop"
+    },
+    {
+      "word": "battle",
+      "kind": "subject"
+    },
+    {
+      "word": "siege",
+      "kind": "subject"
+    },
+    {
+      "word": "period-appropriate",
+      "kind": "era"
+    },
+    {
+      "word": "historical",
+      "kind": "era"
+    },
+    {
+      "word": "such as",
+      "kind": "list"
+    }
+  ],
+  "allows": []
+}
