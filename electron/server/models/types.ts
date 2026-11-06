@@ -5306,6 +5306,17 @@ export interface ContextualCue {
   entrance: ContextualCueTransition
   exit: ContextualCueTransition
   status: ContextualCueStatus
+  /**
+   * Why this label was turned off because it could not be placed inside its
+   * scene — one plain sentence naming the scene and how far out it sits.
+   *
+   * Set only by the person choosing "leave it off" on a cue that escapes its
+   * scene, and cleared the moment a Repair puts it back inside. It exists so
+   * the reason is not lost the instant the cue stops being an error: a label
+   * that is off and says why is a decision, while a label that is off and
+   * silent is a lost work item.
+   */
+  disabled_reason?: string
   /** Animation for image-backed labels. */
   motion?: 'pop' | 'slide' | 'wipe' | 'line-draw' | 'pulse' | 'float'
   created_at: string

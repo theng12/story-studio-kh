@@ -209,6 +209,24 @@
 
             <p v-for="(issue, i) in rowNotes(row)" :key="i" class="sl-note">{{ issue }}</p>
 
+            <!-- A label saved outside its scene. Two choices, both the
+                 person's: move it inside, or leave it off saying why. -->
+            <div v-if="row.side === 'label' && escapeFor(row)" class="sl-escape" role="status">
+              <p class="sl-note sl-note-escape">{{ escapeFor(row)?.detail }}</p>
+              <div class="sl-escape-actions">
+                <button
+                  class="btn btn-sm btn-primary" :disabled="saving || jobActive"
+                  title="Moves it inside its scene. Its text, its anchor and whether it is approved are all kept."
+                  @click="repairCue(row, 'snap')"
+                >Repair — move it into Scene {{ escapeFor(row)?.scene_index }}</button>
+                <button
+                  class="btn btn-sm btn-secondary" :disabled="saving || jobActive"
+                  title="Leaves the times exactly as they are and turns the label off, carrying this reason. It stops blocking the episode."
+                  @click="repairCue(row, 'flag')"
+                >Leave it off</button>
+              </div>
+            </div>
+
             <!-- A label card: text + corner + sound-with-this-label. Everything else under Advanced. -->
             <div v-if="row.side === 'label'" class="sl-editor">
               <div class="sl-editor-main">
@@ -386,7 +404,10 @@ type LabelCue = {
   template: string
   motion?: 'pop' | 'slide' | 'wipe' | 'line-draw' | 'pulse' | 'float'
   entrance: 'fade' | 'slide' | 'dissolve'; exit: 'fade' | 'slide' | 'dissolve'
-  status: LabelStatus; created_at: string; updated_at: string
+  status: LabelStatus
+  /** Why it was turned off because it could not be placed inside its scene. */
+  disabled_reason?: string
+  created_at: string; updated_at: string
 }
 type SoundCue = {
   id: string; kind: 'bed' | 'spot'; label: string
@@ -413,6 +434,12 @@ type Row = {
   | { side: 'label'; cue: LabelCue; subtitle?: string; scene_id?: string }
   | { side: 'sound'; cue: SoundCue; kind: 'bed' | 'spot'; scene_id?: string; clip?: string; credit?: Credit }
 )
+/** A label whose saved window sits outside the scene it names. */
+type SceneEscape = {
+  cue_id: string; title: string; scene_id: string; scene_index: number
+  start_sec: number; end_sec: number; scene_start_sec: number; scene_end_sec: number
+  side: 'before' | 'after' | 'both'; outside_by_sec: number; rescues: boolean; detail: string
+}
 type ProbeForm = { model: string; density: 'restrained' | 'standard' | 'editorial'; min_gap_sec: number; placement: ContextualCueCorner; auto_approve: boolean; label_themes: string[]; label_motions: string[] }
 
 const route = useRoute()
@@ -525,6 +552,9 @@ const sounds = ref<SoundTimeline | null>(null)
 const scenes = ref<Scene[]>([])
 const validation = ref<{ labels: Array<{ cue_id?: string; detail: string; severity?: string }>; sound: Array<{ cue_id?: string; detail: string; severity?: string }> }>({ labels: [], sound: [] })
 const movedNotes = ref<string[]>([])
+/** Labels whose saved window sits outside their scene — each with two choices. */
+const sceneEscapes = ref<SceneEscape[]>([])
+const escapesById = computed<Record<string, SceneEscape>>(() => Object.fromEntries(sceneEscapes.value.map(item => [item.cue_id, item])))
 /** The renderer's own refusal sentence for a defect only a fix can clear. */
 const refuses = ref<{ labels?: string; sound?: string }>({})
 const refusedNote = computed(() => [refuses.value.labels, refuses.value.sound].filter(Boolean).join(' '))
@@ -635,7 +665,29 @@ function rowNotes(row: Row): string[] {
   const notes: string[] = []
   const issues = row.side === 'label' ? validation.value.labels : validation.value.sound
   for (const issue of issues) if (issue.cue_id === row.cue.id) notes.push(issue.detail)
+  // The reason this one was turned off travels WITH it, so a label that is off
+  // still says why instead of looking like work that quietly vanished.
+  if (row.side === 'label' && row.cue.disabled_reason) notes.push(`Off: ${row.cue.disabled_reason}`)
   return notes
+}
+
+function escapeFor(row: Row): SceneEscape | undefined {
+  return row.side === 'label' ? escapesById.value[row.cue.id] : undefined
+}
+
+/**
+ * The two honest outcomes for a label that sits outside its scene. Both are
+ * the person's press: the app never moves an approved label on its own.
+ */
+async function repairCue(row: Row, action: 'snap' | 'flag'): Promise<void> {
+  if (row.side !== 'label') return
+  saving.value = true
+  try {
+    const result = await post<any>(`/projects/${slug.value}/sound-and-labels/${episodeId.value}/labels/repair`, { cue_id: row.cue.id, action })
+    success(result?.note || (action === 'snap' ? 'Moved inside its scene.' : 'Turned off, with the reason kept.'))
+    await loadEpisode()
+  } catch (cause: any) { showError(cause?.data?.detail || 'Could not repair that label.') }
+  finally { saving.value = false }
 }
 function soundForLabel(cue: LabelCue): SoundCue | undefined {
   return sounds.value?.cues.find(sound => sound.scene_id === cue.scene_id && sound.status !== 'excluded'
@@ -860,7 +912,7 @@ async function loadEpisode(): Promise<void> {
   // that proves the rule: they belong to the sound timeline, not the page, and
   // are read from it — the leak the audit found was a remembered form carrying
   // one episode's settings into another, which is why they are not remembered.
-  labels.value = null; sounds.value = null; scenes.value = []; movedNotes.value = []
+  labels.value = null; sounds.value = null; scenes.value = []; movedNotes.value = []; sceneEscapes.value = []
   timelineOwner = null
   validation.value = { labels: [], sound: [] }
   poolClips.value = []; unavailablePools.value = []; libraryHits.value = []; libraryNote.value = ''
@@ -883,6 +935,7 @@ async function loadEpisode(): Promise<void> {
     scenes.value = data.scenes || []
     validation.value = data.validation || { labels: [], sound: [] }
     movedNotes.value = data.moved_notes || []
+    sceneEscapes.value = data.scene_escapes || []
     refuses.value = {
       ...(data.readiness?.labels?.refuses ? { labels: data.readiness.labels.refuses } : {}),
       ...(data.readiness?.sound?.refuses ? { sound: data.readiness.sound.refuses } : {}),
@@ -1113,6 +1166,9 @@ onMounted(async () => {
 .sl-status[data-tone="muted"] { color: var(--text-muted); }
 .sl-row-actions { display: flex; gap: .35rem; flex-wrap: wrap; }
 .sl-play.is-playing { outline: 1px solid var(--accent-gold); }
+.sl-escape { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; justify-content: space-between; padding: .35rem .6rem; background: var(--bg-secondary); border-left: 2px solid color-mix(in srgb, var(--warning) 70%, var(--border)); border-radius: .25rem; }
+.sl-note-escape { flex: 1 1 22rem; padding: 0; background: none; border: 0; color: var(--text); }
+.sl-escape-actions { display: flex; gap: .5rem; flex-wrap: wrap; }
 .sl-note { grid-column: 1 / -1; margin: 0; padding: .3rem .6rem; color: var(--text-muted); background: var(--bg-secondary); border-left: 2px solid color-mix(in srgb, var(--warning) 55%, var(--border)); border-radius: .25rem; font-size: var(--font-xs); }
 .sl-editor { grid-column: 1 / -1; display: grid; gap: .5rem; }
 .sl-editor-main { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }

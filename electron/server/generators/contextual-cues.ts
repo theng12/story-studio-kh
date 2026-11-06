@@ -596,6 +596,12 @@ export function accountCueCandidates(
  * A defect that belongs to NO cue — a duplicate id — is fatal: dropping a cue
  * cannot fix it, and the save must not pretend the timeline is sound.
  */
+/** Seconds as the job log shows them — m:ss, never a raw float. */
+function clockForLog(seconds: number): string {
+  const whole = Math.max(0, Math.floor(Number(seconds) || 0))
+  return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, '0')}`
+}
+
 export function accountRejectedCues(
   timeline: ContextualCueTimeline,
   proposed: ContextualCue[],
@@ -986,13 +992,33 @@ export async function generateContextualCues(job: Job): Promise<void> {
   // approvals or edits made on the review page meanwhile must survive it.
   const latest = await readContextualCueTimeline(planPath)
   const protectedCues = latest?.cues.filter(cue => cue.status !== 'proposed') || []
+  // Every reader that draws or judges a label re-derives it from its anchor
+  // first — the page, Video Assembly, the Production Board. This run used to
+  // be the one that did not: it validated the SECONDS ON DISK against the
+  // plan, so a Scene Plan re-run that moved a scene left its own labels
+  // reported as "Cue must remain inside its scene timing" on every retry,
+  // forever, while the renderer drew them correctly (EP0006, 2026-11-02).
+  //
+  // So the check below runs against what every reader will place, and the
+  // seconds on disk are NOT rewritten here. Moving a reviewed label is the
+  // person's call — "Keep these times", Repair, or turn it off — never a side
+  // effect of re-running a proposal.
+  const protectedPlaced = reconcileAnchoredCues(protectedCues, plan, subtitles)
+  if (protectedPlaced.moved.length) {
+    job.output_lines.push(
+      `${protectedPlaced.moved.length} label(s) saved under an earlier Scene Plan now follow their scene: `
+      + `${protectedPlaced.moved.slice(0, 5).map(item => `"${item.cue.title}" ${clockForLog(item.from)} → ${clockForLog(item.to)}`).join('; ')}`
+      + `${protectedPlaced.moved.length > 5 ? `; and ${protectedPlaced.moved.length - 5} more` : ''}. `
+      + 'They were left as they are — open Sound & Labels to keep those times, repair one, or leave it off.',
+    )
+  }
   const resolvedIds = new Set(protectedCues.map(cue => cue.id))
   const accounted = accountCueCandidates(candidates, plan, settings, now, resolvedIds, allow, subtitles)
   let proposed = accounted.proposed
   const dropped = accounted.dropped
   let autoApprovalHolds: ContextualCueAutoApprovalHold[] = []
   if (settings.auto_approve) {
-    const result = autoApproveEligibleCues(proposed, protectedCues, plan)
+    const result = autoApproveEligibleCues(proposed, protectedPlaced.cues, plan)
     proposed = result.cues
     autoApprovalHolds = result.holds
   }
@@ -1011,7 +1037,10 @@ export async function generateContextualCues(job: Job): Promise<void> {
   // safety net and abort the whole save. Every other issue still aborts,
   // exactly as before this setting existed.
   const heldIds = new Set(autoApprovalHolds.map(hold => hold.cue_id))
-  const issues = validateContextualCueTimeline(timeline, plan).filter(issue => !issue.cue_id || !heldIds.has(issue.cue_id))
+  // Judged where each protected cue will actually be drawn — see the
+  // re-anchoring above. The written timeline still carries the stored seconds.
+  const issues = validateContextualCueTimeline({ ...timeline, cues: [...protectedPlaced.cues, ...proposed] }, plan)
+    .filter(issue => !issue.cue_id || !heldIds.has(issue.cue_id))
   if (issues.length) {
     const accounted = accountRejectedCues(timeline, proposed, issues)
     if (accounted.fatal.length) {

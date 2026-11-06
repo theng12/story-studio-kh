@@ -411,6 +411,21 @@ export function normalizeContextualCueTemplate(value: unknown): ContextualCueTem
     : 'documentary-label'
 }
 
+/**
+ * 1-based position of a scene, named the way the page names it.
+ *
+ * `scene_index` is the plan's own number when it carries one, else the
+ * position in the array — the same rule the Sound & Labels read uses, because
+ * "Scene 4" on a row and "Scene 4" in a message have to be the same scene
+ * (a hand-edited or pre-v1 plan may not carry `scene_index` at all).
+ */
+function bySceneIndex(plan: { scenes: ReadonlyArray<{ id: string; scene_index?: number }> }, scene: { id: string }): number {
+  const at = plan.scenes.findIndex(row => row.id === scene.id)
+  if (at < 0) return 0
+  const declared = plan.scenes[at]!.scene_index
+  return Number.isInteger(declared) ? declared! : at + 1
+}
+
 export function validateContextualCueTimeline(
   timeline: ContextualCueTimeline | null,
   plan: ScenePlan,
@@ -437,14 +452,37 @@ export function validateContextualCueTimeline(
     const scene = byId.get(cue.scene_id)
     if (!scene) { issues.push({ cue_id: cue.id, detail: 'Referenced Scene Plan scene no longer exists.' }); continue }
     if (!Number.isFinite(cue.start_sec) || !Number.isFinite(cue.end_sec) || cue.end_sec <= cue.start_sec) {
-      issues.push({ cue_id: cue.id, detail: 'Cue timing is invalid.' }); continue
+      // A label that is OFF is not drawn, so it cannot be wrong in the output.
+      // It used to be reported as an error either way, which put it in
+      // needs-attention with nothing anyone could do about it — the exact
+      // dead end the owner hit on EP0006 (2026-11-02).
+      issues.push({ cue_id: cue.id, ...(cue.status === 'disabled' ? { severity: 'warning' as const } : {}), detail: 'Cue timing is invalid.' })
+      continue
     }
     if (cue.start_sec < scene.start_sec - 0.01 || cue.end_sec > scene.end_sec + 0.01) {
-      issues.push({ cue_id: cue.id, detail: 'Cue must remain inside its scene timing.' })
+      // Same sentence as before, plus the two things that sentence never had:
+      // WHICH scene, and how far out. A refusal that names nothing to act on
+      // is a dead end, not a diagnosis (AGENTS.md §6).
+      const sceneIndex = bySceneIndex(plan, scene)
+      const startsBefore = cue.start_sec < scene.start_sec - 0.01
+      const gap = startsBefore ? scene.start_sec - cue.start_sec : cue.end_sec - scene.end_sec
+      const bounds = `${scene.start_sec.toFixed(2)}–${scene.end_sec.toFixed(2)}s`
+      const plain = startsBefore
+        ? `It starts ${gap.toFixed(1)}s before Scene ${sceneIndex} begins (${bounds}).`
+        : `It runs ${gap.toFixed(1)}s past the end of Scene ${sceneIndex} (${bounds}).`
+      issues.push({
+        cue_id: cue.id,
+        ...(cue.status === 'disabled' ? { severity: 'warning' as const } : {}),
+        detail: `Cue must remain inside its scene timing. ${plain}`,
+      })
     }
     const duration = cue.end_sec - cue.start_sec
     if (duration < CUE_MIN_DURATION_SEC) {
-      issues.push({ cue_id: cue.id, detail: `Cue must stay readable for at least ${CUE_MIN_DURATION_SEC} seconds.` })
+      issues.push({
+        cue_id: cue.id,
+        ...(cue.status === 'disabled' ? { severity: 'warning' as const } : {}),
+        detail: `Cue must stay readable for at least ${CUE_MIN_DURATION_SEC} seconds.`,
+      })
     } else if (duration > CUE_LONG_DURATION_SEC) {
       issues.push({
         cue_id: cue.id,
@@ -604,7 +642,14 @@ export function resolveRenderableContextualCues(
   // because rendering anyway would draw something visibly wrong. Everything
   // else — a cue still waiting on a person, broken text, an invalid treatment —
   // is that ONE cue's problem and is skipped below with its reason.
+  //
+  // A cue the reviewer TURNED OFF is never a defect in the output: it is not
+  // drawn, so there is nothing to get wrong. Excluding it here is what makes
+  // "leave it off, with the reason" a real way out of an unplaceable label
+  // rather than a second name for the same block.
+  const off = new Set(timeline.cues.filter(cue => cue.status === 'disabled').map(cue => cue.id))
   const unfixable = (issue: ContextualCueIssue) => issue.severity !== 'warning'
+    && !!issue.cue_id && !off.has(issue.cue_id)
     && (/timing is invalid|inside its scene timing|readable for at least/.test(issue.detail))
   const hard = issues.filter(issue => !issue.cue_id && issue.severity !== 'warning')
     .concat(issues.filter(issue => !!issue.cue_id && unfixable(issue)))
@@ -619,7 +664,7 @@ export function resolveRenderableContextualCues(
         cue_id: cue.id,
         severity: 'warning',
         detail: cue.status === 'disabled'
-          ? 'turned off in review, so it is not drawn.'
+          ? `turned off in review, so it is not drawn.${cue.disabled_reason ? ` ${cue.disabled_reason}` : ''}`
           : 'still awaiting review, so it is not drawn.',
       })
       continue

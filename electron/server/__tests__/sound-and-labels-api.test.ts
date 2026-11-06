@@ -346,3 +346,23 @@ describe('the retired page routes', () => {
     assert.equal(queued?.title, `Propose labels and sounds — ${episode}`)
   })
 })
+
+describe('the repair route answers the action it was asked', () => {
+  test('an unknown action is a 400, never a silent snap of an approved label', async () => {
+    const escaped = label({ start_sec: 25, end_sec: 28 })
+    const cuePath = path.join(path.dirname(planPath), 'contextual_cues.json')
+    const stored = JSON.stringify({ schema_version: 1, generated_at: '', source_scene_plan_generated_at: 'older-plan', cues: [escaped] })
+    await fs.writeFile(cuePath, stored)
+    for (const body of [{ cue_id: escaped.id, action: 'move' }, { cue_id: escaped.id }]) {
+      const res = await request(app).post(`/api/projects/${slug}/sound-and-labels/${episode}/labels/repair`).send(body)
+      assert.equal(res.status, 400, JSON.stringify(res.body))
+      assert.match(res.body.detail, /"snap" or "flag"/)
+      assert.equal(await fs.readFile(cuePath, 'utf8'), stored, 'an unknown action must not move the label')
+    }
+    // The two actions it does know still work on the same escaped cue.
+    const snapped = await request(app).post(`/api/projects/${slug}/sound-and-labels/${episode}/labels/repair`)
+      .send({ cue_id: escaped.id, action: 'snap' })
+    assert.equal(snapped.status, 200, JSON.stringify(snapped.body))
+    assert.deepEqual(snapped.body.scene_escapes, [])
+  })
+})
