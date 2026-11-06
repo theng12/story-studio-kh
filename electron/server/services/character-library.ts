@@ -419,15 +419,19 @@ export function resolveForChannel(character: Character, channelSlug: string): Ch
 // These are channel-scoped; they cannot create or mutate a multi-channel record.
 
 async function uniqueChannelRecord(characterId: string): Promise<{ channel: string; record: Character } | null> {
+  // Validate before the store-existence check: an invalid id must be refused
+  // whether or not any channel exists yet (the destructive legacy DELETE route
+  // used to resolve `..` straight to the Library root).
+  const id = validateId(characterId)
   const root = channelsRoot()
   if (!existsSync(root)) return null
   const found: Array<{ channel: string; record: Character }> = []
   for (const channel of await fs.readdir(root)) {
     if (channel.startsWith('.') || channel === MIGRATION_ROOT) continue
-    const record = await getChannelCharacter(channel, characterId).catch(() => null)
+    const record = await getChannelCharacter(channel, id).catch(() => null)
     if (record) found.push({ channel, record })
   }
-  if (found.length > 1) throw new Error(`Character id '${characterId}' exists on more than one channel; pass the channel explicitly.`)
+  if (found.length > 1) throw new Error(`Character id '${id}' exists on more than one channel; pass the channel explicitly.`)
   return found[0] || null
 }
 
