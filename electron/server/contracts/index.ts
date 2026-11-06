@@ -497,6 +497,8 @@ export const UpdateConfigSchema = z.object({
   }).passthrough()).optional(),
   style_presets: z.array(z.any()).optional(),
   active_style_preset_id: z.string().max(200).optional(),
+  thumbnail_shell_id: z.string().max(300).optional(),
+  thumbnail_reference_strength: z.enum(['loose', 'balanced', 'strong']).optional(),
   /**
    * 2026-10-31 — this channel's name as a saved starting point for a NEW channel
    * (owner, 2026-10-31). Empty clears the marker; the name is what the card
@@ -865,6 +867,8 @@ export const GenerateImagesSchema = z.object({
   // ("push the subject closer, bigger title") without the prompt-reprompt
   // round-trip. Applies to thumbnails only.
   extra_details: z.string().max(2000).optional(),
+  thumbnail_shell_id: z.string().max(300).optional(),
+  thumbnail_reference_strength: z.enum(['loose', 'balanced', 'strong']).optional(),
   seed: z.number().int().min(0).max(2147483647).optional(),
 }).passthrough()
 export type GenerateImagesBody = z.infer<typeof GenerateImagesSchema>

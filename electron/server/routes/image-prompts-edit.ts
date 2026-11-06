@@ -37,6 +37,7 @@ import {
 } from '../services/prompt-char-cap.js'
 import { resolveLiveImagePromptCharCap } from '../services/image-prompt-cap.js'
 import { letteringPhraseMaps } from '../services/lettering-catalogue.js'
+import { resolveThumbnailShell } from '../services/thumbnail-shell.js'
 import {
   assembleThumbnailRenderPrompt,
   castStyleKeywordBound,
@@ -110,6 +111,7 @@ const RegenerateSchema = z.object({
   thumb_text_style: z.string().max(200).optional(),
   thumb_text_position: z.string().max(50).optional(),
   thumbnail_template_id: z.string().max(200).optional(),
+  thumbnail_shell_id: z.string().max(300).optional(),
   thumb_font_style_custom: z.string().max(240).optional(),
   thumb_text_style_custom: z.string().max(240).optional(),
   /** The character CEILING SELECTION the rewrite is written under.
@@ -160,6 +162,8 @@ const UpdatePromptSchema = z.object({
 const ThumbnailPromptLengthsSchema = z.object({
   /** The selected image model id. */
   model: z.string().min(1),
+  thumbnail_shell_id: z.string().max(300).optional(),
+  thumbnail_template_id: z.string().max(200).optional(),
   /** The episode's title. Discovery is by episode CODE, as the render does it. */
   episode_title: z.string().optional(),
   /** The render-time extras, trimmed — the same field the render appends. */
@@ -237,16 +241,15 @@ router.post(
       }
       const textFree = project.content_language === 'km' || req.body.thumb_text_style === 'none'
       if (textFree) req.body.thumb_text_style = 'none'
+      const shell = await resolveThumbnailShell(slug, req.body, config)
       let recipeGuidance = ''
-      if (req.body.thumbnail_template_id) {
-        const { loadTemplate } = await import('../services/thumbnail-template-loader.js')
-        const template = await loadTemplate(req.body.thumbnail_template_id)
-        if (!template) return res.status(400).json({ detail: 'This option’s Thumbnail Recipe is unavailable. Choose an available recipe before regenerating.' })
-        recipeGuidance = buildThumbnailDirective({ thumbs: 1, title: currentTitle, fmt: template.recipe,
+      if (shell.template) {
+        recipeGuidance = buildThumbnailDirective({ thumbs: 1, title: currentTitle, fmt: shell.template.recipe,
           textStyle: req.body.thumb_text_style || 'auto', fontStyle: req.body.thumb_font_style || 'auto',
           textPosition: req.body.thumb_text_position || 'auto' })
-        if (template.recipe?.headlineMode) req.body.headline_mode = template.recipe.headlineMode
+        if (shell.template.recipe?.headlineMode) req.body.headline_mode = shell.template.recipe.headlineMode
       }
+      if (shell.layoutNote) recipeGuidance += `\n\nShell layout only: ${shell.layoutNote}`
       if (textFree) {
         req.body.headline_mode = 'none'
         req.body.thumb_text_style_custom = undefined
@@ -311,7 +314,7 @@ router.post(
         textCustomText: typeof req.body.thumb_text_style_custom === 'string' ? req.body.thumb_text_style_custom : undefined,
       }
       const projectDir = pm.getProjectDir(slug) || path.join(pm.projectsRoot(), slug)
-      const referenceGuidance = savedThumbnailReferenceGuidanceFor(projectDir, (config as any)?.thumbnail_reference_asset)
+      const referenceGuidance = savedThumbnailReferenceGuidanceFor(projectDir, shell.guidanceAsset)
       const cast = await episodeCast(slug, episodeId)
       const assemblyOverhead = addAssemblyOverhead(
         thumbnailSaveOverhead(elementOptions),
@@ -824,9 +827,8 @@ router.post(
       }
 
       const projectDir = pm.getProjectDir(slug) || path.join(pm.projectsRoot(), slug)
-      // The render's request semantics, in the render's order.
-      const savedReference = (req.body.thumbnail_reference_asset || (config as any)?.thumbnail_reference_asset || null)
-      const referenceGuidance = savedThumbnailReferenceGuidanceFor(projectDir, savedReference)
+      const shell = await resolveThumbnailShell(slug, req.body, config)
+      const referenceGuidance = savedThumbnailReferenceGuidanceFor(projectDir, shell.guidanceAsset)
       const cast = await episodeCast(slug, episodeId)
       const extraDetails = typeof req.body.extra_details === 'string' ? req.body.extra_details.trim() : ''
 

@@ -1410,6 +1410,14 @@ export interface ThumbnailTemplate {
   /** Two or more original finished examples, served from frontend/public. */
   previewImages?: string[]
   recipe?: ThumbnailRecipeProfile
+  /**
+   * Optional reusable layout reference. Relative managed asset reference only —
+   * never an absolute path, URL, or project-owned upload location (Shells must
+   * survive channel changes and signed-pack identity).
+   */
+  shellImage?: string
+  /** Layout-only guidance saved with the Shell; no subject/palette/style analysis. */
+  layoutNote?: string
 
   // ── Layout ────────────────────────────────────────────────────────
   /** YouTube standard is 16:9 (1920×1080). Other ratios reserved for
@@ -2433,6 +2441,9 @@ export interface ProjectConfig {
    * default.
    */
   thumbnail_template_id?: string
+  /** Deliberate Shell selection; absent preserves legacy reference/template resolution. */
+  thumbnail_shell_id?: string
+  thumbnail_reference_strength?: 'loose' | 'balanced' | 'strong'
 
   /**
    * v1.0.106+ — recency-avoidance log. Generic across niches: each
@@ -2667,6 +2678,8 @@ export interface UpdateConfigRequest {
   audio_quality?: AudioQualityProjectConfig
   active_style_preset_id?: string
   thumbnail_template_id?: string
+  thumbnail_shell_id?: string
+  thumbnail_reference_strength?: 'loose' | 'balanced' | 'strong'
   /**
    * Declared rather than cast, for the same reason as the music fields below:
    * `applyConfigRequest` is a pass-through with an exclude list, so this was
@@ -3483,6 +3496,8 @@ export interface GenerateImagesRequest {
   extra_details?: string
   /** Optional explicit recipe/template for one render. Project default is the fallback. */
   thumbnail_template_id?: string
+  thumbnail_shell_id?: string
+  thumbnail_reference_strength?: 'loose' | 'balanced' | 'strong'
   /** Thumbnail img2img adaptation strength. Strong preserves more layout,
    *  loose uses the source as broad inspiration. */
   reference_strength?: 'loose' | 'balanced' | 'strong'

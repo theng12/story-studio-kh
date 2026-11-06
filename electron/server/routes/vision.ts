@@ -19,6 +19,8 @@ import { GENSTUDIO_VISION_UNAVAILABLE } from '../lib/vision-client.js'
 import { getApiKey } from '../services/app-secrets-store.js'
 import { callChatWithGenStudio, chatImageEligibility, listChatModels, uploadImageSourceWithGenStudio, type GenStudioChatModel } from '../lib/genstudio-client.js'
 import { JSON_OBJECT_OUTPUT_CONTRACT } from '../lib/json-output-contract.js'
+import * as tl from '../services/thumbnail-template-loader.js'
+import type { ThumbnailTemplate } from '../models/types.js'
 
 export const router = Router()
 
@@ -86,8 +88,8 @@ function parseComposition(raw: string): Record<string, unknown> {
  * The saved Story asset survives a GenStudio asset expiry and is therefore
  * safe to put in a named preset or a queued Pipeline snapshot.
  */
-router.get('/projects/:slug/thumbnail-reference/vision-models', async (req, res) => {
-  if (!await pm.getProject(req.params.slug)) return res.status(404).json({ detail: 'Project not found' })
+router.get(['/projects/:slug/thumbnail-reference/vision-models', '/thumbnail-templates/vision/models'], async (req, res) => {
+  if (req.params.slug && !await pm.getProject(req.params.slug)) return res.status(404).json({ detail: 'Project not found' })
   try {
     const apiKey = await getApiKey('genstudio')
     if (!apiKey) return res.status(400).json({ detail: 'Add a Gateway API Key first.' })
@@ -126,12 +128,29 @@ router.get('/projects/:slug/thumbnail-reference/vision-models', async (req, res)
   }
 })
 
-router.post('/projects/:slug/thumbnail-reference/analyze', async (req, res) => {
-  const { slug } = req.params
-  if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
+router.post(['/projects/:slug/thumbnail-reference/analyze', '/thumbnail-templates/:shellTemplateId/analyze'], async (req, res) => {
+  const slug = req.params.slug || ''
+  if (slug && !await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
   const sourcePath = typeof req.body?.source_path === 'string' ? req.body.source_path.trim() : ''
   const modelId = typeof req.body?.model_id === 'string' ? req.body.model_id.trim() : ''
+  const shellTemplateId = req.params.shellTemplateId || (typeof req.body?.shell_template_id === 'string' ? req.body.shell_template_id.trim() : '')
+  if (!slug && !shellTemplateId) return res.status(400).json({ detail: 'Choose a Shell to analyze.' })
   if (!sourcePath || !modelId) return res.status(400).json({ detail: 'source_path and model_id are required' })
+  // Shell authoring analyses ONCE and stores bytes in the global managed
+  // Shell directory; the channel's own reference stays untouched (AGENTS §5).
+  const shellAuthoring = !!shellTemplateId
+  let shellTemplateIdForSave = shellTemplateId
+  if (shellAuthoring) {
+    const existing = await tl.loadTemplate(shellTemplateId, req.app.locals.contentPackOptions || {})
+    if (!existing) return res.status(404).json({ detail: `Template "${shellTemplateId}" not found` })
+    if (!tl.isUserShellTemplate(existing)) {
+      const { forkLegacyContentForEdit } = await import('../content-packs/user-forks.js')
+      // No projectSlug: forking for Shell authoring must never switch the
+      // channel's selected template.
+      const fork = await forkLegacyContentForEdit({ kind: 'thumbnail-recipe', legacyId: existing.id }, req.app.locals.contentPackOptions || {})
+      shellTemplateIdForSave = fork.fork_id
+    }
+  }
   // CONTAINMENT. `source_path` comes straight from the request body. Before
   // this the only gate was the image extension, so any image on the machine
   // could be read AND UPLOADED to GenStudio — a read-and-exfiltrate
@@ -169,21 +188,36 @@ router.post('/projects/:slug/thumbnail-reference/analyze', async (req, res) => {
       return res.status(422).json({ detail: `Reference image exceeds this model’s ${(model.max_image_bytes / 1024 / 1024).toFixed(1)} MB limit.` })
     }
     const sha256 = createHash('sha256').update(bytes).digest('hex')
-    const dir = thumbnailReferenceDir(slug)
+    const dir = shellAuthoring ? tl.managedShellDir() : thumbnailReferenceDir(slug)
     await fs.mkdir(dir, { recursive: true })
+    if (shellAuthoring) await tl.assertManagedShellDirIsReal()
     const extension = path.extname(sourcePath).toLowerCase()
-    const id = `thumbref-${randomUUID()}`
+    const id = shellAuthoring ? `shell-${sha256.slice(0, 16)}` : `thumbref-${randomUUID()}`
     const storedPath = path.join(dir, `${id}${extension}`)
-    await fs.copyFile(sourcePath, storedPath)
+    if (shellAuthoring) {
+      try { await fs.writeFile(storedPath, bytes, { flag: 'wx', mode: 0o600 }) }
+      catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
+        const existing = await fs.lstat(storedPath)
+        if (!existing.isFile() || createHash('sha256').update(await fs.readFile(storedPath)).digest('hex') !== sha256) {
+          throw new Error('The saved Shell image failed its integrity check. Choose another image.')
+        }
+      }
+    } else {
+      await fs.copyFile(sourcePath, storedPath)
+    }
     const remote = await uploadImageSourceWithGenStudio(apiKey, storedPath)
     if (model.max_image_dimension > 0 && Math.max(remote.width, remote.height) > model.max_image_dimension) {
-      await fs.rm(storedPath, { force: true })
       return res.status(422).json({ detail: `Reference image exceeds this model’s ${model.max_image_dimension}px dimension limit.` })
     }
     const result = await callChatWithGenStudio(apiKey, {
       modelId: model.id,
-      system: 'You are a thumbnail composition analyst. Analyse visual composition, hierarchy, framing, text placement, palette, lighting, and style cues. Do not identify or imitate brands, logos, or copyrighted characters. Return only one JSON object.',
-      userMessage: 'Analyse this thumbnail as a reusable composition reference. Return exactly this JSON object: {"composition_summary":"","aspect_ratio":"","primary_subject":"","subject_placement":"","visual_hierarchy":[],"title_text_placement":"","palette":[],"lighting":"","style_cues":[],"must_preserve":[],"avoid":[],"reframing_prompt":""}. The reframing_prompt must describe the composition without naming the original work, brand, or creator.',
+      system: shellAuthoring
+        ? 'You are a thumbnail layout analyst. Describe ONLY layout: zones, framing, hierarchy, text placement and spatial composition. Do not describe subject, palette, lighting, style or lettering. Do not identify or imitate brands, logos, or copyrighted characters. Return only one JSON object.'
+        : 'You are a thumbnail composition analyst. Analyse visual composition, hierarchy, framing, text placement, palette, lighting, and style cues. Do not identify or imitate brands, logos, or copyrighted characters. Return only one JSON object.',
+      userMessage: shellAuthoring
+        ? 'Analyse this image as a reusable layout shell. Return exactly this JSON object: {"composition_summary":"","aspect_ratio":"","primary_subject":"","subject_placement":"","visual_hierarchy":[],"title_text_placement":"","palette":[],"lighting":"","style_cues":[],"must_preserve":[],"avoid":[],"reframing_prompt":""}. The reframing_prompt must describe ONLY the zones/framing/hierarchy/text placement, without subject, palette, style or lettering, and without naming the original work, brand, or creator.'
+        : 'Analyse this thumbnail as a reusable composition reference. Return exactly this JSON object: {"composition_summary":"","aspect_ratio":"","primary_subject":"","subject_placement":"","visual_hierarchy":[],"title_text_placement":"","palette":[],"lighting":"","style_cues":[],"must_preserve":[],"avoid":[],"reframing_prompt":""}. The reframing_prompt must describe the composition without naming the original work, brand, or creator.',
       // No `topP`: Story Studio never had a top_p value anyone chose. The
       // client no longer sends the field at all — see `GenStudioChatRequest`.
       // `outputContract` is the one mechanism. The deprecated `jsonObject`
@@ -220,6 +254,21 @@ router.post('/projects/:slug/thumbnail-reference/analyze', async (req, res) => {
       analysis_model_id: model.id, analysis_model_name: model.display_name, analyzed_at: new Date().toISOString(),
     }
     await fs.writeFile(path.join(dir, `${id}.json`), JSON.stringify(reference, null, 2), 'utf8')
+    if (shellAuthoring) {
+      // Save image + note onto the template (forked if it was built-in/signed).
+      const template = await tl.loadTemplate(shellTemplateIdForSave, req.app.locals.contentPackOptions || {})
+      if (!template) throw new Error('Shell template could not be re-read after analysis.')
+      const saved: ThumbnailTemplate = {
+        ...template,
+        // `shell/` prefix keeps the reference inside the resolver's accepted
+        // managed-relative space (bare `${id}${extension}` never resolved).
+        shellImage: `shell/${id}${extension}`,
+        layoutNote: reframingPrompt,
+      }
+      await tl.validateShellSaveFields(saved)
+      await tl.saveShellTemplateDocument(shellTemplateIdForSave, saved, req.app.locals.contentPackOptions || {})
+      return res.json({ template: saved, reference, analysis_job_id: result.jobId })
+    }
     // The active channel reference is intentionally project-owned. Prompt and
     // image-generator presets may carry the same record, while Pipeline can
     // still resolve this durable fallback after a restart.

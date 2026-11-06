@@ -62,6 +62,9 @@
             allow-mode-selection
           />
           <p v-if="thumbnailImageMode === 'img2img' && !thumbnailReferenceActive" class="reference-notice" role="status">Add a reference thumbnail on Thumbnail Prompts before generating.</p>
+          <p v-if="thumbnailShellId && !thumbnailReferenceActive && !shellPictureSupported" class="reference-notice" role="status">
+            This Shell’s layout is written into the prompt; {{ activeGenStudioModel?.display_name || 'this model' }} doesn’t take reference pictures, so none is sent.
+          </p>
           <p v-if="thumbnailReferenceActive" class="reference-notice" role="status">
             Reference to image uses your saved reference thumbnail privately as a composition guide.
             <button type="button" class="btn btn-sm btn-ghost" :disabled="clearingReference" @click="stopUsingReference">
@@ -520,6 +523,14 @@ const extraDetails = ref('')
 const activeForm = computed<ImagesSubForm>(() => form.thumbnail)
 const thumbnailImageMode = ref<'text2img' | 'img2img'>('text2img')
 const thumbnailReferenceActive = computed(() => thumbnailImageMode.value === 'img2img' && !!(config.value as any)?.thumbnail_reference_asset?.id)
+/** The channel's Shell selection lives in config (the Prompts page writes it;
+ *  both pages and Pipeline must agree). Absent = legacy behaviour, unchanged. */
+const thumbnailShellId = computed(() => (config.value as any)?.thumbnail_shell_id || '')
+const thumbnailShellStrength = computed(() =>
+  (config.value as any)?.thumbnail_reference_strength as 'loose' | 'balanced' | 'strong' | undefined)
+/** The render's own live capability (§1): a Shell picture is sent only to a
+ *  model that takes reference pictures; anything else renders text-only. */
+const shellPictureSupported = computed(() => activeGenStudioModel.value?.supports_reference_images === true)
 watch(() => (config.value as any)?.thumbnail_reference_asset?.id, id => {
   thumbnailImageMode.value = id ? 'img2img' : 'text2img'
 }, { immediate: true })
@@ -1344,6 +1355,9 @@ async function loadAssembledLengths(signature: string): Promise<void> {
           ? (config.value as any).thumbnail_reference_asset
           : null,
         image_mode: thumbnailReferenceActive.value ? 'img2img' : 'text2img',
+        ...(thumbnailShellId.value ? { thumbnail_shell_id: thumbnailShellId.value } : {}),
+        ...(thumbnailShellId.value && thumbnailShellStrength.value
+          ? { reference_strength: thumbnailShellStrength.value } : {}),
       },
     )
     if (request !== assembledLengthsRequest) return
@@ -1518,6 +1532,9 @@ function generationParams(forceOverride?: boolean) {
     mode: 'thumbs',
     aspect_ratio: activeForm.value.aspect_ratio,
     image_mode: thumbnailReferenceActive.value ? 'img2img' : 'text2img',
+    ...(thumbnailShellId.value ? { thumbnail_shell_id: thumbnailShellId.value } : {}),
+    ...(thumbnailShellId.value && thumbnailShellStrength.value
+      ? { reference_strength: thumbnailShellStrength.value } : {}),
     ...(thumbnailReferenceActive.value ? { thumbnail_reference_asset: (config.value as any).thumbnail_reference_asset } : {}),
     ...(extraDetails.value.trim() ? { extra_details: extraDetails.value.trim() } : {}),
     force,

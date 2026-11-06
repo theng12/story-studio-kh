@@ -1551,6 +1551,8 @@ export async function getSafeConfig(slug: string): Promise<any | null> {
       ? (config as any).overlay_time_ranges
       : undefined,
     thumbnail_reference_asset: (config as any).thumbnail_reference_asset || undefined,
+    thumbnail_shell_id: typeof config.thumbnail_shell_id === 'string' ? config.thumbnail_shell_id : undefined,
+    thumbnail_reference_strength: config.thumbnail_reference_strength,
     // v1.0.337 — continuity guide cast density (0–100; undefined = 40% default).
     character_density: typeof (config as any).character_density === 'number' ? (config as any).character_density : undefined,
     // v1.0.795 — the Scene Plan page's PROJECT-LEVEL settings. Each is written

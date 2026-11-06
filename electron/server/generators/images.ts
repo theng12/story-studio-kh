@@ -66,6 +66,7 @@ import {
   type PaidImageOutputSelector,
 } from '../services/image-paid-replacement.js'
 import { isFreeFleetModelId } from '../contracts/provider-task-state.js'
+import { resolveThumbnailShell, stageThumbnailShellImage } from '../services/thumbnail-shell.js'
 
 // NOTE (v1.0.224): the old `enhanceThumbnailPrompt` + hardcoded gold/glowing
 // `THUMB_TEXT_STYLES` were removed. They force-appended a sleep-story title
@@ -114,7 +115,12 @@ export function savedThumbnailReferenceGuidance(reframingPrompt: unknown): strin
  * prompt over the model's ceiling).
  */
 export function savedThumbnailReferenceGuidanceFor(projectDir: string, asset: unknown): string {
-  const record = asset as { id?: unknown; filename?: unknown; reframing_prompt?: unknown } | null | undefined
+  const record = asset as { id?: unknown; filename?: unknown; reframing_prompt?: unknown; layoutNote?: unknown } | null | undefined
+  if (typeof record?.layoutNote === 'string' && record.layoutNote.trim()) {
+    return 'Shell layout only: preserve the arrangement, framing, hierarchy and empty text zones described below. '
+      + 'Use this episode’s subjects, chosen art style and chosen lettering; do not copy the Shell’s subjects, palette, logos or words. '
+      + record.layoutNote.trim()
+  }
   if (!record?.id || typeof record.filename !== 'string' || !record.filename) return ''
   const file = path.join(projectDir, 'thumbnail-reference-assets', record.filename)
   if (!existsSync(file)) return ''
@@ -615,18 +621,23 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
   await fs.mkdir(bgDir, { recursive: true })
   await fs.mkdir(thumbDir, { recursive: true })
 
-  // Reference-guided thumbnails use the durable project-owned original saved
-  // by Thumbnail Prompts. The GenStudio provider uploads this file privately
-  // immediately before dispatch; no local path ever crosses that boundary.
-  const savedThumbnailReference = mode === 'thumbs'
-    ? ((req as any).thumbnail_reference_asset || (config as any).thumbnail_reference_asset || null)
-    : null
+  const thumbnailShell = mode === 'thumbs' ? await resolveThumbnailShell(project_slug, req, config) : null
   const projectRootDir = pm.getProjectDir(project_slug) || path.join(pm.projectsRoot(), project_slug)
   const trashDirFor = (anchor: string, kind: string) => path.join(trashRootFor(anchor, projectRootDir, project_slug), kind)
-  const savedThumbnailReferencePath = savedThumbnailReference?.id && typeof savedThumbnailReference?.filename === 'string'
-    ? path.join(projectRootDir, 'thumbnail-reference-assets', savedThumbnailReference.filename)
-    : ''
-  const hasSavedThumbnailReference = !!savedThumbnailReferencePath && existsSync(savedThumbnailReferencePath)
+  const savedThumbnailReference = thumbnailShell?.guidanceAsset
+  let savedThumbnailReferencePath = thumbnailShell?.imagePath || ''
+  const hasSavedThumbnailReference = modelConfig.supports_reference_images === true
+    && !!savedThumbnailReferencePath && existsSync(savedThumbnailReferencePath)
+  if (thumbnailShell?.id) {
+    job.output_lines.push(`Shell: ${thumbnailShell.name}. Only its layout is used; this episode supplies the subjects, art style and words.`)
+    if (thumbnailShell.imagePath && modelConfig.supports_reference_images !== true) {
+      job.output_lines.push(`Model '${modelName}' does not publish reference-image support. Using the Shell’s written layout only; no Shell image will be sent.`)
+    }
+  }
+  if (hasSavedThumbnailReference && (thumbnailShell?.template
+    || (thumbnailShell?.sourceProjectSlug && thumbnailShell.sourceProjectSlug !== project_slug))) {
+    savedThumbnailReferencePath = await stageThumbnailShellImage(projectRootDir, savedThumbnailReferencePath)
+  }
 
   // Parse prompts from separate or combined files
   let scenes: ParsedPrompts['scenes'] = []
@@ -803,8 +814,9 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
       (supportsReferences ? '' : ` — but model '${modelName}' publishes no reference support; style still applies via the prompt text`),
     )
   }
-  const referenceStrength: ThumbnailReferenceStrength = (req.reference_strength === 'loose' || req.reference_strength === 'strong')
-    ? req.reference_strength
+  const selectedStrength = req.thumbnail_reference_strength ?? req.reference_strength ?? config.thumbnail_reference_strength
+  const referenceStrength: ThumbnailReferenceStrength = selectedStrength === 'loose' || selectedStrength === 'strong'
+    ? selectedStrength
     : 'balanced'
 
   function img2imgRefsDir(): string {
@@ -1459,8 +1471,8 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
     activeItems.set(key, { label, key, state: 'running', attempt: 1, max_attempts: IMAGE_ROUTE_RETRY_MAX_ATTEMPTS })
     publishProgress()
     try {
-      if (savedThumbnailReference?.id && !hasSavedThumbnailReference && !existingArtifactEntry?.original_reference_inputs) {
-        throw new Error('The saved thumbnail reference is unavailable locally. Re-upload it in Thumbnail Prompts before generating.')
+      if (thumbnailShell?.imagePath && supportsReferences && !hasSavedThumbnailReference && !existingArtifactEntry?.original_reference_inputs) {
+        throw new Error('The selected Shell image is unavailable locally. Replace it in Thumbnail Prompts before generating.')
       }
       // The thumbnail prompt already carries its (format-aware) title-text
       // directive from image-prompts.ts — render it verbatim. Character
@@ -1477,9 +1489,8 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
       // editing the stored prompt.
       const extra = (req.extra_details || '').trim()
       const hasThumbnailReference = hasSavedThumbnailReference || (refSources.thumbnail && existsSync(thumbnailRefPath()))
-      const referenceGuidance = hasSavedThumbnailReference
-        ? savedThumbnailReferenceGuidanceFor(projectRootDir, savedThumbnailReference)
-        : hasThumbnailReference ? thumbnailReferenceGuidance(referenceStrength) : ''
+      const referenceGuidance = savedThumbnailReferenceGuidanceFor(projectRootDir, savedThumbnailReference)
+        || (hasThumbnailReference ? thumbnailReferenceGuidance(referenceStrength) : '')
       // ONE assembly, shared with the character ceiling the thumbnail prompt
       // was written under, so the prompt that was measured and the prompt the
       // model receives are the same text.

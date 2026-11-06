@@ -124,6 +124,8 @@ router.post('/thumbnail-templates', async (req, res) => {
       name: body.name.trim(),
       description: typeof body.description === 'string' ? body.description : '',
     }
+    try { await tl.validateShellSaveFields(created) }
+    catch (error: any) { return res.status(400).json({ detail: error?.message || 'Invalid Shell fields' }) }
     await tl.ensureTemplatesDir()
     const filePath = tl.templateFilePath(id)
     await fs.writeFile(filePath, JSON.stringify(created, null, 2) + '\n')
@@ -166,6 +168,10 @@ router.put('/thumbnail-templates/:id', async (req, res) => {
     if (typeof merged.description !== 'string') {
       return res.status(400).json({ detail: 'description is required' })
     }
+    // Shell image/layout note pass only through managed validation: no raw
+    // upload paths, and a Shell image is never accepted without its note.
+    try { await tl.validateShellSaveFields(merged) }
+    catch (error: any) { return res.status(400).json({ detail: error?.message || 'Invalid Shell fields' }) }
     await saveUserForkDocument(forkId, merged, contentPackOptions)
     res.json({ template: merged })
   } catch (e: any) {
@@ -192,6 +198,51 @@ router.delete('/thumbnail-templates/:id', async (req, res) => {
     res.json({ ok: true, removed: id })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Failed to delete template'))
+  }
+})
+
+// ── Channel's stored legacy reference picture ──────────────────────────────
+//
+// Read-only: serves the picture this channel already uploaded as its
+// thumbnail reference (project-owned thumbnail-reference-assets). No
+// placeholder, no fallback — a missing file is a plain 404 so the picker can
+// show the upload slot instead of a broken image.
+
+router.get('/projects/:slug/thumbnail-reference/image', async (req, res) => {
+  try {
+    const slug = req.params.slug
+    const config = (await pm.getConfig(slug)) as Record<string, unknown>
+    const record = config?.thumbnail_reference_asset as
+      { filename?: unknown; mime_type?: unknown } | null | undefined
+    const filename = typeof record?.filename === 'string' ? record.filename : ''
+    if (!filename || path.basename(filename) !== filename || filename.includes('\\')) {
+      return res.status(404).json({ detail: 'This channel has no stored reference picture' })
+    }
+    const projectDir = pm.getProjectDir(slug)
+    if (!projectDir) return res.status(404).json({ detail: 'Project not found' })
+    const directory = path.join(projectDir, 'thumbnail-reference-assets')
+    const filePath = path.join(directory, filename)
+    // Same containment rule the runtime resolver applies: realpath inside the
+    // managed folder, regular file, or a loud 404.
+    const [root, file, stat] = await Promise.all([
+      fs.realpath(directory).catch(() => null),
+      fs.realpath(filePath).catch(() => null),
+      fs.stat(filePath).catch(() => null),
+    ])
+    if (!root || !file || !stat?.isFile()) {
+      return res.status(404).json({ detail: 'This channel has no stored reference picture' })
+    }
+    const relative = path.relative(root, file)
+    if (!relative || relative.startsWith(`..${path.sep}`) || relative === '..' || path.isAbsolute(relative)) {
+      return res.status(404).json({ detail: 'This channel has no stored reference picture' })
+    }
+    const ext = path.extname(filename).toLowerCase()
+    res.setHeader('Content-Type',
+      ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg' : ext === '.webp' ? 'image/webp' : 'image/png')
+    res.setHeader('Cache-Control', 'private, max-age=60')
+    res.sendFile(file)
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Failed to load the channel reference picture'))
   }
 })
 
@@ -256,6 +307,22 @@ router.get('/thumbnail-templates/:id/preview.png', async (req, res) => {
   try {
     const t = await tl.loadTemplate(req.params.id, packOptionsFor(req))
     if (!t) return res.status(404).json({ detail: `Template "${req.params.id}" not found` })
+
+    // A Shell with a declared layout image shows that image itself — the picker
+    // uses this endpoint as its picture source (shellImage is filesystem
+    // metadata, never a URL). A declared-but-unavailable image fails loudly
+    // instead of silently falling back to the placeholder.
+    if (t.shellImage) {
+      const shellPath = await tl.resolveTemplateShellImage(t, packOptionsFor(req))
+      if (!shellPath) {
+        return res.status(502).json({ detail: `Shell image for "${req.params.id}" is unavailable` })
+      }
+      const ext = path.extname(shellPath).toLowerCase()
+      const mime = ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg' : ext === '.webp' ? 'image/webp' : 'image/png'
+      res.setHeader('Content-Type', mime)
+      res.setHeader('Cache-Control', 'public, max-age=300')
+      return res.sendFile(path.resolve(shellPath))
+    }
 
     const canvas = t.canvas || { width: 1920, height: 1080 }
     const placeholder = await getPlaceholderPortrait(canvas.width, canvas.height)

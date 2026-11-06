@@ -332,6 +332,8 @@ export function contentPackDocumentToThumbnailTemplate(document: RecipeDocument,
       headlineFormats: [...document.headline_formats],
       visualStyleGuidance: document.visual_style_guidance,
     },
+    ...(document.shell_image ? { shellImage: document.shell_image } : {}),
+    ...(document.layout_note ? { layoutNote: document.layout_note } : {}),
   }
 }
 

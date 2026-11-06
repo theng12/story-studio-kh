@@ -39,11 +39,9 @@
             :project-slug="slug"
             writing-step
             label="Prompt model"
-            :require-vision="Boolean(form.thumbnail.thumb_reference_asset)"
           />
           <p class="text-muted text-xs hint-line">
-            <template v-if="form.thumbnail.thumb_reference_asset">Only vision-capable models are shown while this reference is attached.</template>
-            <template v-else>This model writes the thumbnail prompts. Image rendering uses the separate model chosen in Thumbnail Generator.</template>
+            This model writes the thumbnail prompts. Image rendering uses the separate model chosen in Thumbnail Generator.
           </p>
         </div>
         <div class="form-group">
@@ -79,20 +77,55 @@
           Generate only fills in missing prompts. This writes every prompt for {{ form.episode_id }} again from scratch.
         </span>
       </div>
-      <div class="form-group mt-2">
-        <ThumbnailRecipePicker
-          :selected-recipe-id="form.thumbnail.thumbnail_template_id"
-          @select="applyThumbnailRecipe"
-        />
-      </div>
-      <div v-if="thumbnailHeadlineInvents" class="thumbnail-hook-policy mt-1">
-        <div>
-          <span>CURIOUS COPY</span>
-          <strong>Short thumbnail hook</strong>
-          <p>Each variation gets its own 1–4 word hook, generated from the episode’s real question and rendered directly inside the image.</p>
+      <!-- ONE step, top to bottom: Shell → style/lettering → hook → strength. -->
+      <section class="shell-step" aria-labelledby="shell-heading">
+        <div class="shell-step-head">
+          <div>
+            <h3 id="shell-heading">Pick a Shell</h3>
+            <p class="text-muted text-xs">The layout the words sit in. Your art style and lettering stay yours — a Shell only carries the composition.</p>
+          </div>
+          <button type="button" class="btn btn-secondary" @click="shellLibraryOpen = true">Change</button>
         </div>
-        <span>Full YouTube title stays in Metadata</span>
-      </div>
+        <div class="shell-card" data-testid="selected-shell">
+          <img v-if="selectedShellPreview && !channelImageMissing" :src="selectedShellPreview" :alt="`${selectedShellName} preview`" class="shell-card-media" @error="channelImageMissing = true" />
+          <span v-else class="shell-card-media text-muted text-xs">{{ channelImageMissing ? 'Shell image unavailable' : 'Preview pending' }}</span>
+          <span class="shell-card-copy">
+            <strong>{{ selectedShellName }}</strong>
+            <span class="text-muted text-xs">{{ selectedShellNote || 'Choose a layout from your Shell library.' }}</span>
+          </span>
+        </div>
+        <Modal :visible="shellLibraryOpen" size="xl" labelledby="shell-library-title" @close="shellLibraryOpen = false">
+          <div class="shell-library">
+            <div class="shell-step-head">
+              <h2 id="shell-library-title">Shell Library</h2>
+              <button type="button" class="btn btn-secondary" @click="shellLibraryOpen = false">Close</button>
+            </div>
+            <p class="text-muted">Pick a layout. Your channel art style, lettering and episode words stay yours.</p>
+            <button v-if="channelShellAsset" type="button" class="shell-card" @click="selectChannelShell">
+              <img :src="`/api/projects/${slug}/thumbnail-reference/image`" alt="This channel’s saved Shell" class="shell-card-media" />
+              <span class="shell-card-copy"><strong>This channel’s reference</strong><span class="text-muted text-xs">{{ channelShellAsset.reframing_prompt }}</span></span>
+            </button>
+            <ThumbnailTemplatePicker :key="shellLibraryRevision" v-model="form.thumbnail.thumbnail_shell_id" @change="applyThumbnailShell" />
+            <div class="shell-upload">
+              <label>Vision model for a new picture
+                <select v-model="thumbnailVisionModel" class="select" :disabled="extractingThumbRef">
+                  <option value="" disabled>Choose a vision model…</option>
+                  <option v-for="model in thumbnailVisionModels" :key="model.id" :value="model.id">{{ model.display_name || model.id }}</option>
+                </select>
+              </label>
+              <p v-if="thumbnailVisionLoadError" class="text-muted" role="alert">{{ thumbnailVisionLoadError }}</p>
+              <button type="button" class="btn btn-secondary" :disabled="extractingThumbRef || !thumbnailVisionModel" @click="extractThumbReferenceStyle">
+                {{ extractingThumbRef ? 'Analysing…' : 'Upload your own' }}
+              </button>
+              <p class="text-muted text-xs">Reads the picture once and saves a reusable Shell in your library.</p>
+            </div>
+          </div>
+        </Modal>
+        <p v-if="shellReferenceUnsupported" class="shell-fallback-note" role="status">
+          The selected model doesn’t take reference pictures, so it renders from the Shell’s written layout note only — no picture is sent.
+        </p>
+
+      </section>
       <div class="form-group mt-2">
         <label>Visual art style</label>
         <StylePicker
@@ -116,98 +149,6 @@
         </p>
       </div>
 
-      <!-- Rare on purpose: importing a reference is something he does now and
-           again, and it was sitting between the art style and the lettering,
-           interrupting the run he actually makes every episode — style, then
-           recipe, then what the words say and look like. -->
-      <details class="advanced-reference mt-2">
-        <summary>
-          <span>Use an existing thumbnail as a guide</span>
-          <span class="advanced-reference__note">{{ thumbnailReferenceSummary }}</span>
-        </summary>
-        <section class="thumbnail-reference-card" aria-labelledby="thumbnail-reference-heading">
-          <div class="thumbnail-reference-card__heading">
-            <div>
-              <p class="thumbnail-reference-card__eyebrow">OPTIONAL · PRIVATE INPUT</p>
-              <h3 id="thumbnail-reference-heading">Reference-guided thumbnail</h3>
-              <p class="text-muted text-xs">
-                Import one existing thumbnail, analyse its composition, then use it privately as an original re-framing guide for this channel.
-              </p>
-            </div>
-            <span class="thumbnail-reference-card__status" :class="{ active: form.thumbnail.thumb_reference_asset }">
-              {{ form.thumbnail.thumb_reference_asset ? 'Reference ready' : 'No reference' }}
-            </span>
-          </div>
-
-          <div class="flex gap-2 items-center flex-wrap mt-1">
-            <button
-              type="button"
-              class="btn btn-secondary"
-              :disabled="extractingThumbRef || !thumbnailVisionModels.length"
-              @click="extractThumbReferenceStyle"
-            >
-              <LoadingSpinner v-if="extractingThumbRef" size="sm" />
-              <span v-else aria-hidden="true">📷</span>
-              {{ form.thumbnail.thumb_reference_asset ? 'Replace & analyse reference…' : 'Import & analyse reference…' }}
-            </button>
-            <button
-              v-if="form.thumbnail.thumb_reference_asset"
-              type="button"
-              class="btn btn-ghost"
-              @click="clearThumbnailReference"
-            >
-              Remove Reference
-            </button>
-            <button
-              v-if="thumbnailVisionLoadError || !thumbnailVisionModels.length"
-              type="button"
-              class="btn btn-ghost"
-              :disabled="thumbnailVisionLoading"
-              @click="loadThumbnailVisionModels"
-            >
-              {{ thumbnailVisionLoading ? 'Checking Vision Models…' : 'Retry Vision Models' }}
-            </button>
-          </div>
-
-          <template v-if="thumbnailVisionModels.length">
-            <p class="text-muted text-xs hint-line">
-              The image is uploaded privately to the Gateway for analysis and generation—never as a local path, browser URL, or public URL.
-            </p>
-            <div class="form-group mt-1">
-              <label>Composition analysis model</label>
-              <ModelMenu
-                v-model="thumbnailVisionModel"
-                class="vision-model-select"
-                :options="thumbnailVisionModelMenuOptions"
-                media-type="llm"
-                title="Thumbnail reference analysis model"
-                search-placeholder="Search vision models…"
-                :disabled="extractingThumbRef"
-                :catalogue-error="thumbnailVisionLoadError"
-              />
-              <p v-if="selectedThumbnailVisionModel" class="text-muted text-xs hint-line">
-                Reads {{ selectedThumbnailVisionModel.max_input_images }} image · {{ selectedThumbnailVisionModel.accepted_image_mime_types.map(type => type.replace(/^image\//, '').toUpperCase()).join(', ') }} files · up to {{ Math.round(selectedThumbnailVisionModel.max_image_bytes / 1024 / 1024) }} MB and {{ selectedThumbnailVisionModel.max_image_dimension }}px on the longest side
-              </p>
-            </div>
-          </template>
-          <p v-else class="thumbnail-reference-card__warning">
-            {{ thumbnailVisionLoadError || 'No currently available Gateway model is qualified to analyse a thumbnail reference. Check the Gateway connection, then retry.' }}
-          </p>
-
-          <template v-if="form.thumbnail.thumb_reference_asset">
-            <textarea
-              v-model="form.thumbnail.thumb_reference_style"
-              class="textarea mt-1"
-              rows="3"
-              aria-label="Reference composition brief"
-              placeholder="Analysed composition brief…"
-            />
-            <p class="text-muted text-xs hint-line">
-              <strong>{{ form.thumbnail.thumb_reference_asset.filename }}</strong> · analysed by {{ form.thumbnail.thumb_reference_asset.analysis_model_name }} · saved with this preset, project, and Pipeline runs.
-            </p>
-          </template>
-        </section>
-      </details>
 
       <!-- One card for the whole lettering decision, the way Channel art style
            is one card: the letterform, the treatment and where it sits. They
@@ -302,6 +243,15 @@
         </p>
       </div>
 
+      <div class="shell-strength" role="radiogroup" aria-label="How closely to follow the Shell layout">
+        <span class="shell-strength-label">How closely to follow the layout</span>
+        <button v-for="option in referenceStrengthOptions" :key="option.id" type="button" role="radio"
+          :aria-checked="form.thumbnail.reference_strength === option.id"
+          :class="['position-chip', { selected: form.thumbnail.reference_strength === option.id }]"
+          :disabled="!shellHasImage" :title="shellHasImage ? option.hint : 'Only applies to a Shell with a layout picture.'"
+          @click="setReferenceStrength(option.id)"
+        >{{ option.label }}</button>
+      </div>
       <div v-if="generating" class="progress-bar mt-2">
         <div class="progress-fill" />
       </div>
@@ -491,7 +441,13 @@ type SharedFormFields = {
   force: boolean
 }
 type ThumbnailForm = SharedFormFields & {
+  /** The selected Shell: a template id, or `channel-reference:<slug>` for the
+   *  channel's own legacy reference. Distinct from `thumbnail_template_id`,
+   *  which stays untouched for compatibility until the backend reads this. */
+  thumbnail_shell_id: string
   thumbnail_template_id: string
+  /** How closely the render follows a Shell that has a layout picture. */
+  reference_strength: 'loose' | 'balanced' | 'strong'
   thumb_count: number
   thumb_text_style: string
   thumb_text_style_custom: string
@@ -519,7 +475,9 @@ const form = reactive({
     aspect_ratio: '16:9',
     character_ids: [] as string[],
     force: false,
+    thumbnail_shell_id: '',
     thumbnail_template_id: '',
+    reference_strength: 'balanced' as 'loose' | 'balanced' | 'strong',
     thumb_count: DEFAULT_THUMBNAIL_COUNT,
     thumb_text_style: 'auto',
     thumb_text_style_custom: '',
@@ -588,20 +546,99 @@ type SelectedThumbnailRecipe = {
   }
 }
 
-async function applyThumbnailRecipe(template: SelectedThumbnailRecipe): Promise<void> {
-  form.thumbnail.thumbnail_template_id = template.id
-  const recipe = template.recipe
-  if (recipe?.headlineMode) form.thumbnail.thumb_headline_mode = recipe.headlineMode
-  if (recipe?.defaultTextStyle) form.thumbnail.thumb_text_style = recipe.defaultTextStyle
-  if (recipe?.defaultFontStyle) form.thumbnail.thumb_font_style = recipe.defaultFontStyle
-  if (recipe?.defaultTextPosition) form.thumbnail.thumb_text_position = recipe.defaultTextPosition
-  if (recipe?.conceptGuidance) form.thumbnail.thumb_art_direction = recipe.conceptGuidance
+// ── Shells: ONE selection, top to bottom ───────────────────────────────────
+// The reserved virtual id stands for the channel's own legacy reference: it
+// appears as a read-only card and keeps the stored reference in place. A real
+// template id is a reusable Shell; picking one overrides the legacy reference
+// for new runs without erasing it. Nothing here rewrites stored data.
+const virtualShellId = computed(() => `channel-reference:${slug.value}`)
+const channelShellAsset = ref<ThumbnailReferenceAsset | null>(null)
+// The channel's own reference picture has its own GET route; a 404 there means
+// no stored picture, which falls back to the placeholder tile (empty state).
+const channelImageMissing = ref(false)
+const activeShellId = computed(() => form.thumbnail.thumbnail_shell_id)
+const referenceStrengthOptions = [
+  { id: 'loose', label: 'Loose', hint: 'Take the mood and framing, rearrange the rest.' },
+  { id: 'balanced', label: 'Balanced', hint: 'Follow the layout while leaving room for the subject.' },
+  { id: 'strong', label: 'Strong', hint: 'Match the Shell layout as closely as the model allows.' },
+] as const
+/** The selected template's own Shell picture (managed `shell/...` asset).
+ *  Null for text-only Shells and for the channel's own virtual Shell. */
+const selectedShellImage = ref<string | null>(null)
+const selectedShellName = ref('No Shell selected')
+const selectedShellNote = ref('')
+const selectedShellPreview = ref('')
+const shellLibraryOpen = ref(false)
+const shellLibraryRevision = ref(0)
+async function loadSelectedShellImage(templateId: string): Promise<void> {
+  selectedShellImage.value = null
+  selectedShellName.value = 'No Shell selected'
+  selectedShellNote.value = ''
+  selectedShellPreview.value = ''
+  channelImageMissing.value = false
+  if (!templateId) return
   try {
-    await put(`/projects/${slug.value}/settings/config`, { thumbnail_template_id: template.id })
-    success(`Applied ${template.name}. Its composition will be used without changing your visual art style.`)
+    if (templateId.startsWith('channel-reference:')) {
+      const sourceSlug = templateId.slice('channel-reference:'.length)
+      const [source, cfg] = await Promise.all([
+        get<{ name: string }>(`/projects/${encodeURIComponent(sourceSlug)}`),
+        get<{ thumbnail_reference_asset?: ThumbnailReferenceAsset }>(`/projects/${encodeURIComponent(sourceSlug)}/settings/config`),
+      ])
+      if (form.thumbnail.thumbnail_shell_id !== templateId) return
+      selectedShellName.value = `${source.name} — channel Shell`
+      selectedShellNote.value = cfg.thumbnail_reference_asset?.reframing_prompt || ''
+      selectedShellImage.value = cfg.thumbnail_reference_asset?.filename || null
+      selectedShellPreview.value = `/api/projects/${encodeURIComponent(sourceSlug)}/thumbnail-reference/image`
+    } else {
+      const t = await get<{ name: string; shellImage?: string; layoutNote?: string; previewImages?: string[] }>(`/thumbnail-templates/${encodeURIComponent(templateId)}`)
+      if (form.thumbnail.thumbnail_shell_id !== templateId) return
+      selectedShellName.value = t.name
+      selectedShellNote.value = t.layoutNote || ''
+      selectedShellImage.value = t.shellImage || null
+      selectedShellPreview.value = t.shellImage ? `/api/thumbnail-templates/${encodeURIComponent(templateId)}/preview.png` : t.previewImages?.[0] || ''
+    }
   } catch (e: any) {
-    showError(e?.data?.detail || e?.message || 'Recipe selected for this session, but could not save it to the project')
+    if (form.thumbnail.thumbnail_shell_id !== templateId) return
+    selectedShellName.value = 'Shell unavailable'
+    showError(e?.data?.detail || 'Could not load the selected Shell. Choose it again from the library.')
   }
+}
+watch(() => form.thumbnail.thumbnail_shell_id, id => { void loadSelectedShellImage(id) })
+/** A Shell can carry a picture: the channel's own reference, or the selected
+ *  template's shell image once loaded (null while still text-only). */
+const shellHasImage = computed(() => Boolean(activeShellId.value && selectedShellImage.value))
+/** Reference support is read live from the intended image model (§1). The
+ *  writer only needs to know whether a picture will be attached at render. */
+const shellReferenceUnsupported = computed(() =>
+  shellHasImage.value && intendedImageModel.value?.supports_reference_images !== true,
+)
+const thumbReferenceAsset = computed(() => form.thumbnail.thumb_reference_asset)
+
+function selectChannelShell(): void {
+  shellLibraryOpen.value = false
+  form.thumbnail.thumbnail_shell_id = virtualShellId.value
+  void put(`/projects/${slug.value}/settings/config`, { thumbnail_shell_id: virtualShellId.value })
+    .then(() => success('Keeping this channel’s reference selected.'))
+    .catch((e: any) => showError(e?.data?.detail || 'Shell selected for this session, but could not save it to the project'))
+}
+
+async function applyThumbnailShell(template: SelectedThumbnailRecipe): Promise<void> {
+  form.thumbnail.thumbnail_shell_id = template.id
+  form.thumbnail.thumbnail_template_id = template.id
+  shellLibraryOpen.value = false
+  void loadSelectedShellImage(template.id)
+  try {
+    await put(`/projects/${slug.value}/settings/config`, { thumbnail_shell_id: template.id, thumbnail_template_id: template.id })
+    success(`Applied ${template.name}. Its layout will be used without changing your visual art style.`)
+  } catch (e: any) {
+    showError(e?.data?.detail || e?.message || 'Shell selected for this session, but could not save it to the project')
+  }
+}
+
+function setReferenceStrength(id: 'loose' | 'balanced' | 'strong'): void {
+  form.thumbnail.reference_strength = id
+  void put(`/projects/${slug.value}/settings/config`, { thumbnail_reference_strength: id })
+    .catch((e: any) => showError(e?.data?.detail || 'Layout closeness saved for this session only.'))
 }
 
 // v1.0.259 — remember the prompt settings (model / style / aspect /
@@ -615,7 +652,7 @@ async function applyThumbnailRecipe(template: SelectedThumbnailRecipe): Promise<
 // defaults later seed ONLY those keys, so a remembered choice (or a preset)
 // is never overwritten on the next visit.
 const SEEDABLE_KEYS = {
-  thumbnail: ['thumb_headline_mode', 'style_tag', 'style_preset', 'thumb_count', 'aspect_ratio'],
+  thumbnail: ['thumbnail_shell_id', 'reference_strength', 'thumb_headline_mode', 'style_tag', 'style_preset', 'thumb_count', 'aspect_ratio'],
 } as const
 const rememberedKeys = probeRememberedKeys(form, SEEDABLE_KEYS, () =>
   useRememberedForm('image-prompts', slug, form, { include: ['thumbnail'] }))
@@ -660,8 +697,6 @@ const selectedGenStudioImageModel = computed(() =>
 )
 interface HeadlineModeOption { id: string; label: string; summary: string; invents: boolean }
 const headlineModes = ref<HeadlineModeOption[]>([])
-const thumbnailReferenceSummary = computed(() =>
-  form.thumbnail.thumb_reference_style?.trim() ? 'A reference is applied' : 'Not used')
 
 const titleLocations = [
   { id: 'auto', label: 'Let the model decide' },
@@ -743,11 +778,17 @@ const thumbnailPresets = usePresets<any>({
   configKey: 'thumbnail_prompts',
   // The click brief is episode text. Stripped on save AND on apply; apply is an
   // Object.assign, so the live (current-episode) value survives either way.
-  excludeKeys: [...DEFAULT_EXCLUDE_KEYS, 'thumb_creative_direction'],
+  excludeKeys: [...DEFAULT_EXCLUDE_KEYS, 'thumb_creative_direction', 'thumb_reference_asset', 'thumb_reference_style'],
   snapshot: () => ({ form: { ...form.thumbnail } }),
   apply: (data) => {
     if (!data?.form) return
     Object.assign(form.thumbnail, data.form)
+    if (typeof data.form.thumbnail_shell_id === 'string') {
+      void put(`/projects/${slug.value}/settings/config`, {
+        thumbnail_shell_id: data.form.thumbnail_shell_id,
+        thumbnail_reference_strength: form.thumbnail.reference_strength,
+      }).catch((e: any) => showError(e?.data?.detail || 'Could not save the preset’s Shell selection for Pipeline.'))
+    }
     // A preset stored by an older build can carry an unusable count — a string,
     // a 0, a count from before three was the default. Normalise it ON READ with
     // THE same rule the generator uses (contracts/thumbnail-counts). The stored
@@ -818,10 +859,41 @@ onMounted(async () => {
     showError('Could not load the channel language. Reload to see the thumbnail text settings.')
   }
   await applyFormatDefaultsIfNoPreset()
+  // Channel Shell selection lives in config (prompts page, generator page and
+  // Pipeline must agree), so it is loaded here rather than remembered. An
+  // active preset or a remembered choice still wins (AGENTS §5).
+  let shellSelectionExplicit = Object.prototype.hasOwnProperty.call(thumbnailPresets.activeData.value?.form || {}, 'thumbnail_shell_id')
+    || rememberedKeys.thumbnail.has('thumbnail_shell_id')
+  try {
+    const cfg = await get<any>(`/projects/${slug.value}/settings/config`).catch(() => null)
+    if (cfg) {
+      channelShellAsset.value = cfg.thumbnail_reference_asset ?? null
+      const presetOwnsShell = shellSelectionExplicit
+      shellSelectionExplicit ||= typeof cfg.thumbnail_shell_id === 'string'
+      if (!presetOwnsShell) {
+        if (typeof cfg.thumbnail_shell_id === 'string') form.thumbnail.thumbnail_shell_id = cfg.thumbnail_shell_id
+        else if (cfg.thumbnail_reference_asset?.id) form.thumbnail.thumbnail_shell_id = virtualShellId.value
+        else if (cfg.thumbnail_template_id) form.thumbnail.thumbnail_shell_id = cfg.thumbnail_template_id
+      }
+      if (!presetOwnsShell && cfg.thumbnail_reference_strength) {
+        form.thumbnail.reference_strength = cfg.thumbnail_reference_strength
+      }
+      if (form.thumbnail.thumbnail_shell_id && form.thumbnail.thumbnail_shell_id !== virtualShellId.value) {
+        void loadSelectedShellImage(form.thumbnail.thumbnail_shell_id)
+      }
+    }
+  } catch {
+    // Shell state defaults to this session's choice; never blocks authoring.
+  }
   try {
     const effective = await get<{ template: { id: string; name: string; recipe?: { headlineMode?: 'episode-title' | 'short-hook' | 'curiosity-hook' } } | null }>(`/projects/${slug.value}/effective-thumbnail-template`)
     if (effective.template) {
       if (!form.thumbnail.thumbnail_template_id) form.thumbnail.thumbnail_template_id = effective.template.id
+      // A channel with no deliberate Shell selection yet still shows its own
+      // effective template as the selected card, without writing anything.
+      if (!shellSelectionExplicit && !form.thumbnail.thumbnail_shell_id && !channelShellAsset.value) {
+        form.thumbnail.thumbnail_shell_id = effective.template.id
+      }
       // The template only SEEDS "Thumbnail text"; the customer's remembered or
       // preset choice stands on every later visit.
       if (!thumbnailPresets.activeId.value && !rememberedKeys.thumbnail.has('thumb_headline_mode')) {
@@ -863,6 +935,8 @@ async function loadThumbnailVisionModels() {
 // reference layer of the thumbnail art direction.
 const extractingThumbRef = ref(false)
 async function extractThumbReferenceStyle() {
+  if (extractingThumbRef.value) return
+  extractingThumbRef.value = true
   try {
     const r = await post<{ path: string | null }>('/system/pick-file', {
       title: 'Choose a reference thumbnail',
@@ -875,27 +949,21 @@ async function extractThumbReferenceStyle() {
     if (!r.path) return
     extractingThumbRef.value = true
     if (!thumbnailVisionModel.value) throw new Error('No Gateway vision model is currently available for thumbnail analysis.')
-    const data = await post<{ reference: ThumbnailReferenceAsset }>(
+    const created = await post<{ template: SelectedThumbnailRecipe }>('/thumbnail-templates', {
+      id: '', name: r.path.split(/[\\/]/).pop()?.replace(/\.[^.]+$/, '') || 'My Shell',
+      description: 'Uploaded layout Shell', builtin: false, schemaVersion: 1,
+    })
+    const data = await post<{ template: SelectedThumbnailRecipe; reference: ThumbnailReferenceAsset }>(
       `/projects/${slug.value}/thumbnail-reference/analyze`,
-      { source_path: r.path, model_id: thumbnailVisionModel.value },
+      { shell_template_id: created.template.id, source_path: r.path, model_id: thumbnailVisionModel.value },
     )
-    form.thumbnail.thumb_reference_asset = data.reference
-    form.thumbnail.thumb_reference_style = data.reference.reframing_prompt
-    success(`Composition reference analysed via ${data.reference.analysis_model_name}`)
+    shellLibraryRevision.value += 1
+    await applyThumbnailShell(data.template)
+    success(`Shell saved in your library via ${data.reference.analysis_model_name}`)
   } catch (e: any) {
     showError(e?.data?.detail || 'Reference style extraction failed')
   } finally {
     extractingThumbRef.value = false
-  }
-}
-
-async function clearThumbnailReference() {
-  form.thumbnail.thumb_reference_asset = null
-  form.thumbnail.thumb_reference_style = ''
-  try {
-    await put(`/projects/${slug.value}/settings/config`, { thumbnail_reference_asset: null })
-  } catch (e: any) {
-    showError(e?.data?.detail || 'Reference was cleared from this preset, but could not clear the project default.')
   }
 }
 
@@ -958,7 +1026,9 @@ async function runGenerate(replaceAll = false) {
     style_tag: activeForm.value.style_tag,
     aspect_ratio: activeForm.value.aspect_ratio,
     thumb_count: form.thumbnail.thumb_count,
+    thumbnail_shell_id: form.thumbnail.thumbnail_shell_id || undefined,
     thumbnail_template_id: form.thumbnail.thumbnail_template_id || undefined,
+    reference_strength: shellHasImage.value ? form.thumbnail.reference_strength : undefined,
     thumb_headline_mode: form.thumbnail.thumb_headline_mode,
     thumb_text_style: form.thumbnail.thumb_text_style,
     thumb_text_position: form.thumbnail.thumb_text_position,
@@ -1075,17 +1145,6 @@ async function replaceAllThumbnailPrompts() {
 </script>
 
 <style scoped>
-.advanced-reference { border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg-secondary); }
-.advanced-reference > summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; padding: 11px 15px; color: var(--text-secondary); cursor: pointer; font-size: var(--font-sm); font-weight: 650; list-style: none; }
-.advanced-reference > summary::-webkit-details-marker { display: none; }
-.advanced-reference > summary::after { content: '▾'; color: var(--text-muted); transition: transform .16s ease; }
-.advanced-reference[open] > summary::after { transform: rotate(180deg); }
-.advanced-reference > summary:hover { color: var(--text-primary); }
-.advanced-reference > summary:focus-visible { outline: 3px solid var(--accent); outline-offset: -3px; border-radius: var(--radius-lg); }
-.advanced-reference__note { color: var(--text-muted); font-size: var(--font-xs); font-weight: 500; }
-.advanced-reference .thumbnail-reference-card { border: 0; border-top: 1px solid var(--border); border-radius: 0; }
-@media (prefers-reduced-motion: reduce) { .advanced-reference > summary::after { transition: none; } }
-.lettering-card { display: grid; gap: 16px; padding: 15px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg-secondary); }
 .lettering-head { display: flex; align-items: start; justify-content: space-between; gap: 12px; }
 .lettering-eyebrow { display: block; color: var(--accent); font-size: var(--font-xs); font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
 .lettering-head h4 { margin-top: 2px; font-size: var(--font-lg); letter-spacing: -.02em; }
@@ -1131,7 +1190,6 @@ async function replaceAllThumbnailPrompts() {
 .hint-line { margin-top: 4px; }
 
 /* Vision-model menu sits inline without truncating long model names. */
-.vision-model-select { width: min(420px, 100%); }
 
 /* Progress bar */
 .progress-bar {
@@ -1154,37 +1212,59 @@ async function replaceAllThumbnailPrompts() {
   100% { width: 0%; margin-left: 100%; }
 }
 
-/* Thumbnail reference is deliberately a first-class card, immediately after
-   recipe + art style. It must remain visible when the live vision catalog is
-   unavailable so creators can understand what to fix instead of wondering
-   where the workflow went. */
-.thumbnail-reference-card {
-  padding: 16px;
-  border: 1px solid color-mix(in srgb, var(--accent) 36%, var(--border));
-  border-radius: var(--radius-md);
-  background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 8%, var(--bg-tertiary)), var(--bg-tertiary));
+
+/* ── ONE Shell step ────────────────────────────────────────────────────
+   Shell picker, channel-reference card, fallback note and closeness all
+   live here so the run reads top to bottom: Shell → style → lettering. */
+.shell-library { display: flex; flex-direction: column; gap: 16px; }
+.shell-upload { display: grid; gap: 10px; border-top: 1px solid var(--border); padding-top: 16px; }
+.shell-upload label { display: grid; gap: 6px; }
+.shell-step {
+  padding: 14px;
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border));
+  border-radius: var(--radius-lg);
+  background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 6%, var(--bg-tertiary)), var(--bg-tertiary));
 }
-.thumbnail-reference-card__heading {
+.shell-step-head {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 16px;
+  gap: 14px;
+  margin-bottom: 10px;
 }
-.thumbnail-reference-card__heading h3 { margin: 2px 0 4px; font-size: 15px; color: var(--text-primary); }
-.thumbnail-reference-card__heading p { margin: 0; max-width: 720px; line-height: 1.45; }
-.thumbnail-reference-card__eyebrow { color: var(--accent); font-size: var(--font-xs); font-weight: 700; letter-spacing: .12em; }
-.thumbnail-reference-card__status {
-  flex: 0 0 auto;
-  padding: 5px 8px;
+.shell-step-head h3 { margin: 0 0 2px; font-size: 15px; color: var(--text-primary); }
+.shell-step-head p { margin: 0; max-width: 720px; line-height: 1.45; }
+.shell-card {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  margin-bottom: 10px;
+  padding: 0;
+  overflow: hidden;
   border: 1px solid var(--border);
-  border-radius: 999px;
-  color: var(--text-muted);
+  border-radius: var(--radius-md);
+  background: var(--bg-primary);
+  text-align: left;
+  cursor: pointer;
+}
+.shell-card.is-active { border-color: var(--accent); box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent); }
+.shell-card-media { display: grid; width: 96px; height: 72px; place-items: center; object-fit: cover; background: var(--bg-tertiary); }
+.shell-card-media-placeholder { color: var(--text-muted); font-size: 26px; }
+.shell-card-copy { display: flex; min-width: 0; flex-direction: column; gap: 3px; padding: 9px 12px 9px 0; }
+.shell-card-copy strong { font-size: 14px; }
+.shell-fallback-note {
+  margin: 10px 0 0;
+  padding: 9px 12px;
+  border: 1px solid color-mix(in srgb, var(--warning, #d97706) 40%, var(--border));
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
   font-size: var(--font-xs);
-  font-weight: 600;
+  line-height: 1.45;
 }
-.thumbnail-reference-card__status.active { border-color: var(--success); color: var(--success); }
-.thumbnail-reference-card__warning { margin: 10px 0 0; color: var(--warning, #d97706); font-size: var(--font-xs); line-height: 1.45; }
-@media (max-width: 640px) {
-  .thumbnail-reference-card__heading { flex-direction: column; gap: 8px; }
-}
+.shell-strength { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+.shell-strength-label { color: var(--text-secondary); font-size: var(--font-sm); font-weight: 650; }
+.shell-strength .position-chip:disabled { opacity: .45; cursor: not-allowed; }
+
 </style>

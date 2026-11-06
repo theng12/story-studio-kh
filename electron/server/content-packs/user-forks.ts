@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 
@@ -196,17 +196,45 @@ export async function listUserForks(
  * pack-pinned channel to a 404 the moment its own pack was installed
  * (Settings → episode shape / music format).
  *
- * A recipe is deliberately not resolved here: forking one needs its signed
- * preview rasters, which this path has never carried.
+ * Shell forks snapshot their verified picture into the managed library so a
+ * later source-pack update cannot pair the saved note with a different image.
  */
 async function loadPackItemSource(
   kind: UserForkableContentPackItemKind,
   itemId: string,
   options: UserForkOptions,
 ): Promise<{ document: UserForkDocument; source: 'content-pack' } | null> {
-  if (kind === 'thumbnail-recipe') return null
   const entry = await resolveCatalogItem(itemId, undefined, options)
   if (!entry) return null
+  if (kind === 'thumbnail-recipe' && entry.value.kind === 'thumbnail-recipe') {
+    const loader = await import('../services/thumbnail-template-loader.js')
+    const { contentPackDocumentToThumbnailTemplate } = await import('./legacy-adapters.js')
+    const template = contentPackDocumentToThumbnailTemplate(entry.value, [])
+    const sourceImage = template.shellImage
+      ? await loader.resolveCatalogShellImage(entry, template.shellImage, options)
+      : null
+    if (sourceImage) {
+      const bytes = await fs.readFile(sourceImage)
+      const digest = createHash('sha256').update(bytes).digest('hex')
+      const dir = loader.managedShellDir()
+      await fs.mkdir(dir, { recursive: true })
+      await loader.assertManagedShellDirIsReal()
+      const filename = `${digest}${path.extname(sourceImage).toLowerCase()}`
+      const target = path.join(dir, filename)
+      try {
+        await fs.writeFile(target, bytes, { flag: 'wx', mode: 0o600 })
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
+        const stat = await fs.lstat(target)
+        if (!stat.isFile() || stat.isSymbolicLink()
+          || createHash('sha256').update(await fs.readFile(target)).digest('hex') !== digest) {
+          throw new Error('The forked Shell picture failed its integrity check', { cause: error })
+        }
+      }
+      template.shellImage = `shell/${filename}`
+    }
+    return { document: template, source: 'content-pack' }
+  }
   const { contentPackDocumentToNiche, contentPackDocumentToTopicPack } = await import('./legacy-adapters.js')
   if (kind === 'series-formula' && entry.value.kind === 'series-formula') {
     return { document: contentPackDocumentToNiche(entry.value), source: 'content-pack' }

@@ -2691,6 +2691,9 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
   const effectiveFormat = preflight.effectiveFormat
   // This Mac's app-wide defaults (Settings → Default models), read once with the preflight.
   const defaults = preflight.defaultModels
+  const thumbnailConfig = await pm.getConfig(slug)
+  const thumbnailShellId = thumbnailConfig?.thumbnail_shell_id
+  const thumbnailReferenceStrength = thumbnailConfig?.thumbnail_reference_strength
 
   // A `metadata` preset can omit a saved model (legacy presets, or ones that never set one). Story
   // Studio never picks one on the owner's behalf (2026-10-03): such a step is skipped below with a
@@ -2795,6 +2798,8 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
     steps,
     presets: Object.fromEntries(steps.map(step => [step, presetByStep[step] || null])),
     effective_format: effectiveFormat,
+    thumbnail_shell_id: thumbnailShellId,
+    thumbnail_reference_strength: thumbnailReferenceStrength,
     transcription: pipelineTranscriptionParams,
     motion: pipelineMotionParams,
     default_chat_model: null,
@@ -3032,6 +3037,10 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
         // job, and the executor resolves the ceiling against the LIVE catalogue
         // when the job runs. A number frozen here would be a snapshot that a
         // catalogue change or a retry could silently contradict.
+        if (step === 'image_prompts' || step === 'thumb_images') {
+          if (typeof thumbnailShellId === 'string') params.thumbnail_shell_id = thumbnailShellId
+          if (thumbnailReferenceStrength) params.thumbnail_reference_strength = thumbnailReferenceStrength
+        }
         if (step === 'image_prompts') {
           params.prompt_char_cap = thumbnailCapInputs.prompt_char_cap
           params.intended_image_model = thumbnailCapInputs.intended_image_model

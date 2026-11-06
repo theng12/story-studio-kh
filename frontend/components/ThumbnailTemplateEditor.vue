@@ -29,7 +29,8 @@
         <button
           type="button"
           class="btn btn-sm btn-primary"
-          :disabled="!dirty || saving"
+          :disabled="!dirty || saving || shellBusy"
+          title="Save writes the whole template, so it waits while a picture analysis owns it."
           @click="save"
         >
           {{ saving ? 'Saving…' : 'Save' }}
@@ -42,9 +43,69 @@
       Saving makes your own copy of it; the built-in stays as it is. Later edits change your copy.
     </p>
 
+    <!-- Shell picture + layout note — the template's saved Shell fields. The
+         picture is previewed through preview.png; shellImage is filesystem
+         metadata and is never put in a browser URL. -->
+    <div v-if="workingTemplate" class="tte-shell" data-testid="tte-shell-section">
+      <div class="tte-shell-head">
+        <strong>Shell picture</strong>
+        <span class="text-muted tte-props-hint">
+          {{ workingTemplate.shellImage ? 'Saved with this template.' : 'Optional — a picture the image model follows for layout.' }}
+        </span>
+      </div>
+      <div class="tte-shell-row">
+        <div class="tte-shell-thumb">
+          <img
+            v-if="shellPreviewSrc && !shellPreviewFailed"
+            :src="shellPreviewSrc"
+            alt="Shell picture preview"
+            class="tte-shell-img"
+            data-testid="tte-shell-preview"
+            @error="shellPreviewFailed = true"
+          />
+          <span v-else-if="shellPreviewFailed" class="tte-shell-empty">Shell image unavailable</span>
+          <span v-else class="tte-shell-empty" data-testid="tte-shell-pending">Preview pending</span>
+        </div>
+        <div class="tte-shell-controls">
+          <label class="tte-prop">
+            <span class="tte-prop-label">Vision model (read live; used once, when a picture is analysed)</span>
+            <select v-model="visionModelId" class="select" data-testid="tte-vision-model" :disabled="visionLoading">
+              <option value="" disabled>{{ visionLoading ? 'Loading vision models…' : 'Choose a vision model…' }}</option>
+              <option v-for="m in visionModels" :key="m.id" :value="m.id">{{ modelLabel(m) }}</option>
+            </select>
+          </label>
+          <p v-if="visionError" class="tte-shell-error" data-testid="tte-vision-error">{{ visionError }}</p>
+          <button
+            type="button"
+            class="btn btn-sm btn-secondary"
+            :disabled="shellBusy || saving || !visionModelId"
+            data-testid="tte-shell-choose"
+            @click="chooseShellPicture"
+          >
+            {{ shellBusy ? 'Analysing…' : (workingTemplate.shellImage ? 'Replace picture' : 'Add picture') }}
+          </button>
+          <span v-if="shellBusy" class="text-muted tte-props-hint">Reading the picture once and writing the layout note.</span>
+        </div>
+      </div>
+      <label class="tte-prop">
+        <span class="tte-prop-label">Layout note</span>
+        <textarea
+          v-model="workingTemplate.layoutNote"
+          class="input tte-note"
+          rows="4"
+          maxlength="4000"
+          placeholder="What this layout keeps: zones, framing, hierarchy, text placement."
+          data-testid="tte-layout-note"
+        ></textarea>
+        <span class="tte-prop-hint">
+          {{ (workingTemplate.layoutNote || '').length }} / 4000 · saved with the template; editing it never re-runs the analysis.
+        </span>
+      </label>
+    </div>
+
     <!-- Live preview: the browser draws the SAME overlay SVG the server -->
-    <!-- renders (contracts/thumbnail-overlay.ts), over the same placeholder -->
-    <!-- background, so it updates as you edit — no save needed. -->
+    <!-- renders (contracts/thumbnail-overlay.ts), over the placeholder or -->
+    <!-- the Shell's own picture, so it updates as you edit — no save needed. -->
     <p v-if="workingTemplate" class="tte-text-scope-note" data-testid="tte-text-scope-note">
       <strong>These text settings only shape this template's gallery preview card.</strong>
       Real thumbnails get their headline from the image model, not from these settings.
@@ -55,7 +116,7 @@
       Drag a box to move its text.
     </p>
     <div v-if="workingTemplate" class="tte-canvas-wrap" :style="canvasWrapStyle">
-      <img :src="placeholderSrc" alt="" class="tte-canvas-bg" draggable="false" />
+      <img :src="canvasBgSrc" alt="" class="tte-canvas-bg" draggable="false" />
       <img
         :src="overlaySrc"
         :alt="`${workingTemplate.name} live preview`"
@@ -252,6 +313,11 @@ interface Template {
   textZones?: TextZone[]
   accentStrokes?: any[]
   logoSlot?: any
+  /** Managed relative asset reference (`shell/…`) — filesystem metadata,
+   *  never a browser URL; previewed through /preview.png. */
+  shellImage?: string
+  /** Saved layout note, <= 4000 chars. A shell image needs a non-empty one. */
+  layoutNote?: string
 }
 
 const props = defineProps<{
@@ -275,6 +341,18 @@ const selectedIdx = ref(0)
 const draggingIdx = ref(-1)
 const saving = ref(false)
 const sampleTitle = ref('Your title here')
+
+// Shell picture + layout note state. `savedId` holds the real id this editor
+// session writes to once a new template exists or an analysis forked the
+// source (see `targetId` below).
+const savedId = ref('')
+const previewKey = ref(Date.now())
+const shellPreviewFailed = ref(false)
+const shellBusy = ref(false)
+const visionModels = ref<VisionModel[]>([])
+const visionLoading = ref(false)
+const visionError = ref('')
+const visionModelId = ref('')
 
 /** Mac system fonts (the composer resolves font-family through the OS). */
 const FONT_CHOICES = [
@@ -353,6 +431,143 @@ function blankTemplate(): Template {
     ],
     accentStrokes: [],
     logoSlot: { x: 'left', y: 'top', xOffset: 56, yOffset: 56, width: 132 },
+    layoutNote: '',
+  }
+}
+
+// ── Shell picture + layout note ─────────────────────────────────────────────
+
+interface VisionModel { id: string; display_name?: string; deprecation_warning?: string | null }
+
+/**
+ * The real id this session saves to: a new template created here, or the id
+ * an analysis returned (analysing a built-in source forks it server-side and
+ * the response template.id differs). The parent's `saved` handler CLOSES the
+ * editor, so the id is tracked here instead of being emitted mid-flow.
+ */
+const targetId = computed(() => savedId.value || props.templateId)
+
+/** preview.png serves the Shell's own picture when one is declared — the
+ *  browser never sees the raw `shellImage` path (filesystem metadata). */
+const shellPreviewSrc = computed(() => {
+  const t = workingTemplate.value
+  if (!t?.shellImage) return ''
+  return `/api/thumbnail-templates/${encodeURIComponent(t.id)}/preview.png?k=${previewKey.value}`
+})
+/** The canvas previews the text over the Shell's own picture when it has one,
+ *  and over the placeholder while the template is text-only. */
+const canvasBgSrc = computed(() => (shellPreviewSrc.value && !shellPreviewFailed.value ? shellPreviewSrc.value : placeholderSrc))
+watch(shellPreviewSrc, () => { shellPreviewFailed.value = false })
+
+function modelLabel(m: VisionModel) {
+  const name = m.display_name || m.id
+  return m.deprecation_warning ? `${name} — ${m.deprecation_warning}` : name
+}
+
+/** Live Gateway vision choices (AGENTS §1) — read when the editor opens,
+ *  never remembered past it. Only the analysis needs one. */
+async function loadVisionModels() {
+  visionLoading.value = true
+  visionError.value = ''
+  try {
+    const r = await get<{ models: VisionModel[] }>('/thumbnail-templates/vision/models')
+    visionModels.value = Array.isArray(r.models) ? r.models : []
+    if (!visionModels.value.length) {
+      visionError.value = 'The Gateway has published no vision model for Shell analysis right now.'
+    }
+  } catch (e: any) {
+    visionModels.value = []
+    visionError.value = e?.data?.detail || 'Could not load the Gateway vision models.'
+  } finally {
+    visionLoading.value = false
+  }
+}
+
+/**
+ * The id a picture gets analysed against. A brand-new template is created
+ * first through the existing POST; the id is kept here rather than emitted,
+ * because `saved` closes the editor.
+ */
+async function ensureSavedId(): Promise<string> {
+  if (savedId.value) return savedId.value
+  if (!isNew.value) return props.templateId
+  if (!workingTemplate.value?.name?.trim()) {
+    toastError('Give the template a name before saving.')
+    throw new Error('A template name is required')
+  }
+  const r = await post<{ template: Template }>('/thumbnail-templates', createPayload())
+  adoptSaved(r.template)
+  savedJson.value = JSON.stringify(workingTemplate.value)
+  return savedId.value
+}
+
+/** `id: 'new'` is this editor's sentinel, never a stored id — the server
+ *  slugs a new template's id from its name. */
+function createPayload(): Template {
+  return { ...workingTemplate.value!, id: '' }
+}
+
+/**
+ * Take a template the server just wrote as the new on-disk state. Only the
+ * Shell fields are the server's: this editor's unsaved text edits stay put,
+ * so `dirty` still reports them and Save still has something to write.
+ */
+function adoptSaved(saved: Template) {
+  savedId.value = saved.id
+  previewKey.value = Date.now()
+  originalTemplate.value = JSON.parse(JSON.stringify(saved))
+  const local = workingTemplate.value
+  if (!local) return
+  workingTemplate.value = {
+    ...local,
+    id: saved.id,
+    builtin: saved.builtin,
+    shellImage: saved.shellImage,
+    layoutNote: saved.layoutNote,
+  }
+}
+
+/**
+ * Add or replace the Shell picture: pick a file (native dialog, or the
+ * in-app browser picker when Story is served remotely), save first when the
+ * template is brand-new, then analyse EXACTLY ONCE — the upload, its image
+ * bytes and its layout note live on the template, reusable by any channel.
+ * Editing the note alone never comes here.
+ */
+async function chooseShellPicture() {
+  if (!workingTemplate.value || shellBusy.value || saving.value) return
+  if (!visionModelId.value) {
+    toastError('Choose a vision model before adding a picture.')
+    return
+  }
+  // A brand-new template is saved first, so its name has to exist before the
+  // picker opens — otherwise the flow stops half-way through for nothing.
+  if (isNew.value && !savedId.value && !workingTemplate.value.name?.trim()) {
+    toastError('Give the template a name before adding a picture.')
+    return
+  }
+  // shellBusy covers the WHOLE operation, picker included: Save stays
+  // disabled while this flow owns the template, and a rejected pick is
+  // caught below instead of leaving an unhandled rejection.
+  shellBusy.value = true
+  try {
+    const picked = await post<{ path: string | null }>('/system/pick-file', {
+      title: 'Choose a Shell picture',
+      buttonLabel: 'Use this picture',
+      filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif'] }],
+    })
+    if (!picked.path) return // picker cancelled — nothing analysed
+    const id = await ensureSavedId()
+    const r = await post<{ template: Template; reference: { analysis_model_name?: string } }>(
+      `/thumbnail-templates/${encodeURIComponent(id)}/analyze`,
+      { source_path: picked.path, model_id: visionModelId.value },
+    )
+    adoptSaved(r.template)
+    toastSuccess(`Shell picture saved${r.reference?.analysis_model_name ? ` via ${r.reference.analysis_model_name}` : ''} — the layout note now describes it`)
+  } catch (e: any) {
+    toastError(e?.data?.detail || 'Could not add the Shell picture')
+  } finally {
+    shellBusy.value = false
   }
 }
 
@@ -502,15 +717,25 @@ async function load() {
 
 async function save() {
   if (!workingTemplate.value || !dirty.value) return
+  // A picture analysis owns the template while it runs (the Save button is
+  // disabled too) — saving would write the pre-analysis state back over it.
+  if (shellBusy.value) return
+  if (!workingTemplate.value.name?.trim()) {
+    toastError('Give the template a name before saving.')
+    return
+  }
+  // Backend rule mirrored: a Shell image is never saved without its note.
+  if ((workingTemplate.value.shellImage || '').trim() && !(workingTemplate.value.layoutNote || '').trim()) {
+    toastError('A Shell picture needs a layout note — say what this layout keeps.')
+    return
+  }
   // New template → create in the user library (server slugs the id from name).
-  if (isNew.value) {
-    if (!workingTemplate.value.name?.trim()) {
-      toastError('Give the template a name before saving.')
-      return
-    }
+  // A picture already created it, so the second Save writes with PUT below.
+  if (isNew.value && !savedId.value) {
     saving.value = true
     try {
-      const r = await post<{ template: Template }>(`/thumbnail-templates`, workingTemplate.value)
+      const r = await post<{ template: Template }>('/thumbnail-templates', createPayload())
+      adoptSaved(r.template)
       savedJson.value = JSON.stringify(workingTemplate.value)
       toastSuccess(`Created "${r.template.name}"`)
       emit('saved', r.template.id)
@@ -523,12 +748,12 @@ async function save() {
   }
   saving.value = true
   try {
-    let saveId = props.templateId
+    let saveId = targetId.value
     let payload = workingTemplate.value
     if (workingTemplate.value.builtin) {
       // Fork first, then PUT to the forked id.
       const forkRes = await post<{ template: Template }>(
-        `/thumbnail-templates/${encodeURIComponent(props.templateId)}/fork`,
+        `/thumbnail-templates/${encodeURIComponent(targetId.value)}/fork`,
         {},
       )
       saveId = forkRes.template.id
@@ -575,11 +800,13 @@ async function cancel() {
 
 watch(() => props.templateId, () => {
   selectedIdx.value = 0
+  savedId.value = ''
   void load()
 })
 
 onMounted(() => {
   void load()
+  void loadVisionModels()
   window.addEventListener('keydown', onKeyDown)
 })
 onBeforeUnmount(() => {
@@ -671,6 +898,68 @@ onBeforeUnmount(() => {
   border-left: 3px solid #6ea8fe;
   border-radius: 6px;
   margin: 0;
+}
+
+/* Shell picture + layout note */
+.tte-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+.tte-shell-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.tte-shell-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-start;
+}
+.tte-shell-thumb {
+  position: relative;
+  flex: 0 0 auto;
+  width: 200px;
+  aspect-ratio: 16 / 9;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.tte-shell-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.tte-shell-empty {
+  font-size: var(--font-xs);
+  color: var(--text-muted, #b3b3bb);
+  text-align: center;
+  padding: 8px;
+}
+.tte-shell-controls {
+  flex: 1 1 240px;
+  min-width: 220px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.tte-shell-error {
+  margin: 0;
+  font-size: var(--font-xs);
+  color: #f0883e;
+}
+.tte-note {
+  font-size: 12px;
+  resize: vertical;
 }
 
 /* Canvas */
