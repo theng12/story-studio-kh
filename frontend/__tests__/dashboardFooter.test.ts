@@ -46,8 +46,14 @@ test('the signed-in browser line and sign-out live in the sidebar footer, never 
   assert.doesNotMatch(banner, /position:\s*fixed/)
   assert.doesNotMatch(banner, /latency|ssm-dot|setInterval/, 'the sidebar connection row owns status truth')
   assert.match(banner, /\/api\/auth\/logout/)
-  assert.match(banner, /flex-wrap:\s*wrap/)
-  assert.match(banner, /overflow-wrap:\s*anywhere/)
+  // Host and user are one quiet line, clipped rather than wrapped; the full
+  // value stays available through the title and the DOM text.
+  assert.match(banner, /:title="sessionLine"/)
+  assert.match(banner, /text-overflow:\s*ellipsis/)
+  assert.match(banner, /white-space:\s*nowrap/)
+  assert.match(banner, /\{\{ host \}\}/)
+  assert.match(banner, /\{\{ state\.username \}\}/)
+  assert.doesNotMatch(banner, /Connected to/)
 })
 
 test('the project sidebar reaches the existing Image Pool beside Assets Library', () => {

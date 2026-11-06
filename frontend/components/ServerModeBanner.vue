@@ -1,8 +1,8 @@
 <template>
   <div v-if="showBanner" class="ssm-session">
     <span class="ssm-session-text" :title="sessionLine">
-      Connected to <strong>{{ host }}</strong>
-      <span v-if="state.username">— {{ state.username }}</span>
+      <strong>{{ host }}</strong>
+      <span v-if="state.username"> — {{ state.username }}</span>
     </span>
     <button
       v-if="state.isAuthenticated"
@@ -27,7 +27,7 @@ const showBanner = computed(() => {
   if (!isServerMode()) return false
   if (!state.authChecked) return false
   if (!state.isAuthenticated) return false
-  // Hide on the login page itself (no point showing "Connected to mac-mini" there).
+  // Hide on the login page itself (no point showing the session line there).
   // v1.0.112 — normalize trailing slash so `/login/` (from express.static's
   // directory-redirect, until disabled in v1.0.112) also matches.
   if (typeof window !== 'undefined') {
@@ -43,7 +43,7 @@ const host = computed(() => {
 })
 
 const sessionLine = computed(() => (
-  `Connected to ${host.value}${state.username ? ` — ${state.username}` : ''}`
+  `${host.value}${state.username ? ` — ${state.username}` : ''}`
 ))
 
 async function onSignOut() {
@@ -62,24 +62,24 @@ async function onSignOut() {
 /* Lives in the sidebar footer, in normal flow. That footer's connection row
    already carries the status truth, so this is only the host and signed-in user. */
 .ssm-session {
-  display: flex;
+  display: grid;
   min-width: 0;
-  align-items: baseline;
-  flex-wrap: wrap;
-  gap: 2px 8px;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 2px;
   padding: 0 8px;
   color: var(--text-secondary);
   font-size: var(--font-xs);
 }
 .ssm-session-text {
   min-width: 0;
-  flex: 1 1 110px;
-  overflow-wrap: anywhere;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   line-height: 1.35;
 }
 .ssm-session-text strong { color: var(--text-primary); font-weight: 600; }
 .ssm-signout {
-  flex: none;
+  justify-self: start;
   padding: 0;
   border: 0;
   background: transparent;
