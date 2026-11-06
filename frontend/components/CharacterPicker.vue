@@ -98,7 +98,7 @@ const selectedSet = computed(() => new Set(props.modelValue))
 const portraitFailed = ref(new Set<string>())
 function portrait(character: Character): string | null {
   const filename = character.references?.images?.[0]
-  return filename ? `/api/character-library/${encodeURIComponent(character.id)}/reference-image/${encodeURIComponent(filename)}` : null
+  return filename ? `/api/projects/${encodeURIComponent(props.projectSlug)}/characters/${encodeURIComponent(character.id)}/reference-image/${encodeURIComponent(filename)}` : null
 }
 
 async function load() {

@@ -16,10 +16,10 @@ const cast = read('../components/CharacterPicker.vue')
 const subtitles = read('../components/SubtitleStylePicker.vue')
 
 describe('the cast picker shows faces it already has', () => {
-  test('each row renders the first reference image through the roster endpoint', () => {
+  test('each row renders the first reference image through the channel roster endpoint', () => {
     assert.match(cast, /class="cast-portrait"/)
     assert.match(cast, /function portrait\(character: Character\)/)
-    assert.match(cast, /\/api\/character-library\//)
+    assert.match(cast, /\/api\/projects\/\$\{encodeURIComponent\(props\.projectSlug\)\}\/characters\//)
     assert.match(cast, /reference-image\//)
   })
 

@@ -372,16 +372,14 @@ export const featureGuides: Record<string, FeatureGuide> = {
   },
   'channel-characters': {
     title: 'Channel Characters',
-    summary: 'Maintain one shared character record, assign it to channels, and give each channel a compatible voice profile.',
-    workflow: ['Create or select a shared character.', 'Add concrete visual identity and a reference image.', 'Assign channel labels and voice profiles.'],
+    summary: 'Maintain this channel’s characters, each with one voice.',
+    workflow: ['Create or edit a character on this channel.', 'Add concrete visual identity and a reference image.', 'Choose this channel’s voice.'],
     topics: [
       { title: 'Identity', purpose: 'Stores stable appearance, personality, and role details reused by scripts and prompts.' },
-      { title: 'Reference image', purpose: 'Provides a previewable visual anchor shared across assigned channels.' },
-      { title: 'Channel labels', purpose: 'Controls which channel workspaces may use the character.' },
-      { title: 'Voice profile', purpose: 'Maps the character to a model-compatible voice for each channel.' },
-      { title: 'Vision description', purpose: 'Uses a qualified model to describe a reference image when you need prompt-ready details.' },
+      { title: 'Reference image', purpose: 'Provides a previewable visual anchor stored on this channel only.' },
+      { title: 'Voice', purpose: 'Uses this channel’s Gateway voice and delivery note for the character.' },
     ],
-    tips: ['Use concrete visible traits instead of vague adjectives.', 'Preview the reference image before saving so a missing or corrupted file does not become the shared anchor.'],
+    tips: ['Use concrete visible traits instead of vague adjectives.', 'Preview the reference image before saving so a missing or corrupted file does not become the anchor.'],
   },
   'assets-library': {
     title: 'Assets Library',
