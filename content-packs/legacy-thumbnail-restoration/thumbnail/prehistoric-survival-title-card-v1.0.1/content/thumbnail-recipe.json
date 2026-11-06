@@ -3,7 +3,7 @@
   "schema_version": 1,
   "id": "com.storystudio.thumbnail.prehistoric-survival-title-card",
   "name": "Prehistoric Survival Title Card",
-  "description": "A full-title survival explainer cover that connects one simple stick-limbed figure to a concrete environmental challenge.",
+  "description": "A full-title explainer cover that connects one simple stick-limbed figure to a concrete challenge.",
   "layout": "hero",
   "category": "Explainer",
   "tags": [
@@ -15,22 +15,22 @@
   ],
   "aspect_ratio": "16:9",
   "title_mode": "ai",
-  "composition_guidance": "Create a clear 16:9 survival title card with one anatomically simple stick-limbed figure facing a concrete survival challenge. Keep the figure and the surrounding evidence — weather, terrain or simple material detail — visibly connected whenever it is relevant. Use a limited earthy or icy palette, a readable mobile-scale silhouette, and an uncluttered right-side or upper title-safe band for an energetic high-contrast full title or full question rendered directly by the selected image model.",
+  "composition_guidance": "Create a clear 16:9 explainer title card with one anatomically simple stick-limbed figure facing a concrete challenge. Keep the figure and the surrounding evidence — weather, terrain or simple material detail — visibly connected whenever it is relevant. Use a limited earthy or icy palette, a readable mobile-scale silhouette, and an uncluttered right-side or upper title-safe band for an energetic high-contrast full title or full question rendered directly by the selected image model.",
   "composition_rules": [
     "Show one anatomically simple stick-limbed figure as the primary emotional anchor.",
-    "Connect the figure to one visible survival challenge through relevant weather, terrain or simple material evidence rather than isolated decorative props.",
+    "Connect the figure to one visible challenge through relevant weather, terrain or simple material evidence rather than isolated decorative props.",
     "Reserve either a right-side or an upper title-safe band for the complete high-contrast title rendered by the image model.",
-    "Keep the silhouette, survival evidence, and title readable in a single fast mobile viewing pass."
+    "Keep the silhouette, evidence and title readable in a single fast mobile viewing pass."
   ],
   "required_elements": [
-    "One anatomically simple stick-limbed ancient human",
-    "One concrete survival challenge with materially connected evidence",
-    "A limited earthy or icy educational-cartoon palette",
+    "One anatomically simple stick-limbed figure",
+    "One concrete challenge with materially connected evidence",
+    "A limited educational-cartoon palette",
     "A readable full episode-title or full-question card rendered by the image model"
   ],
   "avoid_elements": [
     "Violence, tissue or wound texture, or threatening combat",
-    "Invented armour, magic, fake archaeology, or modern objects",
+    "Invented equipment, magic, or objects that break the scene's own world",
     "Copied episode titles, channel branding, watermarks, logos, or copied trade dress",
     "Dense labels, incidental sign text, illegible or malformed text",
     "Post-render typography compositing"
@@ -41,11 +41,11 @@
   "default_font_style": "bold explainer",
   "default_text_position": "center",
   "headline_formats": [
-    "HOW DID {ANCIENT HUMANS} SURVIVE {CHALLENGE}?",
+    "HOW DID {SUBJECT} SURVIVE {CHALLENGE}?",
     "SURVIVING {ENVIRONMENTAL CHALLENGE}",
     "THE FIGHT FOR {FOOD OR SHELTER}"
   ],
-  "visual_style_guidance": "Keep the recipe independent of its active visual style while favoring an original simple 2D educational cartoon: clean black outlines, stick-limbed figures, flat limited colors, simple clothing and tools, connected survival evidence, and no photorealism or invented spectacle.",
+  "visual_style_guidance": "Keep the recipe independent of its active visual style while favoring an original simple 2D educational cartoon: clean black outlines, stick-limbed figures, flat limited colors, simple forms, connected evidence, and no photorealism or invented spectacle.",
   "preview_assets": [
     "assets/prehistoric-survival-title-card-1.webp",
     "assets/prehistoric-survival-title-card-2.webp",

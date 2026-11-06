@@ -3,7 +3,7 @@
   "schema_version": 1,
   "id": "com.storystudio.style.retro-paint-fantasy",
   "name": "Retro Paint Fantasy",
-  "description": "Deliberately rough retro art with thick outlines, flat fills, and goofy old-web energy.",
+  "description": "Deliberately rough art with thick outlines, flat fills, and crude digital energy.",
   "category": "Digital",
   "tags": [
     "retro",
@@ -12,7 +12,7 @@
     "flat color",
     "old web"
   ],
-  "style_bible": "crude 90s paint-program art, retro internet animation aesthetic, thick black outlines, rough hand-drawn lines, flat colors, limited color palette, simple shading, intentionally low-detail rendering, expressive faces, minimal textures, clean digital fill areas, dramatic perspective, wide-angle framing, dynamic off-center composition",
+  "style_bible": "deliberately crude early paint-program art, thick black outlines, rough hand-drawn lines, flat colors, limited color palette, simple shading, intentionally low-detail rendering, expressive forms, minimal textures, clean digital fill areas, dramatic perspective, wide-angle framing, dynamic off-center composition",
   "negative_prompt": "photorealism, realistic anatomy, cinematic realism, ultra detailed rendering, 3D render, smooth skin, glossy realism, centered composition",
   "preview_assets": [
     "assets/retro-paint-fantasy.webp",

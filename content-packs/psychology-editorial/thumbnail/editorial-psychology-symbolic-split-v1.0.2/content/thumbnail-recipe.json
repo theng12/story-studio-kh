@@ -3,7 +3,7 @@
   "schema_version": 1,
   "id": "com.storystudio.thumbnail.editorial-psychology-symbolic-split",
   "name": "Editorial Psychology Symbolic Split",
-  "description": "A sparse 16:9 editorial psychology cover built around one symbolic figure or object and a dominant opposing title band.",
+  "description": "A sparse 16:9 editorial cover built around one symbolic subject and a dominant opposing title band.",
   "layout": "hero",
   "category": "Psychology",
   "tags": [
@@ -15,15 +15,15 @@
   ],
   "aspect_ratio": "16:9",
   "title_mode": "ai",
-  "composition_guidance": "Create a sparse 16:9 editorial psychology cover with exactly one symbolic psychological figure or object. Place the subject left, right, or center-left only when it creates the clearest subject-title separation, leaving a dominant title-safe opposing band. The composition may mirror left-to-right when that improves separation. The selected image model must render the complete intended headline directly into that band; do not create a post-render composite or a dense collage.",
+  "composition_guidance": "Create a sparse 16:9 editorial cover with exactly one symbolic subject. Place the subject left, right, or center-left only when it creates the clearest subject-title separation, leaving a dominant title-safe opposing band. The composition may mirror left-to-right when that improves separation. The selected image model must render the complete intended headline directly into that band; do not create a post-render composite or a dense collage.",
   "composition_rules": [
-    "Use one symbolic subject: an eroded form, a mask-like shape, a silhouette, a shallow relief, or an abstract emotional shape.",
+    "Use one symbolic subject: a fragmented form, a silhouette, a shallow relief, or an abstract shape.",
     "Reserve the opposing side as a dominant, uncluttered title-safe band.",
     "Mirror the subject-title split only when it produces a clearer reading order.",
     "Keep the image sparse and editorial; never stack multiple unrelated symbolic scenes."
   ],
   "required_elements": [
-    "One symbolic psychological figure or object",
+    "One symbolic subject",
     "A dominant opposing title-safe band",
     "Large condensed high-contrast headline rendered by the image model"
   ],

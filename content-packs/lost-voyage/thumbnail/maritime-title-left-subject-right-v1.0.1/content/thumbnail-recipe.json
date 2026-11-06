@@ -3,7 +3,7 @@
   "schema_version": 1,
   "id": "com.storystudio.thumbnail.maritime-title-left-subject-right",
   "name": "Maritime Title Left, Subject Right",
-  "description": "A short engraved title stack holds the left third against pale open sky while the subject — an anonymous figure or a large object form — anchors the right. No wordmark, no badges, no borders.",
+  "description": "A short engraved title stack holds the left third against pale open space while one clear subject — figure or object form — anchors the right. No wordmark, no badges, no borders.",
   "layout": "hero",
   "category": "History",
   "tags": [
@@ -18,29 +18,29 @@
   ],
   "aspect_ratio": "16:9",
   "title_mode": "ai",
-  "composition_guidance": "Divide the 16:9 canvas into a left third and a right two thirds. The left third is the title column: render the hook directly in the image as one to three lines, at most four words to a line, set in engraved small capitals with wide tracking and a thin ornamental rule beneath the last line. The lines are bottom-weighted within that column, with an optional small sub-line under the rule carrying a single claim or number — a fleet size, a crossing time, a year — set much smaller than the title and never longer than half a line. Keep the sky above and behind the title column pale, open, and free of cloud detail, spar, or rigging, so the letters sit on flat tone and stay legible at card size; the pale sky is the backdrop, not an afterthought. The right two thirds carry the subject in one of two variants, chosen per episode and never combined. Variant A: an anonymous figure cut at the waist, turned toward the camera, weather in the coat and hair, the horizon low behind them. Variant B: a large object form anchored to the bottom-right corner and cropped by the frame edge, its mass rising into the right half and never crossing into the title column. In both variants the subject overlaps the lower right corner and leaves the upper left open. Carry no wordmark, no badge, no numeral bug, no border, and no second title anywhere in the frame. The active Visual Style remains the final authority for medium, palette, texture, and lighting; this recipe controls only the third/two-thirds split, the subject's role and crop, and the title column.",
+  "composition_guidance": "Divide the 16:9 canvas into a left third and a right two thirds. The left third is the title column: render the hook directly in the image as one to three lines, at most four words to a line, set in engraved small capitals with wide tracking and a thin ornamental rule beneath the last line. The lines are bottom-weighted within that column, with an optional small sub-line under the rule carrying a single claim or number — a fleet size, a crossing time, a year — set much smaller than the title and never longer than half a line. Keep the sky above and behind the title column pale, open, and free of detail, so the letters sit on flat tone and stay legible at card size; the pale open field is the backdrop, not an afterthought. The right two thirds carry the subject in one of two variants, chosen per episode and never combined. Variant A: an anonymous figure cut at the waist, turned toward the camera, the horizon low behind them. Variant B: a large object form anchored to the bottom-right corner and cropped by the frame edge, its mass rising into the right half and never crossing into the title column. In both variants the subject overlaps the lower right corner and leaves the upper left open. Carry no wordmark, no badge, no numeral bug, no border, and no second title anywhere in the frame. The active Visual Style remains the final authority for medium, palette, texture, and lighting; this recipe controls only the third/two-thirds split, the subject's role and crop, and the title column.",
   "composition_rules": [
     "Title occupies the left third only: one to three lines, at most four words per line, bottom-weighted in that column.",
     "A thin ornamental rule closes the title stack; an optional small sub-line carrying one claim or number sits beneath it.",
-    "Sky behind and above the title column stays pale, open, and empty — no cloud drama, spar, rope, or rigging in the letter area.",
+    "The field behind and above the title column stays pale, open and empty, with no detail in the letter area.",
     "Subject occupies the right two thirds in exactly one variant per image: A, an anonymous figure cut at the waist looking toward camera; B, a large object form anchored bottom-right.",
     "The subject overlaps the lower right corner and never crosses into the title column.",
-    "Vary the weather, the object form, and the figure between episodes; keep the split, the crop, and the title hierarchy fixed."
+    "Vary the subject, the object form and the figure between episodes; keep the split, the crop, and the title hierarchy fixed."
   ],
   "required_elements": [
     "A short model-rendered title of one to three lines in the left third",
     "A thin ornamental rule closing the title stack",
-    "Pale, uncluttered sky behind the title column",
+    "A pale, uncluttered open field behind the title column",
     "One subject on the right: an anonymous figure cut at the waist, or a large object form anchored bottom-right"
   ],
   "avoid_elements": [
     "Recognisable or named people, likenesses of real individuals",
     "A wordmark, channel name, logo, badge, ribbon, numeral bug, or border of any kind",
-    "Both subject variants in one image, or more than one figure or vessel",
-    "Cloud drama, rigging, rope, or any detail crossing the title column",
+    "Both subject variants in one image, or more than one subject",
+    "Any detail crossing the title column",
     "Arrows, emoji, circles, price tags, or any caption beyond the title and its one sub-line",
     "Post-render typography compositing, watermarks, or copied trade dress",
-    "Bright modern colour, hard digital edges, or photographic realism where the style calls for paint"
+    "Bright saturated colour, hard digital edges, or photographic realism where the style calls for paint"
   ],
   "headline_mode": "curiosity-hook",
   "headline_guidance": "Write a two or three word hook and render it directly in the image, broken across one to three lines of at most four words each. Name the thing rather than teasing it, and keep the tone flat and unhurried: a listener settling toward sleep should read it as a label, not a dare. Add the small sub-line only when a real number or claim from the episode fits in a handful of words. Fail closed on misspelling, clipping, or any text beyond the hook and its sub-line.",
@@ -54,7 +54,7 @@
     "Last Voyage of {SUBJECT}",
     "{SUBJECT}, Adrift"
   ],
-  "visual_style_guidance": "This recipe is built for the active maritime painting look — loose visible brushwork, warm ivory-to-parchment sky, sepia and ochre weather over navy water — and the pale open sky it keeps behind the title column comes from that style rather than from this recipe. The recipe governs only the left-third title column, the ornamental rule, the optional sub-line, and the right-hand subject and its crop; every rendering choice of medium, palette, texture, and lighting stays with the active Visual Style.",
+  "visual_style_guidance": "This recipe is built for the active maritime painting look — loose visible brushwork, warm ivory-to-parchment tonal range, sepia and ochre accents against deep shadow — and the pale open sky it keeps behind the title column comes from that style rather than from this recipe. The recipe governs only the left-third title column, the ornamental rule, the optional sub-line, and the right-hand subject and its crop; every rendering choice of medium, palette, texture, and lighting stays with the active Visual Style.",
   "preview_assets": [
     "assets/maritime-title-left-subject-right-1.webp",
     "assets/maritime-title-left-subject-right-2.webp",

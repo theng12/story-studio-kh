@@ -3,7 +3,7 @@
   "schema_version": 1,
   "id": "com.storystudio.thumbnail.prehistoric-discovery",
   "name": "Prehistoric Discovery",
-  "description": "One evidence-led survival discovery with a compact truthful hook.",
+  "description": "One evidence-led discovery with a compact truthful hook.",
   "layout": "hero",
   "category": "Explainer",
   "tags": [
@@ -15,18 +15,18 @@
   ],
   "aspect_ratio": "16:9",
   "title_mode": "ai",
-  "composition_guidance": "Show one clear survival problem, practical object, or material trace with a readable reaction. Keep people, place, and evidence materially connected.",
+  "composition_guidance": "Show one clear central problem, practical object or material trace with a readable reaction. Keep people, place and evidence materially connected when they appear.",
   "required_elements": [
-    "one dominant survival subject or material trace",
+    "one dominant central subject or material trace",
     "one short model-rendered factual discovery hook",
-    "clear survival context",
+    "clear context",
     "a mobile-readable silhouette"
   ],
   "avoid_elements": [
-    "the full title, dense labels, fake archaeology, invented armour, modern objects, logos, watermarks, copied trade dress, and post-render overlays"
+    "the full title, dense labels, invented equipment, logos, watermarks, copied trade dress, and post-render overlays"
   ],
   "headline_mode": "curiosity-hook",
-  "headline_guidance": "Write a truthful 2–5 word hook naming the real survival question, material trace, or adaptation. Never claim certainty beyond the evidence.",
+  "headline_guidance": "Write a truthful 2–5 word hook naming the real question, material trace or idea. Never claim certainty beyond the evidence.",
   "default_text_style": "shadow",
   "default_font_style": "bold",
   "default_text_position": "top",
@@ -35,7 +35,7 @@
     "HOW DID THEY {SURVIVE}?",
     "THE {EVIDENCE} CLUE"
   ],
-  "visual_style_guidance": "Original simple 2D educational cartoon with clear black outlines, flat limited colors, readable silhouettes, simple clothing and tools, and no photorealism or invented spectacle.",
+  "visual_style_guidance": "Original simple 2D educational cartoon with clear black outlines, flat limited colors, readable silhouettes, simple forms, and no photorealism or invented spectacle.",
   "preview_assets": [
     "assets/prehistoric-discovery.webp",
     "assets/prehistoric-discovery-2.webp",

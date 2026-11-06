@@ -3,7 +3,7 @@
   "schema_version": 1,
   "id": "com.storystudio.thumbnail.documentary-label-tableau",
   "name": "Documentary Label Tableau",
-  "description": "One extraordinary natural-history subject or Earth-scale event, composed as a calm cinematic tableau with a short model-rendered documentary label that complements the full episode title.",
+  "description": "One extraordinary subject or wide vista, composed as a calm cinematic tableau with a short model-rendered documentary label that complements the full episode title.",
   "layout": "hero",
   "category": "Documentary",
   "tags": [
@@ -17,7 +17,7 @@
   ],
   "aspect_ratio": "16:9",
   "title_mode": "ai",
-  "composition_guidance": "Build one original, immediately legible natural-history cover around one extraordinary subject. The image should communicate scale and atmosphere before detail.",
+  "composition_guidance": "Build one original, immediately legible documentary cover around one extraordinary subject. The image should communicate scale and atmosphere before detail.",
   "composition_rules": [
     "Use one dominant hero subject or one uninterrupted wide vista; never a collage.",
     "Reserve one clean left-side text zone, usually lower-left but upper-left when the subject requires it. Render the exact generated label there in large bold white uppercase sans-serif lettering.",
@@ -26,7 +26,7 @@
     "Let the full episode title carry the detailed explanation; the thumbnail label supplies category, scale, time, or one truthful point of curiosity."
   ],
   "required_elements": [
-    "one dominant natural-history subject, process, or vista",
+    "one dominant subject, process, or vista",
     "one short model-rendered documentary label",
     "clear scale and atmospheric depth",
     "a clean mobile-readable silhouette"
@@ -36,10 +36,10 @@
     "more than two competing focal subjects",
     "small serif captions, low-contrast lettering, misspelled text, placeholder text, or post-render overlays",
     "copied channel marks, broadcaster branding, logos, duration badges, player UI, watermarks, or another creator’s trade dress",
-    "glossy plastic CGI, generic disaster spectacle, unsupported scientific certainty, or irrelevant human hosts"
+    "glossy plastic CGI, unsupported scientific certainty, or irrelevant presenters"
   ],
   "headline_mode": "curiosity-hook",
-  "headline_guidance": "Read the episode title and create the exact in-image label. If the title is a Deep Rest episode ending in “Documentary for Sleep”, use exactly “DOCUMENTARY FOR SLEEP”. Otherwise write a truthful 2–5 word factual label that adds useful contrast to the full title: a time marker, transformed world, decisive process, organism group, or central mystery. Never merely shorten the title, invent a claim, or use empty bait.",
+  "headline_guidance": "Read the episode title and create the exact in-image label. If the title is a Deep Rest episode ending in “Documentary for Sleep”, use exactly “DOCUMENTARY FOR SLEEP”. Otherwise write a truthful 2–5 word factual label that adds useful contrast to the full title: a time marker, decisive process, category or central mystery. Never merely shorten the title, invent a claim, or use empty bait.",
   "default_text_style": "shadow",
   "default_font_style": "bold",
   "default_text_position": "bottom-left",
@@ -50,7 +50,7 @@
     "WHEN {SYSTEM} CHANGED",
     "THE {ERA} WORLD"
   ],
-  "visual_style_guidance": "Original painterly natural-history documentary tableau with readable forms, soft atmospheric depth, restrained premium editorial texture, teal water, mossy green, dawn amber, or volcanic ochre. The selected project visual art style remains the final rendering authority.",
+  "visual_style_guidance": "Original painterly documentary tableau with readable forms, soft atmospheric depth, restrained premium editorial texture, muted teal, mossy green, dawn amber, or volcanic ochre. The selected project visual art style remains the final rendering authority.",
   "preview_assets": [
     "assets/sleep.webp",
     "assets/giants.webp",

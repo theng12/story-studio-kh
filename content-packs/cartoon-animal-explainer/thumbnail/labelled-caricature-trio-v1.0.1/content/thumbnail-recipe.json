@@ -25,7 +25,7 @@
   "composition_rules": [
     "The background is plain flat white across the entire frame, with no landscape, horizon, glow, texture, panel, rule, border or colour wash anywhere on it.",
     "Exactly three related figures stand side by side, evenly spaced, whole, upright and aligned on one invisible ground line.",
-    "The three are visibly different individuals — build, markings, posture and head angle all differ — so a viewer counts three before reading anything.",
+    "The three are visibly different individuals — build, features, posture and head angle all differ — so a viewer counts three before reading anything.",
     "Each figure is drawn as a caricature: a heavier outline and bolder, simpler shapes than the in-video style uses, with exactly one trait per figure pushed past life.",
     "No figure overlaps, touches or crops another, and none is cropped by the frame; clear white separates all three silhouettes.",
     "No figure is larger, nearer, brighter or more central in treatment than the other two; the trio is co-equal with no hero.",
@@ -46,10 +46,10 @@
     "A channel wordmark, logo, badge, ribbon, subscribe mark, numeral bug or border anywhere in the frame",
     "A headline, subtitle, caption, date line or any copy other than the three one-word labels",
     "A background of any kind behind the figures — landscape, horizon, glow, gradient, texture, colour wash or photographic ground",
-    "A fourth figure, a second visual family, a herd, a crowd, a human figure or a hand",
+    "A fourth figure, a second visual family, a herd or a crowd",
     "Overlapping figures, a cropped figure, unequal sizes, or one figure treated as the hero of the three",
     "Arrows, circles, red rings, emoji, price tags, speech balloons or reaction marks stuck over the picture",
-    "A frightened, injured, hunting, bleeding or distressed figure, or any figure shown in real suffering",
+    "A frightened, injured, bleeding or distressed figure, or any figure shown in real suffering",
     "A real organisation's emblem, a corporate mark, a sports crest, or any invented insignia presented as a genuine one",
     "A country name, continent name, map, globe or second flag per figure in the Flags variant",
     "Post-render typography compositing, watermarks, or copied trade dress"
@@ -66,7 +66,7 @@
     "{MOOD} / {MOOD} / {MOOD}",
     "(no text — Flags variant)"
   ],
-  "visual_style_guidance": "This recipe is built for a drawn, flat, cleanly outlined figurative look of the kind the Flat Cartoon Wildlife style supplies, and it needs four things from whatever style is active. First, a thick closed outline, because three figures on plain white at card size are three silhouettes and there is nothing else holding them apart. Second, flat fill, so each figure reads as one shape against white rather than dissolving into modelled detail a viewer cannot resolve at that size. Third, honest anatomy, because the frame promises three related individuals and a style that invents proportions makes them read as three different creatures instead. Fourth, a look that can be pushed: the three subjects here are caricatures with a heavier line and one exaggerated trait each, so the style must survive being taken past its usual restraint without changing medium.\n\nA style that works in photoreal fur, painterly texture, heavy gradient shading or a dark background will break this recipe: the white ground stops being white, the three silhouettes stop separating, and the hand-printed words lose their contrast. A style that refuses figures entirely cannot run this recipe at all, and a style that renders scenery will fight the empty ground the frame is built on.",
+  "visual_style_guidance": "This recipe is built for a drawn, flat, cleanly outlined figurative look of the kind the Flat Cartoon Wildlife style supplies, and it needs four things from whatever style is active. First, a thick closed outline, because three figures on plain white at card size are three silhouettes and there is nothing else holding them apart. Second, flat fill, so each figure reads as one shape against white rather than dissolving into modelled detail a viewer cannot resolve at that size. Third, honest anatomy, because the frame promises three related individuals and a style that invents proportions makes them read as three unrelated subjects instead. Fourth, a look that can be pushed: the three subjects here are caricatures with a heavier line and one exaggerated trait each, so the style must survive being taken past its usual restraint without changing medium.\n\nA style that works in photoreal fur, painterly texture, heavy gradient shading or a dark background will break this recipe: the white ground stops being white, the three silhouettes stop separating, and the hand-printed words lose their contrast. A style that refuses figures entirely cannot run this recipe at all, and a style that renders scenery will fight the empty ground the frame is built on.",
   "preview_assets": [
     "assets/labelled-caricature-trio-1.webp",
     "assets/labelled-caricature-trio-2.webp",

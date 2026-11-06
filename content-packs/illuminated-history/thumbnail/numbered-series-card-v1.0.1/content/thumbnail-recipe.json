@@ -48,8 +48,8 @@
     "A hard ruled line, a graphic split, a gutter or a panel edge between the two halves",
     "Anything crossing behind the letters of the title band, or a bright ground beneath them",
     "Arrows, circles, red rings, emoji, price tags, speech balloons or reaction marks",
-    "A modern map, a printed atlas page, a satellite view, a real modern border line, or an invented insignia presented as genuine",
-    "A recognisable modern individual or a living person",
+    "A printed atlas page, a satellite view or an invented insignia presented as genuine",
+    "A recognisable individual or a living person",
     "Post-render typography compositing, watermarks, or copied trade dress"
   ],
   "headline_mode": "episode-title",

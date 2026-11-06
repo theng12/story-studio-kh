@@ -3,7 +3,7 @@
   "schema_version": 1,
   "id": "com.storystudio.style.prehistoric-stick-cartoon",
   "name": "Prehistoric Stick Cartoon",
-  "description": "Playful explainer cartoon with stick-limbed figures, flat colour scenes, and bold black outlines.",
+  "description": "Playful flat explainer cartoon with simple forms, flat colour scenes, and bold black outlines.",
   "category": "Explainer",
   "tags": [
     "cartoon",
@@ -12,7 +12,7 @@
     "explainer",
     "flat colour"
   ],
-  "style_bible": "simple 2D educational cartoon, explainer animation style, white round faces with tiny dot eyes and simple smiles, thin stick-limbed bodies, shaggy brown hair silhouettes, thick clean black outlines, flat digital colors, soft limited palette, pale icy blues and warm browns, uncluttered wide composition, readable storytelling silhouettes, light playful tone, minimal shading, smooth clean fills, explainer-video thumbnail energy",
+  "style_bible": "simple 2D educational cartoon, explainer animation style, round pale faces with tiny dot eyes and simple smiles where a figure appears, thin stick-limbed bodies, thick clean black outlines, flat digital colors, soft limited palette, pale icy blues and warm browns, uncluttered wide composition, readable storytelling silhouettes, light playful tone, minimal shading, smooth clean fills",
   "negative_prompt": "photorealism, painterly brushwork, 3D render, realistic anatomy, cinematic lighting, detailed textures, gritty darkness, heavy gradients, anime rendering, realistic skin pores, horror mood, complex background clutter",
   "preview_assets": [
     "assets/prehistoric-stick-cartoon.webp",

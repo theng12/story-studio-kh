@@ -3,7 +3,7 @@
   "schema_version": 1,
   "id": "com.storystudio.style.pixel-art-story",
   "name": "Pixel Art Story",
-  "description": "Readable retro RPG pixel art with strong silhouettes and playful adventure framing.",
+  "description": "Readable retro pixel art with strong silhouettes and clean scene staging.",
   "category": "Digital",
   "tags": [
     "pixel",
@@ -12,7 +12,7 @@
     "game",
     "adventure"
   ],
-  "style_bible": "16-bit pixel art, retro game aesthetic, pixel-defined edges, restricted retro palette, clean sprite-like forms, readable silhouettes, tileable background logic, playful scene staging, side-scrolling adventure energy, simple dramatic lighting translated into pixel clusters",
+  "style_bible": "16-bit pixel art, pixel-defined edges, restricted retro palette, clean sprite-like forms, readable silhouettes, tileable background logic, simple dramatic lighting translated into pixel clusters",
   "negative_prompt": "photorealism, painterly brushwork, smooth gradients, ultra detailed rendering, 3D render, soft airbrush shading, realistic skin texture, centered static composition",
   "preview_assets": [
     "assets/pixel-art-story.webp",

@@ -26,7 +26,7 @@
     "The figure is cut at the chest, turned toward the camera, with the eyes meeting it — never full length, never in profile, never looking away.",
     "One warm source only, low and to one side, with a thin gold rim on the far edge and unlit shadow behind; no fill light and no second key.",
     "The half of the frame that carries the hook stays dark, quiet, and free of architectural or costume detail behind the letters.",
-    "Vary the dress, the forms and the background between episodes; keep the split, the crop, the gaze, the light, and the two-word hook fixed."
+    "Vary the subject, the forms and the background between episodes; keep the split, the crop, the gaze, the light, and the two-word hook fixed."
   ],
   "required_elements": [
     "A two-word hook rendered directly in the image, its two words carrying different colours",
@@ -38,11 +38,11 @@
     "A wordmark, channel name, logo, badge, ribbon, numeral bug, or border of any kind",
     "Both variants in one image, or more than one face anywhere in the frame",
     "A hook longer than two words, a subtitle, a date line, or any caption beyond the hook",
-    "Architectural detail, drapery, or regalia crossing behind the letters of the hook",
+    "Background detail crossing behind the letters of the hook",
     "Arrows, emoji, circles, price tags, red rings, or reaction marks",
     "Bright daylight, flat even lighting, a second key light, or a cold rim",
     "Post-render typography compositing, watermarks, or copied trade dress",
-    "Recognisable modern individuals, living people, or invented insignia presented as real"
+    "Recognisable individuals, living people, or invented insignia presented as real"
   ],
   "headline_mode": "curiosity-hook",
   "headline_guidance": "Write a hook of exactly two words and render it directly in the image. Name the subject or the turn plainly rather than teasing it — a listener settling toward sleep should read it as a label on a documentary, not a dare. Prefer a name plus an epithet, or a plain noun pair, and never a question, a number, or an exclamation. Colour the first word and the second differently as the variant requires, and fail closed on misspelling, clipping, or any text beyond the two words.",
