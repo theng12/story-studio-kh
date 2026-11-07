@@ -288,7 +288,7 @@ function resetRotation(): void {
 }
 
 .cbpe-kind {
-  font-size: 11px;
+  font-size: var(--font-xs);
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }

@@ -187,7 +187,7 @@ function formatSec(sec: number): string {
   display: inline-flex;
   align-items: center;
   padding: 2px 7px;
-  font-size: 10px;
+  font-size: var(--font-xs);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
@@ -215,7 +215,7 @@ function formatSec(sec: number): string {
   align-items: center;
   padding: 4px 6px;
   border-radius: 4px;
-  font-size: 11px;
+  font-size: var(--font-xs);
 }
 
 .track-intro {
@@ -244,7 +244,7 @@ function formatSec(sec: number): string {
 }
 
 .track-time {
-  font-size: 10px;
+  font-size: var(--font-xs);
   opacity: 0.8;
   line-height: 1.2;
 }

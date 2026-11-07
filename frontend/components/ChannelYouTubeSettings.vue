@@ -673,7 +673,7 @@ watch(() => props.slug, () => {
 }
 
 .cache-pill {
-  font-size: 11px;
+  font-size: var(--font-xs);
   padding: 3px 8px;
   border-radius: 999px;
   background: var(--bg-tertiary);
@@ -710,7 +710,7 @@ watch(() => props.slug, () => {
 
 .field-hint {
   margin: 0;
-  font-size: 11px;
+  font-size: var(--font-xs);
   color: var(--text-muted);
 }
 
@@ -788,7 +788,7 @@ watch(() => props.slug, () => {
 
 .playlist-desc {
   margin: 0;
-  font-size: 11px;
+  font-size: var(--font-xs);
   color: var(--text-muted);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -799,20 +799,20 @@ watch(() => props.slug, () => {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 11px;
+  font-size: var(--font-xs);
   color: var(--text-muted);
 }
 
 .playlist-id {
   font-family: monospace;
-  font-size: 10px;
+  font-size: var(--font-xs);
   padding: 1px 4px;
   border-radius: 4px;
   background: var(--bg-secondary);
 }
 
 .badge {
-  font-size: 10px;
+  font-size: var(--font-xs);
   font-weight: 600;
   padding: 2px 6px;
   border-radius: 4px;
@@ -888,7 +888,7 @@ watch(() => props.slug, () => {
 }
 
 .sub-duration {
-  font-size: 11px;
+  font-size: var(--font-xs);
   color: var(--text-muted);
   margin-left: 4px;
 }
@@ -901,7 +901,7 @@ watch(() => props.slug, () => {
 .range-bounds {
   display: flex;
   justify-content: space-between;
-  font-size: 10px;
+  font-size: var(--font-xs);
   color: var(--text-muted);
 }
 
@@ -939,7 +939,7 @@ watch(() => props.slug, () => {
 }
 
 .template-card-desc {
-  font-size: 10px;
+  font-size: var(--font-xs);
   color: var(--text-muted);
   line-height: 1.35;
 }
@@ -959,7 +959,7 @@ watch(() => props.slug, () => {
 }
 
 .element-slot {
-  font-size: 11px;
+  font-size: var(--font-xs);
   font-weight: 700;
   color: var(--text-muted);
   width: 48px;
@@ -989,7 +989,7 @@ watch(() => props.slug, () => {
 }
 
 .count-badge {
-  font-size: 11px;
+  font-size: var(--font-xs);
   font-weight: 600;
   color: var(--text-muted);
 }
@@ -1018,7 +1018,7 @@ watch(() => props.slug, () => {
 .guidance-text {
   margin: 0;
   font-family: monospace;
-  font-size: 11px;
+  font-size: var(--font-xs);
   color: var(--text-secondary);
   background: var(--bg-secondary);
   padding: 10px;

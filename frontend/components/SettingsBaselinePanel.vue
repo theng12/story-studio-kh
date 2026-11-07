@@ -659,7 +659,7 @@ onMounted(() => {
 }
 
 .eyebrow {
-  font-size: 11px;
+  font-size: var(--font-xs);
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -798,7 +798,7 @@ onMounted(() => {
 }
 
 .sb-tag {
-  font-size: 11px;
+  font-size: var(--font-xs);
   font-family: monospace;
   padding: 2px 6px;
   border-radius: 4px;
@@ -832,7 +832,7 @@ onMounted(() => {
 
 .sb-channel-label small {
   color: var(--text-muted, #71717a);
-  font-size: 11px;
+  font-size: var(--font-xs);
 }
 
 .sb-confirm-checkbox {
@@ -846,7 +846,7 @@ onMounted(() => {
 }
 
 .sb-status-pill {
-  font-size: 11px;
+  font-size: var(--font-xs);
   font-weight: 600;
   padding: 2px 8px;
   border-radius: 9999px;
@@ -895,11 +895,11 @@ onMounted(() => {
   margin: 0;
   max-height: 60px;
   overflow: auto;
-  font-size: 11px;
+  font-size: var(--font-xs);
 }
 
 .sb-diff-badge {
-  font-size: 10px;
+  font-size: var(--font-xs);
   padding: 2px 6px;
   border-radius: 4px;
   text-transform: uppercase;
@@ -952,7 +952,7 @@ onMounted(() => {
 }
 
 .sb-snapshot-reason {
-  font-size: 11px;
+  font-size: var(--font-xs);
   color: var(--text-muted, #71717a);
 }
 

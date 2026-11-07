@@ -3700,14 +3700,14 @@ watch(() => replaceableUncertainJob.value?.job_id || '', (sourceJobId, previousS
 }
 .review-story-chip:has(input:checked) { border-color: var(--accent); color: var(--text-primary); }
 .review-story-chip input { accent-color: var(--accent); }
-.review-story-kind { font-size: 11px; color: var(--text-muted); }
-.review-story-important { font-size: 11px; color: var(--accent); }
+.review-story-kind { font-size: var(--font-xs); color: var(--text-muted); }
+.review-story-important { font-size: var(--font-xs); color: var(--accent); }
 .review-story-state { margin-top: 8px; padding: 9px 10px; border: 1px solid var(--border); border-radius: 9px; }
 .review-story-state.is-orphan { border-color: color-mix(in srgb, var(--warning) 45%, var(--border)); }
 .review-story-state-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; font-size: 12px; }
-.review-story-orphan { color: var(--warning); font-size: 11px; }
+.review-story-orphan { color: var(--warning); font-size: var(--font-xs); }
 .review-story-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 7px 9px; margin-top: 7px; }
-.review-story-field { display: flex; flex-direction: column; gap: 3px; font-size: 11px; color: var(--text-muted); }
+.review-story-field { display: flex; flex-direction: column; gap: 3px; font-size: var(--font-xs); color: var(--text-muted); }
 .review-story-actions { display: flex; align-items: center; gap: 9px; margin-top: 9px; }
 .review-story-error {
   display: flex;
