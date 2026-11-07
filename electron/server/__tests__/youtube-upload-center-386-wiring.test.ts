@@ -224,6 +224,29 @@ describe('the overview projects the real upload queue', () => {
     await removeQueuedTestJob(slug, queued.body.job_id)
   })
 
+  test('a paused job says it is paused, never quota_exhausted', async () => {
+    const slug = await connectedProject()
+    const episodeCode = await acceptedEpisode(slug)
+    await pm.updateConfig(slug, { upload_pacing: pacing } as any)
+    const fake = new FakeYouTube()
+    __setYouTubeTransportForTests(fake.transport())
+
+    const body = await uploadBody(slug, episodeCode, {
+      earliest_upload_on: new Date(Date.now() + 4 * 60 * 60 * 1000).toISOString(),
+    })
+    const queued = await request(app).post(`/api/projects/${slug}/youtube/upload`).send(body)
+    assert.equal(queued.status, 200, JSON.stringify(queued.body))
+    await jobQueue.pauseJob(queued.body.job_id)
+
+    const overview = await request(app).get(`/api/projects/${slug}/youtube/overview`)
+    const row = overview.body.upload_queue.find((entry: any) => entry.episode_code === episodeCode)
+    assert.equal(row.is_paused, true)
+    assert.equal(row.wait_reason, null, 'the shared wait reasons have no paused code to borrow')
+    assert.match(row.wait_detail, /Paused/)
+    assert.equal(row.next_eligible_at, null, 'a paused row has no wake instant')
+    await removeQueuedTestJob(slug, queued.body.job_id)
+  })
+
   test('a channel with no pacing policy says so instead of inventing a wait time', async () => {
     const slug = await connectedProject()
     const episodeCode = await acceptedEpisode(slug)

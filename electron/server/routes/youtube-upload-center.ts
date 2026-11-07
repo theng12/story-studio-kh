@@ -518,8 +518,10 @@ router.get('/projects/:slug/youtube/overview', async (req, res) => {
         ...(job.title ? { title: job.title } : {}),
         upload_at: uploadOnOf(job),
         publish_at: publishAtOf(job),
-        wait_reason: 'unconfigured_pacing',
-        wait_detail: 'This channel has no upload window hours yet. Choose them before uploads can start.',
+        wait_reason: job.status === 'paused' ? null : 'unconfigured_pacing',
+        wait_detail: job.status === 'paused'
+          ? 'Paused. Resume it from the queue when ready.'
+          : 'This channel has no upload window hours yet. Choose them before uploads can start.',
         next_eligible_at: null,
         is_paused: job.status === 'paused',
         position: index + 1,
@@ -541,6 +543,7 @@ router.get('/projects/:slug/youtube/overview', async (req, res) => {
       })
       const inputs = { channelContext: () => context }
       uploadQueue = uploadJobs.map((job, index) => {
+        const paused = job.status === 'paused'
         const hold = job.status === 'running' ? null : jobWaitingReason(job, inputs)
         const verdict = job.status === 'running' || hold ? null : evaluateJobPacing(job, inputs)
         return {
@@ -548,9 +551,11 @@ router.get('/projects/:slug/youtube/overview', async (req, res) => {
           ...(job.title ? { title: job.title } : {}),
           upload_at: uploadOnOf(job),
           publish_at: publishAtOf(job),
-          wait_reason: job.status === 'running' ? 'ready' : hold?.reason ?? verdict?.reason ?? 'ready',
+          // The shared wait reasons have no "paused"; a paused row carries its
+          // own detail and no reason rather than borrowing quota_exhausted.
+          wait_reason: job.status === 'running' ? 'ready' : paused ? null : hold?.reason ?? verdict?.reason ?? 'ready',
           wait_detail: job.status === 'running' ? 'Uploading now.' : hold?.detail ?? verdict?.detail,
-          next_eligible_at: job.status === 'running'
+          next_eligible_at: job.status === 'running' || paused
             ? null
             : hold ? hold.wake_at : verdict?.eligible ? verdict.earliest_start : null,
           is_paused: job.status === 'paused',
