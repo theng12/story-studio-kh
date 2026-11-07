@@ -14,8 +14,7 @@
 import { syncYouTubePublicationState } from '../services/youtube-publication-status.js'
 import fsp from 'fs/promises'
 import path from 'path'
-import os from 'os'
-import { createHash, randomUUID } from 'node:crypto'
+import { createHash } from 'node:crypto'
 import { measureLoudness } from './music-episode-build.js'
 import { safetyGate, safetyMode } from '../services/safety-checks.js'
 import { existsSync } from 'fs'
@@ -60,6 +59,7 @@ import {
 import { SpeedTracker, throttle } from '../lib/speed-tracker.js'
 import { withLock, writeJsonAtomic } from '../lib/atomic-store.js'
 import { readStoredFinalCheck } from '../lib/final-video-check.js'
+import { getWorkTempDir } from '../lib/work-tempdir.js'
 import {
   buildCaptionUploadCheckpoint,
   normalizeCaptionUploadSettings,
@@ -162,28 +162,28 @@ function publishDateRefusal(pkg: YouTubeMetadataPackage): string | null {
 /**
  * The approved thumbnail's bytes, read once and checked against the frozen
  * content hash. Null when the payload carries no hash (a legacy job); a
- * missing file or changed bytes is refused here.
+ * missing file or changed bytes is refused here. `afterAccept` changes what
+ * the refusal can honestly say: before the video is sent nothing was uploaded,
+ * after it the video is kept and only the thumbnail was withheld.
  */
 async function approvedThumbnailBytes(
   frozen: string | undefined,
   thumbnailPath: string,
   episodeId: string,
+  afterAccept: boolean,
 ): Promise<Buffer | null> {
   if (!frozen) return null
+  const tail = afterAccept
+    ? 'The video is kept; the thumbnail was not sent. Preview and confirm the upload again.'
+    : 'Preview and confirm the upload again; nothing was uploaded.'
   let bytes: Buffer
   try {
     bytes = await fsp.readFile(thumbnailPath)
   } catch {
-    throw new Error(
-      `The thumbnail approved for ${episodeId} is missing or could not be read. `
-      + 'Preview and confirm the upload again; nothing was uploaded.',
-    )
+    throw new Error(`The thumbnail approved for ${episodeId} is missing or could not be read. ${tail}`)
   }
   if (createHash('sha256').update(bytes).digest('hex') !== frozen) {
-    throw new Error(
-      `The thumbnail approved for ${episodeId} changed after confirmation. `
-      + 'Preview and confirm the upload again; nothing was uploaded.',
-    )
+    throw new Error(`The thumbnail approved for ${episodeId} changed after confirmation. ${tail}`)
   }
   return bytes
 }
@@ -203,23 +203,27 @@ async function assertApprovedThumbnailUnchanged(
   thumbnailFilename: string | null | undefined,
 ): Promise<void> {
   if (thumbnailFilename === null) return
-  await approvedThumbnailBytes(metadataPackage.final_payload.thumbnail_sha256, thumbnailPath, episodeId)
+  await approvedThumbnailBytes(metadataPackage.final_payload.thumbnail_sha256, thumbnailPath, episodeId, false)
 }
 
 /**
  * Copy the verified bytes somewhere setThumbnail's later read cannot be
  * changed under it. The video upload and captions can take minutes, so handing
  * the provider the episode's own pathname would reopen whatever is there then.
- * A payload with no frozen hash keeps its old path behaviour.
+ * The copy lives in the existing per-run work temp dir, which the boot sweeper
+ * already owns — this adds no new removal. A payload with no frozen hash keeps
+ * its old path behaviour.
  */
 async function snapshotApprovedThumbnail(
   frozen: string | undefined,
   thumbnailPath: string,
   episodeId: string,
+  slug: string,
+  afterAccept: boolean,
 ): Promise<string> {
-  const bytes = await approvedThumbnailBytes(frozen, thumbnailPath, episodeId)
+  const bytes = await approvedThumbnailBytes(frozen, thumbnailPath, episodeId, afterAccept)
   if (!bytes) return thumbnailPath
-  const copy = path.join(os.tmpdir(), `story-thumbnail-${randomUUID()}${path.extname(thumbnailPath)}`)
+  const copy = path.join(await getWorkTempDir(slug, episodeId), `approved-thumbnail${path.extname(thumbnailPath)}`)
   await fsp.writeFile(copy, bytes)
   return copy
 }
@@ -1077,13 +1081,9 @@ export async function generateYoutubeUpload(job: Job): Promise<void> {
   if (hasThumbnail) {
     job.output_lines.push('Setting the thumbnail…')
     const thumbnailForUpload = await snapshotApprovedThumbnail(
-      metadataPackage.final_payload.thumbnail_sha256, meta.thumbnailPath, episodeId,
+      metadataPackage.final_payload.thumbnail_sha256, meta.thumbnailPath, episodeId, slug, true,
     )
-    try {
-      thumb = await setThumbnailWithRetry(job, { slug, accountId, videoId, filePath: thumbnailForUpload })
-    } finally {
-      if (thumbnailForUpload !== meta.thumbnailPath) await fsp.unlink(thumbnailForUpload).catch(() => {})
-    }
+    thumb = await setThumbnailWithRetry(job, { slug, accountId, videoId, filePath: thumbnailForUpload })
     if (!thumb.error) thumbnail_set = true
   }
   const thumb_error = thumb.error
@@ -1301,16 +1301,11 @@ async function setRequiredThumbnail(job: Job, input: {
     return
   }
   const thumbnailForUpload = await snapshotApprovedThumbnail(
-    input.approvedThumbnailSha256, meta.thumbnailPath, input.episodeId,
+    input.approvedThumbnailSha256, meta.thumbnailPath, input.episodeId, input.slug, true,
   )
-  let thumb: ThumbnailOutcome
-  try {
-    thumb = await setThumbnailWithRetry(job, {
-      slug: input.slug, accountId: input.accountId, videoId: input.videoId, filePath: thumbnailForUpload,
-    })
-  } finally {
-    if (thumbnailForUpload !== meta.thumbnailPath) await fsp.unlink(thumbnailForUpload).catch(() => {})
-  }
+  const thumb = await setThumbnailWithRetry(job, {
+    slug: input.slug, accountId: input.accountId, videoId: input.videoId, filePath: thumbnailForUpload,
+  })
   await checkpointThumbnailStateAtPath(
     input.sidecarPath,
     { video_id: input.videoId, account_id: input.accountId },
