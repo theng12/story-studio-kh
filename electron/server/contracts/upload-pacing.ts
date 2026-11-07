@@ -29,20 +29,27 @@ export const UPLOAD_PACING_TIER_DEFAULTS: Record<'gentle' | 'regular' | 'bulk', 
   bulk: { daily_limit: 12 },
 }
 
-export const UPLOAD_PACING_TIER_LABELS: Record<UploadPacingTier, string> = {
-  gentle: 'Gentle (up to 3/day)',
-  regular: 'Regular (up to 6/day)',
-  bulk: 'Bulk (up to 12/day)',
-  custom: 'Custom',
+/** Plain tier names — the count is never written here. */
+export const UPLOAD_PACING_TIER_NAMES: Record<UploadPacingTier, string> = {
+  gentle: 'Gentle', regular: 'Regular', bulk: 'Bulk', custom: 'Custom',
 }
 
 /**
- * Standard YouTube publish lead time: a private upload must be complete at least
- * 6 hours before its scheduled public release, or YouTube would publish immediately
- * upon upload if the publish date passes during upload.
+ * Label for a tier with its ACTUAL configured count (AGENTS §1: a limit shown is
+ * the limit enforced). The UI passes the channel's current `daily_limit`; nothing
+ * here restates 3/6/12 as literals — those come from UPLOAD_PACING_TIER_DEFAULTS.
  */
-export const DEFAULT_PUBLISH_LEAD_TIME_MS = 6 * 60 * 60 * 1000
-export const DEFAULT_PUBLISH_LEAD_TIME_TEXT = '6 hours'
+export function uploadPacingTierLabel(tier: UploadPacingTier, dailyLimit: number): string {
+  return `${UPLOAD_PACING_TIER_NAMES[tier]} (up to ${dailyLimit}/day)`
+}
+
+/** Labels for the plain starting counts — derived from UPLOAD_PACING_TIER_DEFAULTS. */
+export const UPLOAD_PACING_TIER_LABELS: Record<UploadPacingTier, string> = {
+  gentle: uploadPacingTierLabel('gentle', UPLOAD_PACING_TIER_DEFAULTS.gentle.daily_limit),
+  regular: uploadPacingTierLabel('regular', UPLOAD_PACING_TIER_DEFAULTS.regular.daily_limit),
+  bulk: uploadPacingTierLabel('bulk', UPLOAD_PACING_TIER_DEFAULTS.bulk.daily_limit),
+  custom: UPLOAD_PACING_TIER_NAMES.custom,
+}
 
 /**
  * Explicit daily upload time window (in the channel's local timezone).
@@ -53,6 +60,19 @@ export interface UploadTimeWindow {
   start: string
   /** "HH:MM" 24-hour time when uploads must stop starting. Must be after start. */
   end: string
+}
+
+/**
+ * The spacing enforced between consecutive upload starts on a channel day,
+ * derived from the configured floor and the natural spread of the window over
+ * the daily limit. Used by BOTH the slot calculator and the eligibility verdict
+ * so they can never disagree about what "spaced" means.
+ */
+export function effectiveSpacingMinutes(policy: Pick<UploadPacingPolicy, 'window' | 'daily_limit' | 'min_spacing_minutes'>): number {
+  const windowSpan = windowDurationMinutes(policy.window)
+  const spread = policy.daily_limit > 1 ? Math.floor(windowSpan / policy.daily_limit) : 0
+  const configured = Number(policy.min_spacing_minutes) > 0 ? Number(policy.min_spacing_minutes) : 0
+  return Math.max(configured, spread)
 }
 
 /**
@@ -159,6 +179,7 @@ export interface PacedPlanResult {
 export type UploadWaitReason =
   | 'ready'
   | 'waiting_for_upload_on'
+  | 'invalid_upload_on'
   | 'outside_window'
   | 'daily_limit_reached'
   | 'spacing_hold'
@@ -181,6 +202,8 @@ export interface UploadEligibilityVerdict {
   daily_limit: number
   uploads_today: number
   remaining_today: number
+  /** The spacing actually enforced between consecutive starts today (minutes), same figure the slot calculator uses. */
+  effective_spacing_minutes: number
 }
 
 /**

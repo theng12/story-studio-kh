@@ -19,7 +19,8 @@ import {
   UPLOAD_PACING_TIERS,
   UPLOAD_PACING_TIER_DEFAULTS,
   UPLOAD_PACING_TIER_LABELS,
-  DEFAULT_PUBLISH_LEAD_TIME_MS,
+  uploadPacingTierLabel,
+  effectiveSpacingMinutes,
   validateUploadTimeWindow,
   validateUploadPacingPolicy,
   isValidIanaTimezone,
@@ -30,6 +31,8 @@ import {
   type RecordedTransfer,
   type PacingQueueItem,
 } from '../contracts/upload-pacing.js'
+// One lead-time figure, owned by the guard (never restated in the contract).
+import { YOUTUBE_PUBLISH_LEAD_TIME_MS } from '../services/youtube-publish-guard.js'
 import {
   getChannelDayKey,
   getQuotaDayKey,
@@ -66,15 +69,18 @@ describe('Upload pacing tiers and contract defaults', () => {
     }
   })
 
-  test('tier labels describe operating rules, not YouTube limits', () => {
-    assert.equal(UPLOAD_PACING_TIER_LABELS.gentle, 'Gentle (up to 3/day)')
-    assert.equal(UPLOAD_PACING_TIER_LABELS.regular, 'Regular (up to 6/day)')
-    assert.equal(UPLOAD_PACING_TIER_LABELS.bulk, 'Bulk (up to 12/day)')
+  test('tier labels derive from the defaults — no separate 3/6/12 literals', () => {
+    assert.equal(UPLOAD_PACING_TIER_LABELS.gentle, `Gentle (up to ${UPLOAD_PACING_TIER_DEFAULTS.gentle.daily_limit}/day)`)
+    assert.equal(UPLOAD_PACING_TIER_LABELS.regular, `Regular (up to ${UPLOAD_PACING_TIER_DEFAULTS.regular.daily_limit}/day)`)
+    assert.equal(UPLOAD_PACING_TIER_LABELS.bulk, `Bulk (up to ${UPLOAD_PACING_TIER_DEFAULTS.bulk.daily_limit}/day)`)
     assert.equal(UPLOAD_PACING_TIER_LABELS.custom, 'Custom')
+    // The UI labels the ACTUAL configured count, not the tier's starting default.
+    assert.equal(uploadPacingTierLabel('gentle', 4), 'Gentle (up to 4/day)')
+    assert.equal(uploadPacingTierLabel('bulk', 12), 'Bulk (up to 12/day)')
   })
 
-  test('publish lead time defaults to 6 hours', () => {
-    assert.equal(DEFAULT_PUBLISH_LEAD_TIME_MS, 6 * 60 * 60 * 1000)
+  test('publish lead time comes from the one guard figure', () => {
+    assert.equal(YOUTUBE_PUBLISH_LEAD_TIME_MS, 6 * 60 * 60 * 1000)
   })
 })
 
@@ -331,13 +337,14 @@ describe('Conflict detection: upload_on vs publish_at and publish lead time', ()
   }
 
   test('flags conflict when upload slot cannot meet 6-hour publish lead time', () => {
-    // Upload slot will be today at 10:00 local (03:00Z).
-    // Publish date is set to today at 13:00 local (06:00Z) — only 3 hours after upload!
+    // Upload slot will be today at 10:00 local (03:00Z). Publish date 15:30 local
+    // (08:30Z): 6.5h from now — past the "too soon from now" check — but only
+    // 5.5h after the upload slot, short of the 6h lead the upload must clear.
     const now = '2026-11-07T02:00:00.000Z'
     const items: PacingQueueItem[] = [
       {
         episode_code: 'CONFLICT_EP',
-        publish_at: '2026-11-07T06:00:00.000Z',
+        publish_at: '2026-11-07T08:30:00.000Z',
       },
     ]
 
@@ -350,8 +357,8 @@ describe('Conflict detection: upload_on vs publish_at and publish lead time', ()
     assert.equal(conflict.episode_code, 'CONFLICT_EP')
     assert.equal(conflict.reason, 'cannot_meet_publish_deadline')
     assert.equal(conflict.required_lead_ms, 6 * 60 * 60 * 1000)
-    assert.equal(conflict.actual_gap_ms, 3 * 60 * 60 * 1000)
-    assert.match(conflict.detail, /leaves only 180 minutes before publish date/i)
+    assert.equal(conflict.actual_gap_ms, 5.5 * 60 * 60 * 1000)
+    assert.match(conflict.detail, /leaves only 330 minutes before publish date/i)
   })
 
   test('flags conflict when publish_at is already in the past', () => {
@@ -430,6 +437,8 @@ describe('Upload eligibility verdict evaluation (checkUploadEligibility)', () =>
     assert.equal(verdict.uploads_today, 0)
     assert.equal(verdict.remaining_today, 3)
     assert.equal(verdict.channel_day_key, '2026-11-07')
+    // The enforced derived spacing is exposed on the verdict itself (§1: shown = enforced).
+    assert.equal(verdict.effective_spacing_minutes, 160)
   })
 
   test('returns daily_limit_reached when channel day is full', () => {
@@ -461,9 +470,10 @@ describe('Upload eligibility verdict evaluation (checkUploadEligibility)', () =>
     assert.equal(verdict.earliest_start, '2026-11-07T03:00:00.000Z')
   })
 
-  test('returns spacing_hold when transfer completed recently within min_spacing_minutes', () => {
-    // Transfer completed 15 minutes ago at 11:00 local (04:00Z); now is 11:15 (04:15Z)
-    // 60 minute spacing requires waiting until 12:00 local (05:00Z)
+  test('returns spacing_hold using the SAME effective spacing the slot calculator enforces', () => {
+    // Transfer at 11:00 local (04:00Z); now 11:15 (04:15Z). Configured floor is 60m,
+    // but the window spread is 480m / 3 = 160m — the enforced figure is the max of
+    // the two, so an eligibility check can never wave through back-to-back starts.
     const now = '2026-11-07T04:15:00.000Z'
     const transfers: RecordedTransfer[] = [
       { episode_code: 'T1', started_at: '2026-11-07T04:00:00.000Z', status: 'completed' },
@@ -475,7 +485,31 @@ describe('Upload eligibility verdict evaluation (checkUploadEligibility)', () =>
 
     assert.equal(verdict.eligible, false)
     assert.equal(verdict.reason, 'spacing_hold')
-    assert.equal(verdict.earliest_start, '2026-11-07T05:00:00.000Z')
+    assert.equal(verdict.effective_spacing_minutes, 160)
+    assert.equal(verdict.earliest_start, '2026-11-07T06:40:00.000Z')
+  })
+
+  test('with NO configured spacing the derived window spread still enforces spacing', () => {
+    // min_spacing_minutes unset: eligibility used to treat that as "no spacing at
+    // all" while the slot calculator used 160m — the exact mismatch under review.
+    const noSpacingPolicy: UploadPacingPolicy = {
+      tier: 'gentle',
+      daily_limit: 3,
+      timezone: 'Asia/Phnom_Penh',
+      window: { start: '10:00', end: '18:00' },
+    }
+    assert.equal(effectiveSpacingMinutes(noSpacingPolicy), 160)
+
+    const now = '2026-11-07T04:30:00.000Z' // 11:30 local, 30m after the transfer
+    const transfers: RecordedTransfer[] = [
+      { episode_code: 'T1', started_at: '2026-11-07T04:00:00.000Z', status: 'completed' },
+    ]
+    const verdict = checkUploadEligibility({ episode_code: 'EP01' }, noSpacingPolicy, { now, recorded_transfers: transfers })
+
+    assert.equal(verdict.eligible, false)
+    assert.equal(verdict.reason, 'spacing_hold')
+    assert.equal(verdict.effective_spacing_minutes, 160)
+    assert.equal(verdict.earliest_start, '2026-11-07T06:40:00.000Z')
   })
 
   test('returns waiting_for_upload_on when planned time is in future', () => {
@@ -512,5 +546,113 @@ describe('Upload eligibility verdict evaluation (checkUploadEligibility)', () =>
     assert.equal(verdict.eligible, false)
     assert.equal(verdict.reason, 'unconfigured_pacing')
     assert.match(verdict.detail, /window hours must be chosen explicitly/i)
+  })
+})
+
+describe('Review regressions — both upload-time constraints, honest dates, quota reset, next-day window', () => {
+  const policy: UploadPacingPolicy = {
+    tier: 'gentle',
+    daily_limit: 3,
+    timezone: 'Asia/Phnom_Penh',
+    window: { start: '10:00', end: '18:00' },
+  }
+
+  test('earliest AND planned upload times both hold — the LATER instant wins', () => {
+    const now = '2026-11-07T04:00:00.000Z'
+    // The old `item.earliest || planned` read discarded the later planned time.
+    const verdict = checkUploadEligibility(
+      { episode_code: 'EP01', earliest_upload_on: '2026-11-07T05:00:00.000Z' },
+      policy,
+      { now, planned_upload_on: '2026-11-07T08:00:00.000Z' },
+    )
+
+    assert.equal(verdict.eligible, false)
+    assert.equal(verdict.reason, 'waiting_for_upload_on')
+    assert.equal(verdict.earliest_start, '2026-11-07T08:00:00.000Z', 'the later planned time must win')
+  })
+
+  test('an invalid upload date is a hold with a reason — never silently eligible', () => {
+    const now = '2026-11-07T04:00:00.000Z'
+    const verdict = checkUploadEligibility(
+      { episode_code: 'EP01', earliest_upload_on: 'not-a-date' },
+      policy,
+      { now },
+    )
+    assert.equal(verdict.eligible, false)
+    assert.equal(verdict.reason, 'invalid_upload_on')
+    assert.equal(verdict.earliest_start, null)
+    assert.match(verdict.detail, /not a valid date/i)
+
+    const invalidPlanned = checkUploadEligibility({ episode_code: 'EP02' }, policy, {
+      now,
+      planned_upload_on: 'next tuesday-ish',
+    })
+    assert.equal(invalidPlanned.eligible, false)
+    assert.equal(invalidPlanned.reason, 'invalid_upload_on')
+  })
+
+  test('daily limit near window end jumps to the NEXT day window start, not now+24h', () => {
+    // 17:50 local (10:50Z) with the day already full. now+24h would claim 17:50
+    // tomorrow — skipping the whole morning of tomorrow's window.
+    const now = '2026-11-07T10:50:00.000Z'
+    const fullDay: RecordedTransfer[] = [
+      { episode_code: 'T1', started_at: '2026-11-07T03:10:00.000Z', status: 'completed' },
+      { episode_code: 'T2', started_at: '2026-11-07T04:10:00.000Z', status: 'completed' },
+      { episode_code: 'T3', started_at: '2026-11-07T05:10:00.000Z', status: 'completed' },
+    ]
+    const verdict = checkUploadEligibility({ episode_code: 'EP01' }, policy, { now, recorded_transfers: fullDay })
+
+    assert.equal(verdict.reason, 'daily_limit_reached')
+    assert.equal(verdict.earliest_start, '2026-11-08T03:00:00.000Z', 'tomorrow WINDOW START, not now+24h (10:50Z)')
+  })
+
+  test('daily limit across a DST fall-back resolves the next window in local wall time', () => {
+    // America/New_York, DST ends 2026-11-01 (2:00 AM EDT -> 1:00 AM EST).
+    // Now 2026-11-01 17:50 EDT (21:50Z), day full: next window start is
+    // 2026-11-01+1 day 10:00 EST = 2026-11-02T15:00:00Z (EST is UTC-5).
+    const dstPolicy: UploadPacingPolicy = {
+      ...policy,
+      timezone: 'America/New_York',
+    }
+    const now = '2026-11-01T21:50:00.000Z'
+    const dayKey = getChannelDayKey(now, 'America/New_York')
+    assert.equal(dayKey, '2026-11-01')
+    // Three transfers that land on Nov 1 in New York (EDT, UTC-4): 12:00/13:00/14:00 local.
+    const fullDay: RecordedTransfer[] = ['16:00:00', '17:00:00', '18:00:00'].map(t => ({
+      started_at: `2026-11-01T${t}Z`,
+      status: 'completed',
+    }))
+    const verdict = checkUploadEligibility({ episode_code: 'EP01' }, dstPolicy, { now, recorded_transfers: fullDay })
+
+    assert.equal(verdict.reason, 'daily_limit_reached')
+    assert.equal(verdict.earliest_start, '2026-11-02T15:00:00.000Z')
+  })
+
+  test('quota hold requires a VALID FUTURE reset — missing or stale resets hold with nothing invented', () => {
+    const now = '2026-11-07T04:00:00.000Z'
+
+    const valid = checkUploadEligibility({ episode_code: 'EP01' }, policy, {
+      now, quota_exhausted: true, quota_reset_at: '2026-11-07T08:00:00.000Z',
+    })
+    assert.equal(valid.reason, 'quota_exhausted')
+    assert.equal(valid.earliest_start, '2026-11-07T08:00:00.000Z')
+
+    // Reset already passed — the old code handed it back as a wake time.
+    const stale = checkUploadEligibility({ episode_code: 'EP01' }, policy, {
+      now, quota_exhausted: true, quota_reset_at: '2026-11-07T03:00:00.000Z',
+    })
+    assert.equal(stale.reason, 'quota_exhausted')
+    assert.equal(stale.earliest_start, null, 'a past reset must not be offered as a wake time')
+    assert.match(stale.detail, /no valid future reset time/i)
+
+    const missing = checkUploadEligibility({ episode_code: 'EP01' }, policy, { now, quota_exhausted: true })
+    assert.equal(missing.earliest_start, null)
+    assert.match(missing.detail, /no wake time is invented/i)
+
+    const garbage = checkUploadEligibility({ episode_code: 'EP01' }, policy, {
+      now, quota_exhausted: true, quota_reset_at: 'tomorrow-ish',
+    })
+    assert.equal(garbage.earliest_start, null)
+    assert.match(garbage.detail, /no valid future reset time/i)
   })
 })

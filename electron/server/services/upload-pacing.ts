@@ -24,9 +24,11 @@ import {
   type PacedPlanResult,
   type UploadEligibilityVerdict,
   type UploadEligibilityContext,
+  type UploadWaitReason,
   validateUploadPacingPolicy,
   isValidIanaTimezone,
   hhmmToMinutes,
+  effectiveSpacingMinutes,
 } from '../contracts/upload-pacing.js'
 
 export * from '../contracts/upload-pacing.js'
@@ -338,13 +340,8 @@ export function calculatePacedUploadSlots(
 
   const [startH, startM] = parseTime(validPolicy.window.start)
   const [endH, endM] = parseTime(validPolicy.window.end)
-  const windowStartMin = startH * 60 + startM
-  const windowEndMin = endH * 60 + endM
-  const windowSpanMin = windowEndMin - windowStartMin
-
-  const configuredSpacing = Number(validPolicy.min_spacing_minutes) > 0 ? Number(validPolicy.min_spacing_minutes) : 0
-  const spreadInterval = validPolicy.daily_limit > 1 ? Math.floor(windowSpanMin / validPolicy.daily_limit) : 0
-  const effectiveSpacingMin = Math.max(configuredSpacing, spreadInterval)
+  // Same spacing figure the eligibility verdict enforces — one source of truth.
+  const effectiveSpacingMin = effectiveSpacingMinutes(validPolicy)
 
   // Track counts and existing uploads per channel-local day
   const daySlotCounts = new Map<string, number>()
@@ -538,6 +535,9 @@ export function checkUploadEligibility(
       daily_limit: 0,
       uploads_today: 0,
       remaining_today: 0,
+      // Not "spacing is none" — no spacing could be derived from a policy that
+      // failed validation; the reason above says so.
+      effective_spacing_minutes: 0,
     }
   }
 
@@ -559,39 +559,57 @@ export function checkUploadEligibility(
   const quotaDayKey = getQuotaDayKey(nowMs, quotaTz)
   const uploadsToday = countChannelDayTransfers(context.recorded_transfers ?? [], channelDayKey, validPolicy.timezone)
   const remainingToday = Math.max(0, validPolicy.daily_limit - uploadsToday)
+  // The SAME spacing the slot calculator enforces (configured floor vs window spread).
+  const spacingMin = effectiveSpacingMinutes(validPolicy)
 
-  // 1. Quota check
+  // One verdict builder: every branch fills only what differs, so the shape cannot drift.
+  const verdict = (
+    reason: UploadWaitReason,
+    detail: string,
+    extra: { earliest_start?: string | null; eligible?: boolean; remaining_today?: number } = {},
+  ): UploadEligibilityVerdict => ({
+    eligible: extra.eligible ?? false,
+    reason,
+    detail,
+    earliest_start: extra.earliest_start ?? null,
+    channel_day_key: channelDayKey,
+    quota_day_key: quotaDayKey,
+    daily_limit: validPolicy.daily_limit,
+    uploads_today: uploadsToday,
+    remaining_today: extra.remaining_today ?? remainingToday,
+    effective_spacing_minutes: spacingMin,
+  })
+
+  // 1. Quota check — a reset time counts only when it is a valid FUTURE instant.
+  //    A missing, unparseable or already-passed reset reads as an honest hold with
+  //    no wake time invented (nothing auto-wakes on a guessed clock).
   if (context.quota_exhausted) {
-    return {
-      eligible: false,
-      reason: 'quota_exhausted',
-      detail: 'YouTube API quota is exhausted. Waiting for quota reset.',
-      earliest_start: context.quota_reset_at ?? null,
-      channel_day_key: channelDayKey,
-      quota_day_key: quotaDayKey,
-      daily_limit: validPolicy.daily_limit,
-      uploads_today: uploadsToday,
-      remaining_today: remainingToday,
-    }
+    const resetMs = typeof context.quota_reset_at === 'string' ? Date.parse(context.quota_reset_at) : NaN
+    const resetKnown = Number.isFinite(resetMs) && resetMs > nowMs
+    return verdict(
+      'quota_exhausted',
+      resetKnown
+        ? `YouTube API quota is exhausted. Holding until the tracked reset at ${new Date(resetMs).toISOString()}.`
+        : 'YouTube API quota is exhausted, and no valid future reset time is known. The upload holds until a reset is observed; no wake time is invented.',
+      { earliest_start: resetKnown ? new Date(resetMs).toISOString() : null },
+    )
   }
 
-  // 2. Waiting for planned upload time
-  const targetUploadOn = item.earliest_upload_on || context.planned_upload_on
-  if (targetUploadOn) {
-    const targetMs = Date.parse(targetUploadOn)
-    if (Number.isFinite(targetMs) && nowMs < targetMs) {
-      return {
-        eligible: false,
-        reason: 'waiting_for_upload_on',
-        detail: `Upload is scheduled for ${targetUploadOn}.`,
-        earliest_start: targetUploadOn,
-        channel_day_key: channelDayKey,
-        quota_day_key: quotaDayKey,
-        daily_limit: validPolicy.daily_limit,
-        uploads_today: uploadsToday,
-        remaining_today: remainingToday,
-      }
+  // 2. Waiting for the upload time — BOTH constraints hold, so the LATER valid
+  //    instant wins; an unparseable date is a hold, never silently "eligible".
+  const targetValues: string[] = [item.earliest_upload_on, context.planned_upload_on]
+    .filter((v): v is string => typeof v === 'string' && v.trim() !== '')
+  let targetMs: number | null = null
+  for (const value of targetValues) {
+    const parsed = Date.parse(value)
+    if (!Number.isFinite(parsed)) {
+      return verdict('invalid_upload_on', `The upload date "${value}" is not a valid date — holding for a corrected date.`)
     }
+    if (targetMs === null || parsed > targetMs) targetMs = parsed
+  }
+  if (targetMs !== null && nowMs < targetMs) {
+    const iso = new Date(targetMs).toISOString()
+    return verdict('waiting_for_upload_on', `Upload is scheduled for ${iso}.`, { earliest_start: iso })
   }
 
   // 3. Publish deadline conflict check
@@ -600,97 +618,51 @@ export function checkUploadEligibility(
     const pubMs = Date.parse(pubDate)
     const leadMs = context.publish_lead_ms ?? YOUTUBE_PUBLISH_LEAD_TIME_MS
     if (!Number.isFinite(pubMs)) {
-      return {
-        eligible: false,
-        reason: 'publish_deadline_conflict',
-        detail: `Publish date "${pubDate}" is not a valid date.`,
-        earliest_start: null,
-        channel_day_key: channelDayKey,
-        quota_day_key: quotaDayKey,
-        daily_limit: validPolicy.daily_limit,
-        uploads_today: uploadsToday,
-        remaining_today: remainingToday,
-      }
+      return verdict('publish_deadline_conflict', `Publish date "${pubDate}" is not a valid date.`)
     }
     if (pubMs < nowMs) {
-      return {
-        eligible: false,
-        reason: 'publish_deadline_conflict',
-        detail: `Publish date "${pubDate}" is in the past. Must hold for corrected date.`,
-        earliest_start: null,
-        channel_day_key: channelDayKey,
-        quota_day_key: quotaDayKey,
-        daily_limit: validPolicy.daily_limit,
-        uploads_today: uploadsToday,
-        remaining_today: remainingToday,
-      }
+      return verdict('publish_deadline_conflict', `Publish date "${pubDate}" is in the past. Must hold for corrected date.`)
     }
     if (nowMs + leadMs > pubMs) {
-      return {
-        eligible: false,
-        reason: 'publish_deadline_conflict',
-        detail: `Publish deadline "${pubDate}" is less than ${leadMs / (60 * 60 * 1000)} hours from now; cannot upload without violating lead time.`,
-        earliest_start: null,
-        channel_day_key: channelDayKey,
-        quota_day_key: quotaDayKey,
-        daily_limit: validPolicy.daily_limit,
-        uploads_today: uploadsToday,
-        remaining_today: remainingToday,
-      }
+      return verdict(
+        'publish_deadline_conflict',
+        `Publish deadline "${pubDate}" is less than ${leadMs / (60 * 60 * 1000)} hours from now; cannot upload without violating lead time.`,
+      )
     }
   }
 
   // 4. Allowed weekdays check
   if (!isAllowedWeekday(nowMs, validPolicy.weekdays, validPolicy.timezone)) {
-    const nextStart = findNextAllowedWindowStart(nowMs, validPolicy)
-    return {
-      eligible: false,
-      reason: 'weekday_not_allowed',
-      detail: 'Today is not an allowed upload day for this channel.',
-      earliest_start: nextStart,
-      channel_day_key: channelDayKey,
-      quota_day_key: quotaDayKey,
-      daily_limit: validPolicy.daily_limit,
-      uploads_today: uploadsToday,
-      remaining_today: remainingToday,
-    }
+    return verdict(
+      'weekday_not_allowed',
+      'Today is not an allowed upload day for this channel.',
+      { earliest_start: findNextAllowedWindowStart(nowMs, validPolicy) },
+    )
   }
 
-  // 5. Daily limit reached
+  // 5. Daily limit reached — next start comes from the channel-local NEXT day's
+  //    window (never a raw now+24h, which overshoots past a window end or a DST shift).
   if (uploadsToday >= validPolicy.daily_limit) {
-    const nextDayStart = findNextAllowedWindowStart(nowMs + 86_400_000, validPolicy)
-    return {
-      eligible: false,
-      reason: 'daily_limit_reached',
-      detail: `Daily limit of ${validPolicy.daily_limit} uploads reached for channel day ${channelDayKey}.`,
-      earliest_start: nextDayStart,
-      channel_day_key: channelDayKey,
-      quota_day_key: quotaDayKey,
-      daily_limit: validPolicy.daily_limit,
-      uploads_today: uploadsToday,
-      remaining_today: 0,
-    }
+    const tomorrowLocal = addDaysInTz(parseDateInTz(channelDayKey, validPolicy.timezone), 1, validPolicy.timezone)
+    return verdict(
+      'daily_limit_reached',
+      `Daily limit of ${validPolicy.daily_limit} uploads reached for channel day ${channelDayKey}.`,
+      { earliest_start: findNextAllowedWindowStart(tomorrowLocal, validPolicy), remaining_today: 0 },
+    )
   }
 
   // 6. Outside window check
   if (!isInsideWindow(nowMs, validPolicy.window, validPolicy.timezone)) {
-    const nextInWindow = findNextAllowedWindowStart(nowMs, validPolicy)
-    return {
-      eligible: false,
-      reason: 'outside_window',
-      detail: `Current time is outside the allowed window ${validPolicy.window.start}–${validPolicy.window.end}.`,
-      earliest_start: nextInWindow,
-      channel_day_key: channelDayKey,
-      quota_day_key: quotaDayKey,
-      daily_limit: validPolicy.daily_limit,
-      uploads_today: uploadsToday,
-      remaining_today: remainingToday,
-    }
+    return verdict(
+      'outside_window',
+      `Current time is outside the allowed window ${validPolicy.window.start}–${validPolicy.window.end}.`,
+      { earliest_start: findNextAllowedWindowStart(nowMs, validPolicy) },
+    )
   }
 
-  // 7. Spacing hold check
-  const minSpacing = Number(validPolicy.min_spacing_minutes)
-  if (minSpacing > 0 && context.recorded_transfers && context.recorded_transfers.length > 0) {
+  // 7. Spacing hold — same effective spacing as the slot calculator, so an
+  //    in-window check can never wave through back-to-back starts.
+  if (spacingMin > 0 && context.recorded_transfers && context.recorded_transfers.length > 0) {
     let latestTransferMs: number | null = null
     for (const t of context.recorded_transfers) {
       if (t.status === 'failed' || t.status === 'aborted') continue
@@ -701,35 +673,14 @@ export function checkUploadEligibility(
         latestTransferMs = parsed
       }
     }
-    if (latestTransferMs !== null) {
-      const spacingWaitUntilMs = latestTransferMs + minSpacing * 60_000
-      if (nowMs < spacingWaitUntilMs) {
-        const spacingIso = new Date(spacingWaitUntilMs).toISOString()
-        return {
-          eligible: false,
-          reason: 'spacing_hold',
-          detail: `Minimum spacing hold (${minSpacing}m) active until ${spacingIso}.`,
-          earliest_start: spacingIso,
-          channel_day_key: channelDayKey,
-          quota_day_key: quotaDayKey,
-          daily_limit: validPolicy.daily_limit,
-          uploads_today: uploadsToday,
-          remaining_today: remainingToday,
-        }
-      }
+    if (latestTransferMs !== null && nowMs < latestTransferMs + spacingMin * 60_000) {
+      const spacingIso = new Date(latestTransferMs + spacingMin * 60_000).toISOString()
+      return verdict('spacing_hold', `Spacing hold of ${spacingMin}m between uploads is active until ${spacingIso}.`, {
+        earliest_start: spacingIso,
+      })
     }
   }
 
   // All checks passed
-  return {
-    eligible: true,
-    reason: 'ready',
-    detail: 'Ready for upload.',
-    earliest_start: new Date(nowMs).toISOString(),
-    channel_day_key: channelDayKey,
-    quota_day_key: quotaDayKey,
-    daily_limit: validPolicy.daily_limit,
-    uploads_today: uploadsToday,
-    remaining_today: remainingToday,
-  }
+  return verdict('ready', 'Ready for upload.', { eligible: true, earliest_start: new Date(nowMs).toISOString() })
 }
