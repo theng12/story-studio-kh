@@ -27,6 +27,7 @@ import { mediaEpisodeBaseForCode } from '../services/media-root.js'
 import * as jq from '../services/job-queue.js'
 import type { Job, SceneClipVariantSelection, ScenePlan } from '../models/types.js'
 import { auditSceneClipCompletion, checkpointSceneClip, assertSketchDrawClip, isSceneClipFresh, resolveSketchDrawSettings, revealTypeFor, sceneClipStaleReason, sceneWindowSeconds, sketchHoldFramesFor } from '../services/scene-media-checkpoint.js'
+import { readSceneStoryContext, sceneStoryStateSuffix } from '../services/scene-reference-characters.js'
 import { DEFAULT_SKETCH_REVEAL, SKETCH_REVEAL_LABELS as REVEAL_LABEL } from '../lib/sketch-reveal.js'
 import { NATIVE_CLIP_QUALITY, renderSketchDraw } from '../lib/native-scene-clip.js'
 import { NATIVE_SCENE_CLIP_VERSION } from '../lib/native-scene-clip-version.js'
@@ -574,12 +575,19 @@ export async function generateSceneClipJob(job: Job): Promise<void> {
   if (!isTextToVideo && !resolvedImagePath) {
     throw new Error(`Scene ${scene_id} has no generated image to animate — generate the image first.`)
   }
-  const clipPrompt = isTextToVideo ? (scene.video_prompt || '') : scene.motion_prompt || ''
-  if (!clipPrompt.trim()) {
+  const baseClipPrompt = isTextToVideo ? (scene.video_prompt || '') : scene.motion_prompt || ''
+  if (!baseClipPrompt.trim()) {
     throw new Error(isTextToVideo
       ? `Scene ${scene_id} has no video_prompt — write one on the Scene Plan page first.`
       : `Scene ${scene_id} has no motion_prompt — write one on the Scene Plan page first.`)
   }
+  // Per-scene story state is part of what the clip must show, exactly as it is
+  // part of the still's prompt (Episode Visual Setup Phase 2). It is appended at
+  // render time and never written into the saved editorial prompt, and the
+  // checkpoint stamps the prompt actually submitted, so a state-only edit makes
+  // the clip stale through the shared freshness rule.
+  const story = await readSceneStoryContext(job.project_slug, episode_id)
+  const clipPrompt = `${baseClipPrompt}${sceneStoryStateSuffix(scene_id, story).suffix}`
 
   // The ratio is resolved BEFORE the variant, because the variant is a *row* of the catalogue and
   // the ratio is part of which row this is. A queued job whose ratio and resolution are not one
@@ -981,6 +989,16 @@ export async function generateSceneClipsBatchJob(job: Job): Promise<void> {
   // Resolved once: the freshness rule proves a clip against its scene's own image, and a folder
   // lookup per scene would mean one readdir per scene.
   const imagesDir = await resolveSceneImagesDir(job.project_slug, episode_id.toUpperCase(), paths.episode_dir).catch(() => null)
+  // One context object for the whole preflight: the freshness rule reads this
+  // episode's story state once per context, not once per scene.
+  const preflightContext = {
+    slug: job.project_slug,
+    episodeId: episode_id,
+    episodeDir: paths.episode_dir,
+    imagesDir,
+    revealScenes: plan.scenes.map(item => item.id),
+    sceneKinds: Object.fromEntries(plan.scenes.map(item => [item.id, item.subject_kind])),
+  }
   for (const scene of plan.scenes) {
     if (requestedSceneIds && !requestedSceneIds.has(scene.id)) continue
     if (scene.motion_choice === 'still') continue
@@ -1000,7 +1018,7 @@ export async function generateSceneClipsBatchJob(job: Job): Promise<void> {
     const clipPath = path.join(clipsDir, `${scene.id}.mp4`)
     const clipStat = await fs.stat(clipPath).catch(() => null)
     const freshClip = !!clipStat?.isFile() && clipStat.size > 0
-      && !await sceneClipStaleReason(scene, { slug: job.project_slug, episodeId: episode_id, episodeDir: paths.episode_dir, imagesDir, revealScenes: plan.scenes.map(item => item.id), sceneKinds: Object.fromEntries(plan.scenes.map(item => [item.id, item.subject_kind])) })
+      && !await sceneClipStaleReason(scene, preflightContext)
       && scene.motion_choice === 'clip'
     if (!freshClip) ready.push(scene)
   }

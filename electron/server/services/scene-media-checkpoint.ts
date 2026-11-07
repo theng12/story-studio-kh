@@ -22,7 +22,8 @@ import { resolveScenePlanPath } from './utils.js'
 import type { MotionPresentationSettings, ProjectConfig, ScenePlan, ScenePlanEntry, SketchDrawPenMode } from '../models/types.js'
 import { EpisodeSettingFileUnreadable, episodeDir, isEpisodeCode, readEpisodeSketchPen, writeEpisodeSketchPen } from './episode-sketch-pen.js'
 import { readEpisodeSketchHold, writeEpisodeSketchHold } from './episode-sketch-hold.js'
-import { sceneImageStaleReason } from './scene-plan-staleness.js'
+import { sceneImageStaleReason, scenePromptOf, STORY_STATE_SUFFIX_PREFIX } from './scene-plan-staleness.js'
+import { readSceneStoryContext, sceneStoryStateSuffix } from './scene-reference-characters.js'
 import { readEpisodeSketchReveal, writeEpisodeSketchReveal } from './episode-sketch-reveal.js'
 import { readEpisodeSketchLineWeight, writeEpisodeSketchLineWeight } from './episode-sketch-line-weight.js'
 import { sceneReviewAutoApproveOn } from './preset-authority.js'
@@ -391,6 +392,38 @@ export interface SceneClipFreshnessContext {
   revealType?: SketchRevealType
 }
 
+/**
+ * Story-state suffixes already read for one context object. A WeakMap rather
+ * than a property on the caller's object: a caller that spreads a used context
+ * gets a fresh read, and the state is never cached past the pass that read it.
+ */
+const storyStateSuffixCache = new WeakMap<SceneClipFreshnessContext, Readonly<Record<string, string>>>()
+
+/**
+ * The story-state suffix of every scene in this episode, read once per context
+ * object. Freshness compares the record a render stamped (the prompt it really
+ * submitted) against the prompt the plan plus current state now produce, so a
+ * state-only edit is visible. Without a context there is no episode to read:
+ * the legacy comparison applies and a story-stamped record is left alone.
+ */
+async function storyStateSuffixesFor(context?: SceneClipFreshnessContext): Promise<Readonly<Record<string, string>>> {
+  if (!context) return {}
+  const cached = storyStateSuffixCache.get(context)
+  if (cached) return cached
+  let suffixes: Record<string, string> = {}
+  try {
+    const story = await readSceneStoryContext(context.slug, context.episodeId)
+    suffixes = Object.fromEntries(story.doc.scenes.map(entry =>
+      [entry.scene_id, sceneStoryStateSuffix(entry.scene_id, story).suffix]))
+  } catch {
+    // A malformed sidecar is reported where it is read for rendering and by
+    // Scene Review. Freshness cannot invent a state, and an absent sidecar means
+    // no story state — the legacy comparison, exactly as before.
+  }
+  storyStateSuffixCache.set(context, suffixes)
+  return suffixes
+}
+
 export function sceneWindowSeconds(scene: Pick<ScenePlanEntry, 'start_sec' | 'end_sec'>): number {
   const seconds = scene.end_sec - scene.start_sec
   if (!Number.isFinite(seconds) || seconds <= 0) throw new Error('Scene Plan has an invalid scene window. Repair its timeline before generating motion.')
@@ -482,23 +515,33 @@ export function revealTypeFor(reveal: SketchRevealSetting, context: SceneClipFre
 
 /** The single freshness rule used by review, approval, completion, status, retry and assembly. */
 export async function sceneClipStaleReason(scene: ScenePlanEntry, context?: SceneClipFreshnessContext): Promise<string | null> {
+  // A render stamps the prompt it really submitted, story state included, so
+  // the record is judged against the prompt the plan plus current state produce.
+  // Without a context the state cannot be read; a story-stamped record is then
+  // left alone rather than red-flagged, and the legacy comparison applies.
+  const suffixes = await storyStateSuffixesFor(context)
+  const storySuffix = suffixes[scene.id] ?? ''
+  const effective = (base: string): string | undefined => context ? `${base}${storySuffix}` : undefined
+  const promptRecordFresh = (record: string, base: string): boolean =>
+    record === (effective(base) ?? base)
+    || (context === undefined && record.startsWith(`${base}${STORY_STATE_SUFFIX_PREFIX}`))
   const isT2V = scene.clip_renderer === 'text_to_video' || scene.visual_lane === 'text_to_video'
   if (isT2V) {
     if (typeof scene.rendered_video_prompt === 'string'
-      && scene.rendered_video_prompt !== (scene.video_prompt || '')) return 'stale video prompt'
+      && !promptRecordFresh(scene.rendered_video_prompt, scene.video_prompt || '')) return 'stale video prompt'
     return null
   }
   // v1.4.374 — every other lane animates the scene's own picture. When a re-plan
   // changed the scene's prompt, that picture shows different narration, so the
   // clip made from it is stale too, whatever its own stamps say. A T2V clip is
   // judged by its video prompt instead, above.
-  if (sceneImageStaleReason(scene)) return 'stale source image'
+  if (sceneImageStaleReason(scene, effective(scenePromptOf(scene)))) return 'stale source image'
   const sketch = scene.clip_renderer === 'sketch_draw'
   if (!sketch) {
     // Provider clips are trimmed/held by Assembly; a plan-timing nudge must never turn an
     // existing motion episode into stills. Only their source image and prompt identity matter.
     if (typeof scene.rendered_motion_prompt === 'string'
-      && scene.rendered_motion_prompt !== (scene.motion_prompt || '')) return 'stale motion prompt'
+      && !promptRecordFresh(scene.rendered_motion_prompt, scene.motion_prompt || '')) return 'stale motion prompt'
     // v1.4.375 — an imported external clip (Google Flow etc., owner 2026-11-02) was made
     // outside the app from this scene's motion prompt, not rendered from the local picture.
     // The picture's version and hash are therefore not its source: comparing them called a
@@ -637,6 +680,12 @@ export async function auditSceneImageCompletion(
   planPath: string,
   sceneIds: string[],
   imageDirectories: string[],
+  /**
+   * Scene id -> the story-state suffix the render used, for the batch that has
+   * already read this episode's sidecar. Omitted by callers without the state:
+   * a story-stamped record is then left alone, never reported stale.
+   */
+  storyStateSuffixes?: Readonly<Record<string, string>>,
 ): Promise<SceneImageCompletionAudit> {
   const plan = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
   const scenesById = new Map(plan.scenes.map(scene => [scene.id, scene]))
@@ -673,7 +722,10 @@ export async function auditSceneImageCompletion(
       }
       foundEmpty = true
     }
-    if (foundUsable && sceneImageStaleReason(scene)) {
+    const effectivePrompt = storyStateSuffixes
+      ? `${scenePromptOf(scene)}${storyStateSuffixes[sceneId] ?? ''}`
+      : undefined
+    if (foundUsable && sceneImageStaleReason(scene, effectivePrompt)) {
       invalid.push(`${sceneId} (image was rendered from an outdated prompt)`)
       issues.push({ item_id: sceneId, state: 'invalid', reason: 'image was rendered from an outdated prompt' })
     } else if (!foundUsable) {

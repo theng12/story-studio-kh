@@ -60,6 +60,16 @@ export function scenePromptOf(scene: ScenePlanEntry): string {
   return typeof scene.visual_prompt === 'string' ? scene.visual_prompt : ''
 }
 
+/**
+ * How a render-time story-state suffix begins (see
+ * `sceneStoryStateSuffix`). `rendered_prompt` holds the prompt that was actually
+ * submitted, so a picture rendered with per-scene story state carries this
+ * marker. A caller that does not have the current state cannot judge that
+ * record; the render batch, completion audit and clip rule pass the current
+ * effective prompt and do.
+ */
+export const STORY_STATE_SUFFIX_PREFIX = '\nStory state — '
+
 /** A scene that has a picture to keep or to stale. */
 export function sceneHasPicture(scene: ScenePlanEntry): boolean {
   return !!(scene.image_path || scene.image_sha256 || scene.image_version)
@@ -87,15 +97,26 @@ function pictureRecordOf(scene: ScenePlanEntry): string {
  * record means the picture predates the field, and is accepted — as today —
  * until a re-plan carries a truthful record forward for it.
  *
+ * `currentPrompt` is the scene's CURRENT effective prompt. It differs from
+ * `visual_prompt` only when this scene has story state: the render appends
+ * `sceneStoryStateSuffix` and stamps the submitted prompt, so a state-only edit
+ * is visible here. Callers that do not pass it (surfaces that never read the
+ * story sidecar) cannot judge a story-stamped record and leave it alone rather
+ * than red-flagging every state render; they are not the completion authority.
+ *
  * A stand-in (a picture borrowed from a neighbouring scene on the last
  * automatic try) is accepted for THIS prompt only, exactly as the completion
  * audit has always accepted it.
  */
-export function sceneImageStaleReason(scene: ScenePlanEntry): string | null {
+export function sceneImageStaleReason(scene: ScenePlanEntry, currentPrompt?: string): string | null {
   if (typeof scene.rendered_prompt !== 'string') return null
-  const prompt = scenePromptOf(scene)
+  const prompt = currentPrompt ?? scenePromptOf(scene)
   if (scene.rendered_prompt === prompt) return null
+  const canJudgeStoryState = currentPrompt !== undefined
+  if (!canJudgeStoryState && scene.rendered_prompt.startsWith(`${prompt}${STORY_STATE_SUFFIX_PREFIX}`)) return null
   if (scene.stand_in_for_prompt === prompt) return null
+  if (!canJudgeStoryState && typeof scene.stand_in_for_prompt === 'string'
+    && scene.stand_in_for_prompt.startsWith(`${prompt}${STORY_STATE_SUFFIX_PREFIX}`)) return null
   return 'image was rendered from an outdated prompt'
 }
 

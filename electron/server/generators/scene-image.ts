@@ -410,7 +410,7 @@ export async function generateSceneImageJob(job: Job): Promise<void> {
     stagingPath,
     outPath,
     async () => {
-      await checkpointSceneImage(planPath, scene_id, outPath, scene.visual_prompt, autoApproveOn(params.auto_approve_generated), liveSceneAutoApprove(job.project_slug))
+      await checkpointSceneImage(planPath, scene_id, outPath, renderPrompt, autoApproveOn(params.auto_approve_generated), liveSceneAutoApprove(job.project_slug))
     },
     path.join(trashRootFor(outDir, pm.getProjectDir(job.project_slug) ?? outDir, job.project_slug), 'scene-images'),
   )

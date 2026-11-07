@@ -11,9 +11,12 @@ import { existsSync } from 'fs'
 import path from 'path'
 import { FITTED_REFERENCE_DIRNAME, fitReferenceImage } from '../lib/reference-image-fit.js'
 import {
+  readSceneStoryContext,
   referenceContentDigest,
   resolveSceneReferences,
-  sceneReferenceIds,
+  sceneAdaptiveCharacterIds,
+  sceneStoryReferenceEntityIds,
+  sceneStoryStateSuffix,
   type ResolvedSceneReferences,
 } from '../services/scene-reference-characters.js'
 import { registry } from '../providers/registry.js'
@@ -561,6 +564,18 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
   const taskManifest = await readManifest(outDir)
   const legacyImageDir = path.join(paths.episode_dir, SCENE_IMAGES_SUBFOLDER)
 
+  // Per-scene story links and state (Episode Visual Setup Phase 2). Read ONCE
+  // for the whole batch, so every scene's prompt, reference selection and
+  // freshness verdict agree. A malformed sidecar fails the run here, before the
+  // first charged submit, rather than rendering as if the scene had no context.
+  const story = await readSceneStoryContext(job.project_slug, episode_id)
+  const storyStateSuffix = (sceneId: string): string => sceneStoryStateSuffix(sceneId, story).suffix
+  const effectiveScenePrompt = (scene: ScenePlanEntry): string =>
+    `${scene.visual_prompt}${storyStateSuffix(scene.id)}`
+  const storyStateSuffixByScene: Record<string, string> = Object.fromEntries(
+    scenes.map(scene => [scene.id, storyStateSuffix(scene.id)]),
+  )
+
   // Resume only from images that fully decode. A non-empty but truncated file
   // must re-enter the missing-scene scope; otherwise every Retry keeps
   // skipping the same corrupt asset and Video Assembly fails later.
@@ -572,7 +587,7 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
   // usable and re-enter the batch to be redrawn.
   const stalePictureIds: string[] = []
   for (const scene of scenes) {
-    if (sceneImageStaleReason(scene)) {
+    if (sceneImageStaleReason(scene, effectiveScenePrompt(scene))) {
       stalePictureIds.push(scene.id)
       continue
     }
@@ -722,10 +737,13 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
       // guard is the only thing keeping the anchored character out of
       // cutaways; tidying the line and then widening the guard's regex to suit
       // would quietly retire it.
-      referenceImagePaths: isCharacterScene(scene) ? [...ownReferences.paths, ...episodeReferencePaths] : [],
+      //
+      // A cutaway keeps its OWN story references (a linked location or object is
+      // what the scene is about) but never the episode's character template.
+      referenceImagePaths: isCharacterScene(scene) ? [...ownReferences.paths, ...episodeReferencePaths] : ownReferences.paths,
       referenceIdentity: isCharacterScene(scene)
         ? [...ownReferences.digests, templateDigest].filter(Boolean).join('-')
-        : '',
+        : ownReferences.digests.join('-'),
     }
   }
 
@@ -761,12 +779,24 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
     // fails the batch once instead of scene by scene.
     const defaultReferenceIds = params.reference_character_ids || []
     const minReferences = modelConfig.min_reference_images ?? 0
-    // One resolution per distinct id-set, however many scenes share it: a
+    // Linked story references are adaptive, not a quota: they fill only slots
+    // the live model publishes after the character selection.
+    const storyReferenceSlots = supportsReferences && Number(modelConfig.max_reference_images) >= 1
+    // One resolution per distinct selection, however many scenes share it: a
     // 300-scene batch with one cast must not re-read the portraits 300 times.
     const resolvedBySelection = new Map<string, ResolvedSceneReferences>()
     for (const scene of toRender) {
-      const ids = sceneReferenceIds(scene, defaultReferenceIds, params.image_mode)
-      if (!ids.length) {
+      // The scene's OWN list wins, then the cast entities it links, then the
+      // request default (services/scene-reference-characters.ts). A non-character
+      // scene gets no character guide; a deliberate text-only scene stays empty.
+      const ids = sceneAdaptiveCharacterIds({
+        scene,
+        story,
+        fallback: defaultReferenceIds,
+        imageMode: params.image_mode,
+      })
+      const storyEntityIds = storyReferenceSlots ? sceneStoryReferenceEntityIds(scene.id, story) : []
+      if (!ids.length && !storyEntityIds.length) {
         if (minReferences > 0) {
           throw new Error(
             `Scene ${scene.scene_index} has no reference characters, but ${modelConfig.label} needs at least ` +
@@ -776,19 +806,20 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
         }
         continue
       }
-      if (!isCharacterScene(scene)) {
+      if (ids.length && !isCharacterScene(scene)) {
         throw new Error(
           `Scene ${scene.scene_index} is a ${scene.scene_type} scene, so it cannot use character references. ` +
           'Clear them in Scene Plan and retry. No image was requested.',
         )
       }
-      const selectionKey = ids.join(',')
+      const selectionKey = `${ids.join(',')}|${storyEntityIds.join(',')}`
       let resolved = resolvedBySelection.get(selectionKey)
       if (!resolved) {
         resolved = await resolveSceneReferences({
           slug: job.project_slug,
           episodeCode: episode_id,
           characterIds: ids,
+          storyEntityIds,
           modelName: modelConfig.label,
           supportsReferences,
           maxReferences,
@@ -798,10 +829,13 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
         })
         resolvedBySelection.set(selectionKey, resolved)
       }
-      const total = resolved.paths.length + episodeReferencePaths.length
+      // A cutaway never carries the episode's character template, so it does not
+      // consume one of the model's published slots.
+      const templateCount = isCharacterScene(scene) ? episodeReferencePaths.length : 0
+      const total = resolved.paths.length + templateCount
       if (total > maxReferences) {
         throw new Error(
-          `Scene ${scene.scene_index} needs ${resolved.paths.length} character reference(s) plus the episode template, ` +
+          `Scene ${scene.scene_index} needs ${resolved.paths.length} reference(s) plus the episode template, ` +
           `but ${modelConfig.label} accepts at most ${maxReferences}. Remove a character from that scene or switch the ` +
           'episode anchor off. No image was requested.',
         )
@@ -809,9 +843,15 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
       sceneReferences.set(scene.id, resolved)
       job.output_lines.push(
         `Scene ${scene.scene_index} references: ${resolved.names.join(', ')}` +
-        (episodeReferencePaths.length ? ` + episode template ${path.basename(referencePlan.sourcePath)}` : '') +
+        (templateCount ? ` + episode template ${path.basename(referencePlan.sourcePath)}` : '') +
         ` (${total} of ${maxReferences} published slot(s)).`,
       )
+      if (resolved.omitted?.length) {
+        job.output_lines.push(
+          `Scene ${scene.scene_index} story references left out (${maxReferences} published slot(s)): ` +
+          `${resolved.omitted.join(', ')}.`,
+        )
+      }
       for (const fit of resolved.fitted) {
         job.output_lines.push(
           `Reference fitted: ${fit.name} ${fit.from.width}x${fit.from.height} → ${fit.to.width}x${fit.to.height} ` +
@@ -823,7 +863,7 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
       const cutaways = toRender.filter(scene => !isCharacterScene(scene)).length
       if (cutaways) {
         job.output_lines.push(
-          `${cutaways} non-character scene(s) render without the references, as they do without the character text.`,
+          `${cutaways} non-character scene(s) render without the character guide and episode template, as they do without the character text.`,
         )
       }
     }
@@ -927,7 +967,7 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
           const scene = fallbackTargets[idx++]!
           const outPath = path.join(outDir, `${scene.id}.png`)
           const sref = buildScenePromptContext(scene)
-          const finalPrompt = composePrompt(scene.visual_prompt, sref.includeCharacter)
+          const finalPrompt = composePrompt(effectiveScenePrompt(scene), sref.includeCharacter)
           // Empty for a text-only scene, which is what keeps this scene's
           // recorded hash and idempotency identity identical to the ones every
           // already-rendered episode holds on disk.
@@ -1716,7 +1756,7 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
                 () => persistImagePath(
                   scene.id,
                   outPath,
-                  sceneManualFinish && recovery.kind === 'recovered' && !hashMatches && !savedPromptMatches ? '' : scene.visual_prompt,
+                  sceneManualFinish && recovery.kind === 'recovered' && !hashMatches && !savedPromptMatches ? '' : effectiveScenePrompt(scene),
                 ),
                 path.join(trashRootFor(outDir, pm.getProjectDir(job.project_slug) ?? outDir, job.project_slug), 'scene-images'),
               )
@@ -2034,9 +2074,9 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
         const scene = scenes[at]!
         if (neighbour !== scene) {
           await fs.copyFile(path.join(outDir, `${neighbour.id}.png`), outPath)
-          await persistImagePath(scene.id, outPath, neighbour.visual_prompt)
+          await persistImagePath(scene.id, outPath, effectiveScenePrompt(neighbour))
         }
-        const marking = planChain.then(() => markSceneImageStandIn(planPath, scene.id, scene.visual_prompt))
+        const marking = planChain.then(() => markSceneImageStandIn(planPath, scene.id, effectiveScenePrompt(scene)))
         planChain = marking.catch(() => {})
         await marking
         failedSceneIds.splice(failedSceneIds.indexOf(sceneId), 1)
@@ -2053,7 +2093,12 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
 
     job.output_dir = outDir
     syncItemProgress()
-    const mediaAudit = await auditSceneImageCompletion(planPath, toRender.map(scene => scene.id), [outDir])
+    const mediaAudit = await auditSceneImageCompletion(
+      planPath,
+      toRender.map(scene => scene.id),
+      [outDir],
+      storyStateSuffixByScene,
+    )
     // Exact scene IDs remain separate from their display reasons so Jobs can
     // link to the owning Scene Review row without parsing prose.
     const issuesById = new Map(mediaAudit.issues.map(issue => [issue.item_id, issue]))

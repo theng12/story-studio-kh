@@ -37,6 +37,7 @@ import {
   type StoryState,
 } from '../contracts/scene-story-context.js'
 import type { ScenePlan, ScenePlanEntry } from '../models/types.js'
+import { STORY_STATE_SUFFIX_PREFIX } from './scene-plan-staleness.js'
 
 /** Where fitted character portraits are cached, beside the episode anchor's. */
 export const SCENE_REFERENCE_DIRNAME = 'img2img-references'
@@ -470,7 +471,7 @@ export function sceneStoryStateSuffix(
     applied.push(entity.name)
   }
   return {
-    suffix: parts.length ? `\nStory state — ${parts.join(' | ')}.` : '',
+    suffix: parts.length ? `${STORY_STATE_SUFFIX_PREFIX}${parts.join(' | ')}.` : '',
     applied,
   }
 }
