@@ -3080,7 +3080,7 @@ import { DEFAULT_EXCLUDE_KEYS } from '~/composables/usePresets'
 import { describeMergedAudioOpening } from '~/utils/merged-audio-opening'
 import { describeOpeningSync } from '~/utils/opening-sync'
 import { estimateRender, formatEstimateGb, formatEstimateTime } from '~/utils/render-estimate'
-import { LAST_USED_CONFIG_KEY, coveredSectionsFromActivePresets, pickLastUsedSettings, recordLastUsedSettings, scopeLastUsedSettings, type SnapshotSection } from '~/utils/video-assembly-last-used'
+import { LAST_USED_CONFIG_KEY, coveredSectionsFromActivePresets, pickLastUsedSettings, recordLastUsedSettings, resolveEpisodeRestoreSettings, scopeLastUsedSettings, type SnapshotSection } from '~/utils/video-assembly-last-used'
 import { applyAssemblyStepDraft, beginAssemblyStepDraft, cancelAssemblyStepDraft, sameAssemblyStepScope, type AssemblyStepDraft, type AssemblyStepScope } from '~/utils/assembly-step-draft'
 import type { StillPostFontCursor, StillPostFontPool } from '@shared/still-post-fonts'
 import { aspectRatioOptions, canvasFor, parseAspectRatio, DEFAULT_ASPECT_RATIO } from '~/utils/aspect-ratios'
@@ -6456,7 +6456,9 @@ function withoutEpisodeFiles<T extends Record<string, any>>(fallback: T | null |
   // since the 2026-08-03 incident), and the caption file is resolved per
   // episode by the renderer — a stored one is one episode's transcript.
   if (copy.timeline?.title_image) delete copy.timeline.title_image.image_path
-  if (copy.subtitles) delete copy.subtitles.srt_path
+  if (copy.title_image) delete copy.title_image.image_path
+  if (copy.subtitles?.srt_path) delete copy.subtitles.srt_path
+  if ('srt_path' in copy) delete copy.srt_path
   return copy
 }
 
@@ -6564,19 +6566,28 @@ async function restoreLastUsedSettings(): Promise<void> {
       export: exportPresets.activeId.value,
     }, bundleFallback)
     const pick = scopeLastUsedSettings(pickLastUsedSettings(config?.[LAST_USED_CONFIG_KEY], episode), covered)
-    if (!pick) { lastUsedNotice.value = ''; channelIntro.value = null; return }
-    applyIntroData(pick.settings.intro)
-    channelIntro.value = pick.scope === 'episode'
-      ? normalizeChannelIntro((pick.settings as any).channel_intro ?? (pick.settings as any).intro?.channel_intro)
+    const resolved = resolveEpisodeRestoreSettings({
+      store: config?.[LAST_USED_CONFIG_KEY],
+      episodeId: episode,
+      slots: {
+        intro: { activeId: introPresets.activeId.value, activeData: introPresets.activeData.value },
+        timeline: { activeId: timelinePresets.activeId.value, activeData: timelinePresets.activeData.value },
+        effects: { activeId: effectsPresets.activeId.value, activeData: effectsPresets.activeData.value },
+        subtitles: { activeId: subtitlesPresets.activeId.value, activeData: subtitlesPresets.activeData.value },
+        export: { activeId: exportPresets.activeId.value, activeData: exportPresets.activeData.value },
+      },
+      bundleFallback,
+    })
+    applyIntroData(resolved.settings.intro)
+    channelIntro.value = resolved.scope === 'episode'
+      ? normalizeChannelIntro((resolved.settings as any).channel_intro ?? (resolved.settings as any).intro?.channel_intro)
       : null
-    applyTimelineData(pick.settings.timeline)
-    applyEffectsData(pick.settings.effects)
-    applySubtitlesData(pick.settings.subtitles)
-    applyExportData(pick.settings.export)
-    if (pick.scope === 'channel' && selectedEpisode.value?.title) titleCard.text = selectedEpisode.value.title
-    lastUsedNotice.value = pick.scope === 'episode'
-      ? `Settings restored from ${episode}'s last render. Change anything below, or apply a preset.`
-      : `Settings start from this channel's last render (${pick.from_episode}) for sections with no preset. Change anything below, or apply a preset.`
+    applyTimelineData(resolved.settings.timeline)
+    applyEffectsData(resolved.settings.effects)
+    applySubtitlesData(resolved.settings.subtitles)
+    applyExportData(resolved.settings.export)
+    if (resolved.scope === 'channel' && selectedEpisode.value?.title) titleCard.text = selectedEpisode.value.title
+    lastUsedNotice.value = resolved.notice
   } catch { /* keep the form as it is */ }
 }
 async function rememberLastUsedSettings(): Promise<void> {

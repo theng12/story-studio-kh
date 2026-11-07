@@ -124,3 +124,112 @@ export function scopeLastUsedSettings(
   }
   return kept ? { ...pick, settings } : null
 }
+
+export function withoutEpisodeFiles<T extends Record<string, any>>(fallback: T | null | undefined): T | undefined {
+  if (!fallback || typeof fallback !== 'object') return fallback ?? undefined
+  const copy = JSON.parse(JSON.stringify(fallback))
+  // The title image is chosen per episode (the Timeline preset has excluded it
+  // since the 2026-08-03 incident), and the caption file is resolved per
+  // episode by the renderer — a stored one is one episode's transcript.
+  // Strip at whole-bundle depth
+  if (copy.timeline?.title_image) delete copy.timeline.title_image.image_path
+  if (copy.subtitles?.srt_path) delete copy.subtitles.srt_path
+  // Strip at single-section depth
+  if (copy.title_image) delete copy.title_image.image_path
+  if ('srt_path' in copy) delete copy.srt_path
+  return copy
+}
+
+export interface ActivePresetSlotSource<T = unknown> {
+  activeId?: string | null
+  activeData?: T | null
+}
+
+export interface ResolvedEpisodeRestoreSettings {
+  scope: 'episode' | 'channel' | 'preset'
+  from_episode?: string
+  settings: VideoAssemblySettingsSnapshot
+  notice: string
+}
+
+/**
+ * When switching episodes in Video Assembly:
+ * - An episode with its OWN last-used render restores those settings whole (AGENTS.md §4).
+ * - A channel-backed or new episode restores the currently active per-section or
+ *   bundle-fallback presets afresh on the form so values from a previously-opened
+ *   episode do not stick to the form. Any section with NO configured preset preserves
+ *   the channel's last-used fallback.
+ */
+export function resolveEpisodeRestoreSettings(params: {
+  store: VideoAssemblyLastUsed | null | undefined
+  episodeId: string
+  slots?: Partial<Record<SnapshotSection, ActivePresetSlotSource | unknown>>
+  bundleFallback?: Partial<Record<SnapshotSection, unknown>> | null
+}): ResolvedEpisodeRestoreSettings {
+  const { store, episodeId, slots, bundleFallback } = params
+  const rawPick = pickLastUsedSettings(store, episodeId)
+  if (rawPick?.scope === 'episode') {
+    return {
+      scope: 'episode',
+      from_episode: rawPick.from_episode,
+      settings: rawPick.settings,
+      notice: `Settings restored from ${rawPick.from_episode}'s last render. Change anything below, or apply a preset.`,
+    }
+  }
+
+  // Derive covered sections to scope channel pick for uncovered sections
+  const slotIds: Partial<Record<SnapshotSection, unknown>> = {}
+  for (const section of SNAPSHOT_SECTIONS) {
+    const slot = slots?.[section]
+    if (slot && typeof slot === 'object' && 'activeId' in slot) {
+      slotIds[section] = (slot as ActivePresetSlotSource).activeId
+    } else if (slot) {
+      slotIds[section] = slot
+    }
+  }
+  const covered = coveredSectionsFromActivePresets(slotIds, bundleFallback)
+  const scopedChannel = scopeLastUsedSettings(rawPick, covered)
+
+  const settings: VideoAssemblySettingsSnapshot = {}
+
+  for (const section of SNAPSHOT_SECTIONS) {
+    // 1. Pointed slot preset (preferred over bundle fallback)
+    const slot = slots?.[section]
+    let slotData: unknown = undefined
+    if (slot && typeof slot === 'object' && 'activeId' in slot) {
+      const s = slot as ActivePresetSlotSource
+      if (s.activeId && s.activeData) slotData = s.activeData
+    } else if (slot && typeof slot === 'object' && !('activeId' in slot)) {
+      slotData = slot
+    }
+
+    if (slotData !== undefined) {
+      ;(settings as Record<string, unknown>)[section] = slotData
+      continue
+    }
+
+    // 2. Selected bundle fallback
+    const fb = bundleFallback?.[section]
+    if (fb && typeof fb === 'object') {
+      ;(settings as Record<string, unknown>)[section] = withoutEpisodeFiles(fb as Record<string, any>)
+      continue
+    }
+
+    // 3. Channel fallback for unconfigured sections
+    if (scopedChannel?.settings?.[section] !== undefined) {
+      ;(settings as Record<string, unknown>)[section] = scopedChannel.settings[section]
+    }
+  }
+
+  const notice = rawPick?.scope === 'channel'
+    ? `Settings start from this channel's last render (${rawPick.from_episode}) for sections with no preset. Change anything below, or apply a preset.`
+    : ''
+
+  return {
+    scope: rawPick?.scope === 'channel' ? 'channel' : 'preset',
+    from_episode: rawPick?.from_episode,
+    settings,
+    notice,
+  }
+}
+

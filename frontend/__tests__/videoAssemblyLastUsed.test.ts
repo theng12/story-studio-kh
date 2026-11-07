@@ -5,7 +5,9 @@ import {
   coveredSectionsFromActivePresets,
   pickLastUsedSettings,
   recordLastUsedSettings,
+  resolveEpisodeRestoreSettings,
   scopeLastUsedSettings,
+  withoutEpisodeFiles,
 } from '../utils/video-assembly-last-used.js'
 
 function sortedKeys(value: object | undefined): string[] {
@@ -164,4 +166,152 @@ test('Video Assembly records on a queued render and restores after presets load 
     /function applyTimelineData\(data: any\) \{\s*if \(!data\) return\s*applyRevealBundle\(data\)/,
     'applyTimelineData must guard undefined data before applyRevealBundle so a covered timeline cannot touch reveal',
   )
+  assert.match(page, /resolveEpisodeRestoreSettings\(\{/, 'restoreLastUsedSettings delegates to resolveEpisodeRestoreSettings')
 })
+
+test('episodeA -> ownB -> episodeA restores active presets and channel fallback on A, never retaining B own values', () => {
+  // Confirmed RUNNING BROWSER bug:
+  // selected timeline preset hold 17, stale channel hold 29, EP0002 own hold 11.
+  // Open EP0001 => 17 correct; switch EP0002 => 11 correct; switch back EP0001 => 11 WRONG, must be 17.
+  const channel = {
+    episode_id: 'EP0001',
+    saved_at: '2026-11-01T00:00:00.000Z',
+    settings: {
+      timeline: { post_audio: { tail_seconds: 29 } },
+      export: { quality: 'compact' },
+    },
+  }
+  const ep2Own = {
+    timeline: { post_audio: { tail_seconds: 11 } },
+    export: { quality: 'high' },
+  }
+  const store = {
+    channel,
+    episodes: {
+      EP0002: { episode_id: 'EP0002', saved_at: '2026-11-05T00:00:00.000Z', settings: ep2Own },
+    },
+  }
+
+  // Active state: timeline slot preset holds 17; export has no preset
+  const slots = {
+    timeline: { activeId: 'preset-hold-17', activeData: { post_audio: { tail_seconds: 17 } } },
+    export: { activeId: '', activeData: null },
+  }
+
+  // Track simulated form state across the episode sequence
+  const form: { timeline?: any; export?: any } = {}
+  function applyResolved(resolved: ReturnType<typeof resolveEpisodeRestoreSettings>) {
+    if (resolved.settings.timeline) form.timeline = resolved.settings.timeline
+    if (resolved.settings.export) form.export = resolved.settings.export
+  }
+
+  // Step 1: Open EP0001 (channel-backed) -> timeline uses active preset (17), export uses channel fallback (compact)
+  const step1 = resolveEpisodeRestoreSettings({ store, episodeId: 'EP0001', slots })
+  assert.equal(step1.scope, 'channel')
+  applyResolved(step1)
+  assert.equal(form.timeline.post_audio.tail_seconds, 17, 'EP0001 timeline uses active preset (17), not stale channel (29)')
+  assert.equal(form.export.quality, 'compact', 'EP0001 export uses channel fallback (compact)')
+
+  // Step 2: Switch to EP0002 (own render) -> own episode wins whole (hold 11, quality high)
+  const step2 = resolveEpisodeRestoreSettings({ store, episodeId: 'EP0002', slots })
+  assert.equal(step2.scope, 'episode')
+  applyResolved(step2)
+  assert.equal(form.timeline.post_audio.tail_seconds, 11, 'EP0002 timeline restores its own render (11)')
+  assert.equal(form.export.quality, 'high', 'EP0002 export restores its own render (high)')
+
+  // Step 3: Switch BACK to EP0001 -> must restore active preset (17) and channel export (compact), NOT retain EP0002 values
+  const step3 = resolveEpisodeRestoreSettings({ store, episodeId: 'EP0001', slots })
+  assert.equal(step3.scope, 'channel')
+  applyResolved(step3)
+  assert.equal(form.timeline.post_audio.tail_seconds, 17, 'switching back to EP0001 must restore active preset (17), not retain EP0002 own (11)')
+  assert.equal(form.export.quality, 'compact', 'switching back to EP0001 must restore channel fallback (compact), not retain EP0002 own (high)')
+})
+
+test('episodeA -> ownB -> episodeA with bundle fallback respects bundle fallback and strips episode files', () => {
+  const store = {
+    channel: {
+      episode_id: 'EP0001',
+      saved_at: '2026-11-01T00:00:00.000Z',
+      settings: {
+        timeline: { post_audio: { tail_seconds: 29 } },
+      },
+    },
+    episodes: {
+      EP0002: {
+        episode_id: 'EP0002',
+        saved_at: '2026-11-05T00:00:00.000Z',
+        settings: { timeline: { post_audio: { tail_seconds: 11 } } },
+      },
+    },
+  }
+
+  // Selected bundle provides fallback for timeline with tail_seconds 17 and an episode title_image
+  const bundleFallback = {
+    timeline: {
+      post_audio: { tail_seconds: 17 },
+      title_image: { image_path: '/stale/ep1.png', enabled: true },
+    },
+  }
+
+  const form: { timeline?: any } = {}
+  function applyResolved(resolved: ReturnType<typeof resolveEpisodeRestoreSettings>) {
+    if (resolved.settings.timeline) form.timeline = resolved.settings.timeline
+  }
+
+  // Step 1: Open EP0001 -> bundle fallback applies 17, with image_path stripped
+  const step1 = resolveEpisodeRestoreSettings({ store, episodeId: 'EP0001', bundleFallback })
+  applyResolved(step1)
+  assert.equal(form.timeline.post_audio.tail_seconds, 17)
+  assert.equal(form.timeline.title_image.image_path, undefined, 'title_image.image_path stripped by withoutEpisodeFiles')
+
+  // Step 2: Switch to EP0002 -> own 11
+  const step2 = resolveEpisodeRestoreSettings({ store, episodeId: 'EP0002', bundleFallback })
+  applyResolved(step2)
+  assert.equal(form.timeline.post_audio.tail_seconds, 11)
+
+  // Step 3: Switch back to EP0001 -> restores bundle fallback 17, image_path stripped
+  const step3 = resolveEpisodeRestoreSettings({ store, episodeId: 'EP0001', bundleFallback })
+  applyResolved(step3)
+  assert.equal(form.timeline.post_audio.tail_seconds, 17, 'switch back to EP0001 restores bundle fallback (17)')
+  assert.equal(form.timeline.title_image.image_path, undefined)
+})
+
+test('pointed slot preset takes precedence over bundle fallback when both are present', () => {
+  const store = {
+    channel: {
+      episode_id: 'EP0001',
+      saved_at: '2026-11-01T00:00:00.000Z',
+      settings: { timeline: { post_audio: { tail_seconds: 29 } } },
+    },
+  }
+  const slots = {
+    timeline: { activeId: 'preset-pointed', activeData: { post_audio: { tail_seconds: 17 } } },
+  }
+  const bundleFallback = {
+    timeline: { post_audio: { tail_seconds: 25 } },
+  }
+  const resolved = resolveEpisodeRestoreSettings({ store, episodeId: 'EP0009', slots, bundleFallback })
+  assert.equal((resolved.settings.timeline as any).post_audio.tail_seconds, 17, 'pointed slot preset beats bundle fallback')
+})
+
+test('withoutEpisodeFiles strips episode files at both whole-bundle and section-level shapes', () => {
+  const whole = {
+    timeline: { title_image: { image_path: '/path/ep.png', enabled: true } },
+    subtitles: { srt_path: '/path/ep.srt', enabled: true },
+  }
+  const strippedWhole = withoutEpisodeFiles(whole)
+  assert.equal(strippedWhole?.timeline.title_image.image_path, undefined)
+  assert.equal(strippedWhole?.timeline.title_image.enabled, true)
+  assert.equal(strippedWhole?.subtitles.srt_path, undefined)
+
+  const sectionTimeline = { title_image: { image_path: '/path/ep.png', enabled: true } }
+  const strippedTimeline = withoutEpisodeFiles(sectionTimeline)
+  assert.equal(strippedTimeline?.title_image.image_path, undefined)
+  assert.equal(strippedTimeline?.title_image.enabled, true)
+
+  const sectionSubtitles = { srt_path: '/path/ep.srt', enabled: true }
+  const strippedSubtitles = withoutEpisodeFiles(sectionSubtitles)
+  assert.equal(strippedSubtitles?.srt_path, undefined)
+  assert.equal(strippedSubtitles?.enabled, true)
+})
+
