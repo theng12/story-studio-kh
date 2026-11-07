@@ -41,8 +41,12 @@ import { autoApproveOn } from '../services/preset-authority.js'
 import { requireJobCompletion } from '../services/job-completion.js'
 import { resolveConfiguredAspectRatio, resolveConfiguredOutputOption, resolveImageModelConfig } from '../services/image-model-resolver.js'
 import {
+  readSceneStoryContext,
   resolveSceneReferences,
+  sceneAdaptiveCharacterIds,
   sceneReferenceIds,
+  sceneStoryReferenceEntityIds,
+  sceneStoryStateSuffix,
   sceneTakesCharacterReferences,
 } from '../services/scene-reference-characters.js'
 import { buildGenStudioImageIdempotencyKey } from '../lib/genstudio-client.js'
@@ -207,29 +211,51 @@ export async function generateSceneImageJob(job: Job): Promise<void> {
   await fs.mkdir(outDir, { recursive: true })
   const outPath = path.join(outDir, `${scene_id}.png`)
 
+  // Per-scene story links and state (Episode Visual Setup Phase 2). A missing
+  // sidecar means this episode uses none; a malformed one fails loudly rather
+  // than rendering as if the scene had no story context.
+  const story = await readSceneStoryContext(job.project_slug, episode_id)
+  const storyState = sceneStoryStateSuffix(scene_id, story)
+  const renderPrompt = storyState.suffix ? `${scene.visual_prompt}${storyState.suffix}` : scene.visual_prompt
+  if (storyState.suffix) {
+    job.output_lines.push(`Story state applied: ${storyState.applied.join(', ')}.`)
+  }
+
   // Character references, resolved against THIS episode's own character list
-  // and the model's LIVE published limits. The scene's OWN list wins; the
-  // request-level selection is only the default for scenes that name none.
-  // Any problem throws here, before the manifest is touched and before
-  // anything is uploaded or charged.
-  const referenceIds = sceneReferenceIds(scene, params.reference_character_ids || [], params.image_mode)
-  if (!referenceIds.length && (modelConfig.min_reference_images ?? 0) > 0) {
+  // and the model's LIVE published limits. The scene's OWN list wins; its
+  // linked cast entities are next; the request-level selection is only the
+  // default for scenes that name neither. Any problem throws here, before the
+  // manifest is touched and before anything is uploaded or charged.
+  const explicitIds = sceneReferenceIds(scene, params.reference_character_ids || [], params.image_mode)
+  if (explicitIds.length && !sceneTakesCharacterReferences(scene)) {
+    throw new Error(
+      `Scene ${scene.scene_index} is a ${scene.scene_type} scene, so it cannot use character references. ` +
+      'Clear them in Scene Plan and retry. No image was requested.',
+    )
+  }
+  const referenceIds = sceneAdaptiveCharacterIds({
+    scene,
+    story,
+    fallback: params.reference_character_ids || [],
+    imageMode: params.image_mode,
+  })
+  // Story references are adaptive, not a quota: ask only when the live model
+  // publishes a slot, and the resolver reports any that did not fit.
+  const storyEntityIds = modelConfig.supports_reference_images === true && Number(modelConfig.max_reference_images) >= 1
+    ? sceneStoryReferenceEntityIds(scene_id, story)
+    : []
+  if (!referenceIds.length && !storyEntityIds.length && (modelConfig.min_reference_images ?? 0) > 0) {
     throw new Error(
       `Scene ${scene.scene_index} has no reference characters, but ${modelConfig.label} needs at least ` +
       `${modelConfig.min_reference_images}. Add one to that scene in Scene Plan, or choose a model that renders ` +
       'from text alone. No image was requested.',
     )
   }
-  if (referenceIds.length && !sceneTakesCharacterReferences(scene)) {
-    throw new Error(
-      `Scene ${scene.scene_index} is a ${scene.scene_type} scene, so it cannot use character references. ` +
-      'Clear them in Scene Plan and retry. No image was requested.',
-    )
-  }
   const references = await resolveSceneReferences({
     slug: job.project_slug,
     episodeCode: episode_id,
     characterIds: referenceIds,
+    storyEntityIds,
     modelName: modelConfig.label,
     supportsReferences: modelConfig.supports_reference_images === true,
     maxReferences: modelConfig.max_reference_images,
@@ -249,6 +275,12 @@ export async function generateSceneImageJob(job: Job): Promise<void> {
       )
     }
   }
+  if (references.omitted?.length) {
+    job.output_lines.push(
+      `Story references left out (${modelConfig.label} published ${modelConfig.max_reference_images} slot(s)): ` +
+      `${references.omitted.join(', ')}.`,
+    )
+  }
 
   const actionId = params.generation_action?.kind === 'fresh' ? params.generation_action.id : ''
   // The SOURCE portraits' digests — a fitted copy is re-derived every run and
@@ -257,12 +289,12 @@ export async function generateSceneImageJob(job: Job): Promise<void> {
   const requestIdentity = `${job.project_slug}:${episode_id}:scene:${scene_id}:image${actionId ? `:fresh:${actionId}` : ''}`
     + (referenceIdentity ? `:ref:${referenceIdentity}` : '')
   const submittedAt = new Date().toISOString()
-  const inputHash = hashInput(referenceIdentity ? `${scene.visual_prompt}\nref:${referenceIdentity}` : scene.visual_prompt)
+  const inputHash = hashInput(referenceIdentity ? `${renderPrompt}\nref:${referenceIdentity}` : renderPrompt)
   const seed = modelConfig.supports_seed === false ? undefined : params.seed
   // "Smaller files" for scene images (Settings, per-project override); undefined = native PNG.
   const outputFormat = await resolveOutputFormat(job.project_slug, 'scene_images')
   const idempotencyKey = buildGenStudioImageIdempotencyKey({
-    prompt: scene.visual_prompt,
+    prompt: renderPrompt,
     modelId: modelConfig.api_model || model,
     aspectRatio,
     ...(outputOption ? { resolution: outputOption.resolution } : { width: renderWidth, height: renderHeight }),
@@ -302,7 +334,7 @@ export async function generateSceneImageJob(job: Job): Promise<void> {
   await compareAndRecordImageTaskStrict(outDir, filename, previousOwner, preparedOwner)
   let currentOwner = preparedOwner
   const result = await imageProvider.generateImage({
-    prompt: scene.visual_prompt,
+    prompt: renderPrompt,
     apiKey,
     aspectRatio,
     modelId: modelConfig.api_model || model,
@@ -408,7 +440,7 @@ export async function generateSceneImageJob(job: Job): Promise<void> {
       const checkInput = {
         sceneId: scene_id,
         imagePath: outPath,
-        visualPrompt: scene.visual_prompt,
+        visualPrompt: renderPrompt,
         planPath,
         config,
         remade: params.image_check_remake === true,
@@ -444,7 +476,7 @@ export async function generateSceneImageJob(job: Job): Promise<void> {
       const visionInput = {
         sceneId: scene_id,
         imagePath: outPath,
-        visualPrompt: scene.visual_prompt,
+        visualPrompt: renderPrompt,
         planPath,
         config,
         remade: params.image_check_remake === true,

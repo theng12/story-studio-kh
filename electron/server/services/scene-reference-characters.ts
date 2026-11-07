@@ -18,10 +18,25 @@ import { existsSync } from 'fs'
 import fs from 'fs/promises'
 import path from 'path'
 import { createHash } from 'crypto'
+import { withLock } from '../lib/atomic-store.js'
 import { listCharacters, referenceImagePath } from './character-manager.js'
+import { readStoryEntities } from './story-entities.js'
+import { resolveEpisodePathsByCode, resolveEpisodeTitleByCode, resolveScenePlanPath } from './utils.js'
 import { findReferencedCharacters } from '../lib/character-name-match.js'
 import { FITTED_REFERENCE_DIRNAME, fitReferenceImage } from '../lib/reference-image-fit.js'
-import type { ScenePlanEntry } from '../models/types.js'
+import type { StoryEntity } from '../contracts/story-entities.js'
+import {
+  SCENE_STORY_CONTEXT_FILENAME,
+  SceneStoryContextValidationError,
+  describeStoryState,
+  emptySceneStoryContext,
+  normalizeSceneStoryEntry,
+  parseSceneStoryContext,
+  type SceneStoryContextDoc,
+  type SceneStoryContextEntry,
+  type StoryState,
+} from '../contracts/scene-story-context.js'
+import type { ScenePlan, ScenePlanEntry } from '../models/types.js'
 
 /** Where fitted character portraits are cached, beside the episode anchor's. */
 export const SCENE_REFERENCE_DIRNAME = 'img2img-references'
@@ -35,12 +50,25 @@ export interface ResolvedSceneReferences {
   names: string[]
   /** Downscales performed to meet the model's published pixel ceiling. */
   fitted: Array<{ name: string; from: { width: number; height: number }; to: { width: number; height: number } }>
+  /**
+   * Linked story references left out because the live model published no free
+   * slot for them. Adaptive selection truncates rather than refusing: the
+   * character selection keeps its existing blocking refusal.
+   */
+  omitted?: string[]
 }
 
 export interface ResolveSceneReferencesInput {
   slug: string
   episodeCode: string
   characterIds: readonly string[]
+  /**
+   * Story entities this scene links to. Only a kept, important entity's
+   * canonical reference (`reference_images[0]`) is attached, and only into
+   * slots the live model leaves after the character references. Ids are
+   * membership-checked against this episode's own inventory — never paths.
+   */
+  storyEntityIds?: readonly string[]
   /** The model's published display name, used in every refusal. */
   modelName: string
   /** `publishedSupportsReferenceImages` on the live catalogue entry. */
@@ -89,17 +117,23 @@ async function resolveReferencesFrom(
     sceneLabel?: string
     /** What a character must belong to, in the refusal sentence. */
     belongsTo: string
+    /** Episode-owned story files, already ownership-checked by the caller. */
+    storyReferences?: ReadonlyArray<{ id: string; name: string; source: string }>
   },
 ): Promise<ResolvedSceneReferences> {
   const scopeIds = [...new Set(input.characterIds.filter(Boolean))]
-  if (!scopeIds.length) return { paths: [], digests: [], names: [], fitted: [] }
+  const storyReferences = input.storyReferences ?? []
+  if (!scopeIds.length && !storyReferences.length) return { paths: [], digests: [], names: [], fitted: [], omitted: [] }
   const where = input.sceneLabel ? `${input.sceneLabel}: ` : ''
 
   // An unpublished limit is not a number to guess (§1): NaN >= 1 is false, so it refuses.
   const maxReferences = Number(input.maxReferences)
-  if (!input.supportsReferences || !(maxReferences >= 1)) {
+  if ((!input.supportsReferences || !(maxReferences >= 1)) && (scopeIds.length || storyReferences.length)) {
+    const what = scopeIds.length
+      ? `${scopeIds.length} selected character reference(s)`
+      : `${storyReferences.length} linked story reference(s)`
     throw new Error(
-      `${where}${input.modelName} accepts no reference images, so the ${scopeIds.length} selected character reference(s) cannot be attached. ` +
+      `${where}${input.modelName} accepts no reference images, so the ${what} cannot be attached. ` +
       'Choose a reference-capable model or clear the selection. No image was requested.',
     )
   }
@@ -141,6 +175,15 @@ async function resolveReferencesFrom(
     )
   }
 
+  // Story references are ADAPTIVE: they fill what the character selection left
+  // free and the surplus is reported, never silently swapped in for a character.
+  const room = Math.max(0, maxReferences - chosen.length)
+  const keptStory = storyReferences.slice(0, room)
+  const omitted = storyReferences.slice(room).map(item => item.name)
+  for (const item of keptStory) {
+    chosen.push({ id: item.id, name: item.name, file: path.basename(item.source), source: item.source })
+  }
+
   const fitted: ResolvedSceneReferences['fitted'] = []
   const paths: string[] = []
   for (const item of chosen) {
@@ -163,6 +206,7 @@ async function resolveReferencesFrom(
     digests: await Promise.all(chosen.map(item => referenceContentDigest(item.source))),
     names: chosen.map(item => item.name),
     fitted,
+    omitted,
   }
 }
 
@@ -171,6 +215,12 @@ export async function resolveSceneReferences(
 ): Promise<ResolvedSceneReferences> {
   // Membership in THIS episode's own list is the ownership statement.
   const owned = await listCharacters(input.slug, { episodeCode: input.episodeCode })
+  const storyReferences = await resolveStoryReferenceFiles(
+    input.slug,
+    input.episodeCode,
+    input.episodeDir,
+    input.storyEntityIds || [],
+  )
   return resolveReferencesFrom(owned, {
     slug: input.slug,
     characterIds: input.characterIds,
@@ -181,7 +231,248 @@ export async function resolveSceneReferences(
     episodeDir: input.episodeDir,
     sceneLabel: input.sceneLabel,
     belongsTo: input.episodeCode,
+    storyReferences,
   })
+}
+
+/**
+ * Resolve linked story entities to files THIS episode owns.
+ *
+ * Ownership is membership in the episode's own inventory plus realpath
+ * containment in its folder — never how a path string looks. A kept, important
+ * entity contributes `reference_images[0]`; a dropped or non-important entity
+ * contributes nothing, and a cast entity with a linked Channel Character is
+ * already attached through the character pipeline, so its file is not repeated.
+ */
+async function resolveStoryReferenceFiles(
+  slug: string,
+  episodeCode: string,
+  episodeDir: string,
+  entityIds: readonly string[],
+): Promise<Array<{ id: string; name: string; source: string }>> {
+  const ids = [...new Set(entityIds.filter(Boolean))]
+  if (!ids.length) return []
+  const { doc } = await readStoryEntities(slug, episodeCode)
+  const byId = new Map(doc.entities.map(entity => [entity.id, entity]))
+  const root = await fs.realpath(episodeDir).catch(() => null)
+  const chosen: Array<{ id: string; name: string; source: string }> = []
+  const seenPaths = new Set<string>()
+  for (const id of ids) {
+    const entity = byId.get(id)
+    if (!entity) {
+      throw new Error(
+        `Story entity '${id}' is not part of ${episodeCode}'s story context, so it cannot be used as a reference here. ` +
+        'Remove it from the scene and retry. No image was requested.',
+      )
+    }
+    if (entity.review !== 'keep' || !entity.important) continue
+    // A cast entity's canonical reference is its Character portrait, already in
+    // the selection when that character is attached — never a second file.
+    if (entity.kind === 'cast' && entity.character_id) continue
+    const filename = entity.reference_images?.[0]
+    if (!filename) continue
+    const real = await fs.realpath(path.resolve(episodeDir, filename)).catch(() => null)
+    const rel = real && root ? path.relative(root, real) : ''
+    if (!real || !root || !rel || rel.startsWith('..') || path.isAbsolute(rel)) {
+      throw new Error(
+        `'${entity.name}' lists reference image '${filename}', but it is missing from this episode's folder. ` +
+        'Add it again in Story context or clear the entity from the scene. No image was requested.',
+      )
+    }
+    if (seenPaths.has(real)) continue
+    seenPaths.add(real)
+    chosen.push({ id: entity.id, name: entity.name, source: real })
+  }
+  return chosen
+}
+
+// ── Per-scene story links and state ───────────────────────────────────
+
+export interface SceneStoryContextRead {
+  /** `false` when this episode has no sidecar yet — no links, not an error. */
+  exists: boolean
+  doc: SceneStoryContextDoc
+  /** The episode's whole inventory, dropped entities included; callers filter by `review`. */
+  entities: StoryEntity[]
+}
+
+/** Read this episode's per-scene story links beside its inventory. */
+export async function readSceneStoryContext(
+  slug: string,
+  episodeId: string,
+): Promise<SceneStoryContextRead> {
+  const story = await readStoryEntities(slug, episodeId)
+  const paths = await resolveEpisodePathsByCode(slug, episodeId)
+  const file = path.join(paths.episode_dir, SCENE_STORY_CONTEXT_FILENAME)
+  try {
+    const doc = parseSceneStoryContext(await fs.readFile(file, 'utf-8'))
+    return { exists: true, doc, entities: story.doc.entities }
+  } catch (e: any) {
+    if (e?.code !== 'ENOENT') throw e
+    return { exists: false, doc: emptySceneStoryContext(), entities: story.doc.entities }
+  }
+}
+
+/**
+ * Save per-scene links. A payload entry REPLACES that scene's entry and scenes
+ * the payload never mentions are kept, so a partial save cannot wipe another
+ * scene's links. Scene ids must exist in the saved plan and entity ids in the
+ * kept inventory — a stale link is refused, not written into a phantom scene.
+ */
+export async function writeSceneStoryContext(
+  slug: string,
+  episodeId: string,
+  body: unknown,
+): Promise<{ exists: true; doc: SceneStoryContextDoc }> {
+  if (!await resolveEpisodeTitleByCode(slug, episodeId)) {
+    throw Object.assign(new Error(`Episode ${episodeId} not found`), { statusCode: 404 })
+  }
+  const raw = (body ?? {}) as Record<string, unknown>
+  if (!Array.isArray(raw.scenes)) {
+    throw new SceneStoryContextValidationError('scenes must be a list')
+  }
+  const payload = raw.scenes.map((entry, index) => normalizeSceneStoryEntry(entry, index))
+
+  const paths = await resolveEpisodePathsByCode(slug, episodeId)
+  const planPath = await resolveScenePlanPath(slug, episodeId, paths.episode_dir)
+  let plan: ScenePlan
+  try {
+    plan = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
+  } catch {
+    throw new SceneStoryContextValidationError('Save a Scene Plan before linking story entities to scenes')
+  }
+  const knownScenes = new Set((plan.scenes || []).map(scene => scene.id))
+  const { doc: inventory } = await readStoryEntities(slug, episodeId)
+  const keptEntities = new Set(inventory.entities.filter(entity => entity.review === 'keep').map(entity => entity.id))
+  for (const entry of payload) {
+    if (!knownScenes.has(entry.scene_id)) {
+      throw new SceneStoryContextValidationError(`Scene '${entry.scene_id}' is not in the saved Scene Plan`)
+    }
+    for (const link of entry.entities) {
+      if (!keptEntities.has(link.entity_id)) {
+        throw new SceneStoryContextValidationError(
+          `Story entity '${link.entity_id}' is not in this episode's kept story context`,
+        )
+      }
+    }
+  }
+
+  const file = path.join(paths.episode_dir, SCENE_STORY_CONTEXT_FILENAME)
+  return withLock(file, async () => {
+    let stored = emptySceneStoryContext()
+    try {
+      stored = parseSceneStoryContext(await fs.readFile(file, 'utf-8'))
+    } catch (e: any) {
+      if (e?.code !== 'ENOENT') throw e
+    }
+    const byScene = new Map(stored.scenes.map(entry => [entry.scene_id, entry]))
+    for (const entry of payload) byScene.set(entry.scene_id, entry)
+    const doc: SceneStoryContextDoc = {
+      schema_version: 1,
+      scenes: [...byScene.values()],
+      updated_at: new Date().toISOString(),
+    }
+    await fs.mkdir(paths.episode_dir, { recursive: true })
+    await fs.writeFile(file, JSON.stringify(doc, null, 2), 'utf-8')
+    return { exists: true as const, doc }
+  })
+}
+
+export interface SceneStoryEntityLink {
+  entity: StoryEntity
+  state?: StoryState
+}
+
+/** This scene's links, resolved against the inventory; a dropped or unknown entity is skipped. */
+export function sceneStoryEntityLinks(
+  sceneId: string,
+  story: Pick<SceneStoryContextRead, 'doc' | 'entities'>,
+): SceneStoryEntityLink[] {
+  const entry = story.doc.scenes.find(item => item.scene_id === sceneId)
+  if (!entry) return []
+  const byId = new Map(story.entities.map(entity => [entity.id, entity]))
+  const links: SceneStoryEntityLink[] = []
+  for (const link of entry.entities) {
+    const entity = byId.get(link.entity_id)
+    if (!entity || entity.review !== 'keep') continue
+    links.push({ entity, ...(link.state ? { state: link.state } : {}) })
+  }
+  return links
+}
+
+export interface SceneAdaptiveReferenceInput {
+  scene: Pick<ScenePlanEntry, 'id' | 'scene_type' | 'reference_character_ids'>
+  story: Pick<SceneStoryContextRead, 'doc' | 'entities'>
+  /** The request-level default, used only when neither the scene nor its links name a character. */
+  fallback?: readonly string[]
+  imageMode?: 'text2img' | 'img2img'
+}
+
+/**
+ * The character ids a scene actually uses.
+ *
+ * Order of authority: a deliberate text-only request, the scene's OWN list
+ * (including an empty one), the cast entities the scene links, then the
+ * request default. A non-character scene gets none — no unrelated guide — and
+ * a scene nobody linked falls back rather than inheriting another scene's cast.
+ */
+export function sceneAdaptiveCharacterIds(input: SceneAdaptiveReferenceInput): string[] {
+  if (input.imageMode === 'text2img') return []
+  const own = Array.isArray(input.scene.reference_character_ids)
+    ? input.scene.reference_character_ids
+      .filter((id): id is string => typeof id === 'string' && !!id.trim())
+      .map(id => id.trim())
+    : undefined
+  if (own) return [...new Set(own)]
+  if (!sceneTakesCharacterReferences(input.scene)) return []
+  const linked = sceneStoryEntityLinks(input.scene.id, input.story)
+    .map(link => link.entity.kind === 'cast' ? link.entity.character_id : undefined)
+    .filter((id): id is string => !!id)
+  if (linked.length) return [...new Set(linked)]
+  return [...new Set(input.fallback ?? [])]
+}
+
+/**
+ * Linked entities whose canonical reference this scene should attach.
+ *
+ * Kept + important + a real `reference_images[0]`; cast entities with a
+ * Channel Character are excluded because that portrait is the character
+ * pipeline's job. The caller passes the ids to the reference resolver, which
+ * enforces the model's live slot count and reports what did not fit.
+ */
+export function sceneStoryReferenceEntityIds(
+  sceneId: string,
+  story: Pick<SceneStoryContextRead, 'doc' | 'entities'>,
+): string[] {
+  return sceneStoryEntityLinks(sceneId, story)
+    .filter(({ entity }) =>
+      entity.important
+      && !(entity.kind === 'cast' && entity.character_id)
+      && !!entity.reference_images?.[0])
+    .map(({ entity }) => entity.id)
+}
+
+/**
+ * The scene's story state as a prompt suffix. Only linked entities appear, so
+ * a scene that never links the mascot gets no mascot text, and a field the
+ * scene did not change adds nothing.
+ */
+export function sceneStoryStateSuffix(
+  sceneId: string,
+  story: Pick<SceneStoryContextRead, 'doc' | 'entities'>,
+): { suffix: string; applied: string[] } {
+  const parts: string[] = []
+  const applied: string[] = []
+  for (const { entity, state } of sceneStoryEntityLinks(sceneId, story)) {
+    const described = describeStoryState(state)
+    if (!described) continue
+    parts.push(`${entity.name} — ${described}`)
+    applied.push(entity.name)
+  }
+  return {
+    suffix: parts.length ? `\nStory state — ${parts.join(' | ')}.` : '',
+    applied,
+  }
 }
 
 /**

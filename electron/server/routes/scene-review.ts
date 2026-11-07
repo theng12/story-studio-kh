@@ -28,6 +28,8 @@ import { withLock, writeJsonAtomic } from '../lib/atomic-store.js'
 import { freshActionMatch, readOperationId, stampFreshGenerationAction } from '../lib/fresh-generation-action.js'
 
 import { resolveEpisodePathsByCodeWithSidecar, resolveScenePlanPath } from '../services/utils.js'
+import { readSceneStoryContext, writeSceneStoryContext } from '../services/scene-reference-characters.js'
+import type { SceneStoryContextEntry } from '../contracts/scene-story-context.js'
 import { resolveEpisodeMergedAudioChoice } from '../lib/merged-audio-selection.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 import { parseHttpByteRange } from '../lib/http-byte-range.js'
@@ -366,6 +368,10 @@ interface ReviewSceneAugmented {
   scene_type?: ScenePlanEntry['scene_type']
   /** This scene's OWN character references; absent = the page's default applies. */
   reference_character_ids?: string[]
+  /** This scene's story entity links and state; absent = none linked. */
+  story_context?: SceneStoryContextEntry['entities']
+  /** Content-based scene-image type for the rule row; null = unclassified. */
+  subject_kind?: string | null
   /** v1.4.360 — the scene's editorial visual lane, and the fields that belong to it. */
   visual_lane?: ScenePlanEntry['visual_lane']
   video_prompt?: string
@@ -741,6 +747,16 @@ router.get('/projects/:slug/scene-review/:episodeId', async (req, res) => {
     }
     const promptIntegrity = inspectScenePromptIntegrity(plan.scenes)
     const cfg = await pm.getConfig(slug).catch(() => null)
+    // Episode Visual Setup Phase 2: per-scene story links + state. A malformed
+    // sidecar is surfaced, never read as "no links" (§6).
+    let story: Awaited<ReturnType<typeof readSceneStoryContext>> | null = null
+    let storyContextError: string | undefined
+    try {
+      story = await readSceneStoryContext(slug, episodeId)
+    } catch (error: any) {
+      storyContextError = error?.message || String(error)
+    }
+    const storyByScene = new Map((story?.doc.scenes ?? []).map(entry => [entry.scene_id, entry]))
     const captionGapMode = safetyModeFromConfig(cfg, 'caption_gap')
     const planningTranscript = await inspectExistingTranscriptSource(paths.subtitles_dir, episodeId)
     const { isMusicEpisodeDir } = await import('../services/music-episode-store.js')
@@ -916,6 +932,10 @@ router.get('/projects/:slug/scene-review/:episodeId', async (req, res) => {
         // decides whether it may carry any at all.
         scene_type: s.scene_type,
         reference_character_ids: Array.isArray(s.reference_character_ids) ? s.reference_character_ids : undefined,
+        // Episode Visual Setup Phase 2: what this scene links from the episode's
+        // story inventory, and the content-based type the rule row displays.
+        story_context: storyByScene.get(s.id)?.entities ?? [],
+        subject_kind: s.subject_kind ?? null,
       })
     }
 
@@ -996,6 +1016,11 @@ router.get('/projects/:slug/scene-review/:episodeId', async (req, res) => {
       scenes,
       audio_path: audioPath,
       audio_version: audioVersion,
+      // The episode's story inventory and whether this episode has per-scene
+      // links yet. `story_context_error` is set instead of pretending "none".
+      story_entities: story?.entities ?? [],
+      story_context_exists: story?.exists ?? false,
+      ...(storyContextError ? { story_context_error: storyContextError } : {}),
       render_status: renderStatus,
       active_render_job: activeJob,
       animate_min_seconds: animateMinSeconds,
@@ -1019,6 +1044,23 @@ router.get('/projects/:slug/scene-review/:episodeId', async (req, res) => {
     })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Failed to read scene review status'))
+  }
+})
+
+// ── PUT /scene-review/:episodeId/story-context ────────────────────────
+// Per-scene story entity links and state (Episode Visual Setup Phase 2). A
+// scene id must exist in the saved plan and an entity id in the kept
+// inventory; the write merges, so a save for one scene never drops another's.
+router.put('/projects/:slug/scene-review/:episodeId/story-context', async (req, res) => {
+  try {
+    const result = await writeSceneStoryContext(req.params.slug, req.params.episodeId, req.body)
+    res.json({ ok: true, ...result })
+  } catch (e: any) {
+    const status = typeof e?.statusCode === 'number' ? e.statusCode : 400
+    if (e?.name === 'SceneStoryContextValidationError' || status === 404) {
+      return res.status(status).json({ detail: e.message })
+    }
+    res.status(500).json(humanizeBackendError(e, 'Failed to save scene story context'))
   }
 })
 
