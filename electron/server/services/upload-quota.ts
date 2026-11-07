@@ -12,6 +12,13 @@ export const QUOTA_COST = {
   video_categories_list: 1,
   comment_threads_list: 1,
   comments_insert: 50,
+  // YouTube Data API captions costs, from Google's own endpoint pages
+  // (developers.google.com/youtube/v3/docs/captions/{list,insert,update},
+  // read 2026-11-07): list 50, insert 400, update 450 units. All three bill
+  // against the same Cloud-project allowance as the other endpoints above.
+  captions_list: 50,
+  captions_insert: 400,
+  captions_update: 450,
 } as const
 
 export type QuotaKey = keyof typeof QUOTA_COST

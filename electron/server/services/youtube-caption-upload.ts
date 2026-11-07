@@ -7,8 +7,15 @@
  * - Honest states: failure preserves the exact remote video ID.
  * - Deduplication guard: detects existing captions for the language and handles
  *   skip/replace based on channel configuration.
- * - Uses existing YouTube client auth, transport, and live quota handling without
- *   inventing unconfigured quota costs.
+ * - Quota: every call goes through `fetchWithAuthRetry`'s `quotaKey` funnel with
+ *   the published captions costs (upload-quota.ts), so the Cloud-project ledger
+ *   is charged exactly like every other YouTube endpoint.
+ * - Scope: the stored OAuth grant is inspected BEFORE any captions network call;
+ *   captions need `youtube.force-ssl` (or `youtube.partner`), not `youtube.upload`.
+ * - Episode ownership: a subtitle file is only usable when its canonical path
+ *   belongs to THIS episode (realpath inside the episode's own folders, file
+ *   name starting with the episode code) — a symlink or a shared folder can
+ *   never select another episode's track.
  */
 
 import fsp from 'node:fs/promises'
@@ -21,14 +28,80 @@ import {
   type ResolvedCaptionTrack,
   type YouTubeRemoteCaption,
   type CaptionUploadOutcome,
+  type CaptionDedupeMode,
   normalizeCaptionUploadSettings,
 } from '../contracts/youtube-caption-upload.js'
-import { fetchWithAuthRetry, youtubeTransport } from '../lib/youtube-client.js'
+import { fetchWithAuthRetry, youtubeTransport, registryChannelOf } from '../lib/youtube-client.js'
 import { friendlyQuotaErrorMessage } from './upload-quota.js'
 import { normalizeSrtOrVtt } from '../lib/subtitle-builder.js'
 
 const YOUTUBE_CAPTIONS_API_URL = 'https://www.googleapis.com/youtube/v3/captions'
 const YOUTUBE_CAPTIONS_UPLOAD_URL = 'https://www.googleapis.com/upload/youtube/v3/captions'
+
+/**
+ * Scopes the captions endpoints actually require. `youtube.upload` is NOT
+ * enough (Google's captions docs, read 2026-11-07); the owner connection flow
+ * requests `youtube.force-ssl`, so an up-to-date grant carries it.
+ */
+const CAPTION_SCOPES = [
+  'https://www.googleapis.com/auth/youtube.force-ssl',
+  'https://www.googleapis.com/auth/youtube.partner',
+] as const
+
+/** Refuse to buffer a subtitle file larger than this instead of reading it whole. */
+// shortcut: a whole-file read, capped at 8 MB; upgrade to a streaming parse if a
+// real episode's subtitles ever exceed it.
+const MAX_SUBTITLE_BYTES = 8 * 1024 * 1024
+
+/**
+ * Whether a subtitle file genuinely belongs to this episode.
+ *
+ * Two facts, both looked up rather than parsed from the requested path:
+ * the CANONICAL file (after realpath) sits inside one of the episode's own
+ * folders, and its canonical name starts with the episode code. A symlink
+ * pointing out of the episode, or another episode's file sitting in a shared
+ * folder, fails one of the two.
+ */
+async function episodeOwnsSubtitleFile(
+  filePath: string,
+  episodeCode: string,
+  roots: string[],
+): Promise<boolean> {
+  let realFile: string
+  try {
+    realFile = await fsp.realpath(filePath)
+  } catch {
+    return false
+  }
+  if (!path.basename(realFile).toUpperCase().startsWith(episodeCode)) return false
+  if (!roots.length) return true
+  for (const root of roots) {
+    let realRoot: string
+    try {
+      realRoot = await fsp.realpath(root)
+    } catch {
+      continue
+    }
+    const rel = path.relative(realRoot, realFile)
+    if (rel && rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel)) return true
+  }
+  return false
+}
+
+/** The folders this episode's own subtitles may live in. Shared by discovery
+ *  and the ownership check, so the two can never disagree about the roots. */
+function subtitleCandidateDirs(options: { subtitlesDir?: string; episodeDir?: string }): string[] {
+  const dirs: string[] = []
+  if (options.subtitlesDir && existsSync(options.subtitlesDir)) {
+    dirs.push(options.subtitlesDir)
+  }
+  if (options.episodeDir && existsSync(options.episodeDir)) {
+    const sub = path.join(options.episodeDir, 'subtitles')
+    if (existsSync(sub) && !dirs.includes(sub)) dirs.push(sub)
+    if (!dirs.includes(options.episodeDir)) dirs.push(options.episodeDir)
+  }
+  return dirs
+}
 
 /**
  * Discovers the best matching subtitle file for an episode.
@@ -38,6 +111,9 @@ const YOUTUBE_CAPTIONS_UPLOAD_URL = 'https://www.googleapis.com/upload/youtube/v
  * 2. `{code}_whisper.srt` (full whisper transcription subtitles)
  * 3. `{code}.srt` (direct episode subtitles)
  * 4. Any other `{code}*.srt` or `*.srt` file in the subtitles directory.
+ *
+ * Every candidate must belong to this episode (see episodeOwnsSubtitleFile);
+ * a file another episode owns is never selected, whatever its position.
  */
 export async function findEpisodeSubtitleTrack(options: {
   episodeCode: string
@@ -48,20 +124,13 @@ export async function findEpisodeSubtitleTrack(options: {
   const code = options.episodeCode.toUpperCase().trim()
   const settings = normalizeCaptionUploadSettings(options.settings)
 
-  const candidateDirs: string[] = []
-  if (options.subtitlesDir && existsSync(options.subtitlesDir)) {
-    candidateDirs.push(options.subtitlesDir)
-  }
-  if (options.episodeDir && existsSync(options.episodeDir)) {
-    const sub = path.join(options.episodeDir, 'subtitles')
-    if (existsSync(sub) && !candidateDirs.includes(sub)) candidateDirs.push(sub)
-    if (!candidateDirs.includes(options.episodeDir)) candidateDirs.push(options.episodeDir)
-  }
+  const candidateDirs = subtitleCandidateDirs(options)
 
-  // 1. If custom path specified and exists, use it
+  // 1. If custom path specified and exists, use it — still subject to episode
+  // ownership: a custom path naming another episode's file is refused, not read.
   if (settings.preferred_source === 'custom' && settings.custom_srt_path) {
     if (existsSync(settings.custom_srt_path)) {
-      return await inspectAndLoadSubtitleFile(settings.custom_srt_path, settings.language, settings.track_name)
+      return await inspectAndLoadSubtitleFile(settings.custom_srt_path, settings.language, settings.track_name, code, candidateDirs)
     }
     return null
   }
@@ -88,12 +157,14 @@ export async function findEpisodeSubtitleTrack(options: {
     for (const name of candidateFilenames) {
       const fullPath = path.join(dir, name)
       if (existsSync(fullPath)) {
-        const loaded = await inspectAndLoadSubtitleFile(fullPath, settings.language, settings.track_name)
+        const loaded = await inspectAndLoadSubtitleFile(fullPath, settings.language, settings.track_name, code, candidateDirs)
         if (loaded && loaded.cues_count > 0) return loaded
       }
     }
 
-    // Fallback in auto mode: search directory for any .srt or .vtt file
+    // Fallback in auto mode: search directory for any .srt or .vtt file —
+    // every candidate still has to pass episode ownership, so a shared folder
+    // can only ever yield THIS episode's own file.
     if (settings.preferred_source === 'auto') {
       try {
         const entries = await fsp.readdir(dir)
@@ -110,7 +181,7 @@ export async function findEpisodeSubtitleTrack(options: {
 
         for (const name of srtFiles) {
           const fullPath = path.join(dir, name)
-          const loaded = await inspectAndLoadSubtitleFile(fullPath, settings.language, settings.track_name)
+          const loaded = await inspectAndLoadSubtitleFile(fullPath, settings.language, settings.track_name, code, candidateDirs)
           if (loaded && loaded.cues_count > 0) return loaded
         }
       } catch {
@@ -126,8 +197,13 @@ async function inspectAndLoadSubtitleFile(
   filePath: string,
   language: string,
   trackName: string,
+  episodeCode: string,
+  roots: string[],
 ): Promise<ResolvedCaptionTrack | null> {
   try {
+    if (!await episodeOwnsSubtitleFile(filePath, episodeCode, roots)) return null
+    const stat = await fsp.stat(filePath)
+    if (!stat.isFile() || stat.size > MAX_SUBTITLE_BYTES) return null
     const raw = await fsp.readFile(filePath, 'utf-8')
     if (!raw.trim()) return null
     const filename = path.basename(filePath)
@@ -173,7 +249,7 @@ export async function listRemoteVideoCaptions(options: {
         Accept: 'application/json',
       },
     })
-  })
+  }, 'captions_list')
 
   if (!resp.ok) {
     const text = await resp.text().catch(() => '')
@@ -268,7 +344,7 @@ export async function insertRemoteCaptionTrack(options: {
       },
       body,
     })
-  })
+  }, 'captions_insert')
 
   if (!resp.ok) {
     const text = await resp.text().catch(() => '')
@@ -326,7 +402,7 @@ export async function updateRemoteCaptionTrack(options: {
       },
       body,
     })
-  })
+  }, 'captions_update')
 
   if (!resp.ok) {
     const text = await resp.text().catch(() => '')
@@ -343,6 +419,74 @@ export async function updateRemoteCaptionTrack(options: {
 }
 
 /**
+ * Whether the stored OAuth grant may call the captions endpoints at all.
+ *
+ * Returns a plain-language problem, or null when the grant covers captions.
+ * Read from the local registry and token store only — no network — so a grant
+ * without caption scope fails BEFORE a captions request is built, and the
+ * failure names what to do (reconnect) instead of surfacing a provider 403.
+ */
+export async function captionGrantScopeProblem(accountId: string): Promise<string | null> {
+  const channelId = registryChannelOf(accountId)
+  if (!channelId) {
+    return 'This project has no current YouTube connection, so closed captions cannot be uploaded. Reconnect it in Settings → YouTube.'
+  }
+  const { readYouTubeConnectionRegistry, readYouTubeChannelTokensForServer } = await import('./youtube-connection-store.js')
+  const registry = await readYouTubeConnectionRegistry().catch(() => null)
+  const channel = registry?.channels?.[channelId]
+  if (!channel) {
+    return 'This YouTube channel is not connected, so closed captions cannot be uploaded. Reconnect it in Settings → YouTube.'
+  }
+  const tokens = await readYouTubeChannelTokensForServer(channelId).catch(() => null)
+  const granted = new Set<string>([
+    ...(channel.granted_scopes || []),
+    ...(tokens?.scope ? tokens.scope.split(/\s+/).filter(Boolean) : []),
+  ])
+  if ([...granted].some(scope => (CAPTION_SCOPES as readonly string[]).includes(scope))) return null
+  if (!granted.size) {
+    return 'This YouTube connection does not record the permissions it was granted, so Story Studio cannot confirm caption access. Reconnect the channel in Settings → YouTube.'
+  }
+  return `This YouTube connection's grant does not include caption access (needs ${CAPTION_SCOPES[0]}). `
+    + 'Reconnect the channel in Settings → YouTube to grant it; the video itself is already uploaded.'
+}
+
+/**
+ * Decides insert / update / skip from what the video actually holds.
+ *
+ * Ownership is a fact looked up, never assumed: only tracks whose videoId is
+ * THIS video and whose language matches are candidates, and `replace_existing`
+ * updates the track this configuration names. Two same-language tracks with no
+ * name match are ambiguous — refusing beats overwriting somebody's track.
+ */
+function reconcileRemoteCaption(
+  remote: YouTubeRemoteCaption[],
+  videoId: string,
+  language: string,
+  trackName: string,
+  mode: CaptionDedupeMode,
+): { action: 'insert' } | { action: 'skip' | 'update'; caption: YouTubeRemoteCaption } | { action: 'refuse'; reason: string } {
+  if (mode === 'upload_always') return { action: 'insert' }
+  const owned = remote.filter(c =>
+    c.videoId === videoId && c.language.toLowerCase() === language.toLowerCase())
+  const named = owned.find(c => c.name === trackName)
+  if (mode === 'skip_if_exists') {
+    return owned.length
+      ? { action: 'skip', caption: named ?? owned[0]! }
+      : { action: 'insert' }
+  }
+  // replace_existing
+  if (named) return { action: 'update', caption: named }
+  if (owned.length === 1) return { action: 'update', caption: owned[0]! }
+  if (owned.length > 1) {
+    return {
+      action: 'refuse',
+      reason: `this video already has ${owned.length} '${language}' caption tracks and none of them is named '${trackName}'`,
+    }
+  }
+  return { action: 'insert' }
+}
+
+/**
  * Main execution entry point for optional integrated captions upload.
  *
  * Guaranteed contract invariants:
@@ -352,6 +496,8 @@ export async function updateRemoteCaptionTrack(options: {
  * 4. NEVER throws: an honest failure outcome ('failed') is returned with the error message
  *    and the remote video ID preserved.
  * 5. Does not alter video ID or fail the overall upload job.
+ * 6. No network call happens before the stored grant's caption scope is confirmed,
+ *    and no insert is attempted when the existing tracks could not be listed.
  */
 export async function executeOptionalCaptionUpload(params: {
   slug: string
@@ -365,6 +511,7 @@ export async function executeOptionalCaptionUpload(params: {
   trackOverride?: ResolvedCaptionTrack
 }): Promise<CaptionUploadOutcome> {
   const { videoId, slug, accountId, episodeCode } = params
+  const code = episodeCode.toUpperCase().trim()
   const config = normalizeCaptionUploadSettings(params.settings)
 
   // 1. Off by default guard
@@ -376,9 +523,22 @@ export async function executeOptionalCaptionUpload(params: {
     }
   }
 
-  // 2. Discover subtitle track
+  // 2. Discover subtitle track — this episode's own file only
+  const roots = subtitleCandidateDirs(params)
   let track = params.trackOverride ?? null
-  if (!track) {
+  if (track) {
+    if (!await episodeOwnsSubtitleFile(track.file_path, code, roots)) {
+      const reason = `The subtitle track offered for ${episodeCode} (${path.basename(track.file_path)}) is not this episode's own file; captions upload refused.`
+      params.logLines?.push(`⚠ ${reason}`)
+      return {
+        status: 'failed',
+        remote_video_id: videoId,
+        language: config.language,
+        track_name: config.track_name,
+        error: reason,
+      }
+    }
+  } else {
     track = await findEpisodeSubtitleTrack({
       episodeCode,
       episodeDir: params.episodeDir,
@@ -388,7 +548,9 @@ export async function executeOptionalCaptionUpload(params: {
   }
 
   if (!track) {
-    const hint = `No valid subtitle file (.srt/.vtt) found for episode ${episodeCode}; skipping captions upload.`
+    const hint = config.preferred_source === 'custom' && config.custom_srt_path
+      ? `The custom subtitle path ${config.custom_srt_path} is not a usable file for episode ${episodeCode} (missing, or not this episode's own file); skipping captions upload.`
+      : `No valid subtitle file (.srt/.vtt) found for episode ${episodeCode}; skipping captions upload.`
     params.logLines?.push(`⚠ ${hint}`)
     return {
       status: 'skipped_no_subtitles',
@@ -397,46 +559,83 @@ export async function executeOptionalCaptionUpload(params: {
     }
   }
 
-  // 3. Deduplication check against remote captions
+  // 3. Grant check BEFORE any captions network call
+  const scopeProblem = await captionGrantScopeProblem(accountId)
+  if (scopeProblem) {
+    params.logLines?.push(`⚠ Closed captions not attempted: ${scopeProblem}`)
+    return {
+      status: 'failed',
+      remote_video_id: videoId,
+      language: config.language,
+      track_name: config.track_name,
+      source_file: track.file_path,
+      error: scopeProblem,
+    }
+  }
+
+  // 4. Deduplication check against remote captions
   try {
-    let existingMatch: YouTubeRemoteCaption | undefined
+    let decision: ReturnType<typeof reconcileRemoteCaption> = { action: 'insert' }
     if (config.dedupe_mode !== 'upload_always') {
+      let remoteCaptions: YouTubeRemoteCaption[]
       try {
-        const remoteCaptions = await listRemoteVideoCaptions({
+        remoteCaptions = await listRemoteVideoCaptions({
           slug,
           accountId,
           videoId,
         })
-        existingMatch = remoteCaptions.find(
-          c => c.language.toLowerCase() === config.language.toLowerCase(),
-        )
       } catch (listErr: any) {
-        // If listing fails, log warning but proceed with insertion attempt
-        params.logLines?.push(`Notice: could not inspect existing remote captions (${listErr?.message || listErr}). Proceeding with upload.`)
+        // Without a listing there is no way to know whether this video already
+        // holds the track. Inserting anyway would be a blind guess that can
+        // duplicate the owner's track — fail honestly instead.
+        const reason = `Could not verify the existing caption tracks on this video (${listErr?.message || listErr}); not inserting, to avoid a duplicate.`
+        params.logLines?.push(`⚠ Closed captions upload could not be completed (${reason}). The video upload itself is complete.`)
+        return {
+          status: 'failed',
+          remote_video_id: videoId,
+          language: config.language,
+          track_name: config.track_name,
+          source_file: track.file_path,
+          error: reason,
+        }
+      }
+      decision = reconcileRemoteCaption(remoteCaptions, videoId, config.language, config.track_name, config.dedupe_mode)
+      if (decision.action === 'refuse') {
+        params.logLines?.push(`⚠ Closed captions upload could not be completed (${decision.reason}). The video upload itself is complete.`)
+        return {
+          status: 'failed',
+          remote_video_id: videoId,
+          language: config.language,
+          track_name: config.track_name,
+          source_file: track.file_path,
+          error: decision.reason,
+        }
       }
     }
 
-    if (existingMatch && config.dedupe_mode === 'skip_if_exists') {
-      const msg = `Closed captions track for '${config.language}' already exists on https://youtu.be/${videoId} (id: ${existingMatch.id}); skipped duplicate upload.`
+    if (decision.action === 'skip') {
+      const msg = `Closed captions track for '${config.language}' already exists on https://youtu.be/${videoId} (id: ${decision.caption.id}); skipped duplicate upload.`
       params.logLines?.push(msg)
       return {
         status: 'skipped_already_exists',
         remote_video_id: videoId,
-        caption_id: existingMatch.id,
+        caption_id: decision.caption.id,
         language: config.language,
         track_name: config.track_name,
         source_file: track.file_path,
       }
     }
 
-    // 4. Perform upload (update if replacing, otherwise insert)
+    // 5. Perform upload (update if replacing, otherwise insert). A failed
+    // insert is never retried blind: the response may be lost after YouTube
+    // already created the track, and a second insert would duplicate it.
     params.logLines?.push(`Uploading closed captions track '${config.track_name}' (${config.language}) from ${path.basename(track.file_path)} to https://youtu.be/${videoId}…`)
 
-    if (existingMatch && config.dedupe_mode === 'replace_existing') {
+    if (decision.action === 'update') {
       const updated = await updateRemoteCaptionTrack({
         slug,
         accountId,
-        captionId: existingMatch.id,
+        captionId: decision.caption.id,
         videoId,
         track,
         isDraft: config.is_draft,
@@ -483,4 +682,17 @@ export async function executeOptionalCaptionUpload(params: {
       details: { sha256: track.sha256, size_bytes: track.size_bytes },
     }
   }
+}
+
+/**
+ * The project's stored caption settings (`config.json` → `caption_settings`),
+ * normalized. Absent means the contract default: OFF.
+ *
+ * The single line a caller needs — kept here so the upload job never has to
+ * know where the setting lives or how it is validated.
+ */
+export async function readProjectCaptionSettings(slug: string): Promise<YouTubeCaptionSettings> {
+  const { getConfig } = await import('./project-manager.js')
+  const config = await getConfig(slug).catch(() => null) as unknown as { caption_settings?: unknown } | null
+  return normalizeCaptionUploadSettings(config?.caption_settings)
 }
