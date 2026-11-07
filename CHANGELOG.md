@@ -4,6 +4,21 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.386 — 2026-11-07
+
+- Video Assembly endings retire black and fade ending options; ending on a hold keeps the final scene visible while background music plays to completion. Trimming of finished videos is cancelled; only new videos prevent black or fade ends.
+- Video Assembly applies an explicitly selected preset over a channel's stale last-used preset, and guards timeline application against missing reveal configurations.
+- Chapter background management imports image files directly into the channel pool folder, previews fonts against the standing pool, and draws headings and backgrounds across reveal scene clips.
+- Audio Assembly combines Opening, Narration, and Closing into a single page with four clear sections, binds channel intro music with trims and fades, and preserves existing audio when saving automatic bindings.
+- Upload pacing separates Upload on and Publish on dates with daily pacing tiers (Gentle 3, Regular 6, Bulk 12) and explicit channel release window hours. Uploads pause when pacing is unconfigured or corrupt, reviewed thumbnail bytes are sent directly from temporary work storage, and unconfirmed metadata updates wait rather than failing.
+- YouTube uploads support optional separate caption track uploads with reviewable parameters, and paused uploads are never projected as quota exhausted.
+- Story entity inventory lets you extract episode characters from completed chapters and link them and reference images to scenes, with an off-by-default automation switch for channel generation.
+- Sketch Draw adds optional scene-type reveal and hold controls, off by default, verified during final video checks.
+- Thumbnail generation supports art style tags up to the authoritative 12,000-character limit without truncation.
+- Preset inspection serves allowlisted read-only scalar values without modifying project state.
+- Existing style aliases and recovery paths remain available in 1.4.386; legacy path removal is deferred to 1.4.387, and 43 new style packs remain unpublished.
+- Fleet render parity remains separate with no remote eligibility claim in this release.
+
 ## v1.4.385 — 2026-11-07
 
 - Video assembly aligns scene and tail clips to exact video frames, so videos with many scene joins keep their full planned duration without cutting narration.
