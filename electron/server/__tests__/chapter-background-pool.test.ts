@@ -1,17 +1,22 @@
 /**
- * Chapter Background Pools — reusable backgrounds with serial rotation per channel
- * (release 1.4.386, item 14).
+ * Chapter Background Pools — serial rotation with stable (episode, chapter)
+ * identity (release 1.4.386, item 14; HANDOFF "four-background serial chapter
+ * rotation").
  *
  * Pinned here:
- *   - no pool = today's behaviour (decide returns null, nothing is invented);
- *   - one background = every episode gets it;
- *   - serial is the default and rotates in pool order, wrapping, skipping disabled items;
- *   - a pool edit mid-run never repeats and never skips (the cursor carries id AND index);
- *   - percentages the UI prints are the shared function's own answer, adding to 100;
- *   - peek does not advance the cursor; an actual record does, and re-recording the same
- *     episode keeps its own background without moving the rotation (same contract as
- *     the music pool's re-merge test);
- *   - portable references resolve: catalog ids, ${CHANNEL}/…, plain filenames, absolutes.
+ *   - no pool = today's behaviour (decide returns null, nothing invented);
+ *   - serial walks the enabled list in order, wrapping, skipping disabled items;
+ *   - a pool edit mid-run never repeats and never skips (cursor carries id AND index);
+ *   - TWO CHAPTERS IN ONE EPISODE take two successive backgrounds — identity is
+ *     (episode, chapter), never the episode alone;
+ *   - TWO RETRIES of the same chapters keep their backgrounds and do NOT move
+ *     the rotation, and a concurrent burst of records loses nothing (the whole
+ *     read-modify-write runs inside the project's config lock);
+ *   - resolution is restricted to approved catalog backgrounds or THIS
+ *     channel's own inventory with realpath containment: traversal, foreign
+ *     paths and symlink escapes are refused by name; valid local references
+ *     keep working;
+ *   - a failed catalog reads as a NAMED unavailable state, never an empty success.
  */
 
 import assert from 'node:assert/strict'
@@ -21,22 +26,19 @@ import path from 'node:path'
 import { useTempDataDir } from './_helpers.js'
 import * as pool from '../contracts/chapter-background-pool.js'
 
-/** A serial pool from plain ids, as the editor would send it. */
-function poolOf(ids: string[], overrides: Record<string, unknown> = {}): pool.ChapterBackgroundPool {
-  return {
-    usage_mode: 'serial',
-    allow_repeat: false,
-    items: ids.map(id => ({ id, name: id, reference: `${id}.jpg`, enabled: true, weight: 100 })),
-    ...overrides,
-  } as pool.ChapterBackgroundPool
+/** A pool from plain ids, as the editor would send it. */
+function poolOf(ids: string[]): pool.ChapterBackgroundPool {
+  return pool.normaliseChapterBackgroundPool({
+    items: ids.map(id => ({ id, name: id, reference: `${id}.jpg`, enabled: true })),
+  })
 }
 
-/** Run `count` serial decisions through the pool, carrying the cursor forward like the writer does. */
-function rotate(poolValue: pool.ChapterBackgroundPool, count: number, rng: () => number = () => 0): string[] {
+/** Run `count` serial decisions, carrying the cursor forward like the writer does. */
+function rotate(poolValue: pool.ChapterBackgroundPool, count: number): string[] {
   const picked: string[] = []
   let cursor: pool.ChapterBackgroundCursor | null = null
   for (let index = 0; index < count; index++) {
-    const decision = pool.decideChapterBackground(poolValue, cursor, rng)
+    const decision = pool.decideChapterBackground(poolValue, cursor)
     if (!decision) break
     picked.push(decision.item.id)
     cursor = decision.cursor
@@ -44,71 +46,58 @@ function rotate(poolValue: pool.ChapterBackgroundPool, count: number, rng: () =>
   return picked
 }
 
-describe('chapter background pools — the rotation contract', () => {
+describe('chapter background pools — the serial rotation contract', () => {
   test('no pool leaves today\'s behaviour: decide is null, nothing invented', () => {
     assert.equal(pool.decideChapterBackground(undefined, null), null)
     assert.equal(pool.decideChapterBackground(null, null), null)
     assert.equal(pool.decideChapterBackground(poolOf([]), null), null)
-    assert.equal(pool.decideChapterBackground(poolOf(['a', 'b'], { usage_mode: 'manual' }), null), null)
-    // Every item disabled is also "no answer", never a pick of an off item.
-    assert.equal(pool.decideChapterBackground(poolOf(['a', 'b'], {
-      items: [{ id: 'a', name: 'a', reference: 'a.jpg', enabled: false, weight: 100 }],
-    }), null), null)
-    assert.deepEqual(pool.normaliseChapterBackgroundPool(null), pool.emptyChapterBackgroundPool())
+    assert.equal(pool.decideChapterBackground(
+      pool.normaliseChapterBackgroundPool({ items: [{ id: 'a', name: 'a', reference: 'a', enabled: false }] }),
+      null,
+    ), null)
+    assert.deepEqual(pool.emptyChapterBackgroundPool(), { items: [] })
+    assert.deepEqual(pool.normaliseChapterBackgroundPool(null), { items: [] })
   })
 
-  test('one background means every episode uses it', () => {
-    assert.deepEqual(rotate(poolOf(['deep-space']), 3), ['deep-space', 'deep-space', 'deep-space'])
-    assert.deepEqual(rotate(poolOf(['only'], { usage_mode: 'weighted' }), 3, () => 0), ['only', 'only', 'only'])
-  })
-
-  test('serial walks the pool in order and wraps, with no configuration', () => {
-    assert.equal(pool.normaliseUsageMode('shuffle'), 'serial')
-    assert.equal(pool.normaliseUsageMode(undefined), 'serial')
+  test('one background means every chapter uses it; serial wraps in pool order', () => {
+    assert.deepEqual(rotate(poolOf(['only']), 3), ['only', 'only', 'only'])
     assert.deepEqual(rotate(poolOf(['a', 'b', 'c']), 7), ['a', 'b', 'c', 'a', 'b', 'c', 'a'])
-    // Disabled items are skipped without rewriting the stored order.
-    const withOff = poolOf(['a', 'b', 'c'])
-    withOff.items[1]!.enabled = false
+    const withOff = pool.normaliseChapterBackgroundPool({
+      items: [
+        { id: 'a', name: 'a', reference: 'a', enabled: true },
+        { id: 'b', name: 'b', reference: 'b', enabled: false },
+        { id: 'c', name: 'c', reference: 'c', enabled: true },
+      ],
+    })
     assert.deepEqual(rotate(withOff, 5), ['a', 'c', 'a', 'c', 'a'])
+    assert.deepEqual(pool.poolBackgroundIds(withOff), ['a', 'c'])
   })
 
   test('a pool edit mid-run never repeats and never skips', () => {
-    // Serial took 'b' at index 1 of [a, b, c]; 'b' is then removed.
-    // The entry that slid into its place (index 1 = 'c') is next — nothing skipped.
+    const decision = pool.decideChapterBackground(poolOf(['a', 'b', 'c']), { last_background_id: 'b', last_index: 1 })
+    assert.equal(decision!.item.id, 'c')
     const removed = poolOf(['a', 'b', 'c'])
-    const afterB = pool.decideChapterBackground(removed, { last_background_id: 'b', last_index: 1 })
-    assert.equal(afterB!.item.id, 'c')
-    removed.items = removed.items.filter(it => it.id !== 'b')
-    assert.equal(pool.decideChapterBackground(removed, afterB!.cursor)!.item.id, 'a')
-    // 'b' was removed before its turn: the entry at the stored index is used, wrapping.
-    assert.equal(pool.nextSerialIndex(
-      poolOf(['a', 'c']).items,
-      { last_background_id: 'gone', last_index: 2 },
-    ), 0)
-    // A cursor stored as a bare index (early shape) still answers.
-    assert.equal(pool.normaliseCursor(3).last_index, 3)
-    assert.deepEqual(pool.normaliseCursor(0), { last_background_id: null, last_index: 0 })
+    removed.items = removed.items.filter(item => item.id !== 'b')
+    assert.equal(pool.decideChapterBackground(removed, decision!.cursor)!.item.id, 'a')
+    assert.equal(pool.nextSerialIndex(poolOf(['a', 'c']).items, { last_background_id: 'gone', last_index: 2 }), 0)
+    const deduped = pool.normaliseChapterBackgroundPool({
+      items: [
+        { id: 'x', name: 'first', reference: 'x', enabled: true },
+        { id: 'x', name: 'second', reference: 'x', enabled: true },
+        { id: '   ' },
+        null,
+      ],
+    })
+    assert.equal(deduped.items.length, 1)
+    assert.equal(deduped.items[0]!.name, 'first')
   })
 
-  test('weighted percentages are shown truthfully and add to 100', () => {
-    const weighted = poolOf(['a', 'b', 'c'], { usage_mode: 'weighted', items: [
-      { id: 'a', name: 'a', reference: 'a', enabled: true, weight: 60 },
-      { id: 'b', name: 'b', reference: 'b', enabled: true, weight: 25 },
-      { id: 'c', name: 'c', reference: 'c', enabled: true, weight: 15 },
-    ] })
-    assert.deepEqual(pool.percentagesFor(weighted), [60, 25, 15])
-    assert.deepEqual(pool.percentagesFor(poolOf(['a', 'b', 'c'], { usage_mode: 'weighted' })), [34, 33, 33])
-    assert.equal(pool.percentagesFor(poolOf(['a', 'b'], { usage_mode: 'weighted' }))
-      .reduce((sum, value) => sum + value, 0), 100)
-    assert.deepEqual(pool.percentagesFor(poolOf([])), [])
-    // Weighted avoids the previous pick unless the customer opts into repeats.
-    const first = pool.decideChapterBackground(weighted, null, () => 0)
-    const second = pool.decideChapterBackground(weighted, first!.cursor, () => 0)
-    assert.notEqual(second!.item.id, first!.item.id)
-    const repeat = pool.decideChapterBackground(
-      { ...weighted, allow_repeat: true }, first!.cursor, () => 0,
-    )
-    assert.equal(repeat!.item.id, first!.item.id)
+  test('rotation identity is the (episode, chapter) pair', () => {
+    assert.equal(pool.chapterRotationKey('EP0001', 'setup'), 'EP0001\u0000setup')
+    assert.equal(pool.chapterRotationKey('EP0001', undefined), pool.chapterRotationKey('EP0001', ''))
+    assert.notEqual(pool.chapterRotationKey('EP0001', 'setup'), pool.chapterRotationKey('EP0001', 'reveal'))
+    assert.deepEqual(pool.normaliseCursor(2), { last_background_id: null, last_index: 2 })
+    assert.deepEqual(pool.normaliseCursor(0), { last_background_id: null, last_index: 0 })
   })
 })
 
@@ -124,93 +113,163 @@ describe('chapter background pools — the channel service', () => {
   })
   after(async () => { await cleanup() })
 
-  test('peek reads the next pick without moving the cursor; record advances it once', async () => {
-    const proj = await pm.createProject({ name: 'ChapterBgPool' })
+  test('two chapters in one episode advance; two retries of each do not move', async () => {
+    const proj = await pm.createProject({ name: 'ChapterBgTwoChapters' })
     const bgDir = path.join(pm.getProjectDir(proj.slug)!, 'backgrounds')
     await fs.mkdir(bgDir, { recursive: true })
-    for (const name of ['one.jpg', 'two.jpg', 'three.jpg']) {
-      await fs.writeFile(path.join(bgDir, name), 'x')
-    }
-    await svc.updateChapterBackgroundPool(proj.slug, poolOf(['one.jpg', 'two.jpg', 'three.jpg']))
-    assert.equal((await svc.getChapterBackgroundPool(proj.slug)).items.length, 3)
-    // A fresh channel has no cursor — the honest "not started", not a zero pick.
-    assert.deepEqual(await svc.getChapterBackgroundCursor(proj.slug), { last_background_id: null, last_index: null })
+    for (const name of ['one.jpg', 'two.jpg', 'three.jpg']) await fs.writeFile(path.join(bgDir, name), 'x')
+    await svc.updateChapterBackgroundPool(proj.slug, poolOf(['one.jpg', 'two.jpg', 'three.jpg']).items)
 
-    // Peek is read-only.
-    assert.equal((await svc.peekNextChapterBackground(proj.slug, 'EP0001'))?.item.id, 'one.jpg')
-    assert.equal((await svc.peekNextChapterBackground(proj.slug, 'EP0001'))?.item.id, 'one.jpg')
+    // Peek is read-only: repeated peeks never advance.
+    assert.equal((await svc.peekChapterBackground(proj.slug, 'EP0001', 'ch-a'))?.item.id, 'one.jpg')
+    assert.equal((await svc.peekChapterBackground(proj.slug, 'EP0001', 'ch-a'))?.item.id, 'one.jpg')
     assert.equal((await svc.getChapterBackgroundCursor(proj.slug)).last_index, null)
 
-    // Record advances; a second record of the SAME episode keeps its pick and does not move on.
-    assert.equal((await svc.recordChapterBackgroundPick(proj.slug, 'EP0001'))?.item.id, 'one.jpg')
+    // Chapter A then chapter B of the SAME episode → two successive backgrounds.
+    assert.equal((await svc.recordChapterBackgroundPick(proj.slug, 'EP0001', 'ch-a'))?.item.id, 'one.jpg')
     assert.equal((await svc.getChapterBackgroundCursor(proj.slug)).last_index, 0)
-    assert.equal((await svc.recordChapterBackgroundPick(proj.slug, 'EP0001'))?.item.id, 'one.jpg')
-    assert.equal((await svc.getChapterBackgroundCursor(proj.slug)).last_index, 0)
-    // Peek for a recorded episode returns ITS background, not the rotation's next.
-    assert.equal((await svc.peekNextChapterBackground(proj.slug, 'EP0001'))?.item.id, 'one.jpg')
+    assert.equal((await svc.recordChapterBackgroundPick(proj.slug, 'EP0001', 'ch-b'))?.item.id, 'two.jpg')
+    assert.equal((await svc.getChapterBackgroundCursor(proj.slug)).last_index, 1)
 
-    // Next new episode takes the next background in order.
-    assert.equal((await svc.recordChapterBackgroundPick(proj.slug, 'EP0002'))?.item.id, 'two.jpg')
-    assert.equal((await svc.peekNextChapterBackground(proj.slug, 'EP0003'))?.item.id, 'three.jpg')
-    // And the log is capped, newest first.
+    // Two retries of the same two chapters: same picks, cursor untouched.
+    assert.equal((await svc.recordChapterBackgroundPick(proj.slug, 'EP0001', 'ch-a'))?.item.id, 'one.jpg')
+    assert.equal((await svc.getChapterBackgroundCursor(proj.slug)).last_index, 1)
+    assert.equal((await svc.recordChapterBackgroundPick(proj.slug, 'EP0001', 'ch-b'))?.item.id, 'two.jpg')
+    assert.equal((await svc.getChapterBackgroundCursor(proj.slug)).last_index, 1)
+    assert.equal((await svc.peekChapterBackground(proj.slug, 'EP0001', 'ch-a'))?.item.id, 'one.jpg')
+
+    // A third chapter continues the run; the next episode's first chapter too.
+    assert.equal((await svc.recordChapterBackgroundPick(proj.slug, 'EP0001', 'ch-c'))?.item.id, 'three.jpg')
+    assert.equal((await svc.recordChapterBackgroundPick(proj.slug, 'EP0002', 'ch-a'))?.item.id, 'one.jpg')
+
     const log = await svc.getChapterBackgroundUsageLog(proj.slug)
-    assert.equal(log[0]?.episode_code, 'EP0002')
+    const keys = new Set(log.map(entry => `${entry.episode_code} ${entry.chapter_slug}`))
+    assert.equal(keys.size, 4, 'one keyed entry per (episode, chapter) boundary')
+    assert.equal(log.length, 4)
 
-    // Reset rotation starts over for a fresh run.
     await svc.resetChapterBackgroundCursor(proj.slug)
-    assert.equal((await svc.peekNextChapterBackground(proj.slug, 'EP0005'))?.item.id, 'one.jpg')
+    assert.equal((await svc.peekChapterBackground(proj.slug, 'EP0009', 'ch-a'))?.item.id, 'one.jpg')
   })
 
-  test('an explicit pick is recorded and survives later rotation', async () => {
+  test('concurrent chapter records lose neither history nor cursor', async () => {
+    const proj = await pm.createProject({ name: 'ChapterBgConcurrent' })
+    await svc.updateChapterBackgroundPool(proj.slug, poolOf(['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h']).items)
+
+    const chapters = Array.from({ length: 8 }, (_, index) => `ch-${index}`)
+    await Promise.all(chapters.map(chapter => svc.recordChapterBackgroundPick(proj.slug, 'EP0001', chapter)))
+
+    const log = await svc.getChapterBackgroundUsageLog(proj.slug)
+    assert.equal(log.length, 8, 'every concurrent record landed — none clobbered another')
+    for (const chapter of chapters) {
+      assert.ok(log.some(entry => entry.chapter_slug === chapter), `missing record for ${chapter}`)
+    }
+    // 8 serial picks over an 8-item pool end at index 7.
+    assert.equal((await svc.getChapterBackgroundCursor(proj.slug)).last_index, 7)
+    // A retry keeps its OWN recorded pick, not the rotation's next.
+    const ch0 = log.find(entry => entry.chapter_slug === 'ch-0')
+    assert.ok(ch0)
+    assert.equal((await svc.recordChapterBackgroundPick(proj.slug, 'EP0001', 'ch-0'))?.item.id, ch0.background_id)
+    assert.equal((await svc.getChapterBackgroundCursor(proj.slug)).last_index, 7)
+  })
+
+  test('an explicit valid pick is recorded and rotation continues past it', async () => {
     const proj = await pm.createProject({ name: 'ChapterBgPick' })
-    await svc.updateChapterBackgroundPool(proj.slug, poolOf(['a.jpg', 'b.jpg']))
-    const decision = await svc.recordChapterBackgroundPick(proj.slug, 'EP0001', 'b.jpg')
+    await svc.updateChapterBackgroundPool(proj.slug, poolOf(['a.jpg', 'b.jpg']).items)
+    const decision = await svc.recordChapterBackgroundPick(proj.slug, 'EP0001', 'ch-a', 'b.jpg')
     assert.equal(decision?.item.id, 'b.jpg')
-    assert.equal((await svc.peekNextChapterBackground(proj.slug, 'EP0001'))?.item.id, 'b.jpg')
-    // Rotation still moves on from the explicit pick's index.
-    assert.equal((await svc.peekNextChapterBackground(proj.slug, 'EP0002'))?.item.id, 'a.jpg')
+    assert.equal((await svc.peekChapterBackground(proj.slug, 'EP0001', 'ch-a'))?.item.id, 'b.jpg')
+    assert.equal((await svc.recordChapterBackgroundPick(proj.slug, 'EP0001', 'ch-b'))?.item.id, 'a.jpg')
+    // An id the pool does not hold is not invented: serial decides from the
+    // standing cursor (ch-b left it at a.jpg, so the serial next is b.jpg).
+    const fallback = await svc.recordChapterBackgroundPick(proj.slug, 'EP0002', 'ch-a', 'not-in-pool')
+    assert.equal(fallback?.item.id, 'b.jpg')
   })
 
-  test('references resolve: channel files, ${CHANNEL} form, and catalog ids', async () => {
+  test('resolution is restricted to the catalog or this channel\'s own inventory', async () => {
     const proj = await pm.createProject({ name: 'ChapterBgResolve' })
+    const other = await pm.createProject({ name: 'ChapterBgOther' })
     const bgDir = path.join(pm.getProjectDir(proj.slug)!, 'backgrounds')
     await fs.mkdir(bgDir, { recursive: true })
     await fs.writeFile(path.join(bgDir, 'plate.jpg'), 'x')
+    const otherBg = path.join(pm.getProjectDir(other.slug)!, 'backgrounds')
+    await fs.mkdir(otherBg, { recursive: true })
+    await fs.writeFile(path.join(otherBg, 'foreign.jpg'), 'x')
 
-    const byName = await svc.resolveChapterBackground(proj.slug, 'plate.jpg')
-    assert.equal(byName, path.join(bgDir, 'plate.jpg'))
-    const byChannelRef = await svc.resolveChapterBackground(proj.slug, '${CHANNEL}/backgrounds/plate.jpg')
-    assert.equal(byChannelRef, path.join(bgDir, 'plate.jpg'))
+    assert.equal(await svc.resolveChapterBackground(proj.slug, 'plate.jpg'), path.join(bgDir, 'plate.jpg'))
+    assert.equal(
+      await svc.resolveChapterBackground(proj.slug, '${CHANNEL}/backgrounds/plate.jpg'),
+      path.join(bgDir, 'plate.jpg'),
+    )
+    assert.equal(
+      await svc.resolveChapterBackground(proj.slug, path.join(bgDir, 'plate.jpg')),
+      path.join(bgDir, 'plate.jpg'),
+    )
 
-    // Catalog references resolve through the shipped catalog — only when this build ships one.
-    const catalog = await import('../services/background-catalog.js')
-    const entries = catalog.listBackgrounds()
-    if (entries.length) {
-      const resolved = await svc.resolveChapterBackground(proj.slug, entries[0]!.id)
-      assert.equal(resolved, catalog.resolveBackground(entries[0]!.id))
-      const resolvedRef = await svc.resolveChapterBackground(proj.slug, entries[0]!.reference)
-      assert.equal(resolvedRef, catalog.resolveBackground(entries[0]!.id))
-    }
-
-    // An unresolvable reference fails loudly, naming the background (AGENTS §8).
     await assert.rejects(
-      () => svc.resolveChapterBackground(proj.slug, 'does-not-exist.jpg'),
-      /does-not-exist/,
+      () => svc.resolveChapterBackground(proj.slug, '${CHANNEL}/../' + other.slug + '/backgrounds/foreign.jpg'),
+      /outside|refused/,
+    )
+    await assert.rejects(
+      () => svc.resolveChapterBackground(proj.slug, '${CHANNEL}/backgrounds/../secret.jpg'),
+      /outside|refused/,
+    )
+    await assert.rejects(
+      () => svc.resolveChapterBackground(proj.slug, path.join(otherBg, 'foreign.jpg')),
+      /outside|refused/,
+    )
+    await assert.rejects(
+      () => svc.resolveChapterBackground(proj.slug, '/etc/hosts'),
+      /outside|refused|not one of/,
+    )
+    await assert.rejects(
+      () => svc.resolveChapterBackground(proj.slug, 'not-listed.jpg'),
+      /not one of/,
+    )
+    // A symlink planted in the folder cannot reach outside: realpath containment.
+    const outsideDir = path.join(pm.getProjectDir(proj.slug)!, 'secrets')
+    await fs.mkdir(outsideDir, { recursive: true })
+    await fs.writeFile(path.join(outsideDir, 'outside.jpg'), 'x')
+    await fs.symlink(path.join(outsideDir, 'outside.jpg'), path.join(bgDir, 'evil.jpg'))
+    await assert.rejects(
+      () => svc.resolveChapterBackground(proj.slug, path.join(bgDir, 'evil.jpg')),
+      /outside|refused/,
+    )
+    await assert.rejects(
+      () => svc.resolveChapterBackground(proj.slug, '${BACKGROUND}/no-such-background'),
+      /no-such-background/,
     )
   })
 
-  test('pool state reports catalog, channel files and folder for the editor', async () => {
+  test('pool state reports the inventory, cursor, and an honest catalog answer', async () => {
     const proj = await pm.createProject({ name: 'ChapterBgState' })
     const bgDir = path.join(pm.getProjectDir(proj.slug)!, 'backgrounds')
     await fs.mkdir(bgDir, { recursive: true })
     await fs.writeFile(path.join(bgDir, 'x.mp4'), 'x')
-    await svc.updateChapterBackgroundPool(proj.slug, poolOf(['x.mp4']))
+    await svc.updateChapterBackgroundPool(proj.slug, poolOf(['x.mp4']).items)
 
     const state = await svc.getChapterBackgroundPoolState(proj.slug)
     assert.equal(state.pool.items.length, 1)
     assert.deepEqual(state.channel_files, ['x.mp4'])
     assert.equal(state.folder, bgDir)
-    assert.ok(Array.isArray(state.available_catalog))
     assert.deepEqual(state.cursor, { last_background_id: null, last_index: null })
+    assert.ok(Array.isArray(state.recent_usage))
+
+    // A broken catalog is a NAMED failure with its reason — never an empty success.
+    const catalog = await import('../services/background-catalog.js')
+    try {
+      catalog._clearBackgroundCatalogCache()
+      catalog._setBackgroundsDirForTesting(path.join(bgDir, 'no-such-catalog-dir'))
+      const failed = await svc.getChapterBackgroundPoolState(proj.slug)
+      assert.equal(failed.catalog.available, false)
+      assert.equal(failed.catalog.entries.length, 0)
+      assert.match(failed.catalog.reason ?? '', /catalog unavailable/i)
+      assert.equal(failed.channel_files.length, 1)
+    } finally {
+      catalog._setBackgroundsDirForTesting(null)
+      catalog._clearBackgroundCatalogCache()
+    }
+    const healthy = await svc.getChapterBackgroundPoolState(proj.slug)
+    assert.equal(healthy.catalog.available, true)
+    assert.ok(Array.isArray(healthy.catalog.entries))
   })
 })
