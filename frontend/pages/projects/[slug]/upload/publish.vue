@@ -145,6 +145,63 @@
               <small v-if="action.why" class="bulk-why">{{ action.why }}</small>
             </li>
           </ul>
+
+          <!--
+            Paced bulk queueing. Upload on = earliest transfer start; Publish on
+            = the private time each video goes public. Preview asks the server
+            for the plan BEFORE anything is queued, and a plan that cannot meet
+            a publication date shows its conflicts here and blocks the Queue
+            button below until the dates are fixed.
+          -->
+          <div class="bulk-pacing" data-setting="bulk-pacing-preview">
+            <div class="bulk-pacing-fields">
+              <label class="field">
+                <span>Upload on (earliest transfer)</span>
+                <input
+                  v-model="pacingUploadOn" type="datetime-local" :disabled="busy !== '' || pacingPreviewing"
+                  aria-label="Earliest upload date and time"
+                />
+              </label>
+              <label class="field">
+                <span>Publish on (goes public)</span>
+                <input
+                  v-model="pacingPublishOn" type="datetime-local" :disabled="busy !== '' || pacingPreviewing"
+                  aria-label="Publication date and time"
+                />
+              </label>
+              <div class="bulk-pacing-actions">
+                <button
+                  class="btn btn-ghost btn-sm" type="button"
+                  :disabled="busy !== '' || pacingPreviewing || !selectedCodes.length"
+                  @click="previewPacing"
+                >
+                  {{ pacingPreviewing ? 'Previewing…' : `Preview Pacing (${selectedCodes.length})` }}
+                </button>
+                <button
+                  v-if="pacingPlan || pacingPreviewError"
+                  class="btn btn-ghost btn-sm" type="button"
+                  :disabled="busy !== ''"
+                  @click="clearPacingPreview"
+                >Clear Preview</button>
+              </div>
+            </div>
+            <p class="hint">Upload on and Publish on are separate: the video transfers no earlier than Upload on and stays private until Publish on. Preview shows the plan and any conflicts before anything is queued.</p>
+            <p v-if="pacingPreviewError" class="result err" role="alert">{{ pacingPreviewError }}</p>
+            <template v-if="pacingPlan">
+              <p v-if="pacingPlan.ok && !pacingConflicts.length" class="result ok" role="status">
+                Plan ready: {{ pacingPlan.slots?.length || 0 }} video{{ (pacingPlan.slots?.length || 0) === 1 ? '' : 's' }} given future upload slots.
+              </p>
+              <p v-else-if="pacingPlan.unconfigured_message" class="result warn" role="alert">{{ pacingPlan.unconfigured_message }}</p>
+              <ul v-if="pacingConflicts.length" class="warnings pacing-conflicts" role="alert">
+                <li v-for="(conflict, index) in pacingConflicts" :key="index">
+                  <b>{{ conflict.episode_code }}:</b> {{ conflict.detail || conflict.reason }}
+                </li>
+              </ul>
+              <p v-if="pacingPlanBlocked" class="result warn" role="alert">
+                This plan cannot meet the dates above. Fix the dates and preview again — nothing is queued while conflicts stand.
+              </p>
+            </template>
+          </div>
           </template>
           <div v-if="bulkRun" class="bulk-progress" role="status" aria-live="polite">
             <p>
@@ -298,6 +355,17 @@
         <p v-if="overviewError" class="result warn">{{ overviewError }} Local video facts remain available.</p>
         <p class="hint">Story Studio checks unfinished uploads with YouTube every 30 minutes; Check All Uploads on the Upload Center asks about every upload, older ones included. Each check spends a little of this Cloud project’s daily allowance.</p>
       </section>
+
+      <!--
+        The paced queue, this channel's pacing rules, and the two optional
+        upload settings — one band below the list, each its own panel with its
+        own honest unavailable state. Nothing here changes the rows above; it
+        is how the queue behind them is configured and read.
+      -->
+      <UploadQueueSection :slug="slug" :queue="uploadQueue" :overview-error="overviewError" @refresh="refreshQueue" />
+      <UploadPacingSettings :slug="slug" />
+      <UploadCaptionsSettings v-model="captionSettings" />
+      <ChannelYouTubeSettings :slug="slug" />
 
       <!--
         Queueing continues after the bulk dialog is dismissed. The dialog was
@@ -982,6 +1050,7 @@
 
           <div class="bulk-review-footer">
             <p class="hint">Files and metadata are checked again before queueing. Refused rows stay here and are not retried automatically. Closing this review does not stop queueing.</p>
+            <p v-if="pacingPlanBlocked" class="result warn" role="status">The pacing preview behind this review found conflicts. Fix the Upload on / Publish on dates and preview again — queueing stays blocked until the plan works.</p>
             <p v-if="bulkQueueWasStopped" class="result warn" role="status">Queueing stopped. Already queued uploads continue; the remaining Reviewed rows can be queued when you are ready.</p>
             <button
               v-if="busy === 'bulk-upload'" class="btn btn-ghost" type="button"
@@ -990,7 +1059,7 @@
             <button
               v-else
               class="btn btn-primary" type="button"
-              :disabled="busy !== '' || !queueableBulkReviews.length"
+              :disabled="busy !== '' || !queueableBulkReviews.length || pacingPlanBlocked"
               @click="queueReviewedUploads"
             >
               {{ busy === 'bulk-upload' ? 'Queueing…' : `Queue Reviewed Uploads (${queueableBulkReviews.length})` }}
@@ -1412,6 +1481,73 @@ const videoEpisode = ref<PublishableEpisode | null>(null)
 const videoError = ref('')
 const overviewError = ref('')
 const refreshingList = ref(false)
+
+// The overview's paced-queue projection. null = the server did not send one
+// (offline, asleep, or not installed) — the queue panel says so rather than
+// reading that as "nothing queued".
+const uploadQueue = ref<any>(null)
+
+// Closed captions (CC) upload — OFF by default, carried into every upload's
+// params.captions so the queue keeps exactly what was chosen here.
+const captionSettings = ref({
+  enabled: false,
+  language: 'en',
+  track_name: 'English',
+  is_draft: false,
+  dedupe_mode: 'skip_if_exists' as 'skip_if_exists' | 'replace_existing' | 'upload_always',
+  preferred_source: 'auto' as 'auto' | 'stitched' | 'whisper' | 'custom',
+  custom_srt_path: '',
+})
+
+// Bulk pacing: "Upload on" is the earliest transfer start, "Publish on" the
+// private publishAt — two separate dates, previewed against the channel's
+// pacing rules BEFORE anything is enqueued.
+const pacingUploadOn = ref('')
+const pacingPublishOn = ref('')
+const pacingPreviewing = ref(false)
+const pacingPreviewError = ref('')
+const pacingPlan = ref<any>(null)
+const pacingConflicts = computed(() => (Array.isArray(pacingPlan.value?.conflicts) ? pacingPlan.value.conflicts : []))
+// A preview that found conflicts blocks queueing until the dates are fixed or
+// the preview is cleared; no preview has been run, nothing is blocked.
+const pacingPlanBlocked = computed(() =>
+  !!pacingPlan.value && (pacingPlan.value.ok === false || pacingConflicts.value.length > 0))
+
+async function refreshQueue(): Promise<void> {
+  await load()
+}
+
+function pacingIso(localValue: string): string | null {
+  if (!localValue) return null
+  const at = new Date(localValue).getTime()
+  return Number.isFinite(at) ? new Date(at).toISOString() : null
+}
+
+async function previewPacing(): Promise<void> {
+  if (!selectedCodes.value.length) return
+  pacingPreviewing.value = true
+  pacingPreviewError.value = ''
+  pacingPlan.value = null
+  try {
+    pacingPlan.value = await post(`/projects/${slug.value}/youtube/upload-pacing/preview`, {
+      items: selectedCodes.value.map(code => ({
+        episode_code: code,
+        earliest_upload_on: pacingIso(pacingUploadOn.value),
+        publish_at: pacingIso(pacingPublishOn.value),
+      })),
+    })
+  } catch (error: any) {
+    pacingPreviewError.value = error?.data?.detail || error?.message
+      || 'Pacing preview is unavailable — the server may be offline or asleep, so no plan can be promised.'
+  } finally {
+    pacingPreviewing.value = false
+  }
+}
+
+function clearPacingPreview(): void {
+  pacingPlan.value = null
+  pacingPreviewError.value = ''
+}
 
 const LIFECYCLE: Record<string, string> = {
   preparing: 'Preparing',
@@ -2587,6 +2723,10 @@ async function load(): Promise<void> {
     // offer an upload the route was about to refuse, and hide one it would have
     // accepted.
       uploadQuotaExhausted.value = (overview?.quota?.buckets?.video_uploads?.remaining ?? 1) <= 0
+      // The paced queue projection rides the same overview read. Absent key
+      // stays null (unavailable), an empty array means genuinely nothing
+      // waiting — the queue panel keeps those two apart.
+      uploadQueue.value = overview?.upload_queue ?? null
     } else {
       const error = overviewResult.reason as any
       overviewError.value = error?.data?.detail || error?.message || 'YouTube connection status could not be loaded.'
@@ -2595,6 +2735,7 @@ async function load(): Promise<void> {
       quotaUnavailableReason.value = 'overview_unavailable'
       quotaExhausted.value = false
       uploadQuotaExhausted.value = false
+      uploadQueue.value = null
     }
     // A row that left the list leaves the selection; every other selected row
     // stays, and each bulk action re-checks whether it still applies.
@@ -2775,6 +2916,7 @@ async function upload(episodeCode: string): Promise<void> {
     thumbnail_filename: expectedThumbnailFilename,
     privacy_status: expectedPrivacyStatus,
     ...(expectedPublishAt ? { publish_at: expectedPublishAt } : {}),
+    params: { captions: captionSettings.value },
   }
   try {
     const res = await postUploadWithAcknowledgements(requestedSlug, uploadBody, episodeCode)
@@ -2936,6 +3078,9 @@ async function reviewSelectedUploads(event?: Event): Promise<void> {
 
 async function queueReviewedUploads(): Promise<void> {
   if (busy.value || !queueableBulkReviews.value.length) return
+  // A previewed plan with conflicts never reaches the queue: the dates the
+  // owner chose cannot be met, and queueing anyway would silently drop them.
+  if (pacingPlanBlocked.value) return
   const requestedSlug = slug.value
   const expectedChannelId = assignedChannel.value?.channel_id
   if (!expectedChannelId) return
@@ -2975,7 +3120,13 @@ async function queueReviewedUploads(): Promise<void> {
         expected_source_revision: expectedSourceRevision,
         thumbnail_filename: preview.thumbnail.state === 'selected' ? preview.thumbnail.filename || null : null,
         privacy_status: preview.status.privacyStatus,
-        ...(preview.status.publishAt ? { publish_at: preview.status.publishAt } : {}),
+        // A batch Publish on deliberately overrides each row's own plan time —
+        // the preview above showed exactly this before anything was queued.
+        ...(pacingIso(pacingPublishOn.value) || preview.status.publishAt
+          ? { publish_at: pacingIso(pacingPublishOn.value) || preview.status.publishAt }
+          : {}),
+        ...(pacingIso(pacingUploadOn.value) ? { earliest_upload_on: pacingIso(pacingUploadOn.value) } : {}),
+        params: { captions: captionSettings.value },
       }
       const result = await postUploadWithAcknowledgements(requestedSlug, uploadBody, item.episode_code)
       if (!actionIsCurrent(action)) return
@@ -3599,6 +3750,13 @@ watch(slug, () => {
 .bulk-action-head { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
 .bulk-action small { color: var(--text-muted); font-size: var(--font-xs); line-height: 1.4; }
 .bulk-action .bulk-why { color: var(--text-secondary); font-style: italic; }
+.bulk-pacing { display: grid; gap: 8px; margin-top: 10px; padding: 10px; border: 1px dashed var(--border); border-radius: var(--radius-sm); background: var(--bg-secondary); }
+.bulk-pacing-fields { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; }
+.bulk-pacing-fields .field { display: grid; gap: 4px; min-width: 200px; }
+.bulk-pacing-fields .field > span { font-size: var(--font-xs); color: var(--text-muted); }
+.bulk-pacing-fields input[type="datetime-local"] { padding: 0.45rem 0.6rem; font-size: 0.875rem; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-input, rgba(0, 0, 0, 0.2)); color: var(--text-normal); }
+.bulk-pacing-actions { display: flex; gap: 8px; }
+.pacing-conflicts { margin: 0; padding-left: 1.1rem; }
 .bulk-where { font-size: var(--font-xs); font-weight: 700; white-space: nowrap; }
 .bulk-progress { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; padding: 8px 10px; border-left: 3px solid var(--accent); background: var(--bg-secondary); }
 .bulk-progress p { margin: 0; font-size: var(--font-xs); }
