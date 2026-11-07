@@ -45,6 +45,23 @@ export function postRollSeconds(postAudio: VideoPostAudio | null | undefined): n
   return 0
 }
 
+/**
+ * The post-audio block a NEW render may draw (owner, 2026-11-07: prevent new
+ * black endings; finished videos are never touched). `black-screen` and
+ * `fade-to-black` become `hold-last-scene` over the SAME tail length — the
+ * seconds `postRollSeconds` already returned for them, carried across — so the
+ * closing music, the video's length and every duration/frame check stay exactly
+ * what they were. Stored presets and requests are not modified: this returns a
+ * block for the draw, and the caller says what it substituted.
+ */
+export function preventBlackTail(postAudio: VideoPostAudio): VideoPostAudio {
+  if (postAudio.behavior !== 'black-screen' && postAudio.behavior !== 'fade-to-black') return postAudio
+  const seconds = postAudio.behavior === 'fade-to-black'
+    ? Math.max(0, postAudio.fade_duration || 5)
+    : Math.max(0, postAudio.tail_seconds ?? 4)
+  return { ...postAudio, behavior: 'hold-last-scene', tail_seconds: seconds }
+}
+
 /** The completion record Audio Assembly writes beside `{code}_merged_audio.mp3`. */
 export function mergedAudioCompletionPath(mergedAudioPath: string, code: string): string {
   return path.join(path.dirname(mergedAudioPath), `${code.toUpperCase()}_merged_audio.completion.json`)

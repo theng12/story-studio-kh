@@ -170,7 +170,7 @@ import {
 import { scenePlanLeadInShiftSec, shiftScenesForLeadIn, computeStoryStartSec } from '../lib/intro-lead-in.js'
 import { isSleepNiche, resolveSleepTitlePlacement, sleepTitleOpeningPlan, sleepTitleOverlayWindow, type SleepTitlePlacementResult, type SleepVideoContext } from '../lib/sleep-title-placement.js'
 import { getEffectiveNiche } from '../services/niche-loader.js'
-import { mergedBackgroundMusic, narrationSecFromMaster, postRollSeconds } from '../lib/closing-tail.js'
+import { mergedBackgroundMusic, narrationSecFromMaster, postRollSeconds, preventBlackTail } from '../lib/closing-tail.js'
 import { resolveEpisodeMergedAudioChoice } from '../lib/merged-audio-selection.js'
 import { compareMergedAudio, MIN_RENDERABLE_SCENE_SEC, unrenderableSceneProblem } from '../lib/scene-plan-timeline.js'
 import {
@@ -4559,7 +4559,18 @@ export async function generateVideo(job: Job): Promise<VideoAssemblyDisposition>
     }
 
     // 9. Resolve post-audio behavior
-    const postAudio = req.post_audio ?? { behavior: 'fade-to-black' as const, fade_duration: 5 }
+    // No new black endings (owner, 2026-11-07): black-screen / fade-to-black draw
+    // as hold-last-scene over the same tail — see preventBlackTail.
+    const requestedPostAudio = req.post_audio ?? { behavior: 'fade-to-black' as const, fade_duration: 5 }
+    const postAudio = preventBlackTail(requestedPostAudio)
+    if (req.post_audio && postAudio !== requestedPostAudio) {
+      job.output_lines.push(
+        `Ending: this render asked for ${req.post_audio.behavior === 'black-screen' ? 'a black screen' : 'a fade to black'}, `
+        + 'which Story no longer draws. It holds the last scene instead for '
+        + `${postRollSeconds(postAudio).toFixed(1)}s under the same closing music. `
+        + 'Your saved settings were not changed — set the ending to Hold Last Scene (or Hard Cut) to match what will be drawn.',
+      )
+    }
     // The tail that exists is the one in the merged audio. When it baked one and
     // the preset since changed to a behavior that draws no tail at all
     // ('hard-cut' / legacy 'continue-cycling'), the picture would stop while the
@@ -6552,7 +6563,7 @@ async function buildConcatList(
     throw new Error('No scene clips available after applying exclusions')
   }
 
-  const behavior = postAudio.behavior || 'fade-to-black'
+  const behavior = postAudio.behavior || 'hold-last-scene'
   const clipsPerCycle = availableClips.length
   const durationPerCycle = availableDurations.reduce((sum, d) => sum + d, 0)
 
