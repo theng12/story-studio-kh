@@ -43,6 +43,8 @@ let cleanup: (() => Promise<void>) | undefined
 
 afterEach(async () => {
   __resetYouTubeTransportForTests()
+  // A queue held for one test must never leak into the next one.
+  await jobQueue.setQueuePaused(false).catch(() => {})
   await jobQueue._waitForJobPersistenceForTesting()
   await cleanup?.()
   cleanup = undefined
@@ -252,18 +254,26 @@ describe('the overview projects the real upload queue', () => {
     const episodeCode = await acceptedEpisode(slug)
     const fake = new FakeYouTube()
     __setYouTubeTransportForTests(fake.transport())
+    // No policy means no pacing hold, so an unpaused queue would start this
+    // upload at once. Hold the queue to observe the row while it is queued.
+    await jobQueue.setQueuePaused(true)
 
-    const body = await uploadBody(slug, episodeCode, {
-      earliest_upload_on: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
-    })
-    const queued = await request(app).post(`/api/projects/${slug}/youtube/upload`).send(body)
-    assert.equal(queued.status, 200, JSON.stringify(queued.body))
+    try {
+      const body = await uploadBody(slug, episodeCode, {
+        earliest_upload_on: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+      })
+      const queued = await request(app).post(`/api/projects/${slug}/youtube/upload`).send(body)
+      assert.equal(queued.status, 200, JSON.stringify(queued.body))
 
-    const overview = await request(app).get(`/api/projects/${slug}/youtube/overview`)
-    const row = overview.body.upload_queue.find((entry: any) => entry.episode_code === episodeCode)
-    assert.equal(row.wait_reason, 'unconfigured_pacing')
-    assert.equal(row.next_eligible_at, null, 'no policy means no invented wake instant')
-    await removeQueuedTestJob(slug, queued.body.job_id)
+      const overview = await request(app).get(`/api/projects/${slug}/youtube/overview`)
+      const row = overview.body.upload_queue.find((entry: any) => entry.episode_code === episodeCode)
+      assert.ok(row, 'the queued job appears while the queue is held')
+      assert.equal(row.wait_reason, 'unconfigured_pacing')
+      assert.equal(row.next_eligible_at, null, 'no policy means no invented wake instant')
+      await removeQueuedTestJob(slug, queued.body.job_id)
+    } finally {
+      await jobQueue.setQueuePaused(false)
+    }
   })
 
   test('nothing queued is an empty list, not a missing answer', async () => {
