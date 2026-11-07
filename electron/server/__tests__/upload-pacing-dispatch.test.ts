@@ -93,6 +93,16 @@ before(async () => {
 after(async () => {
   jq._setUploadPacingContextForTesting(null)
   bootQueue._setUploadPacingContextForTesting(null)
+  // The boot fixture's rows outlive its assertions: the pump can still be
+  // admitting them. Retire any still queued so no later pass persists into the
+  // temp root, then drain every in-flight write before the root is removed.
+  for (const id of ['boot-open', 'boot-held']) {
+    if (bootQueue.getJob(id)?.status === 'queued') {
+      bootQueue._setJobRecordForTesting(id, { status: 'cancelled' })
+    }
+  }
+  await jq._waitForJobPersistenceForTesting()
+  await bootQueue._waitForJobPersistenceForTesting()
   await cleanup()
 })
 
