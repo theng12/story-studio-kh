@@ -52,6 +52,17 @@ async function setupWith(models: ReturnType<typeof ref<any[]>>) {
     const revealChoiceOf = () => ''
     const revealForPreset = () => null
     const applyRevealPreset = live => live
+    const setRevealCatalog = () => undefined
+    const effectiveSceneTypes = () => null
+    const sceneTypeRuleDrafts = () => ({})
+    const sceneTypeRulesFromDrafts = () => ({ ok: true, scene_types: { enabled: false, rules: {} } })
+    const sceneTypesEqual = () => true
+    const SCENE_TYPE_CHOICES = []
+    const motionBatchEligible = () => false
+    const sketchSelectionReady = () => false
+    const LINE_WEIGHTS = ['thin', 'normal', 'bold']
+    const lineWeightFromDraft = () => ({ ok: true, weight: null })
+    const lineWeightLabel = () => ''
   `
   const stripped = script.content.replace(/^import[\s\S]*?from ['"][^'"]+['"]\n/gm, '')
   const code = `${support}\n${stripped.replace('export default', 'const __sfc__ =')}\nexport default __sfc__`

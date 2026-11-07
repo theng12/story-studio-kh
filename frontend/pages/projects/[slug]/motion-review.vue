@@ -822,7 +822,10 @@ function sceneTypeRuleOf(scene: MotionScene): SceneTypeRule | null {
 /** What this scene draws with, and why. A pin wins; then its scene-type rule; then the episode setting. */
 function sceneRevealRow(scene: MotionScene): string {
   const pin = scenePinOf(scene)
-  if (pin) return `Reveal: ${REVEAL_LABELS[pin] ?? pin} — pinned for this scene`
+  if (pin) {
+    const label = REVEAL_LABELS[scene.reveal_type ?? pin] ?? scene.reveal_type ?? pin
+    return `Pinned: ${label}${revealIsMix.value ? ' — this pin wins over the Mix' : ''}`
+  }
   const rule = sceneTypeRuleOf(scene)
   if (rule?.reveal) {
     const label = sceneTypeLabel(scene.subject_kind!)
