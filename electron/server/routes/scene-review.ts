@@ -807,7 +807,7 @@ router.get('/projects/:slug/scene-review/:episodeId', async (req, res) => {
     const reviewSketchSettings = sketchRenderer || plan.scenes.some(scene => scene.clip_renderer === 'sketch_draw')
       ? await resolveSketchDrawSettings(slug, episodeId).catch(() => undefined)
       : undefined
-    const reviewContext = { slug, episodeId, episodeDir: paths.episode_dir, sketchSettings: reviewSketchSettings, revealScenes: plan.scenes.map(item => item.id), imagesDir: namedDir }
+    const reviewContext = { slug, episodeId, episodeDir: paths.episode_dir, sketchSettings: reviewSketchSettings, revealScenes: plan.scenes.map(item => item.id), sceneKinds: Object.fromEntries(plan.scenes.map(item => [item.id, item.subject_kind])), imagesDir: namedDir }
     const listed = async (dir: string) => new Set(await fs.readdir(dir).catch(() => [] as string[]))
     const [namedFiles, legacyFiles, clipFiles] = await Promise.all([listed(namedDir), listed(legacyDir), listed(clipsDir)])
     const legacyUnmappedImages = [...namedFiles].filter(filename => legacyNumberedPattern.test(filename)).length

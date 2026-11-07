@@ -46,9 +46,20 @@ test('invalid policy is refused and a corrupt saved policy is never called uncon
   const endpoint = `/api/projects/${project.slug}/youtube/upload-pacing`
   await request(app).put(endpoint).send({ policy: { ...policy, window: null } }).expect(400)
   assert.equal((await pm.getConfig(project.slug) as any).upload_pacing, undefined)
-  await pm.updateConfig(project.slug, { upload_pacing: { ...policy, daily_limit: 0 } } as any)
-  const result = await request(app).get(endpoint).expect(409)
-  assert.match(result.body.detail, /invalid/i)
-  await assert.rejects(cadence.readChannelSchedule(project.slug), /invalid/i)
+  for (const invalid of [{ ...policy, daily_limit: 0 }, false, 0, '']) {
+    await pm.updateConfig(project.slug, { upload_pacing: invalid } as any)
+    const result = await request(app).get(endpoint).expect(409)
+    assert.match(result.body.detail, /invalid/i)
+    await assert.rejects(cadence.readChannelSchedule(project.slug), /invalid/i)
+  }
   await request(app).get('/api/projects/not-a-real-project/youtube/upload-pacing').expect(404)
+})
+
+test('preview refuses malformed rows instead of silently omitting episodes', async () => {
+  const project = await pm.createProject({ name: 'Pacing Preview Rows' })
+  const endpoint = `/api/projects/${project.slug}/youtube/upload-pacing`
+  await request(app).put(endpoint).send({ policy }).expect(200)
+  for (const items of [[], [{ episode_code: '' }], [{ episode_code: 'EP1', earliest_upload_on: 'bad-date' }]]) {
+    await request(app).post(`${endpoint}/preview`).send({ items }).expect(400)
+  }
 })

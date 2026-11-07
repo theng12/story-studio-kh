@@ -281,7 +281,7 @@ async function save(): Promise<void> {
   saveError.value = ''
   saveOk.value = ''
   const result = validateUploadPacingPolicy(policyFromDraft())
-  if (!result.ok) {
+  if (result.ok === false) {
     saveError.value = result.message
     return
   }

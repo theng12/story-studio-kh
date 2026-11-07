@@ -609,11 +609,11 @@ watch(slug, () => { finalReviews.value = {}; finalReviewOn.value = false; void l
 function finalReviewLabel(review: FinalReviewState): string {
   if (review.state === 'unreadable') return 'Review mark unreadable'
   if (review.state === 'stale') return 'Final changed since review'
-  if (review.state === 'current') return review.decision === 'approved' ? 'Final approved' : 'Final needs changes'
+  if (review.state === 'current') return review.decision === 'auto_passed' ? 'Final auto-passed' : review.decision === 'approved' ? 'Final passed' : 'Final needs changes'
   return 'Final not reviewed'
 }
 function finalReviewTone(review: FinalReviewState): string {
-  return review.state === 'current' ? review.decision : review.state
+  return review.state === 'current' ? review.decision === 'auto_passed' ? 'approved' : review.decision : review.state
 }
 function costTooltipFor(code: string): string {
   const c = costFor(code)

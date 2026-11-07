@@ -295,6 +295,7 @@ router.post('/projects/:slug/generate/audio-merge', async (req, res) => {
     })
     if (resolved.settings) req.body.channel_intro = { ...resolved.settings, enabled: true }
   }
+  if (req.body.channel_intro === null) delete req.body.channel_intro
   // Job3 (1.4.384) — an explicit channel-owned intro is frozen HERE, at the
   // job boundary: the chosen bytes are copied and hashed once, so the merge
   // reads exactly what this job was queued with (local and remote consumers

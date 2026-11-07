@@ -97,12 +97,17 @@ describe('scene-type rules parse', () => {
       { scene_types: { enabled: true, rules: { interior: { reveal: { style: 'nonsense', mix: [] } } } } },
       { scene_types: { enabled: true, rules: { interior: { reveal: { style: 'mix', mix: ['line'] } } } } },
       { scene_types: { enabled: true, rules: { interior: { hold: { mode: 'fixed', seconds: 999 } } } } },
-      { scene_types: { enabled: true, rules: { interior: { hold: { mode: 'auto', seconds: 3 } } } } },
     ]
     for (const value of bad) {
       const parsed = parseSketchReveal({ ...OFF_DEFAULT, ...value })
       assert.equal(parsed.ok, false, `expected rejection: ${JSON.stringify(value)}`)
     }
+  })
+
+  test('automatic holds ignore stale fixed seconds through the shared hold parser', () => {
+    const parsed = parseSketchReveal(rulesOn({ interior: { hold: { mode: 'auto', seconds: 3 } } }))
+    assert.ok(parsed.ok)
+    assert.deepEqual(parsed.reveal.scene_types?.rules.interior.hold, { mode: 'auto' })
   })
 
   test('an invalid hold inside a rule names the hold problem', () => {

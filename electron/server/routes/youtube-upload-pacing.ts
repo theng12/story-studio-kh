@@ -45,7 +45,7 @@ function fail(res: import('express').Response, error: unknown, fallback: string)
 async function readPolicy(slug: string): Promise<UploadPacingPolicy | null> {
   const config = (await getConfig(slug)) as any
   const raw = config?.upload_pacing
-  if (!raw) return null
+  if (raw === undefined || raw === null) return null
   const validated = validateUploadPacingPolicy(raw)
   if (!validated.ok) throw Object.assign(new Error(`Saved upload pacing is invalid: ${validated.message}`), { statusCode: 409 })
   return validated.policy
@@ -113,7 +113,14 @@ router.post('/projects/:slug/youtube/upload-pacing/preview', async (req, res) =>
       })
       return
     }
-    const items = (Array.isArray(req.body?.items) ? req.body.items : [])
+    if (!Array.isArray(req.body?.items) || !req.body.items.length || req.body.items.some((item: any) =>
+      typeof item?.episode_code !== 'string' || !item.episode_code.trim()
+      || ['earliest_upload_on', 'publish_at'].some(key => item[key] != null &&
+        (typeof item[key] !== 'string' || !Number.isFinite(Date.parse(item[key])))))) {
+      res.status(400).json({ detail: 'Choose episodes with valid Upload on and Publish on dates before previewing slots.' })
+      return
+    }
+    const items = req.body.items
       .map((item: any) => ({
         episode_code: typeof item?.episode_code === 'string' ? item.episode_code.trim() : '',
         earliest_upload_on: typeof item?.earliest_upload_on === 'string' ? item.earliest_upload_on : null,
@@ -125,7 +132,7 @@ router.post('/projects/:slug/youtube/upload-pacing/preview', async (req, res) =>
     // dispatcher would refuse.
     const registry = await readYouTubeConnectionRegistry()
     const quota = registry.application
-      ? await readYouTubeQuota(registry.application.application_id).catch(() => null)
+      ? await readYouTubeQuota(registry.application.application_id)
       : null
     const context = pacingInputsForPolicy({
       jobs: await getJobs(slug, { type: 'youtube_upload' }),
@@ -135,7 +142,8 @@ router.post('/projects/:slug/youtube/upload-pacing/preview', async (req, res) =>
         : null,
     })
     const plan = calculatePacedUploadSlots(items, policy, {
-      now: Date.now(),
+      now: context.quota_exhausted && context.quota_reset_at
+        ? Math.max(Date.now(), Date.parse(context.quota_reset_at)) : Date.now(),
       recorded_transfers: context.recorded_transfers,
       existing_planned_slots: context.existing_planned_slots,
       quota_timezone: context.quota_timezone,

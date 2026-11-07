@@ -356,7 +356,7 @@ export function validateUploadPacingPolicy(policy: unknown): ValidatePolicyResul
 
   // Window check
   const windowValidation = validateUploadTimeWindow(p.window)
-  if (!windowValidation.ok) {
+  if (windowValidation.ok === false) {
     return {
       ok: false,
       reason: windowValidation.reason === 'missing_window' ? 'missing_window' : 'invalid_window_hours',

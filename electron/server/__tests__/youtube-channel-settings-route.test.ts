@@ -222,7 +222,9 @@ test('PUT surfaces a YouTube failure as 502 and writes nothing', async () => {
 
 test('concurrent PUTs keep each request\'s playlist and plan together', async () => {
   const slug = await connectedProject()
-  __setYouTubeTransportForTests(queuePlaylists().transport())
+  const fake = queuePlaylists()
+  queuePlaylists(fake)
+  __setYouTubeTransportForTests(fake.transport())
 
   // Two whole-settings saves racing. Each writes playlist AND plan inside one
   // config lock, so the surviving pair must be one request's own pair — never

@@ -31,10 +31,9 @@
  *    pool is drawn with a rng seeded from the episode id, so a retry re-renders
  *    the same face instead of re-rolling one (AGENTS §4: episode state belongs
  *    to the episode).
- *  - **It fails soft, never loud.** An unreadable chapter clock or a missing
- *    narration file means "no automatic headings", reported as a note the job
- *    log can print — never a failed render. Font integrity and glyph coverage
- *    stay where they were, in `chapter-title-font.ts`.
+ *  - **Enabled titles require a chapter clock.** Missing or unreadable timing
+ *    stops the render with an actionable message. Missing heading text uses
+ *    the chapter label. Font integrity stays in `chapter-title-font.ts`.
  *
  * The caller owns the request; this module only answers questions about it.
  */
@@ -249,10 +248,10 @@ export async function applyAutomaticChapterTitles(opts: {
   if (!opts.enabled) return null
   const notes: string[] = []
   const presentation = opts.presentation ?? null
-  const paths = await resolveEpisodePathsByCode(opts.slug, opts.episodeId)
-
+  let paths: Awaited<ReturnType<typeof resolveEpisodePathsByCode>>
   let windows: ChapterWindow[] = []
   try {
+    paths = await resolveEpisodePathsByCode(opts.slug, opts.episodeId)
     windows = sectionWindows(await readSectionClock(opts.slug, opts.episodeId))
   } catch (error: any) {
     throw new Error(

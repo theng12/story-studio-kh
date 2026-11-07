@@ -28,6 +28,7 @@ import { router as youtubeConnectionsRouter } from './youtube-connections.js'
 import { router as youtubeUploadCenterRouter } from './youtube-upload-center.js'
 import { router as youtubeAuditRouter } from './youtube-audit.js'
 import { router as youtubeUploadPacingRouter } from './youtube-upload-pacing.js'
+import { router as youtubeChannelSettingsRouter } from './youtube-channel-settings.js'
 import { router as socialPublishingRouter } from './social-publishing.js'
 import { router as appSettingsRouter } from './app-settings.js'
 import { router as localScreeningRouter } from './local-screening.js'
@@ -116,6 +117,7 @@ export function mountRoutes(app: Express): void {
   app.use('/api', youtubeUploadCenterRouter)
   app.use('/api', youtubeAuditRouter)
   app.use('/api', youtubeUploadPacingRouter)
+  app.use('/api', youtubeChannelSettingsRouter)
   app.use('/api', socialPublishingRouter)
   app.use('/api', charactersRouter)
   app.use('/api', storyEntitiesRouter)

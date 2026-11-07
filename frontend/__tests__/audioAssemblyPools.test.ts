@@ -39,8 +39,9 @@ test('every layer has group and item enable, a pool chooser, play, and volume', 
     assert.match(page, new RegExp(`v-model="${model}\\.enabled"`))
     assert.match(page, new RegExp(`moveLayerTrack\\('${kind}'`))
     assert.match(page, new RegExp(`refreshLayerLibrary\\('${kind}'\\)`))
-    assert.match(page, new RegExp(`addLayerTrack\\('${kind}'`))
+    assert.match(page, new RegExp(`layerPicker = '${kind}'`))
   }
+  assert.match(page, /@click="addLayerTrack\(activeLayerPicker\.kind, f\)"/)
   assert.match(page, /<h3>Background voice<\/h3>/)
   assert.match(page, /never replaced here|never a replacement for it/)
 })
