@@ -22,6 +22,7 @@ export const JOB_TYPE_LABELS: Record<string, string> = {
   'chapter-only': 'Chapter regen',
   outline_only: 'Script outline',
   expand_chapters: 'Chapter expansion',
+  story_entities_extract: 'Story context extraction',
   image_prompts: 'Prompts',
   thumb_images: 'Thumbnail Images',
   thumbnail_score: 'Thumbnail scoring',

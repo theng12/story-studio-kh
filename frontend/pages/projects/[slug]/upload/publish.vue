@@ -3812,7 +3812,7 @@ watch(slug, () => {
 .bulk-pacing-fields { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; }
 .bulk-pacing-fields .field { display: grid; gap: 4px; min-width: 200px; }
 .bulk-pacing-fields .field > span { font-size: var(--font-xs); color: var(--text-muted); }
-.bulk-pacing-fields input[type="datetime-local"] { padding: 0.45rem 0.6rem; font-size: 0.875rem; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-input, rgba(0, 0, 0, 0.2)); color: var(--text-normal); }
+.bulk-pacing-fields input[type="datetime-local"] { padding: 0.45rem 0.6rem; font-size: 0.875rem; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-input, rgba(0, 0, 0, 0.2)); color: var(--text-primary); }
 .bulk-pacing-actions { display: flex; gap: 8px; }
 .pacing-conflicts { margin: 0; padding-left: 1.1rem; }
 .bulk-where { font-size: var(--font-xs); font-weight: 700; white-space: nowrap; }

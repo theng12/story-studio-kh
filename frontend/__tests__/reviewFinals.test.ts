@@ -11,10 +11,9 @@
 
 import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
-import path from 'node:path'
 import { describe, test } from 'node:test'
 
-const reviewVuePath = path.resolve(__dirname, '../pages/review.vue')
+const reviewVuePath = new URL('../pages/review.vue', import.meta.url)
 const template = await fs.readFile(reviewVuePath, 'utf8')
 
 describe('Review page — Pass button and auto-pass UI', () => {

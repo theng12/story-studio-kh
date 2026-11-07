@@ -43,7 +43,7 @@ test('the editor defers every rotation answer to the shared contract', () => {
   assert.ok(!/\bfetch\s*\(|\$fetch|useFetch/.test(source), 'the editor never writes a save itself')
   // Serial is the feature, not an option: no rotation-mode chooser is offered.
   assert.ok(!source.includes('usage_mode'), 'no unasked rotation-mode UI')
-  assert.ok(!source.includes('weight'), 'no unasked weighting UI')
+  assert.ok(!source.split('<style')[0]!.includes('weight'), 'no unasked weighting UI')
 })
 
 test('the editor starts OFF: an empty pool is today\'s behaviour', () => {

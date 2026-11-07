@@ -221,7 +221,7 @@ watch(automatic, async (value) => {
   await nextTick()
   if (savedFaceId.value || automatic.value !== value) return
   patch({ channel_look: true, font_id: undefined, resolved_font_id: value.font_id })
-})
+}, { immediate: true })
 
 /** Options this heading can actually be drawn in — the thumbnail coverage rule, same helper.
  *  The saved face stays in the list even when this sample no longer covers it: the picker's

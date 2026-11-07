@@ -74,8 +74,8 @@ test('save stays off until the story context has answered, and says which half f
   assert.match(page, /storyLoadError\.value = e\?\.data\?\.detail/)
   // A save whose story half failed must say so — never a bare success.
   assert.match(page, /Visual setup saved, but story context failed/)
-  // The inventory half is only written when it actually changed.
-  assert.match(page, /if \(storyDirty\.value\)/)
+  // Inventory edits or an explicitly reviewed proposal draft need a story save.
+  assert.match(page, /if \(storyDirty\.value \|\| proposalsReviewed\.value\)/)
 })
 
 test('an episode change blanks the story inventory before the reloads', () => {
