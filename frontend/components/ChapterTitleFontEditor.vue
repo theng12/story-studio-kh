@@ -43,7 +43,8 @@
     </div>
 
     <div v-if="source === 'pool'" class="ctfe-resolved" role="status">
-      <template v-if="resolvedFace">{{ resolvedFace }} — chosen once for this episode and kept.</template>
+      <template v-if="resolvedFace && boundAutomatically">{{ resolvedFace }} — bound automatically from this channel's font pool, and kept for this episode.</template>
+      <template v-else-if="resolvedFace">{{ resolvedFace }} — chosen once for this episode and kept.</template>
       <template v-else>The channel pool has no face for this episode yet. Pick a font instead, or leave today's look.</template>
     </div>
 
@@ -166,19 +167,61 @@ const fonts = computed(() => props.fonts?.length ? props.fonts : loaded.value)
 const presentation = computed(() => props.modelValue ?? null)
 const appearance = computed(() => presentation.value?.appearance ?? {})
 
-/** The face in force: the explicit pick, else the pool's resolution for this episode. */
-const faceId = computed(() => presentation.value?.font_id || presentation.value?.resolved_font_id || '')
+/** The face this episode actually saved, before any automatic binding. */
+const savedFaceId = computed(() => presentation.value?.font_id || presentation.value?.resolved_font_id || '')
+
+/**
+ * The face the render binds on its own when this episode has expressed no
+ * choice at all — the automatic channel-pool binding of 1.4.386. Held in a ref
+ * (not a computed) so a weighted pool cannot re-roll the face on every
+ * recompute, and dropped the moment the customer says anything.
+ */
+const automatic = ref<{ font_id: string } | null>(null)
+/** True only while THIS session wrote the automatic face, so the line can say so. */
+const boundAutomatically = ref(false)
+
+/** The face in force: the saved choice first, the automatic binding second. */
+const faceId = computed(() => savedFaceId.value || automatic.value?.font_id || '')
 const hasFace = computed(() => !!faceId.value)
 const face = computed(() => fonts.value.find(font => font.id === faceId.value) ?? null)
 
 const source = computed<'default' | 'pool' | 'font'>(() => {
   if (presentation.value?.channel_look) return 'pool'
   if (presentation.value?.font_id) return 'font'
+  if (automatic.value) return 'pool'
   return 'default'
 })
 
 const poolFaces = computed(() => (props.pool?.fonts ?? []).map(choice => choice.font_id))
 const resolvedFace = computed(() => face.value?.label ?? faceId.value ?? '')
+
+/**
+ * Automatic binding: nothing chosen and the channel has a pool → this episode
+ * takes the pool's face, exactly as the render would. The choice is then
+ * written into the draft once, so preview, save and render all read the same
+ * stored id instead of each deciding for itself (a weighted pool would
+ * otherwise show one face and draw another).
+ */
+watch(
+  [() => props.pool, savedFaceId, () => presentation.value?.channel_look],
+  ([pool, saved, look]) => {
+    if (saved || look === false || !pool?.fonts?.length) {
+      automatic.value = null
+      return
+    }
+    if (!automatic.value) automatic.value = decideFont(pool, props.poolCursor)
+  },
+  { immediate: true },
+)
+
+watch(automatic, async (value) => {
+  if (!value) return
+  if (savedFaceId.value || presentation.value?.channel_look === false) return
+  boundAutomatically.value = true
+  await nextTick()
+  if (savedFaceId.value || automatic.value !== value) return
+  patch({ channel_look: true, font_id: undefined, resolved_font_id: value.font_id })
+})
 
 /** Options this heading can actually be drawn in — the thumbnail coverage rule, same helper.
  *  The saved face stays in the list even when this sample no longer covers it: the picker's
@@ -267,7 +310,11 @@ async function refitPreview(): Promise<void> {
 function patch(partial: Partial<ChapterTitlePresentation>): void {
   const base: ChapterTitlePresentation = { ...(presentation.value ?? {}) }
   const next: ChapterTitlePresentation = { ...base, ...partial }
-  if (!next.font_id && !next.channel_look && !next.resolved_font_id
+  // `channel_look: false` is the deliberate "today's look" — a real answer, so it
+  // is never flattened to null (null is what "no choice yet" reads as, and the
+  // automatic binding would treat it as permission to bind a face).
+  const deliberateNoFont = next.channel_look === false
+  if (!deliberateNoFont && !next.font_id && !next.channel_look && !next.resolved_font_id
     && !next.appearance?.color && next.appearance?.outline === undefined
     && next.appearance?.wrap === undefined && next.automatic_fit !== true) {
     emit('update:modelValue', null)
@@ -281,15 +328,18 @@ function patchAppearance(partial: NonNullable<ChapterTitlePresentation['appearan
 }
 
 /**
- * The source is the DELIBERATE choice: default, the channel's existing pool
- * policy, or one named face. Picking the pool resolves it once into
- * `resolved_font_id` — the render and the preview both read that stored id,
- * so retry and re-preview never re-roll the face.
+ * The source is the DELIBERATE choice: today's look, the channel's pool (which
+ * may also be what was bound automatically), or one named face. Picking the
+ * pool resolves it once into `resolved_font_id` — the render and the preview
+ * both read that stored id, so retry and re-preview never re-roll the face.
  */
 function chooseSource(next: 'default' | 'pool' | 'font'): void {
   picking.value = false
+  boundAutomatically.value = false
   if (next === 'default') {
-    emit('update:modelValue', null)
+    // Stored as a marker rather than null: null means "no choice yet", which is
+    // exactly what the automatic pool binding looks for.
+    emit('update:modelValue', { channel_look: false })
     return
   }
   if (next === 'pool') {

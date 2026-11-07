@@ -109,7 +109,24 @@ describe('ChapterTitleFontEditor', () => {
     assert.equal(emitted.length, 0, 'merely opening the field writes nothing')
     await click(host.querySelector('button.ctfe-choice'))
     assert.equal(emitted.length, 1)
-    assert.equal(emitted[0], null, 'choosing the default clears the presentation')
+    assert.deepEqual(emitted[0], { channel_look: false },
+      'today’s look is stored as a deliberate marker, so the automatic pool binding cannot quietly put a face back')
+    unmount()
+  })
+
+  test('with a pool and no choice yet, the field binds the channel font pool and says so out loud', async () => {
+    const { host, emitted, unmount } = await mountEditor({ pool: POOL, poolCursor: null })
+    const bound = emitted.at(-1)
+    assert.equal(bound?.channel_look, true, 'an unchosen episode is bound to the channel pool')
+    assert.equal(bound?.resolved_font_id, 'kantumruy-pro', 'the serial pool resolves its first face once')
+    assert.equal(bound?.font_id, undefined, 'no explicit face was picked')
+    assert.match(host.textContent || '', /bound automatically/, 'the customer is told the binding is automatic')
+    assert.match(host.textContent || '', /Kantumruy Pro/, 'and which face it bound')
+
+    // The deliberate "today's look" survives the binding.
+    const defaultButton = [...host.querySelectorAll('button.ctfe-choice')].find(button => button.textContent?.includes("No font"))!
+    await click(defaultButton)
+    assert.deepEqual(emitted.at(-1), { channel_look: false })
     unmount()
   })
 
