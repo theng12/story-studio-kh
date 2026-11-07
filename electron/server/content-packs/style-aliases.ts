@@ -19,6 +19,13 @@
  * It is deliberately a fixed table and not a similarity search: the judgement is
  * the owner's, taken once, and a runtime guess would re-decide it in the dark.
  *
+ * It also resolves the retired built-in style catalogue: the `builtin-*` ids
+ * the app shipped before the Style Library moved to packs (removed from the
+ * visible library 2026-09-02). An episode that still names one reads the
+ * authored pack that owns that look — WHICH ids retired and which pack took
+ * each over is the ledger's call, `content-packs/legacy-migration-dispositions.json`
+ * (`style:builtin-*`), never a guess from the id's name.
+ *
  * NOT COVERED, on purpose: the free-text `style_tag` override typed into the
  * Image Prompts page, and a preset the owner writes from now on. Both are new
  * text, not a mapping of old text, and both keep winning exactly as before.
@@ -198,20 +205,76 @@ export const STYLE_ALIASES: readonly StyleAlias[] = [
   {
     styleId: style('watercolor-storybook'),
     presetIds: [
+      'builtin-watercolor-storybook',
       'kh.art-styles.whimsical-storybook-watercolour',
     ],
   },
   {
     styleId: style('sepia-ink-wash'),
     presetIds: [
+      'builtin-sepia-ink-wash',
       'kh.art-styles.vintage-historical-storybook',
     ],
   },
   {
     styleId: style('paleo-documentary-tableau'),
     presetIds: [
+      'builtin-paleo-documentary-tableau',
       'kh.art-styles.misty-painterly-landscape',
     ],
+  },
+  // The rest of the retired built-in catalogue (the `style:builtin-*` entries
+  // of content-packs/legacy-migration-dispositions.json). An episode may still
+  // name any of them; each reads the authored pack that owns the look.
+  // `builtin-ms-paint-fantasy` is Retro Paint Fantasy now — the ledger, not the
+  // name, says which pack took it over.
+  {
+    styleId: style('anime-cel'),
+    presetIds: ['builtin-anime-cel'],
+  },
+  {
+    styleId: style('archival-documentary-reconstruction'),
+    presetIds: ['builtin-archival-documentary-reconstruction'],
+  },
+  {
+    styleId: style('cinematic-photoreal'),
+    presetIds: ['builtin-cinematic-photoreal'],
+  },
+  {
+    styleId: style('flat-vector-explainer'),
+    presetIds: ['builtin-flat-vector-explainer'],
+  },
+  {
+    styleId: style('hand-drawn-cartoon-explainer'),
+    presetIds: ['builtin-hand-drawn-cartoon-explainer'],
+  },
+  {
+    styleId: style('hand-drawn-editorial-diagram'),
+    presetIds: ['builtin-hand-drawn-editorial-diagram'],
+  },
+  {
+    styleId: style('minimal-stick-figure-explainer'),
+    presetIds: ['builtin-minimal-stick-figure-explainer'],
+  },
+  {
+    styleId: style('retro-paint-fantasy'),
+    presetIds: ['builtin-ms-paint-fantasy'],
+  },
+  {
+    styleId: style('pixel-art-story'),
+    presetIds: ['builtin-pixel-art-story'],
+  },
+  {
+    styleId: style('studio-catalog-realism'),
+    presetIds: ['builtin-studio-catalog-realism'],
+  },
+  {
+    styleId: style('waxy-outline-cartoon'),
+    presetIds: ['builtin-waxy-outline-cartoon'],
+  },
+  {
+    styleId: style('whiteboard-doodle-explainer'),
+    presetIds: ['builtin-whiteboard-doodle-explainer'],
   },
 ]
 
