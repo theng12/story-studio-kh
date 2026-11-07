@@ -332,6 +332,10 @@ describe('Scene Plan: the master\'s closing tail is not narration', () => {
 
   async function scannedEpisode(masterSec: number, closingTailSec: number) {
     const code = `EP000${++n}`
+    const ideasPath = path.join(temp.dir, 'projects', SLUG, 'ideas.json')
+    const ideas = JSON.parse(await fs.readFile(ideasPath, 'utf-8'))
+    ideas.ideas.push({ id: code, episode_code: code, title: `Ep ${n}`, status: 'accepted' })
+    await fs.writeFile(ideasPath, JSON.stringify(ideas))
     const episodeDir = path.join(temp.dir, 'projects', SLUG, 'episodes', 'Season 001', `${code} - Ep ${n}`)
     const imagesDir = path.join(episodeDir, 'scene_images')
     const mergedDir = path.join(episodeDir, `${code} - 08 Audio Merge Output`)
