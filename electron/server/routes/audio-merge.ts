@@ -5,10 +5,14 @@
 import { Router } from 'express'
 import { existsSync } from 'fs'
 import fs from 'fs/promises'
+import os from 'os'
 import path from 'path'
+import { randomUUID } from 'crypto'
 import * as pm from '../services/project-manager.js'
 import { enqueue, isDuplicate } from '../services/job-queue.js'
-import { scanEpisodeAudioAssets } from '../generators/audio-merge.js'
+import { renderAudioAssemblyPreview, scanEpisodeAudioAssets } from '../generators/audio-merge.js'
+import { audioAssemblyPool, activeAudioAssemblyLayers, type AudioAssemblyPoolKind } from '../contracts/audio-assembly.js'
+import { getAudioDuration } from '../lib/ffmpeg-utils.js'
 import { checkFfmpeg } from '../lib/ffmpeg-utils.js'
 import { getAudioMergeStatus } from '../services/asset-status.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
@@ -29,7 +33,28 @@ router.get('/projects/:slug/episodes/:code/audio-merge-status', async (req, res)
   try {
     if (!await pm.getProject(req.params.slug)) return res.status(404).json({ detail: 'Project not found' })
     const s = await getAudioMergeStatus(req.params.slug, req.params.code)
-    res.json(s)
+    // The completion record describes what the CURRENT file was baked with.
+    // It is returned beside the integrity answer so the page can say "this
+    // merge already has an intro/music" instead of implying a settings change
+    // takes effect without a re-merge. A missing or mismatched record says
+    // nothing (never "no layers").
+    let baked: Record<string, unknown> | undefined
+    if (s.present && s.file && s.dir) {
+      try {
+        const record = JSON.parse(await fs.readFile(
+          path.join(s.dir, `${req.params.code.toUpperCase()}_merged_audio.completion.json`), 'utf-8',
+        ))
+        if (record?.output_filename === s.file) {
+          baked = {
+            duration_sec: Number(record.duration_sec) || null,
+            opening: record.opening ?? null,
+            background_music: typeof record.background_music === 'boolean' ? record.background_music : null,
+            closing_tail_sec: Number(record.closing_tail_sec) || 0,
+          }
+        }
+      } catch { /* no record: the page shows the file, not a claim about its layers */ }
+    }
+    res.json(baked ? { ...s, baked } : s)
   } catch (e: any) {
     res.status(400).json(humanizeBackendError(e, 'Could not compute audio-merge status'))
   }
@@ -43,6 +68,138 @@ router.get('/projects/:slug/audio-editor/check-ffmpeg', async (_req, res) => {
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'FFmpeg check failed'))
   }
+})
+
+/**
+ * One reusable pool per optional layer. Music keeps its own Music Pool (cycling
+ * and per-track overrides); ambience, effects and background voice are channel
+ * folders scanned the same way, so the page has one picker shape for all three.
+ */
+router.get('/projects/:slug/audio-editor/layer-files', async (req, res) => {
+  const { slug } = req.params
+  const kind = String(req.query.kind || '') as AudioAssemblyPoolKind
+  const pool = audioAssemblyPool(kind)
+  if (!pool?.folder) {
+    return res.status(400).json({ detail: 'That layer uses the Music Pool, not a channel folder.' })
+  }
+  try {
+    const projectDir = pm.getProjectDir(slug)
+    if (!projectDir) return res.status(404).json({ detail: 'Project directory not found' })
+    const dir = path.join(projectDir, pool.folder)
+    if (!existsSync(dir)) return res.json({ kind, label: pool.label, tracks: [], dir, exists: false })
+    const audioExtensions = /\.(mp3|wav|m4a|aac|ogg|flac)$/i
+    const tracks: Array<{ filename: string; path: string; duration?: number }> = []
+    for (const file of await fs.readdir(dir)) {
+      if (!audioExtensions.test(file)) continue
+      const fullPath = path.join(dir, file)
+      const duration = Number(await getAudioDuration(fullPath).catch(() => undefined)) || undefined
+      tracks.push({ filename: file, path: fullPath, duration })
+    }
+    tracks.sort((a, b) => a.filename.localeCompare(b.filename, undefined, { numeric: true }))
+    res.json({ kind, label: pool.label, tracks, dir, exists: true })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, `Could not scan ${pool.folder}`))
+  }
+})
+
+/** The chosen intro clip's own length, so the page's total counts it. */
+router.get('/projects/:slug/audio-editor/duration', async (req, res) => {
+  const { slug } = req.params
+  const outputRoot = (await pm.getProjectOutputRoot(slug)) || undefined
+  if (!outputRoot) return res.status(404).json({ detail: 'Project not found' })
+  const rawPath = String(req.query.path || '')
+  if (!rawPath) return res.status(400).json({ detail: 'path query parameter required' })
+  let filePath: string
+  try {
+    filePath = resolveAssetPath(rawPath, outputRoot)
+  } catch (e: any) {
+    return res.status(400).json(humanizeBackendError(e, 'Could not resolve that file'))
+  }
+  if (!await isPreviewablePath(filePath, slug)) {
+    return res.status(403).json({ detail: 'That file is outside this project.' })
+  }
+  if (!existsSync(filePath)) return res.status(404).json({ detail: 'File not found' })
+  const seconds = Number(await getAudioDuration(filePath).catch(() => undefined))
+  if (!seconds) return res.status(422).json({ detail: 'That file could not be measured.' })
+  res.json({ seconds })
+})
+
+// Short mixed previews. The render is transient and never enters the episode
+// folder; the id is the only handle, so a stale page cannot read another
+// project's preview.
+const audioPreviewFiles = new Map<string, { slug: string; path: string; expires: number }>()
+
+router.post('/projects/:slug/audio-assembly/preview', async (req, res) => {
+  const { slug } = req.params
+  if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
+  const outputRoot = (await pm.getProjectOutputRoot(slug)) || undefined
+  if (!outputRoot) return res.status(404).json({ detail: 'Project not found' })
+  const body = req.body || {}
+  const resolve = (value: unknown): string => {
+    if (!value) return ''
+    try { return resolveAssetPath(String(value), outputRoot) } catch { return '' }
+  }
+  try {
+    const chapters = (Array.isArray(body.chapters) ? body.chapters : []).map(resolve).filter(Boolean)
+    if (!chapters.length) return res.status(400).json({ detail: 'Choose at least one chapter before previewing.' })
+    const music = body.music?.enabled && Array.isArray(body.music.files)
+      ? { ...body.music, files: body.music.files.map(resolve).filter(Boolean) }
+      : undefined
+    const noise = body.background_noise?.enabled
+      ? {
+          ...body.background_noise,
+          custom_file: body.background_noise.mode === 'custom'
+            ? resolve(body.background_noise.custom_file)
+            : undefined,
+        }
+      : undefined
+    const tracks = activeAudioAssemblyLayers({
+      ambience: body.ambience,
+      ambient_tracks: body.ambient_tracks,
+      effects_tracks: body.effects_tracks,
+      background_voice_tracks: body.background_voice_tracks,
+    })
+      .map(track => ({ ...track, source_path: resolve(track.source_path) }))
+      .filter(track => !!track.source_path)
+    const id = randomUUID()
+    const outputPath = path.join(os.tmpdir(), `story-audio-preview-${id}.mp3`)
+    const { duration_sec } = await renderAudioAssemblyPreview({
+      narrationPath: chapters[0]!,
+      seconds: Math.max(1, Math.min(60, Number(body.preview_seconds) || 20)),
+      narrationVolume: Number(body.narration_volume) || 1,
+      music,
+      noise,
+      ambientTracks: tracks,
+      outputPath,
+    })
+    const expires = Date.now() + 10 * 60_000
+    audioPreviewFiles.set(id, { slug, path: outputPath, expires })
+    const timer = setTimeout(() => {
+      const entry = audioPreviewFiles.get(id)
+      if (entry) {
+        audioPreviewFiles.delete(id)
+        fs.rm(entry.path, { force: true }).catch(() => {})
+      }
+    }, 10 * 60_000)
+    timer.unref?.()
+    res.status(201).json({
+      id,
+      duration_sec,
+      url: `/api/projects/${encodeURIComponent(slug)}/audio-assembly/preview/${id}`,
+    })
+  } catch (e: any) {
+    res.status(422).json(humanizeBackendError(e, 'Could not render that preview'))
+  }
+})
+
+router.get('/projects/:slug/audio-assembly/preview/:id', async (req, res) => {
+  const entry = audioPreviewFiles.get(req.params.id)
+  if (!entry || entry.slug !== req.params.slug || entry.expires < Date.now() || !existsSync(entry.path)) {
+    return res.status(404).json({ detail: 'That preview has expired. Make a new one.' })
+  }
+  res.set('Content-Type', 'audio/mpeg')
+  res.set('Cache-Control', 'no-store')
+  res.sendFile(entry.path)
 })
 
 // Scan episode assets for audio editor

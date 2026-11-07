@@ -22,6 +22,7 @@
 
 import { existsSync } from 'fs'
 import fs from 'fs/promises'
+import os from 'os'
 import path from 'path'
 import { findEpisodeDir as findEpisodeDirByTitle } from '../lib/folder-resolver.js'
 import { spawn } from 'child_process'
@@ -37,6 +38,12 @@ import { channelLoudnessTarget, levelAndCheck, mergedAudioMasterPath } from '../
 import { closingTailFromPostAudio, resolveProjectClosingTail, type ClosingTailRequest } from '../lib/closing-tail.js'
 import { buildMusicBed, MUSIC_REFERENCE_LUFS } from '../lib/music-bed.js'
 import { DEFAULT_BACKGROUND_MUSIC_VOLUME } from '../contracts/music-bed-defaults.js'
+import {
+  activeAudioAssemblyLayers,
+  expectedAudioAssemblyDuration,
+  type AudioAssemblyLayerRequest,
+  type AudioAssemblyLayerTrack,
+} from '../contracts/audio-assembly.js'
 import { measureLoudness } from './music-episode-build.js'
 import type {
   AudioMergeRequest, Job,
@@ -884,6 +891,20 @@ export async function generateAudioMerge(job: Job): Promise<void> {
         : t)
       .filter(t => !!t && !!t.source_path)
   }
+  const layerRequest = req as AudioMergeRequest & AudioAssemblyLayerRequest
+  for (const key of ['effects_tracks', 'background_voice_tracks'] as const) {
+    const rows = layerRequest[key]
+    if (!Array.isArray(rows)) continue
+    layerRequest[key] = rows
+      .map((t, i) => t && t.source_path
+        ? { ...t, source_path: tryResolve(t.source_path, `${key}[${i}].source_path`) || '' }
+        : t)
+      .filter(t => !!t && !!t.source_path)
+  }
+  // One list for the mixer: ambience, effects and background voice all play in
+  // parallel through the existing ambient-track path. The ambience master
+  // switch removes its rows here, while the page keeps them for later.
+  const parallelLayers = activeAudioAssemblyLayers(layerRequest)
 
   const episodeDir = await findEpisodeDir(project_slug, outputRoot, code)
   if (!episodeDir) throw new Error(`Episode directory not found for ${code}`)
@@ -1253,8 +1274,7 @@ export async function generateAudioMerge(job: Job): Promise<void> {
     let rawMixPath = path.join(tempDir, 'merged_raw.flac')
     const masterPath = mergedAudioMasterPath(outputPath)
     try {
-      const ambientEnabled = Array.isArray(req.ambient_tracks)
-        && req.ambient_tracks.some(t => t?.enabled && t?.source_path)
+      const ambientEnabled = parallelLayers.length > 0
       if (musicEnabled || noiseEnabled || ambientEnabled) {
         job.output_lines.push('Mixing audio layers...')
         await mixAudioLayers({
@@ -1264,7 +1284,7 @@ export async function generateAudioMerge(job: Job): Promise<void> {
           narrationVolume: req.narration_volume ?? 1.0,
           music: musicEnabled ? req.music! : undefined,
           noise: noiseEnabled ? req.background_noise! : undefined,
-          ambientTracks: ambientEnabled ? req.ambient_tracks : undefined,
+          ambientTracks: ambientEnabled ? parallelLayers : undefined,
           outputPath: rawMixPath,
           tempDir,
           job,
@@ -1623,9 +1643,11 @@ export function buildMusicLeadInVolumeExpr(
 export function mergedMixDurationSec(
   narrationSec: number, leadInSec: number, closingTailSec: number,
 ): number {
-  return (Number(narrationSec) || 0)
-    + Math.max(0, Number(leadInSec) || 0)
-    + Math.max(0, Number(closingTailSec) || 0)
+  return expectedAudioAssemblyDuration({
+    narration_sec: narrationSec,
+    music_lead_in_sec: leadInSec,
+    closing_tail_sec: closingTailSec,
+  }).seconds
 }
 
 async function mixAudioLayers(opts: MixOptions): Promise<void> {
@@ -1752,41 +1774,47 @@ async function mixAudioLayers(opts: MixOptions): Promise<void> {
 
   // Input 2 (optional): ambient noise
   if (noise) {
-    if (noise.mode === 'custom' && noise.custom_file) {
-      // Custom noise file — loop to fill duration. Strip any bash-style
-      // backslash escapes first (users often drag-paste from Terminal).
-      const noisePath = unescapeShellPath(noise.custom_file)!
-      inputs.push('-stream_loop', '-1', '-i', noisePath)
+    const noisePath = noise.mode === 'custom' ? unescapeShellPath(noise.custom_file) : undefined
+    if (noise.mode === 'custom' && !noisePath) {
+      // Custom ambience with no file is a valid, quiet choice — it is never a
+      // reason to substitute a preset the customer did not pick.
+      job.output_lines.push('  Custom ambience has no file chosen; no ambience layer was added.')
     } else {
-      // Preset noise via lavfi
-      const noiseColor = noise.preset.replace('-noise', '')
-      inputs.push('-f', 'lavfi', '-i', `anoisesrc=color=${noiseColor}:r=44100`)
-    }
-
-    const noiseVol = noise.volume.toFixed(2)
-    filterParts.push(
-      `[${inputIdx}:a]atrim=0:${totalDur.toFixed(2)},asetpts=PTS-STARTPTS,` +
-      `aresample=44100,aformat=channel_layouts=stereo:sample_fmts=fltp,` +
-      `volume=${noiseVol}[amb]`,
-    )
-
-    // Apply fade in/out
-    let noiseLabel = 'amb'
-    if (noise.fade_in > 0 || noise.fade_out > 0) {
-      const fadeFilters: string[] = []
-      if (noise.fade_in > 0) {
-        fadeFilters.push(`afade=t=in:st=0:d=${noise.fade_in}`)
+      if (noisePath) {
+        // Custom noise file — loop to fill duration. Strip any bash-style
+        // backslash escapes first (users often drag-paste from Terminal).
+        inputs.push('-stream_loop', '-1', '-i', noisePath)
+      } else {
+        // Preset noise via lavfi
+        const noiseColor = noise.preset.replace('-noise', '')
+        inputs.push('-f', 'lavfi', '-i', `anoisesrc=color=${noiseColor}:r=44100`)
       }
-      if (noise.fade_out > 0) {
-        const fadeOutStart = Math.max(0, totalDur - noise.fade_out)
-        fadeFilters.push(`afade=t=out:st=${fadeOutStart.toFixed(2)}:d=${noise.fade_out}`)
-      }
-      filterParts.push(`[amb]${fadeFilters.join(',')}[amb2]`)
-      noiseLabel = 'amb2'
-    }
 
-    mixInputLabels.push(`[${noiseLabel}]`)
-    inputIdx++
+      const noiseVol = noise.volume.toFixed(2)
+      filterParts.push(
+        `[${inputIdx}:a]atrim=0:${totalDur.toFixed(2)},asetpts=PTS-STARTPTS,` +
+        `aresample=44100,aformat=channel_layouts=stereo:sample_fmts=fltp,` +
+        `volume=${noiseVol}[amb]`,
+      )
+
+      // Apply fade in/out
+      let noiseLabel = 'amb'
+      if (noise.fade_in > 0 || noise.fade_out > 0) {
+        const fadeFilters: string[] = []
+        if (noise.fade_in > 0) {
+          fadeFilters.push(`afade=t=in:st=0:d=${noise.fade_in}`)
+        }
+        if (noise.fade_out > 0) {
+          const fadeOutStart = Math.max(0, totalDur - noise.fade_out)
+          fadeFilters.push(`afade=t=out:st=${fadeOutStart.toFixed(2)}:d=${noise.fade_out}`)
+        }
+        filterParts.push(`[amb]${fadeFilters.join(',')}[amb2]`)
+        noiseLabel = 'amb2'
+      }
+
+      mixInputLabels.push(`[${noiseLabel}]`)
+      inputIdx++
+    }
   }
 
   // Multi-track ambient layers (v1.0.55+). Each enabled track adds
@@ -1837,7 +1865,7 @@ async function mixAudioLayers(opts: MixOptions): Promise<void> {
     inputIdx++
   }
   if (liveAmbient.length) {
-    job.output_lines.push(`  Ambient tracks: ${liveAmbient.length} layer(s)`)
+    job.output_lines.push(`  Parallel layers: ${liveAmbient.length} (${[...new Set(liveAmbient.map(t => (t as any).kind).filter(Boolean))].join(', ') || 'ambient'})`)
   }
 
   // amix all streams together. normalize=0 keeps each layer at the volume its setting names (amix's
@@ -1857,13 +1885,68 @@ async function mixAudioLayers(opts: MixOptions): Promise<void> {
     ...inputs,
     '-filter_complex', filterComplex,
     '-map', '[out]',
-    '-c:a', 'flac', '-sample_fmt', 's16',  // lossless: it is levelled next (levelMergedAudio)
+    // The merge keeps a lossless master; a short preview is an MP3 so the
+    // page can play it in the browser.
+    ...(/\.mp3$/i.test(outputPath) ? ['-c:a', 'libmp3lame', '-b:a', '192k'] : ['-c:a', 'flac', '-sample_fmt', 's16']),
     outputPath,
   ]
 
   job.output_lines.push(`  Streams: narration${music ? ' + music' : ''}${noise ? ' + noise' : ''}`)
   await runFfmpeg(args, { timeoutMs: audioMergeTimeoutMs() })
   job.output_lines.push('  Audio mixing complete')
+}
+
+// ── Short mixed preview ───────────────────────────────────────────────────
+export interface AudioAssemblyPreviewInput {
+  narrationPath: string
+  seconds: number
+  narrationVolume?: number
+  music?: VideoMusicConfig
+  noise?: VideoBackgroundNoise
+  ambientTracks?: AmbientTrack[]
+  outputPath: string
+}
+
+/**
+ * Render a short excerpt of the settings currently on the page, through the
+ * SAME `mixAudioLayers` path the real merge uses — a preview that could sound
+ * different from the merge would be worse than none.
+ *
+ * It writes only to `os.tmpdir()`: no preview file enters the episode folder,
+ * so no scanner can mistake it for a merged audio, and the next merge is not
+ * affected.
+ */
+export async function renderAudioAssemblyPreview(
+  input: AudioAssemblyPreviewInput,
+): Promise<{ duration_sec: number }> {
+  if (!existsSync(input.narrationPath)) throw new Error('Preview: the narration audio is missing.')
+  const seconds = Math.max(1, Math.min(60, Number(input.seconds) || 20))
+  const workDir = await fs.mkdtemp(path.join(os.tmpdir(), 'story-audio-preview-'))
+  try {
+    const slice = path.join(workDir, 'preview-narration.flac')
+    await runFfmpeg([
+      '-y', '-nostdin', '-i', input.narrationPath,
+      '-t', seconds.toFixed(3), '-vn', '-c:a', 'flac', '-sample_fmt', 's16', slice,
+    ], { timeoutMs: audioMergeTimeoutMs() })
+    const measured = Number(await getAudioDuration(slice).catch(() => undefined)) || seconds
+    await mixAudioLayers({
+      narrationPath: slice,
+      narrationDuration: measured,
+      closingTail: { seconds: 0 },
+      narrationVolume: input.narrationVolume ?? 1,
+      music: input.music,
+      noise: input.noise,
+      ambientTracks: input.ambientTracks,
+      outputPath: input.outputPath,
+      tempDir: workDir,
+      job: { output_lines: [] } as unknown as Job,
+    })
+    const duration = Number(await getAudioDuration(input.outputPath).catch(() => undefined)) || 0
+    if (!duration) throw new Error('Preview: the mixed excerpt could not be measured.')
+    return { duration_sec: duration }
+  } finally {
+    await fs.rm(workDir, { recursive: true, force: true }).catch(() => {})
+  }
 }
 
 // ── Scan Episode Audio Assets ─────────────────────────────────────────────

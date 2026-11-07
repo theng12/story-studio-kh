@@ -108,6 +108,17 @@
       Intro → narration with music ducked underneath → ambience layered throughout. Reorder chapters and tune silence below.
     </WorkspaceNotice>
 
+    <!-- One page, three stages: the same order the generator mixes in. -->
+    <div v-if="episodeId" class="audio-stage-strip" aria-label="Assembly order">
+      <div v-for="(stage, index) in AUDIO_ASSEMBLY_STAGES" :key="stage.stage" class="audio-stage-item">
+        <span class="audio-stage-num">{{ index + 1 }}</span>
+        <div>
+          <strong>{{ stage.label }}</strong>
+          <p class="text-muted text-xs">{{ stage.description }}</p>
+        </div>
+      </div>
+    </div>
+
     <!-- FFmpeg Status -->
     <div class="ffmpeg-status mt-2" v-if="ffmpegStatus">
       <span v-if="ffmpegStatus.installed" class="badge badge-success">
@@ -304,6 +315,13 @@
 
     <!-- A standalone opening is distinct from the music lead-in below: this
          accepts a dedicated jingle, spoken tag, or any other clip. -->
+    <div class="audio-stage-heading">
+      <span class="audio-stage-num">1</span>
+      <div>
+        <h3>Opening</h3>
+        <p class="text-muted text-sm">What plays before the first word. The channel intro itself is edited in Video Assembly.</p>
+      </div>
+    </div>
     <div class="audio-mix-section audio-mix-section--intro">
       <div class="flex gap-2 items-center">
         <label class="checkbox-label" @click.stop>
@@ -338,6 +356,27 @@
       </div>
     </div>
 
+    <!-- Music lead-in uses the selected music track, unlike the standalone
+         intro clip above. Both are available deliberately: use this for one
+         continuous music bed; use the standalone clip for a separate jingle
+         or spoken tag. -->
+    <div class="audio-mix-section lead-in-block">
+      <label class="checkbox-label" @click.stop>
+        <input type="checkbox" v-model="music.lead_in_enabled" :disabled="!music.enabled || !hasSelectedMusic" />
+        <span>Music lead-in</span>
+      </label>
+      <p class="hint" style="margin: 4px 0 0;">
+        Plays this track at <strong>100%</strong> for the chosen time, then ducks to
+        <strong>{{ music.volume }}%</strong> as the voiceover begins — the voice is delayed by
+        that long. This is not a separate intro clip.
+        <template v-if="!music.enabled || !hasSelectedMusic">Choose music first.</template>
+      </p>
+      <div v-if="music.lead_in_enabled && music.enabled && hasSelectedMusic" class="form-group mt-2">
+        <label>Intro length ({{ music.lead_in_seconds }}s of full-volume music before the voice)</label>
+        <SliderWithNumber v-model="music.lead_in_seconds" :min="2" :max="30" :step="1" suffix="s" />
+      </div>
+    </div>
+
     <!-- The channel intro has one editing home: Video Assembly. This page only
          links there and chooses nothing on the customer's behalf. -->
     <div class="audio-mix-section">
@@ -355,6 +394,13 @@
 
     <!-- The voice controls are one compact group: gain and normalization are
          both choices about the narration master, not two unrelated panels. -->
+    <div class="audio-stage-heading">
+      <span class="audio-stage-num">2</span>
+      <div>
+        <h3>Narration</h3>
+        <p class="text-muted text-sm">The chapter audio stays the Audio Generator's recording; every layer below is added under it.</p>
+      </div>
+    </div>
     <div class="audio-mix-section audio-mix-section--voice">
       <div class="audio-mix-section-heading">
         <div>
@@ -523,8 +569,8 @@
             <SliderWithNumber v-model="music.volume" :min="0" :max="100" :step="1" suffix="%" />
           </div>
           <div class="form-group">
-            <label>Volume After Narration ({{ music.post_narration_volume }}%)</label>
-            <SliderWithNumber v-model="music.post_narration_volume" :min="0" :max="100" :step="1" suffix="%" />
+            <label>Fade In ({{ music.fade_in }}s)</label>
+            <SliderWithNumber v-model="music.fade_in" :min="0" :max="10" :step="0.5" :decimals="1" suffix="s" />
           </div>
         </div>
         <p class="text-muted text-sm" data-testid="music-level-hint">
@@ -533,41 +579,48 @@
           {{ music.volume > 0 ? Math.round(-20 * Math.log10(music.volume / 100)) : '∞' }} dB under it. 6% (about 24 dB under) keeps a
           sleep or documentary bed clearly beneath the voice. Tracks join with crossfades and the music fades in and out.
         </p>
-        <div class="grid-2 mt-1">
-          <div class="form-group">
-            <label>Fade In ({{ music.fade_in }}s)</label>
-            <SliderWithNumber v-model="music.fade_in" :min="0" :max="10" :step="0.5" :decimals="1" suffix="s" />
-          </div>
-          <div class="form-group">
-            <label>Fade Out ({{ music.fade_out }}s)</label>
-            <SliderWithNumber v-model="music.fade_out" :min="0" :max="10" :step="0.5" :decimals="1" suffix="s" />
-          </div>
-        </div>
-
-        <!-- Music lead-in uses the selected music track, unlike the
-             standalone intro clip above. Both are available deliberately:
-             use this for one continuous music bed; use the standalone clip
-             for a separate jingle or spoken tag. -->
-        <div class="lead-in-block mt-2">
-          <label class="checkbox-label" @click.stop>
-            <input type="checkbox" v-model="music.lead_in_enabled" />
-            <span>Music lead-in</span>
-          </label>
-          <p class="hint" style="margin: 4px 0 0;">
-            Plays this track at <strong>100%</strong> for the chosen time, then ducks to
-            <strong>{{ music.volume }}%</strong> as the voiceover begins — the voice is delayed by
-            that long. This is not a separate intro clip.
-          </p>
-          <div v-if="music.lead_in_enabled" class="form-group mt-2">
-            <label>Intro length ({{ music.lead_in_seconds }}s of full-volume music before the voice)</label>
-            <SliderWithNumber v-model="music.lead_in_seconds" :min="2" :max="30" :step="1" suffix="s" />
-          </div>
-        </div>
       </div>
     </div>
 
+    <div class="audio-stage-heading">
+      <span class="audio-stage-num">3</span>
+      <div>
+        <h3>Closing</h3>
+        <p class="text-muted text-sm">What continues after the last word. The closing tail itself is set by Video Assembly's post-audio.</p>
+      </div>
+    </div>
+    <div class="audio-mix-section">
+      <div v-if="music.enabled && hasSelectedMusic" class="grid-2">
+        <div class="form-group">
+          <label>Volume After Narration ({{ music.post_narration_volume }}%)</label>
+          <SliderWithNumber v-model="music.post_narration_volume" :min="0" :max="100" :step="1" suffix="%" />
+        </div>
+        <div class="form-group">
+          <label>Fade Out ({{ music.fade_out }}s)</label>
+          <SliderWithNumber v-model="music.fade_out" :min="0" :max="10" :step="0.5" :decimals="1" suffix="s" />
+        </div>
+      </div>
+      <p v-else class="text-muted text-sm">No music bed chosen, so the file ends where the narration does.</p>
+      <p class="text-muted text-sm mt-1">
+        The tail length is not counted in the total above until the merge resolves it from Video Assembly.
+      </p>
+    </div>
+
     <!-- Background Noise -->
-    <div class="audio-mix-section audio-mix-section--atmosphere">
+    <div class="audio-mix-section audio-mix-section--ambience-master">
+      <div class="flex gap-2 items-center">
+        <label class="checkbox-label" @click.stop>
+          <input type="checkbox" v-model="ambience.enabled" />
+        </label>
+        <h3>Ambience</h3>
+        <span class="text-muted text-xs">Master switch — picks stay when off</span>
+      </div>
+      <p class="text-muted text-sm mt-1">
+        One continuous atmosphere under the episode. Turn it off without losing the chosen noise or layers.
+      </p>
+    </div>
+
+    <div v-if="ambience.enabled" class="audio-mix-section audio-mix-section--atmosphere">
       <div class="flex gap-2 items-center">
         <label class="checkbox-label" @click.stop>
           <input type="checkbox" v-model="backgroundNoise.enabled" />
@@ -633,7 +686,7 @@
     </div>
 
     <!-- Multi-track ambient layers (v1.0.55+) -->
-    <div class="ambient-layers-panel">
+    <div v-if="ambience.enabled" class="ambient-layers-panel">
       <div class="flex gap-2 items-center">
         <h3 style="margin: 0;">Ambient Layers</h3>
         <span class="text-muted text-xs">
@@ -761,6 +814,118 @@
         </div>
       </Modal>
     </div>
+
+    <!-- Effects pool: reusable one-off sounds. Placement and approval of the
+         episode's cues stay in Sound & Labels; this pool only feeds the mix. -->
+    <div class="audio-mix-section audio-mix-section--effects">
+      <div class="flex gap-2 items-center">
+        <label class="checkbox-label" @click.stop>
+          <input type="checkbox" v-model="effects.enabled" />
+        </label>
+        <h3>Effects</h3>
+        <span class="text-muted text-xs">{{ effectsTracks.length }} chosen · starts off</span>
+      </div>
+      <p class="text-muted text-sm mt-1">
+        Reusable sounds from the channel <code>effects/</code> folder, mixed under the narration.
+        Episode cue placement and approval stay in
+        <NuxtLink :to="`/projects/${slug}/sound-and-labels?episode_id=${encodeURIComponent(episodeId)}`">Sound &amp; Labels</NuxtLink>.
+      </p>
+      <template v-if="effects.enabled">
+        <div v-if="effectsTracks.length" class="mt-2" style="display: flex; flex-direction: column; gap: 8px;">
+          <div v-for="(track, index) in effectsTracks" :key="track.id" class="card" :style="`padding: 10px; border-left: 3px solid ${track.enabled ? 'var(--accent)' : 'var(--border)'}`">
+            <div class="flex gap-2 items-center" style="flex-wrap: wrap;">
+              <label class="checkbox-label" @click.stop><input type="checkbox" v-model="track.enabled" /></label>
+              <button class="btn-icon play-btn" @click="togglePreview(track.source_path)" :title="playingPath === track.source_path ? 'Stop' : 'Play'">
+                {{ playingPath === track.source_path ? '&#9724;' : '&#9654;' }}
+              </button>
+              <strong style="flex: 1; word-break: break-all;">{{ track.source_filename || track.source_path.split('/').pop() }}</strong>
+              <button type="button" class="btn btn-sm btn-secondary" :disabled="index === 0" @click="moveLayerTrack('effects', track.id, -1)">↑</button>
+              <button type="button" class="btn btn-sm btn-secondary" :disabled="index === effectsTracks.length - 1" @click="moveLayerTrack('effects', track.id, 1)">↓</button>
+              <button type="button" class="btn btn-sm btn-danger" @click="removeLayerTrack('effects', track.id)">✕</button>
+            </div>
+            <div v-if="track.enabled" class="grid-3 mt-1">
+              <div class="form-group"><label>Volume ({{ track.volume }}%)</label><SliderWithNumber v-model="track.volume" :min="0" :max="100" :step="1" suffix="%" /></div>
+              <div class="form-group"><label>Fade In ({{ track.fade_in }}s)</label><SliderWithNumber v-model="track.fade_in" :min="0" :max="10" :step="0.5" :decimals="1" suffix="s" /></div>
+              <div class="form-group"><label>Fade Out ({{ track.fade_out }}s)</label><SliderWithNumber v-model="track.fade_out" :min="0" :max="10" :step="0.5" :decimals="1" suffix="s" /></div>
+            </div>
+          </div>
+        </div>
+        <button type="button" class="btn btn-sm btn-primary mt-2" @click="layerPicker = 'effects'; void refreshLayerLibrary('effects')">+ Add effect</button>
+      </template>
+    </div>
+
+    <!-- Background voice pool: optional extra voices, never the narrator. -->
+    <div class="audio-mix-section audio-mix-section--background-voice">
+      <div class="flex gap-2 items-center">
+        <label class="checkbox-label" @click.stop>
+          <input type="checkbox" v-model="backgroundVoice.enabled" />
+        </label>
+        <h3>Background voice</h3>
+        <span class="text-muted text-xs">{{ backgroundVoiceTracks.length }} chosen · starts off</span>
+      </div>
+      <p class="text-muted text-sm mt-1">
+        Optional extra voices from the channel <code>background-voice/</code> folder, under the narration.
+        The narrator itself stays the Audio Generator's recording and is never replaced here.
+      </p>
+      <template v-if="backgroundVoice.enabled">
+        <div v-if="backgroundVoiceTracks.length" class="mt-2" style="display: flex; flex-direction: column; gap: 8px;">
+          <div v-for="(track, index) in backgroundVoiceTracks" :key="track.id" class="card" :style="`padding: 10px; border-left: 3px solid ${track.enabled ? 'var(--accent)' : 'var(--border)'}`">
+            <div class="flex gap-2 items-center" style="flex-wrap: wrap;">
+              <label class="checkbox-label" @click.stop><input type="checkbox" v-model="track.enabled" /></label>
+              <button class="btn-icon play-btn" @click="togglePreview(track.source_path)" :title="playingPath === track.source_path ? 'Stop' : 'Play'">
+                {{ playingPath === track.source_path ? '&#9724;' : '&#9654;' }}
+              </button>
+              <strong style="flex: 1; word-break: break-all;">{{ track.source_filename || track.source_path.split('/').pop() }}</strong>
+              <button type="button" class="btn btn-sm btn-secondary" :disabled="index === 0" @click="moveLayerTrack('background_voice', track.id, -1)">↑</button>
+              <button type="button" class="btn btn-sm btn-secondary" :disabled="index === backgroundVoiceTracks.length - 1" @click="moveLayerTrack('background_voice', track.id, 1)">↓</button>
+              <button type="button" class="btn btn-sm btn-danger" @click="removeLayerTrack('background_voice', track.id)">✕</button>
+            </div>
+            <div v-if="track.enabled" class="grid-3 mt-1">
+              <div class="form-group"><label>Volume ({{ track.volume }}%)</label><SliderWithNumber v-model="track.volume" :min="0" :max="100" :step="1" suffix="%" /></div>
+              <div class="form-group"><label>Fade In ({{ track.fade_in }}s)</label><SliderWithNumber v-model="track.fade_in" :min="0" :max="10" :step="0.5" :decimals="1" suffix="s" /></div>
+              <div class="form-group"><label>Fade Out ({{ track.fade_out }}s)</label><SliderWithNumber v-model="track.fade_out" :min="0" :max="10" :step="0.5" :decimals="1" suffix="s" /></div>
+            </div>
+          </div>
+        </div>
+        <button type="button" class="btn btn-sm btn-primary mt-2" @click="layerPicker = 'background_voice'; void refreshLayerLibrary('background_voice')">+ Add background voice</button>
+      </template>
+    </div>
+
+    <Modal :visible="!!activeLayerPicker" size="md" labelledby="layer-picker-title" @close="layerPicker = ''">
+      <div v-if="activeLayerPicker">
+        <div class="flex gap-2 items-center" style="margin-bottom: 12px;">
+          <h3 id="layer-picker-title" style="margin: 0; flex: 1;">Pick from the {{ activeLayerPicker.label }} pool</h3>
+          <button type="button" class="btn btn-sm btn-secondary" @click="layerPicker = ''">✕ Close</button>
+        </div>
+        <div v-if="activeLayerPicker.loading" class="text-muted text-sm">Scanning the channel folder…</div>
+        <div v-else-if="activeLayerPicker.error" class="text-danger text-sm">{{ activeLayerPicker.error }}</div>
+        <div v-else-if="!activeLayerPicker.exists" class="text-muted text-sm">
+          No folder yet. Create <code>{{ activeLayerPicker.dir || activeLayerPicker.label.toLowerCase() }}</code> and drop audio files in.
+        </div>
+        <div v-else-if="!activeLayerPicker.tracks.length" class="text-muted text-sm">
+          The folder is empty. Drop in audio you have the rights to use.
+        </div>
+        <div v-else style="display: flex; flex-direction: column; gap: 6px; max-height: 60vh; overflow-y: auto;">
+          <button
+            v-for="f in activeLayerPicker.tracks"
+            :key="f.path"
+            type="button"
+            class="btn btn-secondary"
+            style="text-align: left; padding: 10px; display: flex; gap: 10px; align-items: center;"
+            @click="addLayerTrack(activeLayerPicker.kind, f)"
+          >
+            <span style="flex: 1;">
+              <strong>{{ f.filename }}</strong>
+              <br>
+              <span class="text-muted text-xs">audio{{ f.duration ? ` · ${f.duration.toFixed(1)}s` : '' }}</span>
+            </span>
+          </button>
+        </div>
+        <p class="text-muted text-xs mt-2" style="margin-bottom: 0;">
+          Source folder: <code class="wrap-path">{{ activeLayerPicker.dir }}</code>
+        </p>
+      </div>
+    </Modal>
     </section>
 
     <!-- Generate -->
@@ -812,6 +977,18 @@
         </div>
       </div>
 
+      <div class="flex gap-2 mt-2 items-center" style="flex-wrap: wrap;">
+        <button
+          type="button"
+          class="btn btn-sm btn-secondary"
+          :disabled="previewMixLoading || !chapters.length"
+          @click="togglePreviewMix"
+        >
+          {{ previewMixLoading ? 'Rendering 20s preview…' : playingPath === PREVIEW_MIX_KEY ? 'Stop Mix Preview' : 'Preview First 20s' }}
+        </button>
+        <span class="text-muted text-xs">Uses the settings above. Nothing is written to the episode folder.</span>
+      </div>
+
       <div v-if="episodeId" class="merge-output-status mt-2" aria-labelledby="merge-integrity-heading">
         <div>
           <h4 id="merge-integrity-heading">Output status</h4>
@@ -829,6 +1006,9 @@
           </span>
           <button class="btn btn-sm btn-ghost" :disabled="mergeStatus.loading" @click="refreshMergeStatus">Refresh</button>
         </div>
+        <p v-if="mergeStatus.baked" class="text-muted text-xs" style="margin: 6px 0 0;">
+          The current file is already baked with: {{ bakedLayersSummary }}. Changing a layer here does not change it until you merge again.
+        </p>
       </div>
 
     </div>
@@ -849,6 +1029,13 @@ import {
   type MusicOptionsMeasurement,
 } from '../../../../electron/server/contracts/music-bed-defaults'
 import { applyAmbientPresetRows } from '~/utils/audio-merge-preset'
+import {
+  AUDIO_ASSEMBLY_POOLS,
+  AUDIO_ASSEMBLY_STAGES,
+  assembledNarrationDuration,
+  audioAssemblyLayerId,
+  expectedAudioAssemblyDuration,
+} from '../../../../electron/server/contracts/audio-assembly'
 
 definePageMeta({ layout: 'dashboard' })
 useAppTitle('Audio Assembly')
@@ -917,9 +1104,37 @@ watch(episodeId, (newEp, oldEp) => {
 })
 
 // ── Merged-audio integrity pill ──
-interface MergeStatusState { loading: boolean; error: string; present: boolean; file: string }
+interface MergeStatusState {
+  loading: boolean
+  error: string
+  present: boolean
+  file: string
+  /** What the CURRENT file was baked with, from its completion record. */
+  baked?: {
+    duration_sec: number | null
+    background_music: boolean | null
+    closing_tail_sec: number
+    opening: { intro?: { filename?: string } | null; music_lead_in_sec?: number } | null
+  } | null
+}
 const mergeStatus = reactive<MergeStatusState>({
-  loading: false, error: '', present: false, file: '',
+  loading: false, error: '', present: false, file: '', baked: null,
+})
+
+/**
+ * What the current file ALREADY contains, from its completion record. The page
+ * must not imply that changing a layer changes the file on disk: a merge is a
+ * baked recording, and only the next merge carries new settings.
+ */
+const bakedLayersSummary = computed(() => {
+  const baked = mergeStatus.baked
+  if (!baked) return ''
+  const parts: string[] = []
+  if (baked.opening?.intro?.filename) parts.push(`intro ${baked.opening.intro.filename}`)
+  if ((baked.opening?.music_lead_in_sec || 0) > 0) parts.push(`${baked.opening!.music_lead_in_sec}s music lead-in`)
+  if (baked.background_music === true) parts.push('background music')
+  if (baked.closing_tail_sec > 0) parts.push(`${baked.closing_tail_sec}s closing tail`)
+  return parts.length ? parts.join(' · ') : 'narration only'
 })
 
 let scanSequence = 0
@@ -934,6 +1149,7 @@ async function refreshMergeStatus() {
   const current = () => request === mergeStatusSequence && episode === episodeId.value && project === slug.value
   mergeStatus.present = false
   mergeStatus.file = ''
+  mergeStatus.baked = null
   if (!episode) { mergeStatus.loading = false; return }
   mergeStatus.loading = true
   mergeStatus.error = ''
@@ -942,6 +1158,7 @@ async function refreshMergeStatus() {
     if (!current()) return
     mergeStatus.present = !!r.present
     mergeStatus.file = r.file || ''
+    mergeStatus.baked = r.baked || null
   } catch (e: any) {
     if (!current()) return
     mergeStatus.error = e?.data?.detail || e?.message || 'Could not check merge integrity'
@@ -990,7 +1207,7 @@ watch([slug, episodeId], (_, previous) => {
     scannedAssets.value = null
     chapters.value = []
     scanning.value = false
-    Object.assign(mergeStatus, { loading: false, error: '', present: false, file: '' })
+    Object.assign(mergeStatus, { loading: false, error: '', present: false, file: '', baked: null })
     poolPickedTrack.value = ''
     poolPickedPath.value = ''
     poolPickedReason.value = ''
@@ -1111,6 +1328,26 @@ const intro = reactive({
   volume: 100,
   gap_after: 2,
 })
+// The intro clip's own length. `null` = not measured, which the duration line
+// names rather than counting as zero.
+const introClipSeconds = ref<number | null>(null)
+let introDurationSequence = 0
+async function refreshIntroClipSeconds() {
+  const request = ++introDurationSequence
+  if (!intro.enabled || !intro.file) {
+    introClipSeconds.value = null
+    return
+  }
+  try {
+    const r = await get<{ seconds: number }>(
+      `/projects/${slug.value}/audio-editor/duration?path=${encodeURIComponent(intro.file)}`,
+    )
+    if (request === introDurationSequence) introClipSeconds.value = Number(r.seconds) || null
+  } catch {
+    if (request === introDurationSequence) introClipSeconds.value = null
+  }
+}
+watch(() => [intro.enabled, intro.file], () => { void refreshIntroClipSeconds() })
 
 // Multi-track ambient layering (v1.0.55+). Parallel streams that play
 // simultaneously — distinct from `music.files`, which concatenates.
@@ -1132,6 +1369,95 @@ const ambientLibrary = ref<Array<{ filename: string; path: string; duration?: nu
 const ambientLibraryDir = ref('')
 const ambientLibraryExists = ref(false)
 const showAmbientPicker = ref(false)
+
+// ── Four reusable pools ──────────────────────────────────────────────────
+// Music keeps its own Music Pool. Ambience, Effects and Background voice are
+// the same channel-folder mechanism under their own names. Each group starts
+// OFF; switching a group off hides its controls but never drops its rows —
+// the picks are the customer's and are restored when it is switched back on.
+const ambience = reactive({ enabled: false })
+const effects = reactive({ enabled: false })
+const backgroundVoice = reactive({ enabled: false })
+const effectsTracks = reactive<AmbientTrackUI[]>([])
+const backgroundVoiceTracks = reactive<AmbientTrackUI[]>([])
+
+type SimpleLayerKind = 'effects' | 'background_voice'
+const layerLibrary = reactive<Record<SimpleLayerKind, {
+  tracks: Array<{ filename: string; path: string; duration?: number }>
+  dir: string
+  exists: boolean
+  loading: boolean
+  error: string
+}>>({
+  effects: { tracks: [], dir: '', exists: false, loading: false, error: '' },
+  background_voice: { tracks: [], dir: '', exists: false, loading: false, error: '' },
+})
+const layerPicker = ref<'' | SimpleLayerKind>('')
+
+function layerRows(kind: SimpleLayerKind): AmbientTrackUI[] {
+  return kind === 'effects' ? effectsTracks : backgroundVoiceTracks
+}
+
+function layerGroup(kind: SimpleLayerKind) {
+  return kind === 'effects' ? effects : backgroundVoice
+}
+
+function layerLabel(kind: SimpleLayerKind): string {
+  return AUDIO_ASSEMBLY_POOLS.find(pool => pool.kind === kind)?.label || kind
+}
+
+const activeLayerPicker = computed(() => layerPicker.value
+  ? { kind: layerPicker.value, label: layerLabel(layerPicker.value), ...layerLibrary[layerPicker.value] }
+  : null)
+
+async function refreshLayerLibrary(kind: SimpleLayerKind) {
+  const state = layerLibrary[kind]
+  state.loading = true
+  state.error = ''
+  try {
+    const r = await get<{ tracks: typeof state.tracks; dir: string; exists: boolean }>(
+      `/projects/${slug.value}/audio-editor/layer-files?kind=${kind}`,
+    )
+    state.tracks = r.tracks || []
+    state.dir = r.dir || ''
+    state.exists = !!r.exists
+  } catch (e: any) {
+    state.error = e?.data?.detail || e?.message || `Could not scan the ${layerLabel(kind)} pool`
+  } finally {
+    state.loading = false
+  }
+}
+
+async function addLayerTrack(kind: SimpleLayerKind, file: { path: string; filename: string }) {
+  const sourcePath = await collapseToPortablePath(file.path)
+  layerRows(kind).push({
+    id: audioAssemblyLayerId(kind, sourcePath),
+    enabled: true,
+    source_path: sourcePath,
+    source_filename: file.filename,
+    volume: kind === 'background_voice' ? 12 : 20,
+    fade_in: 2,
+    fade_out: 3,
+    loop: true,
+  })
+  layerPicker.value = ''
+}
+
+function removeLayerTrack(kind: SimpleLayerKind, id: string) {
+  const rows = layerRows(kind)
+  const index = rows.findIndex(row => row.id === id)
+  if (index >= 0) rows.splice(index, 1)
+}
+
+function moveLayerTrack(kind: SimpleLayerKind, id: string, direction: -1 | 1) {
+  const rows = layerRows(kind)
+  const index = rows.findIndex(row => row.id === id)
+  const next = index + direction
+  if (index < 0 || next < 0 || next >= rows.length) return
+  const current = rows[index]!
+  rows[index] = rows[next]!
+  rows[next] = current
+}
 
 async function refreshAmbientLibrary() {
   ambientLibraryLoading.value = true
@@ -1161,16 +1487,20 @@ async function openAmbientFolder() {
   }
 }
 
-function newAmbientId(): string {
-  return `amb_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
+function newAmbientId(sourcePath = ''): string {
+  // Identity is the pool and the file, so a clip keeps its row — and the
+  // settings a preset wrote onto it — across a disable, a re-enable, or a
+  // preset apply. A random id made the same clip a new row each time.
+  return audioAssemblyLayerId('ambience', sourcePath || `${Date.now()}_${Math.random()}`)
 }
 
 function addAmbientTrack(file: { path: string; filename: string }) {
   void (async () => {
+    const sourcePath = await collapseToPortablePath(file.path)
     ambientTracks.push({
-      id: newAmbientId(),
+      id: newAmbientId(sourcePath),
       enabled: true,
-      source_path: await collapseToPortablePath(file.path),
+      source_path: sourcePath,
       source_filename: file.filename,
       // Sensible default for ambient layers — quieter than the
       // narration/music base so it sits underneath. User can crank it.
@@ -1230,8 +1560,13 @@ const mergePresets = usePresets<any>({
   snapshot: () => ({
     intro: JSON.parse(JSON.stringify(intro)),
     music: JSON.parse(JSON.stringify(music)),
+    ambience: JSON.parse(JSON.stringify(ambience)),
+    effects: JSON.parse(JSON.stringify(effects)),
+    background_voice: JSON.parse(JSON.stringify(backgroundVoice)),
     background_noise: JSON.parse(JSON.stringify(backgroundNoise)),
     ambient_tracks: ambientTracks.map(t => ({ ...t })),
+    effects_tracks: effectsTracks.map(t => ({ ...t })),
+    background_voice_tracks: backgroundVoiceTracks.map(t => ({ ...t })),
     gap_duration: gapDuration.value,
     chunk_silence_sec: chunkSilenceSec.value,
     normalize_volume: normalizeVolume.value,
@@ -1260,6 +1595,9 @@ const mergePresets = usePresets<any>({
       })
     }
     if (data.background_noise) Object.assign(backgroundNoise, data.background_noise)
+    if (data.ambience) Object.assign(ambience, data.ambience)
+    if (data.effects) Object.assign(effects, data.effects)
+    if (data.background_voice) Object.assign(backgroundVoice, data.background_voice)
     if (Array.isArray(data.ambient_tracks)) {
       // The preset owns the layer SETTINGS, the session owns its clips: rows
       // are never replaced, so every live clip keeps its id, source and
@@ -1267,6 +1605,10 @@ const mergePresets = usePresets<any>({
       // reorder cannot move a fade onto another clip and a shorter preset
       // cannot drop a layer (§4/§5).
       applyAmbientPresetRows(ambientTracks, data.ambient_tracks)
+    }
+    if (Array.isArray(data.effects_tracks)) applyAmbientPresetRows(effectsTracks, data.effects_tracks)
+    if (Array.isArray(data.background_voice_tracks)) {
+      applyAmbientPresetRows(backgroundVoiceTracks, data.background_voice_tracks)
     }
     if (typeof data.gap_duration === 'number') gapDuration.value = data.gap_duration
     if (typeof data.chunk_silence_sec === 'number' && data.chunk_silence_sec >= 0) {
@@ -1363,16 +1705,27 @@ const introGapSeconds = computed(() => (intro.enabled && intro.file ? intro.gap_
  * server-side from Video Assembly's post_audio with no route this page calls.
  * They are named as not counted — never folded in as zero (§6).
  */
-const estimatedUncounted = computed<string[]>(() => {
-  const parts: string[] = []
-  if (intro.enabled && intro.file) parts.push('intro clip length')
-  if (music.enabled && selectedMusicFiles.value.length > 0) parts.push('closing tail')
-  return parts
-})
-const estimatedMergedDuration = computed(() => {
-  return totalChapterDuration.value + chapterGapSecondsTotal.value + chunkPauseSecondsTotal.value
-    + musicLeadInSeconds.value + introGapSeconds.value
-})
+/**
+ * The same two measurements the generator uses (`contracts/audio-assembly`):
+ * first the narration master the mixer runs over, then the assembled file.
+ * A part this page could not measure is NAMED, never folded in as zero (§6).
+ */
+const assembledNarration = computed(() => assembledNarrationDuration({
+  chapter_sec: totalChapterDuration.value,
+  chapter_gap_sec: chapterGapSecondsTotal.value,
+  chunk_pause_sec: chunkPauseSecondsTotal.value,
+  intro_clip_sec: intro.enabled && intro.file ? introClipSeconds.value : 0,
+  intro_gap_sec: introGapSeconds.value,
+}))
+const expectedDuration = computed(() => expectedAudioAssemblyDuration({
+  narration_sec: assembledNarration.value.seconds,
+  music_lead_in_sec: musicLeadInSeconds.value,
+  closing_tail_sec: music.enabled && selectedMusicFiles.value.length > 0 ? null : 0,
+}))
+const estimatedUncounted = computed<string[]>(
+  () => [...new Set([...assembledNarration.value.unmeasured, ...expectedDuration.value.unmeasured])],
+)
+const estimatedMergedDuration = computed(() => expectedDuration.value.seconds)
 
 const existingMergedAudio = computed(() => {
   const files = scannedAssets.value?.merged_files || []
@@ -1424,6 +1777,8 @@ async function normalizeAudioMergePathsInState(): Promise<void> {
     normalize(() => backgroundNoise.custom_file, value => { backgroundNoise.custom_file = value }),
     normalize(() => newMusicPath.value, value => { newMusicPath.value = value }),
     ...ambientTracks.map(track => normalize(() => track.source_path, value => { track.source_path = value })),
+    ...effectsTracks.map(track => normalize(() => track.source_path, value => { track.source_path = value })),
+    ...backgroundVoiceTracks.map(track => normalize(() => track.source_path, value => { track.source_path = value })),
   ])
 }
 
@@ -1437,30 +1792,38 @@ function moveChapter(index: number, direction: -1 | 1) {
   chapters.value[newIndex] = a
 }
 
+function stopPreview() {
+  previewAudio.value?.pause()
+  previewAudio.value = null
+  playingPath.value = ''
+}
+
+function playPreviewUrl(url: string, key: string) {
+  previewAudio.value?.pause()
+  const audio = new Audio(url)
+  audio.onended = () => { playingPath.value = ''; previewAudio.value = null }
+  // play() returns a Promise that rejects on missing files / unsupported
+  // codec / autoplay block. Without this catch the click silently does
+  // nothing and the user has no signal anything went wrong.
+  audio.play().catch((err) => {
+    console.error(`[audio-merge] preview failed for ${key}:`, err)
+    showError(`Couldn't play preview — the file may be missing or in an unsupported format.`)
+    playingPath.value = ''
+    previewAudio.value = null
+  })
+  previewAudio.value = audio
+  playingPath.value = key
+}
+
 function togglePreview(filePath: string) {
-  void (async () => {
-    if (playingPath.value === filePath) {
-      previewAudio.value?.pause()
-      previewAudio.value = null
-      playingPath.value = ''
-      return
-    }
-    previewAudio.value?.pause()
-    const url = `/api/projects/${slug.value}/audio-editor/preview-audio?path=${encodeURIComponent(filePath)}`
-    const audio = new Audio(url)
-    audio.onended = () => { playingPath.value = ''; previewAudio.value = null }
-    // play() returns a Promise that rejects on missing files / unsupported
-    // codec / autoplay block. Without this catch the click silently does
-    // nothing and the user has no signal anything went wrong.
-    audio.play().catch((err) => {
-      console.error(`[audio-merge] preview failed for ${filePath}:`, err)
-      showError(`Couldn't play preview — file may be missing or in an unsupported format: ${filePath.split('/').pop()}`)
-      playingPath.value = ''
-      previewAudio.value = null
-    })
-    previewAudio.value = audio
-    playingPath.value = filePath
-  })()
+  if (playingPath.value === filePath) {
+    stopPreview()
+    return
+  }
+  playPreviewUrl(
+    `/api/projects/${slug.value}/audio-editor/preview-audio?path=${encodeURIComponent(filePath)}`,
+    filePath,
+  )
 }
 
 function addMusicFile() {
@@ -1550,6 +1913,8 @@ const AUDIO_MERGE_PATH_FIELDS: Array<{ key: string }> = [
   { key: 'music.files[]' },
   { key: 'background_noise.custom_file' },
   { key: 'ambient_tracks[].source_path' },
+  { key: 'effects_tracks[].source_path' },
+  { key: 'background_voice_tracks[].source_path' },
 ]
 
 const presetInvalidPaths = ref<Array<{ key: string; index: number | null; value: string; reason: string }>>([])
@@ -1567,6 +1932,8 @@ function currentMergeSnapshotForValidation() {
     music: { files: [...music.files] },
     background_noise: { custom_file: backgroundNoise.custom_file },
     ambient_tracks: ambientTracks.map(t => ({ source_path: t.source_path })),
+    effects_tracks: effectsTracks.map(t => ({ source_path: t.source_path })),
+    background_voice_tracks: backgroundVoiceTracks.map(t => ({ source_path: t.source_path })),
   }
 }
 
@@ -1593,6 +1960,7 @@ async function runPresetPathCheck() {
 function onPresetApplied() {
   void (async () => {
     await normalizeAudioMergePathsInState()
+    await refreshIntroClipSeconds()
     await runPresetPathCheck()
   })()
 }
@@ -1823,11 +2191,7 @@ function onEpisodeSelected(ep: any) {
   // Stop any in-flight preview from the previous episode — otherwise
   // the audio keeps playing while the UI swaps to a different episode's
   // chapter list, which is disorienting.
-  if (previewAudio.value) {
-    previewAudio.value.pause()
-    previewAudio.value = null
-    playingPath.value = ''
-  }
+  stopPreview()
   // scanAssets() + refreshMergeStatus() now fire via the episodeId watcher
   // (loadEpisodeDataDebounced) whenever v-model:episode-id updates, which
   // happens in lockstep with this event. No need to duplicate the call here.
@@ -1861,6 +2225,115 @@ function onGenerateClick() {
   void generateMergedAudio(writeMode.value)
 }
 
+/**
+ * One payload builder for the merge and the short preview, so the preview can
+ * never hear a different mix from the one Generate would write.
+ *
+ * A group that is switched OFF sends nothing but keeps every row in the form:
+ * turning it back on restores the picks exactly (§5).
+ */
+function buildAudioAssemblyPayload(): Record<string, any> {
+  const payload: Record<string, any> = {
+    episode_id: episodeId.value,
+    chapters: chapters.value.map(ch => ch.path),
+    gap_duration: gapDuration.value,
+    normalize_volume: normalizeVolume.value,
+    narration_volume: narrationVolume.value / 100,
+    // The master switch is always stated; the generator removes ambience rows
+    // when it is false, and the page keeps them for later.
+    ambience: { enabled: ambience.enabled },
+  }
+  // v1.0.317 — opt-in per-chunk pause for cloud TTS chunked chapters. Only
+  // sent when > 0 so the backend payload stays clean for the legacy default.
+  if (chunkSilenceSec.value > 0) payload.chunk_silence_sec = chunkSilenceSec.value
+
+  if (intro.enabled && intro.file) {
+    payload.intro = {
+      enabled: true,
+      file: intro.file,
+      volume: intro.volume / 100,
+      gap_after: intro.gap_after,
+    }
+  }
+
+  if (music.enabled && selectedMusicFiles.value.length) {
+    payload.music = {
+      enabled: true,
+      files: selectedMusicFiles.value,
+      volume: music.volume / 100,
+      post_narration_volume: music.post_narration_volume / 100,
+      fade_in: music.fade_in,
+      fade_out: music.fade_out,
+      // v1.0.397 — lead-in is a duration (seconds), not a volume — sent as-is.
+      lead_in_enabled: music.lead_in_enabled,
+      lead_in_seconds: music.lead_in_seconds,
+    }
+    // Only a real pool selection advances the project pool cursor. A
+    // manually selected playlist must never be recorded as an auto pick.
+    if (music.source === 'pool' && poolPickedTrack.value && poolPickedPath.value) {
+      payload.music_pool_track = poolPickedTrack.value
+    }
+  }
+
+  if (ambience.enabled && backgroundNoise.enabled) {
+    payload.background_noise = {
+      enabled: true,
+      mode: backgroundNoise.mode,
+      preset: backgroundNoise.preset,
+      // A custom ambience with no file is a valid, quiet choice. The
+      // generator says so and adds no layer rather than substituting a preset.
+      custom_file: backgroundNoise.mode === 'custom' ? backgroundNoise.custom_file : undefined,
+      volume: backgroundNoise.volume / 100,
+      fade_in: backgroundNoise.fade_in,
+      fade_out: backgroundNoise.fade_out,
+    }
+  }
+
+  const layerPayload = (rows: AmbientTrackUI[]) => rows
+    .filter(t => t.enabled && t.source_path)
+    .map(t => ({
+      id: t.id,
+      enabled: true,
+      source_path: t.source_path,
+      volume: Math.max(0, Math.min(1, t.volume / 100)),
+      fade_in: Math.max(0, t.fade_in),
+      fade_out: Math.max(0, t.fade_out),
+      loop: t.loop !== false,
+    }))
+  const liveAmbient = ambience.enabled ? layerPayload(ambientTracks) : []
+  if (liveAmbient.length) payload.ambient_tracks = liveAmbient
+  const liveEffects = effects.enabled ? layerPayload(effectsTracks) : []
+  if (liveEffects.length) payload.effects_tracks = liveEffects
+  const liveBackgroundVoice = backgroundVoice.enabled ? layerPayload(backgroundVoiceTracks) : []
+  if (liveBackgroundVoice.length) payload.background_voice_tracks = liveBackgroundVoice
+
+  return payload
+}
+
+const previewMixLoading = ref(false)
+const PREVIEW_MIX_KEY = 'audio-assembly-mix-preview'
+
+async function togglePreviewMix() {
+  if (playingPath.value === PREVIEW_MIX_KEY) {
+    stopPreview()
+    return
+  }
+  if (!episodeId.value || !chapters.value.length || previewMixLoading.value) return
+  previewMixLoading.value = true
+  try {
+    await normalizeAudioMergePathsInState()
+    const payload = buildAudioAssemblyPayload()
+    payload.preview_seconds = 20
+    const r = await post<{ url: string }>(`/projects/${slug.value}/audio-assembly/preview`, payload)
+    if (!r?.url) throw new Error('The preview did not return a playable file.')
+    playPreviewUrl(r.url, PREVIEW_MIX_KEY)
+  } catch (e: any) {
+    showError(e?.data?.detail || e?.message || 'Could not render the mix preview.')
+  } finally {
+    previewMixLoading.value = false
+  }
+}
+
 async function generateMergedAudio(writeMode: 'overwrite' | 'new' = 'overwrite') {
   if (!episodeId.value || generating.value || scanning.value || !chapters.value.length) return
   const scope = audioScopeSequence
@@ -1869,72 +2342,8 @@ async function generateMergedAudio(writeMode: 'overwrite' | 'new' = 'overwrite')
   try {
     await normalizeAudioMergePathsInState()
     if (scope !== audioScopeSequence) return
-    const payload: Record<string, any> = {
-      episode_id: episodeId.value,
-      chapters: chapters.value.map(ch => ch.path),
-      gap_duration: gapDuration.value,
-      normalize_volume: normalizeVolume.value,
-      narration_volume: narrationVolume.value / 100,
-      write_mode: writeMode,
-    }
-    // v1.0.317 — opt-in per-chunk pause for cloud TTS chunked chapters. Only
-    // sent when > 0 so the backend payload stays clean for the legacy default.
-    if (chunkSilenceSec.value > 0) payload.chunk_silence_sec = chunkSilenceSec.value
-
-    if (intro.enabled && intro.file) {
-      payload.intro = {
-        enabled: true,
-        file: intro.file,
-        volume: intro.volume / 100,
-        gap_after: intro.gap_after,
-      }
-    }
-
-    if (music.enabled && selectedMusicFiles.value.length) {
-      payload.music = {
-        enabled: true,
-        files: selectedMusicFiles.value,
-        volume: music.volume / 100,
-        post_narration_volume: music.post_narration_volume / 100,
-        fade_in: music.fade_in,
-        fade_out: music.fade_out,
-        // v1.0.397 — lead-in is a duration (seconds), not a volume — sent as-is.
-        lead_in_enabled: music.lead_in_enabled,
-        lead_in_seconds: music.lead_in_seconds,
-      }
-      // Only a real pool selection advances the project pool cursor. A
-      // manually selected playlist must never be recorded as an auto pick.
-      if (music.source === 'pool' && poolPickedTrack.value && poolPickedPath.value) {
-        payload.music_pool_track = poolPickedTrack.value
-      }
-    }
-
-    if (backgroundNoise.enabled) {
-      payload.background_noise = {
-        enabled: true,
-        mode: backgroundNoise.mode,
-        preset: backgroundNoise.preset,
-        custom_file: backgroundNoise.mode === 'custom' ? backgroundNoise.custom_file : undefined,
-        volume: backgroundNoise.volume / 100,
-        fade_in: backgroundNoise.fade_in,
-        fade_out: backgroundNoise.fade_out,
-      }
-    }
-
-    // Multi-track ambient layers — only send enabled rows with a real
-    // file path. Volume converts from UI's 0-100 scale to backend 0-1.
-    const liveAmbient = ambientTracks.filter(t => t.enabled && t.source_path)
-    if (liveAmbient.length) {
-      payload.ambient_tracks = liveAmbient.map(t => ({
-        id: t.id,
-        enabled: true,
-        source_path: t.source_path,
-        volume: Math.max(0, Math.min(1, t.volume / 100)),
-        fade_in: Math.max(0, t.fade_in),
-        fade_out: Math.max(0, t.fade_out),
-        loop: t.loop !== false,
-      }))
-    }
+    const payload = buildAudioAssemblyPayload()
+    payload.write_mode = writeMode
 
     audioMergeGenerating.value = true
     await post<any>(`/projects/${slug.value}/generate/audio-merge`, payload)
@@ -1991,6 +2400,7 @@ onMounted(async () => {
   await applyMergeFormatDefaultsIfNoPreset()
   await mergePresets.load()
   await normalizeAudioMergePathsInState()
+  await refreshIntroClipSeconds()
   // v1.0.93+ — `mergePresets.load()` auto-applies the last-active preset
   // when there is one. Run the path-check after that so the banner is
   // already visible on first paint if any files from the saved preset
@@ -2152,6 +2562,42 @@ onUnmounted(() => {
   text-transform: uppercase;
 }
 .audio-mix-states { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
+.audio-stage-strip {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-secondary);
+}
+.audio-stage-item { display: flex; align-items: flex-start; gap: 8px; min-width: 0; }
+.audio-stage-item strong { display: block; font-size: var(--font-sm); }
+.audio-stage-item p { margin: 2px 0 0; }
+.audio-stage-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--accent-dim);
+  color: var(--accent);
+  font-size: var(--font-xs);
+  font-weight: 700;
+}
+.audio-stage-heading {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 14px;
+  padding: 12px 0 2px;
+  border-top: 1px solid var(--border);
+}
+.audio-stage-heading h3 { margin: 0; }
+.audio-stage-heading p { margin: 2px 0 0; }
 .audio-mix-state {
   padding: 4px 8px;
   border: 1px solid var(--border);
@@ -2209,6 +2655,7 @@ onUnmounted(() => {
   .audio-mix-card { padding: 0 14px; }
   .audio-mix-header, .merge-output-status { flex-direction: column; align-items: stretch; }
   .audio-mix-states { justify-content: flex-start; }
+  .audio-stage-strip { grid-template-columns: 1fr; }
   .audio-mix-section--intro { grid-template-columns: 1fr; row-gap: 10px; }
   .music-source-switch { grid-template-columns: 1fr; }
 }
