@@ -1910,6 +1910,8 @@ async function liveUploadPacingContext(job: Job): Promise<PacingChannelContext |
 }
 
 let uploadAdmissionInFlight = false
+/** A requeue that arrived while a pass was deciding must get its own pass. */
+let uploadReevaluationRequested = false
 
 /** A live read failure is transient: retry through the queue's own timer. */
 const UPLOAD_PACING_READ_RETRY_MS = 60_000
@@ -2013,20 +2015,44 @@ function pumpUploadLane(): void {
     } finally {
       uploadAdmissionInFlight = false
     }
-    if (again) queueMicrotask(() => pumpUploadLane())
+    if (again || uploadReevaluationRequested) {
+      uploadReevaluationRequested = false
+      queueMicrotask(() => pumpUploadLane())
+    }
   })()
 }
 
 /**
  * Ask the upload lane to re-decide from live pacing now.
  *
- * The Upload Center's PUT /projects/:slug/youtube/upload-pacing route calls
+ * A known-wake hold parks its row OUTSIDE `pending`, so pumping alone cannot
+ * see it. This requeues only rows this gate parked: queued `youtube_upload`
+ * rows carrying the pacing marker. It never touches a paused, cancelled or
+ * requested-pause row, and uploads have no writing-model quota wait, so no
+ * unrelated hold is disturbed. The old durable wake is cleared (and persisted)
+ * before the pump, so a policy change can move a row earlier; if the live
+ * answer is still a hold, the pump parks it again with the new instant.
+ *
+ * The Upload Center's PUT /projects/:slug/youtube/upload-pacing route awaits
  * this after a successful save, and a corrected publication date should call
- * it too, so rows parked on the old answer move immediately instead of waiting
- * for their retry timer. Safe to call at any time; it never starts an upload
- * whose live eligibility cannot be read.
+ * it too. It never starts an upload whose live eligibility cannot be read.
  */
-export function reevaluateUploadQueue(): void {
+export async function reevaluateUploadQueue(): Promise<void> {
+  const lane = queues.youtube_upload
+  const requeued: Job[] = []
+  for (const job of jobs.values()) {
+    if (job.type !== 'youtube_upload' || job.status !== 'queued') continue
+    if (cancelled.has(job.job_id) || pauseRequested.has(job.job_id)
+      || job.pause_requested || job.pause_origin) continue
+    if (typeof job.params?.quota_retry_at !== 'string') continue
+    clearQuotaWaitTimer(job.job_id)
+    delete job.params.quota_retry_at
+    if (!lane.pending.some(candidate => candidate.job_id === job.job_id)) lane.pending.push(job)
+    requeued.push(job)
+  }
+  await Promise.all(requeued.map(job => persistJob(job)))
+  for (const job of requeued) emitUpdate(job)
+  if (uploadAdmissionInFlight) uploadReevaluationRequested = true
   pump('youtube_upload')
 }
 

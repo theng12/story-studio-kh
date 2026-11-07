@@ -165,6 +165,38 @@ test('a live eligibility read failure never starts an upload and other channels 
   assert.ok(retryAt > Date.now())
 })
 
+test('reevaluating after a policy change requeues a parked upload and runs it now', async () => {
+  const project = await pm.createProject({ name: 'Pacing reevaluate channel' })
+  const oldWake = new Date(Date.now() + 60 * 60 * 1000).toISOString()
+  jq._setUploadPacingContextForTesting(() => heldContext(oldWake))
+  const started: string[] = []
+  jq.registerExecutor('youtube_upload', async job => { started.push(job.episode_id) })
+
+  const job = jq.enqueuePreparedForTest({
+    project_slug: project.slug,
+    type: 'youtube_upload',
+    episode_id: 'EP-REEVALUATE',
+    params: { expected_channel_id: 'chan-reevaluate' },
+  })
+
+  let parked: Job | undefined
+  await waitFor(async () => {
+    const rows = await jq.getJobs(project.slug, { type: 'youtube_upload' })
+    parked = rows.find(row => row.job_id === job.job_id)
+    return parked?.params.quota_retry_at === oldWake
+  }, 'the upload to be parked on the old policy')
+  assert.ok(!started.includes('EP-REEVALUATE'))
+
+  // The policy is saved; the lead's route awaits this before replying.
+  jq._setUploadPacingContextForTesting(() => eligibleContext())
+  await jq.reevaluateUploadQueue()
+  await waitFor(() => started.includes('EP-REEVALUATE'), 'the requeued upload to run after the policy change')
+
+  const rows = await jq.getJobs(project.slug, { type: 'youtube_upload' })
+  assert.equal(rows.filter(row => row.episode_id === 'EP-REEVALUATE').length, 1,
+    'reevaluation requeues the same row; it creates no second producer or duplicate')
+})
+
 test('a publish-deadline hold stays queued with no invented wake instant', async () => {
   const project = await pm.createProject({ name: 'Pacing deadline channel' })
   jq._setUploadPacingContextForTesting(() => eligibleContext())
