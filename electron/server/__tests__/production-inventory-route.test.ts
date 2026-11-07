@@ -164,7 +164,7 @@ describe('production inventory routes', () => {
     const globalsBefore = await fingerprint([settingsPath, secretsPath])
 
     const response = await request(app).get(`/api/projects/${slug}/settings/preset-state`).expect(200)
-    assert.deepEqual(Object.keys(response.body).sort(), ['pointers', 'presets'])
+    assert.deepEqual(Object.keys(response.body).sort(), ['pointers', 'presets', 'scalars'])
     // Typed AND legacy pointers both survive — no winner-take-all collapse.
     assert.equal(response.body.pointers.script_last_preset_script, 'sp1')
     assert.equal(response.body.pointers.script_last_preset, 'dangling-legacy-pointer')
@@ -207,6 +207,60 @@ describe('production inventory routes', () => {
     assert.equal(response.body.pointers.research_last_preset, null, 'stored null round-trips as null')
     assert.equal(response.body.pointers.script_last_preset_script, 'keep-me')
     assert.deepEqual(response.body.presets.script_presets, [{ id: 'k1', name: 'Kept' }])
+  })
+
+  test('scalars carries video_assembly_last_used and episode_length verbatim, and absent stays absent while stored null/false/0 survive', async () => {
+    // Release 386 item 19 — the pure read evidence Production needs to verify
+    // channel defaults WITHOUT a settings-baseline write. The allowlist is
+    // explicit and additive: pointers/presets keep their meaning, scalars
+    // holds only the named non-preset keys.
+    const slug = 'preset-scalars-shape'
+    const dir = path.join(process.env.STORY_STUDIO_DATA_DIR!, 'projects', slug)
+    await fs.mkdir(dir, { recursive: true })
+    const lastUsed = {
+      channel: { episode_id: 'EP0002', saved_at: '2026-11-05T00:00:00.000Z', settings: { export: { quality: 'high' } } },
+      episodes: { EP0002: { episode_id: 'EP0002', saved_at: '2026-11-05T00:00:00.000Z', settings: { export: { quality: 'high' } } } },
+    }
+    const before = JSON.stringify({
+      video_assembly_last_used: lastUsed,
+      // mode fixed with a real zero would be nonsense, so pin zero where it is
+      // legitimate: an explicit 0 second min on a random range still round-trips
+      // as the stored 0, never normalised away.
+      episode_length: { mode: 'random', min_sec: 0, max_sec: 60, fixed_sec: 45 },
+      presentation_frame: { enabled: false },
+      thumbnail_generator_last_preset: null,
+    }, null, 2)
+    await fs.writeFile(path.join(dir, 'config.json'), before)
+
+    const response = await request(app).get(`/api/projects/${slug}/settings/preset-state`).expect(200)
+    assert.deepEqual(Object.keys(response.body).sort(), ['pointers', 'presets', 'scalars'])
+    // Verbatim — no normalisation, no invention.
+    assert.deepEqual(response.body.scalars.video_assembly_last_used, lastUsed, 'the last-render store is served exactly as stored (diagnostic READ evidence)')
+    assert.deepEqual(response.body.scalars.episode_length, { mode: 'random', min_sec: 0, max_sec: 60, fixed_sec: 45 }, 'the channel episode length is served verbatim in seconds, zero preserved')
+    assert.equal(response.body.scalars.episode_length.min_sec, 0, 'an explicit zero is distinguishable from absent')
+    // Unlisted non-preset keys stay unexposed even though they are top-level config.
+    assert.equal('presentation_frame' in response.body.scalars, false, 'only the allowlisted scalars are exposed')
+    assert.equal('thumbnail_generator_last_preset' in response.body.scalars, false, 'a preset pointer is not a scalar')
+    // A stored null on a listed key is "explicitly unset", not absent.
+    const nulled = await request(app).get(`/api/projects/${slug}/settings/preset-state`).expect(200)
+    assert.deepEqual(nulled.body.scalars.video_assembly_last_used, lastUsed)
+    // The GET wrote nothing: config.json bytes are identical after the reads.
+    assert.equal(await fs.readFile(path.join(dir, 'config.json'), 'utf8'), before, 'the pure reader leaves config.json bytes untouched')
+  })
+
+  test('a key the config never carried stays absent from scalars — no default invented', async () => {
+    const { slug, dir } = await makeProject('Scalar Never Recorded')
+    const configPath = path.join(dir, 'config.json')
+    const config = JSON.parse(await fs.readFile(configPath, 'utf8'))
+    delete config.video_assembly_last_used
+    delete config.episode_length
+    // An explicit null on one listed key must survive while the other stays out.
+    config.episode_length = null
+    await fs.writeFile(configPath, JSON.stringify(config, null, 2))
+
+    const response = await request(app).get(`/api/projects/${slug}/settings/preset-state`).expect(200)
+    assert.equal('video_assembly_last_used' in response.body.scalars, false, 'never recorded → key absent, no default invented')
+    assert.equal(response.body.scalars.episode_length, null, 'an explicit null round-trips as null, not as absent and not as a Formula default')
   })
 
   test('repeated GETs change no bytes, mtimes, ctimes, modes or entries anywhere in the data root', async () => {

@@ -1728,16 +1728,34 @@ export async function getSafeConfig(slug: string): Promise<any | null> {
 }
 
 /**
- * Preset-pattern projection of config.json for read-only inventory exports
- * (release 383). Same allowlist as getSafeConfig's pass-through — readJson +
- * in-memory migrateProjectPresetFields + isPresetConfigKey — but deliberately
- * NOT getSafeConfig: that path answers via getConfig (loads app secrets) and
- * the voice-preset fields, which reach readSettings and its first-read chmod
- * of the global app-settings.json. An export GET must not change mode/ctime
- * of any file, so this reader touches config.json alone. Additive; nothing
- * about getSafeConfig/readSettings changes.
+ * The non-preset top-level config keys an export may read back verbatim
+ * (release 386, item 19). Each is served exactly as stored — no normalization,
+ * no default invented — so an absent key stays absent, and an explicit
+ * null/false/0 round-trips unchanged. video_assembly_last_used is diagnostic
+ * READ evidence only: it is per-episode/channel last-render state, never a
+ * reusable cross-episode apply payload (production copy-on-apply is forbidden,
+ * AGENTS.md §4). episode_length is the channel's own per-episode starting
+ * length in SECONDS (a script preset's data.form.length is a different value
+ * in minutes and is not a substitute).
  */
-export async function readPresetState(slug: string): Promise<{ pointers: Record<string, unknown>; presets: Record<string, unknown> } | null> {
+const SCALAR_CONFIG_KEYS = ['video_assembly_last_used', 'episode_length'] as const
+
+/**
+ * Preset-pattern projection of config.json for read-only inventory exports
+ * (release 383; scalars added in 386). Same allowlist as getSafeConfig's
+ * pass-through — readJson + in-memory migrateProjectPresetFields +
+ * isPresetConfigKey — but deliberately NOT getSafeConfig: that path answers via
+ * getConfig (loads app secrets) and the voice-preset fields, which reach
+ * readSettings and its first-read chmod of the global app-settings.json. An
+ * export GET must not change mode/ctime of any file, so this reader touches
+ * config.json alone. Additive; nothing about getSafeConfig/readSettings
+ * changes, and getSafeConfig's own passthrough is untouched.
+ */
+export async function readPresetState(slug: string): Promise<{
+  pointers: Record<string, unknown>
+  presets: Record<string, unknown>
+  scalars: Record<string, unknown>
+} | null> {
   const projectDir = getProjectDir(slug)
   if (!projectDir) return null
   const configPath = path.join(projectDir, 'config.json')
@@ -1751,7 +1769,13 @@ export async function readPresetState(slug: string): Promise<{ pointers: Record<
     if (key.endsWith('_presets')) presets[key] = value ?? null
     else pointers[key] = value ?? null
   }
-  return { pointers, presets }
+  // hasOwnProperty, not `?? null`: a key the config never carried must stay
+  // absent, while a stored null is a real "explicitly unset" and must survive.
+  const scalars: Record<string, unknown> = {}
+  for (const key of SCALAR_CONFIG_KEYS) {
+    if (Object.prototype.hasOwnProperty.call(raw, key)) scalars[key] = raw[key]
+  }
+  return { pointers, presets, scalars }
 }
 
 export async function updateApiKeys(slug: string, req: UpdateApiKeysRequest): Promise<boolean> {

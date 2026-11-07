@@ -34,13 +34,16 @@ const LETTERING_SCALAR_KEYS = ['thumb_font_style', 'thumb_text_style', 'thumb_te
  * Every preset-pattern key config.json carries, keyed by its original config
  * name: `*_last_preset…` pointers keep their stored value exactly as written
  * (typed and legacy pointers both — no winner-take-all collapse), `*_presets`
- * lists keep their arrays. Served by the narrow pure reader
+ * lists keep their arrays. `scalars` (386) carries the allowlisted non-preset
+ * keys — video_assembly_last_used and episode_length — verbatim: absent stays
+ * absent and an explicit null/false/0 survives, so a consumer can tell "never
+ * recorded" from "recorded as none". Served by the narrow pure reader
  * (pm.readPresetState), not getSafeConfig — an export GET must never reach
  * app secrets or readSettings' first-read chmod. isPresetConfigKey is the
- * only filter, so families the pipeline table doesn't know (video_subtitles,
- * video_effects, custom_…) are never hidden, while non-preset config and
- * masked secrets stay unexposed. A list that is not a list is corrupt, loud,
- * and a 500 rather than a quietly emptied export.
+ * only filter for the pointer/preset maps, so families the pipeline table
+ * doesn't know (video_subtitles, video_effects, custom_…) are never hidden,
+ * while non-preset config and masked secrets stay unexposed. A list that is
+ * not a list is corrupt, loud, and a 500 rather than a quietly emptied export.
  */
 router.get('/projects/:slug/settings/preset-state', async (req, res) => {
   const state = await pm.readPresetState(req.params.slug)

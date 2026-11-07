@@ -40,6 +40,23 @@ test('an episode keeps its own last render after another episode renders', () =>
   assert.equal(pickLastUsedSettings(null, 'EP0001'), null)
 })
 
+test('a stale channel snapshot never outranks the named episode\'s own entry', () => {
+  // Release 386 item 19 §2/§4: a channel last-used snapshot can name an
+  // episode_id (recordLastUsedSettings always writes the channel side). That
+  // pointer is NOT ownership — the own entry for the same episode still wins,
+  // and it is never replaced by the channel copy when a preset is selected.
+  const own = { export: { quality: 'fast' } }
+  const store = {
+    channel: { episode_id: 'EP0002', saved_at: '2026-11-01T00:00:00.000Z', settings: { export: { quality: 'high' } } },
+    episodes: { EP0002: { episode_id: 'EP0002', saved_at: '2026-11-05T00:00:00.000Z', settings: own } },
+  }
+  assert.equal(pickLastUsedSettings(store, 'EP0002')?.scope, 'episode', 'the own entry wins even when the channel names the same episode')
+  assert.deepEqual(pickLastUsedSettings(store, 'EP0002')?.settings.export, { quality: 'fast' })
+  // Recording a render for another episode must not rewrite EP0002's own entry.
+  const after = recordLastUsedSettings(store, 'EP0003', { export: { quality: 'medium' } })
+  assert.deepEqual(after.episodes?.EP0002.settings.export, { quality: 'fast' }, 'an unrelated render leaves another episode\'s own entry intact')
+})
+
 test('Video Assembly records on a queued render and restores after presets load and on episode change', () => {
   const page = readFileSync(new URL('../pages/projects/[slug]/video-assembly.vue', import.meta.url), 'utf8')
   assert.match(page, /if \(await runGenerateVideo\(\{ post, videoAssemblyGenerating \}\)\) void rememberLastUsedSettings\(\)/)
