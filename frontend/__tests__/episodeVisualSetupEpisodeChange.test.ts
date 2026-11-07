@@ -101,7 +101,7 @@ test('ownership resolves from this episode’s own files, never carried or parse
   // A read that fails refuses Save rather than falling back to defaults or to
   // the episode just left (AGENTS.md §4/§6 honesty).
   assert.match(page, /Never fall back to defaults silently/)
-  assert.match(page, /:generate-disabled="!episodeId \|\| !configLoaded"/)
+  assert.match(page, /:generate-disabled="!episodeId \|\| !configLoaded \|\| !storyLoaded"/)
   // The page saves the whole config it loaded and claims no pacing authority —
   // pinned in full by continuityPresetPacing.test.ts; asserted here only so a
   // rewrite of this page cannot silently reintroduce the claim.

@@ -151,6 +151,17 @@ const CLASSIFIED: Record<string, Record<string, Classification>> = {
     episodeAnchorEnabled: { verdict: 'episode', reason: 'whether THIS episode uses its uploaded anchor image — `use_episode_sheet` is excluded from the preset and this is its view (2026-08-03)' },
     compositionPrompt: { verdict: 'transient', reason: 'the composition-preview dialog\'s prompt; nothing generated from it enters the episode' },
     compositionModel: { verdict: 'transient', reason: 'the composition-preview dialog\'s model, remembered in this browser only' },
+    // Story context (Episode Visual Setup Phase 1): the episode's entity
+    // inventory lives in its OWN sidecar beside continuity.json. It is
+    // episode state by construction — §5 forbids it travelling in the
+    // continuity-page preset, which carries the reusable LOOK only.
+    'entity.kind': { verdict: 'episode', reason: 'which kind this inventory row is — one episode\'s story entities, persisted in the story-entities sidecar, never in the continuity-page preset (§5)' },
+    'entity.name': { verdict: 'episode', reason: 'the entity\'s name in THIS episode\'s inventory — episode state in the story-entities sidecar, never carried by the channel\'s preset (§5)' },
+    'entity.important': { verdict: 'episode', reason: 'whether THIS episode\'s entity holds its one canonical reference — an editorial fact about this episode, not a reusable setting (§5)' },
+    'entity.character_id': { verdict: 'episode', reason: 'which of THIS episode\'s roster links to the entity — resolved from the episode\'s own character list, never by a preset (§4/§5)' },
+    'entity.description': { verdict: 'episode', reason: 'THIS episode\'s story facts for the entity — story context kept separate from the channel look the preset carries (§5)' },
+    newEntityKind: { verdict: 'transient', reason: 'the add-row type picker: scratch until Add is pressed; the entity itself lands in the story-entities sidecar' },
+    newEntityName: { verdict: 'transient', reason: 'the add-row name box: scratch text until Add is pressed; unsaved-guarded and blanked on episode change' },
   },
   // v1.4.365 — ONE page, TWO preset types. The proposal setup (`form`) is the
   // Contextual Cues preset and the mix (`settings`) is the Sound Design preset;

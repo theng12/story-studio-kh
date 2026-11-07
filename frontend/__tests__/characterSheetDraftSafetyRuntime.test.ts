@@ -13,6 +13,7 @@ import { createApp, nextTick, ref, type Component } from 'vue'
 
 const filename = fileURLToPath(new URL('../pages/projects/[slug]/character-sheet.vue', import.meta.url))
 const continuityUrl = pathToFileURL(fileURLToPath(new URL('../composables/useContinuityConfig.ts', import.meta.url))).href
+const storyEntitiesUrl = pathToFileURL(fileURLToPath(new URL('../../electron/server/contracts/story-entities.ts', import.meta.url))).href
 
 async function loadPage(): Promise<Component> {
   const { descriptor } = parse(readFileSync(filename, 'utf8'), { filename })
@@ -21,6 +22,7 @@ async function loadPage(): Promise<Component> {
   const support = `
     import { computed, defineComponent as _defineComponent, h, ref, watch } from ${JSON.stringify(vueUrl)}
     import { CONTINUITY_PRESET_EXCLUDE_KEYS, applyContinuityPagePreset, continuityDefaults, normalizeContinuityConfig } from ${JSON.stringify(continuityUrl)}
+    import { STORY_ENTITY_KINDS, STORY_ENTITY_KIND_LABELS, canonicalStoryEntityId, emptyStoryEntities } from ${JSON.stringify(storyEntitiesUrl)}
     const F = new Proxy({}, { get: (_, k) => globalThis.__csFixture[k] })
     const definePageMeta = () => undefined
     const useAppTitle = () => undefined

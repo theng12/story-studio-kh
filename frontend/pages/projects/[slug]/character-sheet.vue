@@ -23,7 +23,7 @@
       :presets="pagePresets"
       generate-label="Save Visual Setup"
       :generate-loading="saving"
-      :generate-disabled="!episodeId || !configLoaded"
+      :generate-disabled="!episodeId || !configLoaded || !storyLoaded"
       :generate-status="saveStatus"
       @generate="saveConfig"
     />
@@ -182,6 +182,91 @@
         </div>
       </section>
 
+      <!-- Story context: THIS episode's entity inventory (story-entities
+           sidecar). Story facts only — the channel look stays in the section
+           below and in continuity.json. -->
+      <section class="card mt-3 cs-story-context">
+        <header class="cs-section-head">
+          <div>
+            <span class="cs-kicker">Episode-specific</span>
+            <h3>Story context</h3>
+            <p class="text-muted text-sm">The cast, places, world facts and objects this episode's story actually uses — kept separate from the channel look.</p>
+          </div>
+        </header>
+
+        <WorkspaceNotice v-if="storyLoadError" class="mt-3" tone="warning" title="This episode’s story context could not be read">
+          {{ storyLoadError }} Saving is turned off so saved story context is not overwritten.
+          <button class="btn btn-ghost btn-sm" @click="loadStory">Retry</button>
+        </WorkspaceNotice>
+
+        <p class="text-muted text-xs mt-2">
+          {{ storyChapters === null
+            ? 'Whole completed script: chapter folder not on disk — nothing measured against it yet'
+            : `Whole completed script: ${storyChapters} chapter${storyChapters === 1 ? '' : 's'} on file` }}
+        </p>
+
+        <div class="cs-story-list mt-3">
+          <div
+            v-for="(entity, index) in storyDoc.entities"
+            :key="entity.id || `row-${index}`"
+            :class="['cs-story-row', { 'is-dropped': entity.review === 'drop' }]"
+          >
+            <div class="cs-story-row-head">
+              <select v-model="entity.kind" class="input cs-story-kind" :aria-label="`Type for ${entity.name || 'entity'}`">
+                <option v-for="kind in STORY_ENTITY_KINDS" :key="kind" :value="kind">{{ STORY_ENTITY_KIND_LABELS[kind] }}</option>
+              </select>
+              <input v-model="entity.name" class="input cs-story-name" maxlength="200" placeholder="Name" aria-label="Entity name" />
+              <label class="cs-checkbox" title="An important entity holds one canonical reference; more only when a scene needs them">
+                <input v-model="entity.important" type="checkbox" />
+                Needs reference
+              </label>
+              <button type="button" class="btn btn-ghost btn-sm" @click="toggleStoryReview(entity)">
+                {{ entity.review === 'drop' ? 'Restore' : 'Drop' }}
+              </button>
+            </div>
+            <div v-if="entity.kind === 'cast'" class="cs-story-row-cast">
+              <select v-model="entity.character_id" class="input" :aria-label="`Channel character for ${entity.name || 'entity'}`">
+                <option value="">No character link</option>
+                <option v-for="character in characters" :key="character.id" :value="character.id">{{ character.name }}</option>
+              </select>
+              <span v-if="entity.character_id && !characterName(entity.character_id)" class="cs-warn text-xs">
+                This character is no longer in this channel — clear the link or pick another.
+              </span>
+              <span v-else-if="entity.character_id && entity.important" class="text-muted text-xs">
+                Canonical reference: {{ characterName(entity.character_id) }}’s portrait
+              </span>
+            </div>
+            <textarea
+              v-model="entity.description"
+              class="input cs-story-description"
+              rows="2"
+              maxlength="4000"
+              placeholder="Story facts: how it looks, its state, what changes in this episode"
+              aria-label="Story facts"
+            ></textarea>
+            <span v-if="entity.review === 'drop'" class="text-muted text-xs">Dropped from the inventory — restore any time; nothing is deleted.</span>
+          </div>
+          <div v-if="!storyDoc.entities.length" class="cs-empty-inline text-muted text-sm">
+            No story entities yet. Add the cast, places, world facts and objects this episode uses.
+          </div>
+        </div>
+
+        <div class="cs-story-add-row mt-3">
+          <select v-model="newEntityKind" class="input cs-story-kind" aria-label="New entity type">
+            <option v-for="kind in STORY_ENTITY_KINDS" :key="kind" :value="kind">{{ STORY_ENTITY_KIND_LABELS[kind] }}</option>
+          </select>
+          <input
+            v-model="newEntityName"
+            class="input cs-story-name"
+            maxlength="200"
+            placeholder="Name of the new entity"
+            aria-label="New entity name"
+            @keyup.enter="addStoryEntity"
+          />
+          <button type="button" class="btn btn-ghost btn-sm" :disabled="!newEntityName.trim()" @click="addStoryEntity">Add</button>
+        </div>
+      </section>
+
       <section class="card mt-3 cs-look-card">
         <header class="cs-section-head">
           <div>
@@ -211,6 +296,20 @@ import {
   normalizeContinuityConfig,
 } from '../../../composables/useContinuityConfig.js'
 import type { ContinuityConfig, ContinuityPagePreset } from '../../../composables/useContinuityConfig.js'
+// One source of truth with the backend for the episode's story inventory —
+// kinds, labels, id minting and the doc shape (Episode Visual Setup Phase 1).
+import {
+  STORY_ENTITY_KINDS,
+  STORY_ENTITY_KIND_LABELS,
+  canonicalStoryEntityId,
+  emptyStoryEntities,
+} from '../../../../electron/server/contracts/story-entities.js'
+import type {
+  StoryEntitiesDoc,
+  StoryEntitiesRead,
+  StoryEntity,
+  StoryEntityKind,
+} from '../../../../electron/server/contracts/story-entities.js'
 
 definePageMeta({ layout: 'dashboard' })
 useAppTitle('Character Sheet')
@@ -286,15 +385,41 @@ const saving = ref(false)
 // refuse to save over a setup that could not be read.
 const configLoaded = ref(false)
 const configLoadError = ref('')
+
+// ── Story context: the episode's entity inventory (its own sidecar) ──
+// Cast / locations / world facts / objects live in story-entities.json
+// beside continuity.json — story facts, never the channel look (§5/§7).
+// The page edits a draft here too; only Save visual setup persists it.
+const storyDoc = ref<StoryEntitiesDoc>(emptyStoryEntities())
+const storyLoaded = ref(false)
+const storyLoadError = ref('')
+const storyChapters = ref<number | null>(null)
+const storySnapshot = ref('')
+const storyJson = (doc: StoryEntitiesDoc) => JSON.stringify(doc.entities)
+// A half-typed new entity is episode-owned draft text as much as the
+// composition prompt (§4): it counts as unsaved so the guard asks before
+// the episode changes under it.
+const newEntityKind = ref<StoryEntityKind>('object')
+const newEntityName = ref('')
+const storyDirty = computed(() =>
+  (storyLoaded.value && storyJson(storyDoc.value) !== storySnapshot.value)
+  || !!newEntityName.value.trim(),
+)
+
 const savedSnapshot = ref('')
 const snapshotOf = (c: ContinuityConfig) => { const { updated_at: _u, ...rest } = c; return JSON.stringify(rest) }
-const dirty = computed(() => configLoaded.value && snapshotOf(config.value) !== savedSnapshot.value)
+const dirty = computed(() =>
+  (configLoaded.value && snapshotOf(config.value) !== savedSnapshot.value)
+  || storyDirty.value,
+)
 useUnsavedGuard(dirty, 'visual setup changes', { episodeSwitch: true })
 const saveStatus = computed(() => {
   if (saving.value) return 'Saving visual setup…'
   if (!episodeId.value) return 'Pick an episode first'
   if (configLoadError.value) return 'Saving is off until the saved setup loads — use Retry above'
+  if (storyLoadError.value) return 'Saving is off until the story context loads — use Retry above'
   if (!configLoaded.value) return 'Loading this episode’s setup…'
+  if (!storyLoaded.value) return 'Loading this episode’s story context…'
   return dirty.value ? 'Unsaved changes' : ''
 })
 const droppedAnchorNotice = ref('')
@@ -392,6 +517,77 @@ async function loadConfig(): Promise<void> {
   }
 }
 
+// ── Story context (the episode's entity inventory) ──────────────────
+// A failed read refuses Save rather than falling back to an empty
+// inventory that a later Save would write over the real one (§8) — the
+// same rule the continuity read above follows.
+async function loadStory(): Promise<void> {
+  const ep = episodeId.value
+  const project = slug.value
+  const scope = characterScopeSequence
+  const current = () => scope === characterScopeSequence && project === slug.value && ep === episodeId.value
+  storyLoaded.value = false
+  storyLoadError.value = ''
+  if (!ep) {
+    storyDoc.value = emptyStoryEntities()
+    storyChapters.value = null
+    storySnapshot.value = ''
+    return
+  }
+  try {
+    const r = await get<StoryEntitiesRead>(`/projects/${project}/story-entities/${ep}`)
+    if (!current()) return
+    storyDoc.value = {
+      schema_version: 1,
+      entities: (Array.isArray(r?.doc?.entities) ? r.doc.entities : []).map(e => ({
+        ...e,
+        // An absent link reads as the empty choice the cast select shows —
+        // the server keeps treating '' as "no link" on the next save.
+        character_id: e.character_id ?? '',
+      })),
+      updated_at: r?.doc?.updated_at || '',
+    }
+    // `chapters` is number|null from the server: null is "not on disk /
+    // not measured", never rendered as zero chapters (§6).
+    storyChapters.value = typeof r?.chapters === 'number' ? r.chapters : null
+    storySnapshot.value = storyJson(storyDoc.value)
+    storyLoaded.value = true
+  } catch (e: any) {
+    if (current() && !e?.__slugRace) storyLoadError.value = e?.data?.detail || e?.message || 'The server did not answer.'
+  }
+}
+
+function addStoryEntity(): void {
+  const name = newEntityName.value.trim()
+  if (!name || !storyLoaded.value) return
+  const now = new Date().toISOString()
+  storyDoc.value.entities.push({
+    // Minted from kind + name against the ids already in play, so a retry
+    // of the same save adopts the same record instead of duplicating it.
+    id: canonicalStoryEntityId(newEntityKind.value, name, storyDoc.value.entities.map(e => e.id)),
+    kind: newEntityKind.value,
+    name,
+    description: '',
+    important: false,
+    review: 'keep',
+    reference_images: [],
+    created_at: now,
+    updated_at: now,
+  })
+  newEntityName.value = ''
+}
+
+/** Drop = retired from the inventory, restorable — nothing is deleted (§5). */
+function toggleStoryReview(entity: StoryEntity): void {
+  entity.review = entity.review === 'drop' ? 'keep' : 'drop'
+}
+
+/** Ownership of a cast link is this episode's own roster — looked up, never parsed. */
+function characterName(id?: string): string | null {
+  if (!id) return null
+  return characters.value.find(c => c.id === id)?.name ?? null
+}
+
 /** Anchor ids of deleted/unassigned characters can't be seen or unticked — drop them and say so. */
 function dropUnknownAnchors(): void {
   if (!configLoaded.value || !charactersLoaded.value) return
@@ -409,17 +605,40 @@ async function saveConfig(): Promise<void> {
   const project = slug.value
   const scope = characterScopeSequence
   const current = () => scope === characterScopeSequence && project === slug.value && ep === episodeId.value
-  if (!ep || !configLoaded.value) return
+  if (!ep || !configLoaded.value || !storyLoaded.value) return
   saving.value = true
+  // Which half is in flight, so a failure names the half that failed
+  // instead of claiming a save that did not land (§8).
+  let half: 'visual setup' | 'story context' = 'visual setup'
   try {
     const saved = await put<{ ok: true; config: ContinuityConfig }>(`/projects/${project}/continuity/${ep}`, JSON.parse(JSON.stringify(config.value)))
     if (!current()) return
     config.value = normalizeContinuityConfig(saved.config)
     savedSnapshot.value = snapshotOf(config.value)
     droppedAnchorNotice.value = ''
+    // Story context rides the same Save button, its own sidecar. Only the
+    // half that changed is written — a clean inventory is already on disk.
+    if (storyDirty.value) {
+      half = 'story context'
+      const savedStory = await put<{ ok: true; doc: StoryEntitiesDoc }>(
+        `/projects/${project}/story-entities/${ep}`,
+        { schema_version: 1, entities: storyDoc.value.entities },
+      )
+      if (!current()) return
+      if (!savedStory?.doc || !Array.isArray(savedStory.doc.entities)) {
+        throw new Error('the server did not confirm the story context save')
+      }
+      storyDoc.value = savedStory.doc
+      storySnapshot.value = storyJson(savedStory.doc)
+    }
     success('Visual setup saved')
   } catch (e: any) {
-    if (current()) showError(e?.data?.detail || 'Failed to save continuity settings')
+    if (!current()) return
+    if (half === 'story context') {
+      showError(`Visual setup saved, but story context failed — ${e?.data?.detail || e?.message || 'the server did not answer'}`)
+    } else {
+      showError(e?.data?.detail || 'Failed to save continuity settings')
+    }
   } finally {
     if (current()) saving.value = false
   }
@@ -622,8 +841,19 @@ watch([slug, episodeId], () => {
   compositionPrompt.value = ''
   generatingComposition.value = false
   characters.value = []
+  // The story inventory is episode-owned too (§4): blank it synchronously
+  // so the previous episode's cast/places/world facts never stand on the
+  // new episode's screen while its read is in flight. The half-typed
+  // add-row name goes with it — the unsaved guard already asked about it.
+  storyDoc.value = emptyStoryEntities()
+  storyLoaded.value = false
+  storyLoadError.value = ''
+  storyChapters.value = null
+  storySnapshot.value = ''
+  newEntityName.value = ''
   void loadCharacters()
   void loadConfig()
+  void loadStory()
   void loadRefs()
   void pagePresets.load()
 }, { immediate: true, flush: 'sync' })
@@ -685,6 +915,17 @@ watch(compositionPrompt, (value) => {
 :deep(.cs-reference-dropzone-empty.ref-dropzone) { min-height: 118px; }
 .cs-checkbox { display: flex; align-items: center; gap: 8px; font-size: 13px; margin-top: 4px; cursor: pointer; }
 .cs-look-card :deep(.style-picker) { margin-top: 14px; }
+.cs-story-list { display: flex; flex-direction: column; gap: 10px; }
+.cs-story-row { display: flex; flex-direction: column; gap: 7px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 9px; background: var(--bg-secondary); }
+.cs-story-row.is-dropped { opacity: .62; border-style: dashed; }
+.cs-story-row-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.cs-story-kind { flex: 0 0 auto; width: 122px; }
+.cs-story-name { flex: 1 1 160px; min-width: 0; }
+.cs-story-row-cast { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+.cs-story-row-cast .input { max-width: 260px; }
+.cs-story-description { width: 100%; resize: vertical; }
+.cs-story-add-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.cs-story-add-row .cs-story-name { flex: 1 1 180px; }
 @media (max-width: 900px) {
   .cs-anchor-layout { grid-template-columns: 1fr; }
   .cs-episode-anchor { padding: 18px 0 0; border-top: 1px solid var(--border); border-left: 0; }
