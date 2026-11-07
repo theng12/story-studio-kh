@@ -98,6 +98,14 @@ export interface StoryEntitiesDoc {
   updated_at: string
   /** Absent = never extracted. Never written by a client save. */
   extraction?: StoryEntityExtractionRecord
+  /**
+   * The last extraction's review draft, kept beside the inventory so it
+   * survives a page reload or an app restart. It is never the inventory: the
+   * customer still keeps or drops each proposal, and only an explicit review
+   * save clears the draft. Re-annotated against `entities` on every read, so a
+   * stored Keep/Drop decision always wins over the draft's.
+   */
+  pending_proposals?: StoryEntityProposalSource[]
 }
 
 /** What `GET /projects/:slug/story-entities/:episodeId` answers. */
@@ -114,6 +122,23 @@ export interface StoryEntitiesRead {
   chapters: number | null
   /** Fingerprint of those same chapter files; `null` = could not be measured. */
   script_fingerprint: string | null
+  /**
+   * The last extraction's review draft, re-annotated against `doc.entities`
+   * so a stored Keep/Drop decision always wins. Empty when there is no draft.
+   */
+  pending_proposals: StoryEntityProposal[]
+}
+
+/**
+ * A proposal-shaped entity before review — exactly what extraction read.
+ * Persisted as the review draft; it never becomes inventory by itself.
+ */
+export interface StoryEntityProposalSource {
+  id: string
+  kind: StoryEntityKind
+  name: string
+  description: string
+  important: boolean
 }
 
 /**
@@ -157,6 +182,34 @@ export function isStoryEntityKind(value: unknown): value is StoryEntityKind {
 
 export function isStoryEntityReview(value: unknown): value is StoryEntityReview {
   return typeof value === 'string' && (STORY_ENTITY_REVIEWS as readonly string[]).includes(value)
+}
+
+/**
+ * Attach the stored record to a proposal when its id already exists. The
+ * customer's Keep/Drop and `important` choices win over the model's — a
+ * re-extraction never reverses a decision, and a dropped entity stays dropped.
+ * Pure, so both the extraction and the persisted-draft read use one rule.
+ */
+export function annotateProposals(
+  extracted: StoryEntityProposalSource[],
+  stored: StoryEntity[],
+): StoryEntityProposal[] {
+  const byId = new Map(stored.map(entity => [entity.id, entity]))
+  return extracted.map(entity => {
+    const existing = byId.get(entity.id)
+    if (!existing) return { ...entity, existing: false, review: 'keep' }
+    const current = existing.description || ''
+    return {
+      id: entity.id,
+      kind: entity.kind,
+      name: entity.name,
+      description: entity.description,
+      important: existing.important,
+      existing: true,
+      review: existing.review,
+      ...(current && current !== entity.description ? { current_description: current } : {}),
+    }
+  })
 }
 
 export function emptyStoryEntities(): StoryEntitiesDoc {

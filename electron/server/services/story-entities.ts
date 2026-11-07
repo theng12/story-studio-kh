@@ -35,6 +35,7 @@ import {
   STORY_ENTITY_KINDS,
   STORY_ENTITY_NAME_MAX,
   STORY_ENTITY_REVIEWS,
+  annotateProposals,
   canonicalStoryEntityId,
   emptyStoryEntities,
   isStoryEntityKind,
@@ -44,6 +45,7 @@ import {
   type StoryEntity,
   type StoryEntityExtractionRecord,
   type StoryEntityKind,
+  type StoryEntityProposalSource,
 } from '../contracts/story-entities.js'
 
 export class StoryEntitiesValidationError extends Error {
@@ -185,11 +187,15 @@ export async function readStoryEntities(slug: string, episodeId: string): Promis
     doc = emptyStoryEntities()
   }
   const script = await listCompletedChapters(slug, episodeId)
+  const pending = Array.isArray(doc.pending_proposals)
+    ? annotateProposals(doc.pending_proposals, Array.isArray(doc.entities) ? doc.entities : [])
+    : []
   return {
     exists,
     doc,
     chapters: script.chapters,
     script_fingerprint: script.fingerprint,
+    pending_proposals: pending,
   }
 }
 
@@ -421,6 +427,7 @@ async function buildDoc(
     entities: storedEntities,
     updated_at: stored.updated_at ?? '',
     ...(stored.extraction ? { extraction: stored.extraction } : {}),
+    ...(Array.isArray(stored.pending_proposals) ? { pending_proposals: stored.pending_proposals } : {}),
   }
 
   const now = new Date().toISOString()
@@ -454,18 +461,25 @@ async function buildDoc(
     // Extraction provenance is server-owned: a client save carries it through
     // untouched instead of being able to claim a script was read.
     ...(stored.extraction ? { extraction: stored.extraction } : {}),
+    // The review draft survives an ordinary save; only the customer's explicit
+    // review (Add selected / Discard, then Save) clears it.
+    ...(raw.dismiss_pending_proposals === true || !stored.pending_proposals
+      ? {}
+      : { pending_proposals: stored.pending_proposals }),
   }
 }
 
 /**
- * Record which script the last successful extraction read. Runs AFTER every
- * chunk succeeded, inside the sidecar lock, and never touches `entities` — a
- * failed extraction writes nothing at all (§8).
+ * Record which script the last successful extraction read, and keep its
+ * proposals as the review draft beside the inventory. Runs AFTER every chunk
+ * succeeded, inside the sidecar lock, and never touches `entities` — a failed
+ * extraction writes nothing at all (§8).
  */
 export async function recordStoryExtraction(
   slug: string,
   episodeId: string,
   record: StoryEntityExtractionRecord,
+  pendingProposals: StoryEntityProposalSource[] = [],
 ): Promise<void> {
   await requireEpisode(slug, episodeId)
   const paths = await resolveEpisodePathsByCode(slug, episodeId)
@@ -483,6 +497,7 @@ export async function recordStoryExtraction(
       entities: Array.isArray(stored.entities) ? stored.entities : [],
       updated_at: stored.updated_at ?? '',
       extraction: record,
+      ...(pendingProposals.length ? { pending_proposals: pendingProposals } : {}),
     }
     await fs.writeFile(file, JSON.stringify(doc, null, 2), 'utf-8')
   })

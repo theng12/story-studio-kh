@@ -2727,6 +2727,13 @@ export interface UpdateConfigRequest {
   research_before_writing?: boolean
   research_auto_approve_claims?: boolean
   /**
+   * Episode Visual Setup (owner-approved 2026-11-05) — this channel's switch
+   * for automatic story-context extraction. When true, a completed script
+   * queues an extraction job whose proposals wait for review on the Character
+   * Sheet. Absent = off. It never adds to the inventory by itself.
+   */
+  story_entity_automation?: boolean
+  /**
    * E2–E4 (1.4.288) — scene analysis for this channel (Effects Library). Off unless set. `depth`
    * (3D photo, rack focus) is its own switch (owner); `vision` finds the subject, points of interest
    * and outlines (sky, water, flames…). The models are picked app-wide.
@@ -2786,6 +2793,12 @@ export const JOB_TYPES = [
   'still_post_render',
   /** Score an episode's thumbnail candidates and pick the best (owner 2026-11-01). Optional; spends nothing by default. */
   'thumbnail_score',
+  /**
+   * Episode Visual Setup (owner-approved 2026-11-05): read a completed script
+   * and keep its story entities as a review draft. Queued only for a channel
+   * whose `story_entity_automation` is on; never adds to the inventory.
+   */
+  'story_entities_extract',
 ] as const
 
 export type JobType = typeof JOB_TYPES[number]

@@ -305,6 +305,9 @@
           <p class="text-muted text-xs">
             Nothing is added until you choose. Existing entities keep their current Keep/Drop decision.
           </p>
+          <p v-if="proposalsFromSavedDraft" class="text-muted text-xs">
+            Saved by this channel’s automatic extraction — the draft stays here until you review it.
+          </p>
           <div class="cs-story-list mt-2">
             <div
               v-for="proposal in proposals"
@@ -348,8 +351,8 @@
         </section>
 
         <!-- Channel-owned, stored OFF by default. It rides the existing
-             per-channel settings route; no extraction runs by itself in this
-             release, and the page says so rather than implying it does. -->
+             per-channel settings route; when on, a completed script queues
+             extraction on the existing job queue and its proposals wait here. -->
         <div class="cs-story-automation mt-3">
           <label class="cs-checkbox">
             <input
@@ -361,7 +364,7 @@
             Keep this channel’s story context updated automatically
           </label>
           <span class="text-muted text-xs">
-            Off by default. Saved for the automatic pass; automatic extraction is not wired in this release, so each episode extracts when you press the button above.
+            Off by default. When on, a completed script queues an extraction on this Mac; its proposals wait above for your review, and nothing is added to the inventory automatically.
           </span>
         </div>
       </section>
@@ -504,6 +507,12 @@ const storyJson = (doc: StoryEntitiesDoc) => JSON.stringify(doc.entities)
 const extracting = ref(false)
 const extractError = ref('')
 const proposals = ref<StoryEntityProposal[]>([])
+// True when the list was loaded from the sidecar rather than returned by a
+// click just now — the automatic pass and a reload both land here.
+const proposalsFromSavedDraft = ref(false)
+// A deliberate review (Add selected / Discard) clears the saved draft on the
+// next Save; an ordinary save must never discard a draft nobody read.
+const proposalsReviewed = ref(false)
 const proposalKeep = ref<Record<string, boolean>>({})
 const proposalUpdateFacts = ref<Record<string, boolean>>({})
 const extractionRecord = computed(() => storyDoc.value.extraction ?? null)
@@ -703,6 +712,17 @@ async function loadStory(): Promise<void> {
     // not measured", never rendered as zero chapters (§6).
     storyChapters.value = typeof r?.chapters === 'number' ? r.chapters : null
     storyFingerprint.value = typeof r?.script_fingerprint === 'string' ? r.script_fingerprint : null
+    // A saved extraction draft survives the reload/restart that created this
+    // page, so a background extraction still reaches its review step. The
+    // server re-annotates it, so stored Keep/Drop decisions already win.
+    const pending = Array.isArray(r?.pending_proposals) ? r.pending_proposals : []
+    proposals.value = pending
+    proposalsFromSavedDraft.value = pending.length > 0
+    proposalsReviewed.value = false
+    proposalKeep.value = Object.fromEntries(
+      pending.filter(proposal => !proposal.existing).map(proposal => [proposal.id, true]),
+    )
+    proposalUpdateFacts.value = {}
     storySnapshot.value = storyJson(storyDoc.value)
     storyLoaded.value = true
   } catch (e: any) {
@@ -759,6 +779,8 @@ async function extractStoryEntities(): Promise<void> {
     )
     if (!current()) return
     proposals.value = Array.isArray(result?.proposals) ? result.proposals : []
+    proposalsFromSavedDraft.value = false
+    proposalsReviewed.value = false
     proposalKeep.value = Object.fromEntries(
       proposals.value.filter(proposal => !proposal.existing).map(proposal => [proposal.id, true]),
     )
@@ -823,6 +845,8 @@ function addKeptProposals(): void {
     changed++
   }
   proposals.value = []
+  proposalsFromSavedDraft.value = false
+  proposalsReviewed.value = true
   proposalKeep.value = {}
   proposalUpdateFacts.value = {}
   success(
@@ -834,6 +858,8 @@ function addKeptProposals(): void {
 
 function discardProposals(): void {
   proposals.value = []
+  proposalsFromSavedDraft.value = false
+  proposalsReviewed.value = true
   proposalKeep.value = {}
   proposalUpdateFacts.value = {}
 }
@@ -855,7 +881,7 @@ async function saveChannelAutomation(): Promise<void> {
     await put(`/projects/${slug.value}/settings/config`, { story_entity_automation: wanted })
     success(
       wanted
-        ? 'Saved ON for this channel. Automatic extraction is not wired in this release, so episodes still extract when you press the button.'
+        ? 'Saved ON for this channel. The next completed script queues an extraction; its proposals wait here for your review.'
         : 'Automatic story context is off for this channel.',
     )
   } catch (e: any) {
@@ -896,11 +922,17 @@ async function saveConfig(): Promise<void> {
     droppedAnchorNotice.value = ''
     // Story context rides the same Save button, its own sidecar. Only the
     // half that changed is written — a clean inventory is already on disk.
-    if (storyDirty.value) {
+    // A deliberate review also writes, even with no entity edit, so the saved
+    // draft is cleared rather than reappearing on the next load.
+    if (storyDirty.value || proposalsReviewed.value) {
       half = 'story context'
       const savedStory = await put<{ ok: true; doc: StoryEntitiesDoc }>(
         `/projects/${project}/story-entities/${ep}`,
-        { schema_version: 1, entities: storyDoc.value.entities },
+        {
+          schema_version: 1,
+          entities: storyDoc.value.entities,
+          ...(proposalsReviewed.value ? { dismiss_pending_proposals: true } : {}),
+        },
       )
       if (!current()) return
       if (!savedStory?.doc || !Array.isArray(savedStory.doc.entities)) {
@@ -908,6 +940,7 @@ async function saveConfig(): Promise<void> {
       }
       storyDoc.value = savedStory.doc
       storySnapshot.value = storyJson(savedStory.doc)
+      proposalsReviewed.value = false
     }
     success('Visual setup saved')
   } catch (e: any) {
@@ -1135,6 +1168,8 @@ watch([slug, episodeId], () => {
   extracting.value = false
   extractError.value = ''
   proposals.value = []
+  proposalsFromSavedDraft.value = false
+  proposalsReviewed.value = false
   proposalKeep.value = {}
   proposalUpdateFacts.value = {}
   void loadCharacters()

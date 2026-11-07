@@ -42,6 +42,9 @@ import { generateSceneClipJob, generateSceneClipsBatchJob } from '../generators/
 import { runContinuityRenderJob } from '../generators/continuity-render.js'
 import { generateCompositionTemplateJob } from '../generators/composition-template.js'
 import { generateIdeaCampaign } from '../generators/idea-campaign.js'
+import { enqueueStoryEntityExtraction, generateStoryEntityExtraction } from '../generators/story-entities.js'
+import { readStoryEntities } from '../services/story-entities.js'
+import { getConfig } from '../services/project-manager.js'
 import { generateTranslateEpisode, verifyTranslatedCompletion } from '../services/translation.js'
 import { requireJobCompletion, completionErrorMessage } from '../services/job-completion.js'
 import { registerJobCancellationAuditor, type JobCancellationAudit } from '../services/job-cancellation-auditors.js'
@@ -344,6 +347,20 @@ function registerCancellationAuditors(): void {
     )
     return audit.complete ? 'complete' : 'repair-required'
   })
+  // Story context extraction — the durable proof is the sidecar's own
+  // extraction record, which is written only after every chunk parsed, plus
+  // the exact script fingerprint this run set out to read.
+  registerJobCancellationAuditor('story_entities_extract', async job => {
+    const expected = typeof job.params?.script_fingerprint === 'string' ? job.params.script_fingerprint : ''
+    if (!expected) return 'repair-required'
+    const current = await readStoryEntities(job.project_slug, job.episode_id).catch(() => null)
+    if (!current) return 'repair-required'
+    if (current.doc.extraction?.script_fingerprint === expected) return 'complete'
+    // The channel can be switched off while this job waits. The executor then
+    // does nothing by design; that is a moot job, not a missing output.
+    const config = await getConfig(job.project_slug).catch(() => null)
+    return config?.story_entity_automation === true ? 'repair-required' : 'complete'
+  })
   registerJobCancellationAuditor('introduction-only', async job => {
     const paths = await resolveEpisodePathsByCode(job.project_slug, job.episode_id)
     const audit = await inspectIntroductionCompletion(paths.script_dir, job.episode_id)
@@ -457,7 +474,31 @@ export function registerAllExecutors(options: { loadSettings?: boolean } = {}): 
   // approved sidecar and expands all-or-selected chapters with per-entry
   // word-count overrides.
   registerExecutor('outline_only', generateOutlineOnly)
-  registerExecutor('expand_chapters', generateExpandChapters)
+  registerExecutor('expand_chapters', async job => {
+    await generateExpandChapters(job)
+    // Optional follow-on, on the SAME queue as its own job (§8: never inline,
+    // never a new scheduler). It is enqueued only when the script this run just
+    // wrote passes the same completion audit the queue applies next, so an
+    // incomplete script never triggers extraction. Any failure here belongs to
+    // the extraction job or to this log line — never to the script's outcome.
+    try {
+      const paths = await resolveEpisodePathsByCode(job.project_slug, job.episode_id)
+      const audit = await inspectExpandedScriptCompletion(
+        paths.script_dir,
+        job.episode_id,
+        requestedChapterSelection(job.params),
+        await scriptLanguageForChannel(job.project_slug),
+      )
+      if (!audit.complete) return
+      const outcome = await enqueueStoryEntityExtraction(job.project_slug, job.episode_id)
+      if (outcome === 'enqueued') {
+        job.output_lines.push('Queued story context extraction for the completed script.')
+      }
+    } catch (error: any) {
+      job.output_lines.push(`Story context extraction was not queued: ${error?.message || String(error)}`)
+    }
+  })
+  registerExecutor('story_entities_extract', generateStoryEntityExtraction)
   registerExecutor('episode_shorts', generateEpisodeShorts)
   registerExecutor('image_prompts', generateImagePrompts)
   registerExecutor('thumb_images', guardMedia(generateImages))

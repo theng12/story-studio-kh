@@ -1672,6 +1672,10 @@ const queues: Record<JobType, QueueState> = {
   // Thumbnail scoring (owner 2026-11-01). Its own lane: it must never hold up
   // a thumbnail render, and a scoring run that fails never fails the episode.
   thumbnail_score: { pending: [], running: false, executor: null },
+  // Episode Visual Setup (owner-approved 2026-11-05). Queued after a complete
+  // script; its own single slot, so it never delays the script job that
+  // enqueued it and its failure is reported on its own row.
+  story_entities_extract: { pending: [], running: false, executor: null },
 }
 
 /**
@@ -8301,7 +8305,7 @@ export const EPISODE_CODE_JOB_TYPES: ReadonlySet<JobType> = new Set<JobType>([
   'scene_image_generate', 'scene_clip_generate', 'scene_clips_batch', 'continuity_render',
   'composition_generate', 'contextual_cues', 'translate_episode',
   'music_video', 'music_episode_build', 'music_scene_polish',
-  'thumbnail_score',
+  'thumbnail_score', 'story_entities_extract',
 ])
 
 /**

@@ -40,13 +40,18 @@ import {
 import {
   STORY_ENTITY_DESCRIPTION_MAX,
   STORY_ENTITY_NAME_MAX,
+  annotateProposals,
   canonicalStoryEntityId,
   isStoryEntityKind,
   type StoryEntitiesExtraction,
   type StoryEntity,
   type StoryEntityKind,
-  type StoryEntityProposal,
+  type StoryEntityProposalSource,
 } from '../contracts/story-entities.js'
+import { enqueue } from '../services/job-queue.js'
+import type { Job } from '../models/types.js'
+
+export { annotateProposals }
 
 export class StoryEntitiesExtractionError extends Error {
   readonly statusCode = 400
@@ -97,13 +102,7 @@ export interface ExtractionChunk {
   text: string
 }
 
-export interface ExtractedStoryEntity {
-  id: string
-  kind: StoryEntityKind
-  name: string
-  description: string
-  important: boolean
-}
+export type ExtractedStoryEntity = StoryEntityProposalSource
 
 function fitsChunk(
   text: string,
@@ -247,33 +246,6 @@ export function finalizeExtracted(into: Map<string, ExtractedStoryEntity>): Extr
   return out
 }
 
-/**
- * Attach the stored record to a proposal when its id already exists. The
- * customer's Keep/Drop and `important` choices win over the model's — a
- * re-extraction never reverses a decision, and a dropped entity stays dropped.
- */
-export function annotateProposals(
-  extracted: ExtractedStoryEntity[],
-  stored: StoryEntity[],
-): StoryEntityProposal[] {
-  const byId = new Map(stored.map(entity => [entity.id, entity]))
-  return extracted.map(entity => {
-    const existing = byId.get(entity.id)
-    if (!existing) return { ...entity, existing: false, review: 'keep' }
-    const current = existing.description || ''
-    return {
-      id: entity.id,
-      kind: entity.kind,
-      name: entity.name,
-      description: entity.description,
-      important: existing.important,
-      existing: true,
-      review: existing.review,
-      ...(current && current !== entity.description ? { current_description: current } : {}),
-    }
-  })
-}
-
 function extractionError(part: number, total: number, message: string): Error {
   return new Error(
     `Reading the completed script failed (part ${part} of ${total}): ${message}. Nothing was changed.`,
@@ -393,14 +365,15 @@ export async function extractEpisodeStoryEntities(
   const extracted = finalizeExtracted(accumulated)
   const extractedAt = new Date().toISOString()
 
-  // Provenance only after every chunk parsed. The inventory's entities are
-  // untouched: the customer reviews the proposals before anything is added.
+  // Provenance and the review draft only after every chunk parsed. The
+  // inventory's entities are untouched: the customer reviews the proposals
+  // before anything is added, and the draft survives a reload or restart.
   await recordStoryExtraction(slug, episodeId, {
     extracted_at: extractedAt,
     model,
     chapters: script.chapters,
     script_fingerprint: script.fingerprint,
-  })
+  }, extracted)
 
   return {
     proposals: annotateProposals(extracted, current.doc.entities),
@@ -410,4 +383,99 @@ export async function extractEpisodeStoryEntities(
     extracted_at: extractedAt,
     skipped_rows: skippedRows,
   }
+}
+
+// ── Per-channel automation (OFF unless the channel opts in) ───────────
+
+export type StoryEntityAutomationDecision = 'off' | 'no-script' | 'fresh' | 'extract'
+
+/**
+ * One rule for both the enqueue and the run: the channel must have opted in,
+ * the completed script must be measurable, and a stored extraction from this
+ * exact script means there is nothing new to ask the model for. Pure, so the
+ * decision can be pinned without a provider call.
+ */
+export function storyEntityAutomationDecision(input: {
+  enabled: boolean
+  chapters: number | null
+  fingerprint: string | null
+  extractedFingerprint?: string | null
+}): StoryEntityAutomationDecision {
+  if (!input.enabled) return 'off'
+  if (!input.chapters || !input.fingerprint) return 'no-script'
+  if (input.extractedFingerprint === input.fingerprint) return 'fresh'
+  return 'extract'
+}
+
+/**
+ * Queue extraction as its OWN job after a complete script lands. Never runs it
+ * inline: the script job's success must not wait for a second model read, and
+ * a failure here is the extraction job's to report, not the script's.
+ */
+export async function enqueueStoryEntityExtraction(
+  slug: string,
+  episodeId: string,
+): Promise<StoryEntityAutomationDecision | 'enqueued'> {
+  const config = await getConfig(slug)
+  const current = await readStoryEntities(slug, episodeId)
+  const decision = storyEntityAutomationDecision({
+    enabled: config?.story_entity_automation === true,
+    chapters: current.chapters,
+    fingerprint: current.script_fingerprint,
+    extractedFingerprint: current.doc.extraction?.script_fingerprint,
+  })
+  if (decision !== 'extract') return decision
+  await enqueue({
+    project_slug: slug,
+    type: 'story_entities_extract',
+    episode_id: episodeId,
+    title: 'Story context extraction',
+    params: { script_fingerprint: current.script_fingerprint },
+  })
+  return 'enqueued'
+}
+
+/**
+ * The extraction job's executor. It reads the same live preset/model and
+ * published limits as the page's button, writes the proposals as the review
+ * draft, and never touches the inventory's entities or their Keep/Drop
+ * decisions. A failure is this job's error, reported loudly (§8).
+ */
+export async function generateStoryEntityExtraction(job: Job): Promise<void> {
+  const config = await getConfig(job.project_slug)
+  const current = await readStoryEntities(job.project_slug, job.episode_id)
+  const decision = storyEntityAutomationDecision({
+    enabled: config?.story_entity_automation === true,
+    chapters: current.chapters,
+    fingerprint: current.script_fingerprint,
+    extractedFingerprint: current.doc.extraction?.script_fingerprint,
+  })
+  if (decision === 'off') {
+    job.output_lines.push('Automatic story context is off for this channel, so nothing was extracted.')
+    return
+  }
+  if (decision === 'no-script') {
+    throw new StoryEntitiesExtractionError(
+      'The completed chapter files could not be measured, so this episode cannot be extracted automatically. '
+      + 'Generate the complete script, then extract from the Character Sheet.',
+    )
+  }
+  if (decision === 'fresh') {
+    // The durable result for this script already exists; record the same
+    // fingerprint so the completion audit verifies that result, not an older
+    // request the script has since moved past.
+    job.params.script_fingerprint = current.script_fingerprint
+    job.output_lines.push('The stored story context already came from this exact script; no provider call was made.')
+    return
+  }
+
+  const result = await extractEpisodeStoryEntities(job.project_slug, job.episode_id)
+  // The script the run actually read, so a completion audit compares the
+  // durable record with the same fingerprint rather than an older request.
+  job.params.script_fingerprint = result.script_fingerprint
+  job.output_lines.push(
+    `Proposed ${result.proposals.length} story entit${result.proposals.length === 1 ? 'y' : 'ies'} `
+    + `from ${result.chapters} completed chapter${result.chapters === 1 ? '' : 's'}. `
+    + 'Nothing was added to the inventory; review the proposals on the Character Sheet.',
+  )
 }
