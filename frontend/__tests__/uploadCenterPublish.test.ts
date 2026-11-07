@@ -9,6 +9,20 @@ import { transform } from 'esbuild'
 const pagePath = fileURLToPath(new URL('../pages/projects/[slug]/upload/publish.vue', import.meta.url))
 const source = readFileSync(pagePath, 'utf8')
 
+// Every upload carries the page's caption settings; these are its defaults,
+// with closed captions OFF until the customer turns them on.
+const DEFAULT_CAPTION_PARAMS = {
+  captions: {
+    enabled: false,
+    language: 'en',
+    track_name: 'English',
+    is_draft: false,
+    dedupe_mode: 'skip_if_exists',
+    preferred_source: 'auto',
+    custom_srt_path: '',
+  },
+}
+
 async function loadPage(): Promise<Component> {
   const { descriptor } = parse(source, { filename: pagePath })
   const script = compileScript(descriptor, { id: 'uc-publish' })
@@ -966,6 +980,7 @@ describe('Upload Center Publish', () => {
       episode_code: 'EP0001', confirm: true, expected_channel_id: 'UC-x',
       expected_package_revision: 'pack-42', expected_source_revision: 'video-source-42',
       thumbnail_filename: 'EP0001_Thumb01_v1.png', privacy_status: 'private',
+      params: DEFAULT_CAPTION_PARAMS,
     })
     assert.match(mounted.confirms[0].message, /Ch \(UC-x\)/)
 
@@ -1144,6 +1159,7 @@ describe('Upload Center Publish', () => {
     assert.deepEqual(mounted.calls.find(call => call.path.endsWith('/youtube/upload'))?.body, {
       episode_code: 'EP0001', confirm: true, expected_channel_id: 'UC-x', expected_package_revision: 'pack-42',
       expected_source_revision: 'video-source-42', thumbnail_filename: 'EP0001_Thumb01_v1.png', privacy_status: 'private', publish_at: publishAt,
+      params: DEFAULT_CAPTION_PARAMS,
     })
     mounted.destroy()
   })
@@ -1751,11 +1767,13 @@ describe('Upload Center Publish', () => {
         episode_code: 'EP0001', confirm: true, expected_channel_id: 'UC-x',
         expected_package_revision: 'package-EP0001', expected_source_revision: 'source-EP0001',
         thumbnail_filename: 'EP0001_Thumb01.png', privacy_status: 'private', publish_at: plannedAt,
+        params: DEFAULT_CAPTION_PARAMS,
       },
       {
         episode_code: 'EP0002', confirm: true, expected_channel_id: 'UC-x',
         expected_package_revision: 'package-EP0002', expected_source_revision: 'source-EP0002',
         thumbnail_filename: 'EP0002_Thumb01.png', privacy_status: 'private',
+        params: DEFAULT_CAPTION_PARAMS,
       },
     ])
     assert.equal(mounted.confirms.length, 0, 'the exact bulk review has one explicit queue action, not a second generic dialog')
