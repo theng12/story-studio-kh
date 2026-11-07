@@ -582,6 +582,10 @@ describe('automatic recovery for cooperative Continuity Render stall holds', () 
       genstudio_jobs: [],
     })
     await runContinuityRenderJob(seedJob)
+    // The generator's last progress checkpoint is a deferred soft write. Let it
+    // land before a caller replaces jobs.json directly, or that write rewrites
+    // the file from its older cached baseline and erases the test fixture.
+    await jq._waitForJobPersistenceForTesting()
     const outputDir = await resolveSceneImagesDir(project.slug, episodeId, paths.episode_dir)
     const outputPath = path.join(outputDir, `${sceneId}.png`)
     const entry = (await readManifest(outputDir)).tasks[`${sceneId}.png`]!
