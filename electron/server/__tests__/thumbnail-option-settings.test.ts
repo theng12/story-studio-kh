@@ -232,3 +232,58 @@ test('legacy episode: reads empty defaults and never gets written', async () => 
     'a legacy read/write attempt must not create a sidecar',
   )
 })
+
+test('regression: approved style longer than 1000 characters roundtrips through initializeThumbnailOptions and API with exact bytes preserved', async () => {
+  const { initializeThumbnailOptions, readThumbnailOptionSettings } = await import('../services/thumbnail-option-settings.js')
+  const {
+    THUMBNAIL_OPTION_STYLE_TAG_MAX,
+    ThumbnailOptionStoredSchema,
+    ThumbnailOptionUpdateSchema,
+  } = await import('../contracts/thumbnail-options.js')
+
+  assert.equal(THUMBNAIL_OPTION_STYLE_TAG_MAX, 12_000, 'style_tag cap must match the authoritative 12,000 character style limit')
+
+  // A 2,751-character style bible (matches the production defect MANU2-NATIVE-20261025T115324Z-092ce216 / MineePod EP20 incident).
+  const longStyle = 'Warm painterly illustration with rich textures, gentle rim lighting, and atmospheric depth. '.repeat(30)
+    + 'Extra unique detail signature: ' + 'x'.repeat(150)
+  assert.ok(longStyle.length > 1000, `test requires >1000 characters, got ${longStyle.length}`)
+
+  // 1. Direct schema verification
+  const parsedStored = ThumbnailOptionStoredSchema.safeParse({ style_tag: longStyle })
+  assert.equal(parsedStored.success, true, 'stored schema must accept >1000 character style')
+  if (parsedStored.success) {
+    assert.equal(parsedStored.data.style_tag, longStyle, 'exact bytes must be preserved without truncation')
+  }
+
+  const parsedUpdate = ThumbnailOptionUpdateSchema.safeParse({ number: 1, style_tag: longStyle })
+  assert.equal(parsedUpdate.success, true, 'update schema must accept >1000 character style')
+  if (parsedUpdate.success) {
+    assert.equal(parsedUpdate.data.style_tag, longStyle, 'exact bytes must be preserved without truncation')
+  }
+
+  // 2. Ceiling verification at the 12,000 character boundary
+  const atCeiling = 'a'.repeat(THUMBNAIL_OPTION_STYLE_TAG_MAX)
+  assert.equal(ThumbnailOptionStoredSchema.safeParse({ style_tag: atCeiling }).success, true)
+  assert.equal(ThumbnailOptionUpdateSchema.safeParse({ number: 1, style_tag: atCeiling }).success, true)
+
+  const overCeiling = 'a'.repeat(THUMBNAIL_OPTION_STYLE_TAG_MAX + 1)
+  assert.equal(ThumbnailOptionStoredSchema.safeParse({ style_tag: overCeiling }).success, false)
+  assert.equal(ThumbnailOptionUpdateSchema.safeParse({ number: 1, style_tag: overCeiling }).success, false)
+
+  // 3. Generator initialization verification: options[1-3] initialized with long style
+  // (the exact failure mode of MineePod EP20 image_prompts thumbnails job pipeline-handoff-7d5b434d7f7d8374fbaaae43)
+  await initializeThumbnailOptions(slug, code, [1, 2], { style_tag: longStyle })
+  const settings = await readThumbnailOptionSettings(slug, code)
+  assert.equal(settings.options['1']?.style_tag, longStyle, 'option 1 must preserve exact style bytes')
+  assert.equal(settings.options['2']?.style_tag, longStyle, 'option 2 must preserve exact style bytes')
+
+  // 4. API update verification: PUT preserves exact bytes and GET returns them
+  const put = await request(app).put(optionsEndpoint(code)).send({ number: 1, style_tag: longStyle })
+  assert.equal(put.status, 200)
+  assert.equal(put.body.options[1].style_tag, longStyle)
+
+  const get = await request(app).get(optionsEndpoint(code))
+  assert.equal(get.status, 200)
+  assert.equal(get.body.options[1].style_tag, longStyle, 'GET must return exact style bytes')
+  assert.equal(get.body.options[1].style_tag.length, longStyle.length)
+})

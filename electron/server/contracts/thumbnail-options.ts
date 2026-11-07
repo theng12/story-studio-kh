@@ -21,12 +21,18 @@ import { z } from 'zod'
 
 export const THUMBNAIL_OPTIONS_SCHEMA = 1
 
+/**
+ * Visual art style tag / style bible character ceiling. Matches the
+ * authoritative content-pack style text limit (MAX_TEXT in content-packs/schemas.ts).
+ */
+export const THUMBNAIL_OPTION_STYLE_TAG_MAX = 12_000
+
 /** One option's stored selection. Absent key = never chosen. */
 export const ThumbnailOptionStoredSchema = z.object({
   /** Selected recipe — the thumbnail template id. */
   thumbnail_template_id: z.string().max(200),
-  /** Selected visual art style tag. */
-  style_tag: z.string().max(1000),
+  /** Selected visual art style tag / style bible. */
+  style_tag: z.string().max(THUMBNAIL_OPTION_STYLE_TAG_MAX),
   /** Selected lettering font. */
   thumb_font_style: z.string().max(200),
   /** Selected headline/text style. */
@@ -60,7 +66,7 @@ export const ThumbnailOptionSettingsSchema = z.object({
 export const ThumbnailOptionUpdateSchema = z.object({
   number: z.number().int().safe().min(1),
   thumbnail_template_id: z.string().max(200).optional(),
-  style_tag: z.string().max(1000).optional(),
+  style_tag: z.string().max(THUMBNAIL_OPTION_STYLE_TAG_MAX).optional(),
   thumb_font_style: z.string().max(200).optional(),
   thumb_text_style: z.string().max(200).optional(),
   thumb_text_position: z.string().max(50).optional(),
