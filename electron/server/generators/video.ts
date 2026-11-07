@@ -164,7 +164,9 @@ import {
   describeMergedAudioOpening,
   type MergedAudioOpening,
 } from '../services/merged-audio-opening.js'
-import { scenePlanLeadInShiftSec, shiftScenesForLeadIn } from '../lib/intro-lead-in.js'
+import { scenePlanLeadInShiftSec, shiftScenesForLeadIn, computeStoryStartSec } from '../lib/intro-lead-in.js'
+import { isSleepNiche, resolveSleepTitlePlacement, sleepTitleOpeningPlan, sleepTitleOverlayWindow, type SleepTitlePlacementResult, type SleepVideoContext } from '../lib/sleep-title-placement.js'
+import { getEffectiveNiche } from '../services/niche-loader.js'
 import { mergedBackgroundMusic, narrationSecFromMaster, postRollSeconds } from '../lib/closing-tail.js'
 import { resolveEpisodeMergedAudioChoice } from '../lib/merged-audio-selection.js'
 import { compareMergedAudio, MIN_RENDERABLE_SCENE_SEC, unrenderableSceneProblem } from '../lib/scene-plan-timeline.js'
@@ -3860,6 +3862,84 @@ export async function generateVideo(job: Job): Promise<VideoAssemblyDisposition>
       }
     }
 
+    // ── Sleep title (v1.4.386, item 15): shown ONCE, after the intro ────────
+    // Owner rule: a sleep video's title appears after the branded intro clip
+    // AND after the spoken "Introduction" chapter — over the picture that
+    // already plays there, never as an extra head clip (that would move every
+    // scene off its narration). The head slot keeps exactly the duration
+    // today's title clip would have occupied, so the opening clock is
+    // unchanged; the title itself is drawn later by `sleepTitle` in the final
+    // composition. Sleep detection reads the project's effective Formula
+    // document (family / starting_scene_pacing / id) — never a name match.
+    let sleepPlacement: SleepTitlePlacementResult | null = null
+    let sleepOpeningKeepSec = 0
+    try {
+      const sleepNiche = await getEffectiveNiche(project_slug).catch(() => null)
+      const sleepFacts: SleepVideoContext | null = sleepNiche ? {
+        id: sleepNiche.id,
+        formulaFamily: sleepNiche.formulaFamily,
+        starting_scene_pacing: (sleepNiche as SleepVideoContext & { starting_scene_pacing?: unknown }).starting_scene_pacing,
+      } : null
+      if (isSleepNiche(sleepFacts)) {
+        // The spoken Introduction's end — the SAME clock Scene Plan's intro
+        // skip and the intro-hold route use (lib/intro-lead-in.ts).
+        let spokenStoryStartSec = 0
+        try {
+          const chaptersPath = path.join(episodeDir, 'audio_chapters.json')
+          if (existsSync(chaptersPath)) {
+            const sc = JSON.parse(await fs.readFile(chaptersPath, 'utf-8'))
+            const story = await computeStoryStartSec(
+              req.merged_audio_path || null,
+              sc.sections || [],
+              Number(sc.gap_duration_s) || 0,
+            )
+            spokenStoryStartSec = story?.story_start_sec || 0
+          }
+        } catch { /* no chapter clock: the title falls back to after the branded opening */ }
+        // What TODAY's render would put in the head title slot (post-suppression).
+        const headTitleWouldPlay = !!(
+          (req.title_image?.enabled && (req.title_image.image_path || authoritativeAssets.thumbnails[0]?.path))
+          || (req.title_card?.enabled && !!req.title_card.text?.trim() && canDrawtext)
+        )
+        const headTitleDurationSec = (req.title_card?.enabled && req.title_card.text?.trim() && canDrawtext)
+          ? Math.max(1, Number(req.title_card.duration) || 5)
+          : (typeof req.title_image?.duration === 'number' && req.title_image.duration > 0 ? req.title_image.duration : 5)
+        sleepPlacement = resolveSleepTitlePlacement({
+          project: sleepFacts,
+          title_image: req.title_image,
+          title_card: req.title_card,
+          intro: req.intro,
+          intro_audio: { has_intro_chapter: spokenStoryStartSec > 0, story_start_sec: spokenStoryStartSec },
+          thumbnail_path: authoritativeAssets.thumbnails[0]?.path,
+          default_title_text: titleHint || undefined,
+          can_drawtext: canDrawtext,
+        })
+        const openingPlan = sleepTitleOpeningPlan(sleepPlacement, {
+          head_title_would_play: headTitleWouldPlay,
+          head_title_duration_sec: headTitleDurationSec,
+        })
+        if (openingPlan.suppress_opening_title) {
+          sleepOpeningKeepSec = openingPlan.opening_slot_keep_sec
+          if (req.title_image) req.title_image = { ...req.title_image, enabled: false }
+          if (req.title_card) req.title_card = { ...req.title_card, enabled: false }
+        }
+        if (sleepPlacement.display_title) {
+          job.output_lines.push(
+            `Sleep title: ${sleepPlacement.explanation}`
+            + (sleepOpeningKeepSec > 0
+              ? ` The opening keeps its ${sleepOpeningKeepSec.toFixed(1)}s window on scene 1's picture — no duration is added.`
+              : ''),
+          )
+        } else {
+          job.output_lines.push(`Sleep title: ${sleepPlacement.explanation}`)
+        }
+      }
+    } catch (e: any) {
+      sleepPlacement = null
+      sleepOpeningKeepSec = 0
+      job.output_lines.push(`Sleep title: could not resolve (${e?.message || e}) — rendering without it.`)
+    }
+
     // Optional: drop intro captions from the BURN copy (welcome / CTA / breathing).
     // The full SRT sidecar (YouTube upload) is left untouched — we burn a trimmed
     // copy that keeps each story cue at its original (audio-aligned) timestamp and
@@ -3942,6 +4022,24 @@ export async function generateVideo(job: Job): Promise<VideoAssemblyDisposition>
 
     // 6. Prepare title image clip (if provided)
     let titleClipPath: string | undefined
+    // Sleep title (item 15): the head slot keeps today's duration, filled with
+    // scene 1's own picture — the title art/text itself is drawn after the
+    // intro by `sleepTitle` below, so the title can never appear twice.
+    if (sleepOpeningKeepSec > 0) {
+      const fillerImage = req.scenes?.[0]?.image_path
+      if (fillerImage && checkAssetAvailability(fillerImage, 'scenes[0].image_path').status === 'available') {
+        titleClipPath = await prepareTitleClip({
+          enabled: true,
+          image_path: fillerImage,
+          duration: sleepOpeningKeepSec,
+          transition_type: req.title_image?.transition_type,
+          transition_duration: req.title_image?.transition_duration,
+        }, resW, resH, quality, tempDir, job)
+        job.output_lines.push(`Opening: scene 1's picture holds the ${sleepOpeningKeepSec.toFixed(1)}s title window (the title itself shows after the intro).`)
+      } else {
+        job.output_lines.push(`Opening: scene 1's picture is unavailable — the ${sleepOpeningKeepSec.toFixed(1)}s title window stays empty; the title still shows after the intro.`)
+      }
+    }
     let titleImagePath = req.title_image?.image_path
     if (req.title_image?.enabled && !titleImagePath && authoritativeAssets.thumbnails.length > 0) {
       titleImagePath = authoritativeAssets.thumbnails[0]!.path
@@ -4489,6 +4587,39 @@ export async function generateVideo(job: Job): Promise<VideoAssemblyDisposition>
     finalCheckExpected.scene_blank_starts = await sketchSceneBlankStartsForEpisode(
       project_slug, code, episodeDir, finalCheckExpected.speech_end_sec,
     )
+    // Sleep title (item 15): ONE window on the composed clock, after the
+    // intro, drawn over picture that already exists — never a head clip, so
+    // the render's total duration and every other clock stay untouched.
+    const sleepTitle = (() => {
+      if (!sleepPlacement?.display_title) return undefined
+      const window = sleepTitleOverlayWindow(sleepPlacement, {
+        pre_scene_sec: preSceneDuration,
+        narration_lead_in_sec: narrationLeadInSec,
+      })
+      if (!window) return undefined
+      if (sleepPlacement.title_type === 'title_image') {
+        const source = sleepPlacement.effective_title_image.image_path
+        if (source && checkAssetAvailability(source, 'title_image.image_path').status === 'available') {
+          return { source_path: source, start_s: window.start_s, end_s: window.end_s }
+        }
+        job.output_lines.push('Sleep title: the title image is unavailable — falling back to the title text.')
+      }
+      const text = sleepPlacement.effective_title_card.text?.trim()
+      if (text && canDrawtext) {
+        return {
+          text,
+          subtitle: sleepPlacement.effective_title_card.subtitle?.trim() || undefined,
+          style: sleepPlacement.effective_title_card.style,
+          start_s: window.start_s,
+          end_s: window.end_s,
+        }
+      }
+      job.output_lines.push(text
+        ? 'Sleep title: this FFmpeg build has no drawtext filter — no title shown.'
+        : 'Sleep title: no title text or image is available — no title shown.')
+      return undefined
+    })()
+
     let encodeSucceeded = false
     try {
       const compositionResult = await runFinalComposition({
@@ -4527,6 +4658,7 @@ export async function generateVideo(job: Job): Promise<VideoAssemblyDisposition>
         },
         finalCheckExpected,
         narrationOffsetSec: narrationLeadInSec,
+        sleepTitle,
         job,
       })
       if (compositionResult?.kind === 'video-assembly-remote-wait') {
@@ -7132,6 +7264,9 @@ export interface CompositionOpts {
   segmentation?: FinalSegmentation
   /** Where a still image that runs to the end of the video begins (a static after-outro clip). */
   stillTailFromSec?: number
+  /** Sleep title (item 15): drawn once over the composed video after the intro —
+   *  an overlay window, never an extra concat clip (no duration is added). */
+  sleepTitle?: { text?: string; subtitle?: string; style?: string; source_path?: string; start_s: number; end_s: number }
   job: Job
 }
 
@@ -7174,6 +7309,7 @@ async function runFinalComposition(
     encodingEffort,
     codec,
     videoBitrateKbps,
+    sleepTitle,
     job,
   } = opts
 
@@ -7257,6 +7393,18 @@ async function runFinalComposition(
         similarity: chromaKey.similarity ?? 0.15,
         blend: chromaKey.blend ?? 0.1,
       },
+    })
+  }
+  // Sleep title (item 15): the title image rides the SAME layer path as every
+  // other overlay — scale, availability check and time_range included.
+  if (sleepTitle?.source_path) {
+    overlayLayers.push({
+      id: 'sleep-title',
+      enabled: true,
+      source_path: sleepTitle.source_path,
+      scale: 'contain',
+      position_anchor: 'center',
+      time_range: { start_s: sleepTitle.start_s, end_s: sleepTitle.end_s },
     })
   }
   // Open one ffmpeg `-i` per layer in array order. -1 marker means the
@@ -7737,6 +7885,34 @@ async function runFinalComposition(
       }
     }
     job.output_lines.push(`Burning ${contextualCues.length} approved contextual cue(s) exactly as reviewed.`)
+  }
+
+  // 6b. Sleep title (item 15) — text form. Same drawtext idiom as the title
+  // card and the cues: a centred plate gated to its own window on the
+  // composed clock, drawn over the picture already playing there.
+  if (sleepTitle?.text) {
+    const mainSize = Math.max(32, Math.round(frameTextUnit(w, h) * 0.075))
+    const fontColor = getStyleColor(sleepTitle.style || 'white')
+    const enable = escapeFilterArgValue(`between(t,${sleepTitle.start_s.toFixed(3)},${sleepTitle.end_s.toFixed(3)})`)
+    const gapAbove = Math.round(mainSize * 0.5)
+    const gapBelow = Math.round(mainSize * 0.55)
+    const subtitle = sleepTitle.subtitle?.trim()
+    const mainY = subtitle ? `(h-text_h)/2-${gapAbove}` : '(h-text_h)/2'
+    const nextLabel = vn()
+    filterParts.push(
+      `${vLabel}drawtext=text=${escapeFilterArgValue(sleepTitle.text)}:expansion=none:fontsize=${mainSize}`
+      + `:fontcolor=${fontColor}:borderw=2:bordercolor=black@0.65:x=(w-text_w)/2:y=${mainY}:enable=${enable}${nextLabel}`,
+    )
+    vLabel = nextLabel
+    if (subtitle) {
+      const subtitleLabel = vn()
+      filterParts.push(
+        `${vLabel}drawtext=text=${escapeFilterArgValue(subtitle)}:expansion=none:fontsize=${Math.max(22, Math.round(mainSize * 0.48))}`
+        + `:fontcolor=white:borderw=1:bordercolor=black@0.65:x=(w-text_w)/2:y=(h/2)+${gapBelow}:enable=${enable}${subtitleLabel}`,
+      )
+      vLabel = subtitleLabel
+    }
+    job.output_lines.push(`Sleep title: drawn once ${sleepTitle.start_s.toFixed(1)}s–${sleepTitle.end_s.toFixed(1)}s over the existing picture.`)
   }
 
   // 7. Logo overlay
