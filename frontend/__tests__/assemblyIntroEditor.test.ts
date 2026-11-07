@@ -621,15 +621,19 @@ test('a new channel-level automatic binding is shown, but never overwrites a sav
   assert.ok(autoBound.host.querySelector('[data-testid="channel-bound-badge"]'), 'should show Channel default badge')
   assert.match(autoBound.host.textContent || '', /Channel default/, 'the automatic binding is said out loud')
 
-  // Rebuilding the audio queues with the channel binding settings
-  ;(globalThis as any).__channelIntroPick = null // simulate user confirming the auto-bound choice
+  // The channel default was already the effective intro for this episode, so
+  // Apply makes it the episode's own explicit choice without spending a
+  // rebuild that would produce the same audio (AGENTS §8).
+  ;(globalThis as any).__channelIntroPick = null
   await autoBound.click('[data-testid="apply-intro"]')
-  await autoBound.settle(() => autoBound.calls.some(call => call.path.endsWith('/generate/audio-merge')))
-  const merge = autoBound.calls.find(call => call.path.endsWith('/generate/audio-merge'))
-  assert.equal(merge!.body.channel_intro.file, '${CHANNEL}/assets/channel-default.mp3')
-  assert.equal(merge!.body.channel_intro.trim_start_sec, 1.0)
-  assert.equal(merge!.body.channel_intro.duration_sec, 5.0)
-  assert.equal(merge!.body.channel_intro.fade_out_sec, 1.5)
+  await autoBound.settle(() => autoBound.calls.some(call => call.method === 'PUT' && call.path.endsWith('/settings/config')))
+  assert.equal(autoBound.calls.some(call => call.path.endsWith('/generate/audio-merge')), false,
+    'an unchanged effective intro never queues a pointless rebuild')
+  const saved = autoBound.calls.find(call => call.method === 'PUT' && call.path.endsWith('/settings/config'))
+  assert.deepEqual(saved!.body[LAST_USED].episodes.EP001.settings.channel_intro, {
+    file: '${CHANNEL}/assets/channel-default.mp3', volume: 0.85, gap_after: 0,
+    trim_start_sec: 1.0, duration_sec: 5.0, fade_in_sec: 0, fade_out_sec: 1.5,
+  }, 'the automatic binding becomes this episode’s own explicit choice')
   autoBound.unmount()
 })
 
