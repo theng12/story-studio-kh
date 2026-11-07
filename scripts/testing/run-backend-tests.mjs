@@ -465,6 +465,8 @@ export const SERIAL_TEST_FILES = [
   'episode-status-external-final-watch.test.ts',
   // MEASURED, 2026-11-07 — native chain handoff timed out in pooled 384 r11; unchanged file passed alone (17/17, 1/1 file, exit 0).
   'pipeline-handoff-lifecycle.test.ts',
+  // MEASURED, 2026-11-07 — failed pooled R1 and passed unchanged alone; AGENTS §10 requires measured flakes serialized.
+  'generation-paid-replacement.test.ts',
 ]
 
 /**

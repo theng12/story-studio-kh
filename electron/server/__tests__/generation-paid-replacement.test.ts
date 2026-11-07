@@ -373,12 +373,17 @@ test('generation replacement: configurable retries with count 2, payload stabili
         const origKey = 'test-key-restart'
         const retry1Key = generationReplacementKey('writing', origKey, 1)
 
+        queue.registerExecutor('metadata', async () => {
+          await callChatWithGenStudio('test-api-key', {
+            idempotencyKey: origKey,
+            modelId: 'writer-test', system: '', userMessage: 'restart check', outputContract: { mode: 'prose' },
+          })
+        })
+
         const rerun = queue.enqueuePreparedForTest({
           project_slug: project.slug, type: 'metadata', episode_id: 'restart-run', title: 'restart run',
           params: { auto_retry: false },
-        })
-        await queue.mutateAuthoritativeJob(project.slug, rerun.job_id, current => {
-          current.generation_replacement_attempts = [{
+          generation_replacement_attempts: [{
             kind: 'writing',
             item_key: 'restart-item',
             original_idempotency_key: origKey,
@@ -387,16 +392,8 @@ test('generation replacement: configurable retries with count 2, payload stabili
             state: 'failed',
             revision: 2,
             ordinal: 1,
-          }]
-          return current
-        })
-
-        queue.registerExecutor('metadata', async () => {
-          await callChatWithGenStudio('test-api-key', {
-            idempotencyKey: origKey,
-            modelId: 'writer-test', system: '', userMessage: 'restart check', outputContract: { mode: 'prose' },
-          })
-        })
+          }],
+        } as any)
 
         await waitFor(() => ['done', 'error'].includes(queue.getJob(rerun.job_id)?.status || ''), { label: 'restart-recovery', timeoutMs: 10000 })
         // Original fails (1), then it executes ordinal 2 (2). Bound is 2, so it stops! Total 2 POSTs (1 orig + 1 retry)
@@ -593,12 +590,18 @@ test('generation replacement: configurable retries with count 2, payload stabili
         const origKey = 'test-audio-restart'
         const retry1Key = generationReplacementKey('audio', origKey, 1)
 
+        queue.registerExecutor('metadata', async () => {
+          await generateTtsToFile('test-api-key', outPath, {
+            idempotencyKey: origKey,
+            text: 'Audio restart check', voiceId: 'voice-1', modelId: 'voice-test',
+            maxInputCharacters: 5000, speed: 1,
+          })
+        })
+
         const rerun = queue.enqueuePreparedForTest({
           project_slug: project.slug, type: 'metadata', episode_id: 'audio-restart-run', title: 'audio restart run',
           params: { auto_retry: false },
-        })
-        await queue.mutateAuthoritativeJob(project.slug, rerun.job_id, current => {
-          current.generation_replacement_attempts = [{
+          generation_replacement_attempts: [{
             kind: 'audio',
             item_key: 'restart-audio-item',
             original_idempotency_key: origKey,
@@ -608,17 +611,8 @@ test('generation replacement: configurable retries with count 2, payload stabili
             state: 'failed',
             revision: 2,
             ordinal: 1,
-          }]
-          return current
-        })
-
-        queue.registerExecutor('metadata', async () => {
-          await generateTtsToFile('test-api-key', outPath, {
-            idempotencyKey: origKey,
-            text: 'Audio restart check', voiceId: 'voice-1', modelId: 'voice-test',
-            maxInputCharacters: 5000, speed: 1,
-          })
-        })
+          }],
+        } as any)
 
         await waitFor(() => ['done', 'error'].includes(queue.getJob(rerun.job_id)?.status || ''), { label: 'audio restart-recovery', timeoutMs: 10000 })
         assert.equal(posts.length, 2, 'resumed at ordinal 2 and stopped at bound 2')

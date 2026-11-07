@@ -4,7 +4,10 @@
 
 - Release 1.4.384 actually shipped, was installed on the production mini, and its release worktree was retired; external receipts remain under `_orchestra/story-lead/release-384-20261106/`. Shipped 1.4.384 did NOT contain commit `92d82cc9c`.
 - MineePod EP0018 (104 scene clips + 25s tail) reached 2268.100s versus the planned 2268.380s at 30 fps (68,043 frames rendered vs 68,052 needed), stopped by the strict picture length guard. Commit `92d82cc9c` normalises scene durations to exact frame counts and rounds the holding tail up to the frame boundary; strict duration guards and picture checks remain completely unchanged.
-- Focused backend tests, complete ten-step gate, and shipment are pending for 1.4.385. Gate pass and live fix are not claimed before fresh execution and evidence.
+- Canonical gate R1 at `1ae5de588` exited 1 at step 07 backend: `generation-paid-replacement.test.ts` failed line 403 (`posts.length` was 3, expected 2) because `enqueuePreparedForTest` pumped before registration of its intended executor and prior to the awaited mutation of initial retry attempts.
+- Isolated baseline of unchanged `generation-paid-replacement.test.ts` passed alone with actual exit 0 (receipt: `retry-reproduction-r2` under `_orchestra/story-lead/release-385-20261107`).
+- Repair: `generation-paid-replacement.test.ts` registers the intended executor before enqueue for both writing and audio restart subtests and passes `generation_replacement_attempts` in initial enqueue options, eliminating post-admission async seed mutation while preserving all assertions, retry bounds, original keys/ordinals and production code. The file joins `SERIAL_TEST_FILES` in `run-backend-tests.mjs` per the AGENTS §10 measured-flake rule.
+- Full qualification remains pending; no release success, gate pass or live fix is claimed. Version remains 1.4.385, and video generator blob `e9ee3e0633218c94421cf91e08193ec00ef869bf` and existing EP0018 evidence remain completely unchanged.
 - Existing EP0018 evidence (104 clips, intermediate/temp files, and approved thumbnail) is strictly preserved. No unrelated 1.4.385 features are included.
 
 ### Release 1.4.384 preparation — one assembly editing home (2026-11-06)
