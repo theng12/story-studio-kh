@@ -2,9 +2,9 @@
 
 ### Release 1.4.386 preparation — finishing batch integrated, pending gate (2026-11-07)
 
-- Release 1.4.386 metadata prepared on `release/1.4.386`, based on shipped main `43220a52a69c879bff2f769d45628ef66e855323`, integration HEAD `1cf2e8505`. Package and lockfile versions bumped 1.4.385 → 1.4.386.
+- Release 1.4.386 metadata prepared on `release/1.4.386`, based on shipped main `43220a52a69c879bff2f769d45628ef66e855323`; runtime integration through `b5762c6`. Package and lockfile versions bumped 1.4.385 → 1.4.386.
 - All approved 20 items in `_orchestra/story-lead/release-386-batch-20261107/brief.txt` are committed on this branch:
-  - Video Assembly: black and fade ending options retired; hold-last-scene preserves background music to completion. Finished Sprout trimming is cancelled; only new videos prevent black/fade ends. Selected preset takes precedence over stale channel last-used preset, and timeline reveal loading is safely guarded.
+  - Video Assembly: black and fade ending options retired; hold-last-scene preserves background music to completion. Finished Sprout trimming is cancelled; only new videos prevent black/fade ends. Selected presets and inline bundle fallbacks take precedence over stale channel settings and reapply on every episode switch; the episode's own render settings still win. Running isolated browser proof verifies preset 17s → own episode 11s → preset 17s. Timeline reveal loading is safely guarded.
   - Chapter backgrounds & fonts: channel background image bytes imported directly into the pool folder, standing font previews bound to the pool, and headings/backgrounds drawn on reveal clips.
   - Audio Assembly: unified Opening→Narration→Closing single-page editor with four sections, channel intro music binding with trims/fades, and preserved audio on automatic bindings.
   - YouTube upload pacing: distinct Upload on and Publish on dates with Gentle 3 / Regular 6 / Bulk 12 daily tiers and explicit window hours. Paused uploads are never marked quota-exhausted; unconfirmed metadata writes wait instead of failing. Reviewed thumbnail bytes are frozen and sent from work temporary storage. Optional caption track uploads wired into the queue.
