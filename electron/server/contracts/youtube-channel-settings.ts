@@ -5,10 +5,19 @@
  * 1. Remote YouTube integration (Playlists):
  *    Supported by YouTube Data API v3 (`playlists.list`, `playlistItems.insert`).
  *    Manages playlist inventory and channel default playlist assignment.
- * 2. Local presentation / video outro config (End screens):
- *    YouTube Data API v3 has NO public API for setting video end screens programmatically.
- *    Story Studio configures the local video outro presentation and provides
- *    guidance for applying the end screen in YouTube Studio.
+ * 2. End-screen SETUP PLAN (manual, local):
+ *    YouTube Data API v3 has NO official endpoint for programmatic end-screen
+ *    management, so Story Studio never claims a remote write. It saves the
+ *    creator's plan (window, template, elements) and generates the exact steps
+ *    to apply it by hand in YouTube Studio.
+ *
+ * Numeric bounds below are NOT guessed. Source, verified by fetch 2026-11-07:
+ *   YouTube Help — "Add end screens to videos"
+ *   https://support.google.com/youtube/answer/6388789
+ *     "End screens can be added to the last 5–20 seconds of a video."
+ *     "Your video has to be at least 25 seconds long to have an end screen."
+ *     "You can add up to four elements to your end screen for videos with
+ *      standard 16:9 aspect ratio." (other aspect ratios may allow fewer)
  */
 
 export interface PlaylistSummary {
@@ -50,33 +59,19 @@ export type EndScreenTemplateId =
   | 'video_playlist_subscribe'
   | 'custom'
 
-export type EndScreenBackdropStyle =
-  | 'transparent_clean'
-  | 'dimmed_backdrop'
-  | 'slate_card'
-
-export type EndScreenAudioTreatment =
-  | 'continue_bed'
-  | 'duck_bed'
-  | 'silence'
-
+/**
+ * A saved MANUAL plan for one video's end screen. Nothing here is rendered by
+ * Story Studio: `notes_for_youtube_studio` is the deliverable the creator
+ * follows inside YouTube Studio's editor.
+ */
 export interface EndScreenConfig {
-  /**
-   * Whether the video outro includes local end-screen visual presentation / framing.
-   * Off by default to keep episodes lean unless creator enables.
-   */
-  enabled: boolean
-  /** Duration of the end screen in seconds. YouTube allows 5 to 20 seconds. */
+  /** Window at the video's end the plan targets. YouTube allows 5–20 s. */
   duration_seconds: number
-  /** Selected template preset */
+  /** Selected template preset (YouTube Studio's editor offers the same kind). */
   template: EndScreenTemplateId
-  /** Configured end-screen elements (max 4 per YouTube guidelines) */
+  /** Planned elements, max 4 for standard 16:9. */
   elements: EndScreenElement[]
-  /** Visual presentation style for the outro slate in video assembly */
-  backdrop_style: EndScreenBackdropStyle
-  /** Audio behavior during the end-screen duration */
-  audio_treatment: EndScreenAudioTreatment
-  /** Generated guidance notes for applying elements in YouTube Studio */
+  /** Generated step-by-step instructions to apply the plan by hand. */
   notes_for_youtube_studio?: string
 }
 
@@ -84,10 +79,13 @@ export interface YouTubeEndScreenCapability {
   readonly remote_api_supported: false
   readonly remote_status: 'unsupported_by_youtube_data_api_v3'
   readonly reason: string
-  readonly local_presentation_supported: true
+  readonly manual_plan_supported: true
+  /** Last 5–20 seconds — YouTube Help 6388789. */
   readonly min_duration_seconds: number
   readonly max_duration_seconds: number
+  /** Video must be at least 25 s long — YouTube Help 6388789. */
   readonly min_video_length_seconds: number
+  /** Up to four elements (standard 16:9) — YouTube Help 6388789. */
   readonly max_elements: number
 }
 
@@ -95,8 +93,10 @@ export const YOUTUBE_END_SCREEN_CAPABILITY: YouTubeEndScreenCapability = Object.
   remote_api_supported: false,
   remote_status: 'unsupported_by_youtube_data_api_v3',
   reason:
-    'YouTube Data API v3 does not expose an official endpoint for programmatic end-screen management. End screens are configured in YouTube Studio or as local video presentation outros.',
-  local_presentation_supported: true,
+    'YouTube Data API v3 does not expose an official endpoint for programmatic end-screen '
+    + 'management. Story Studio saves your plan and writes out the steps to apply it by hand '
+    + 'in YouTube Studio.',
+  manual_plan_supported: true,
   min_duration_seconds: 5,
   max_duration_seconds: 20,
   min_video_length_seconds: 25,
@@ -153,19 +153,13 @@ export function createDefaultEndScreenConfig(defaultPlaylistId?: string): EndScr
   const template: EndScreenTemplateId = 'playlist_and_subscribe'
   const elements = END_SCREEN_TEMPLATES[template].elements(defaultPlaylistId)
   return {
-    enabled: false,
     duration_seconds: 20,
     template,
     elements,
-    backdrop_style: 'dimmed_backdrop',
-    audio_treatment: 'continue_bed',
     notes_for_youtube_studio: buildYouTubeStudioGuidance({
-      enabled: false,
       duration_seconds: 20,
       template,
       elements,
-      backdrop_style: 'dimmed_backdrop',
-      audio_treatment: 'continue_bed',
     }),
   }
 }
@@ -186,21 +180,21 @@ export function buildYouTubeStudioGuidance(
   const duration = Math.max(5, Math.min(20, config.duration_seconds || 20))
   const lines: string[] = []
 
-  lines.push('YouTube Studio End-Screen Setup Guide')
-  lines.push('-------------------------------------')
-  lines.push('Note: YouTube Data API v3 does not support third-party end screen writes.')
-  lines.push('Apply the following setup in YouTube Studio > Video Details > Editor > End Screen:')
+  lines.push('YouTube Studio End-Screen Setup (manual)')
+  lines.push('---------------------------------------')
+  lines.push('Story Studio cannot write end screens: the YouTube Data API v3 has no endpoint for it.')
+  lines.push('Open YouTube Studio > Video details > Editor > End screen and follow these steps:')
   lines.push('')
 
   if (typeof videoDurationSeconds === 'number' && videoDurationSeconds > 0) {
     const startSec = Math.max(0, videoDurationSeconds - duration)
     lines.push(
-      `Timestamp Window: ${formatSecondsToTimestamp(startSec)} - ${formatSecondsToTimestamp(
+      `Window: ${formatSecondsToTimestamp(startSec)} - ${formatSecondsToTimestamp(
         videoDurationSeconds,
-      )} (last ${duration}s)`,
+      )} (the last ${duration}s; YouTube allows the last 5–20s)`,
     )
   } else {
-    lines.push(`Timing: Apply in the last ${duration} seconds of the video.`)
+    lines.push(`Window: the last ${duration} seconds of the video (YouTube allows 5–20s).`)
   }
 
   lines.push(`Elements (${config.elements.length} of max 4):`)
@@ -219,6 +213,8 @@ export function buildYouTubeStudioGuidance(
     }
     lines.push(`  ${idx + 1}. ${desc}`)
   })
+  lines.push('')
+  lines.push('The video must be at least 25 seconds long for an end screen.')
 
   return lines.join('\n')
 }
@@ -231,7 +227,6 @@ export function normalizeEndScreenConfig(
   if (!raw || typeof raw !== 'object') return fallback
 
   const candidate = raw as Record<string, any>
-  const enabled = Boolean(candidate.enabled)
 
   let duration_seconds = Number(candidate.duration_seconds)
   if (!Number.isFinite(duration_seconds)) duration_seconds = 20
@@ -247,28 +242,6 @@ export function normalizeEndScreenConfig(
   const template: EndScreenTemplateId = validTemplates.includes(candidate.template)
     ? candidate.template
     : 'playlist_and_subscribe'
-
-  const validBackdropStyles: EndScreenBackdropStyle[] = [
-    'transparent_clean',
-    'dimmed_backdrop',
-    'slate_card',
-  ]
-  const backdrop_style: EndScreenBackdropStyle = validBackdropStyles.includes(
-    candidate.backdrop_style,
-  )
-    ? candidate.backdrop_style
-    : 'dimmed_backdrop'
-
-  const validAudioTreatments: EndScreenAudioTreatment[] = [
-    'continue_bed',
-    'duck_bed',
-    'silence',
-  ]
-  const audio_treatment: EndScreenAudioTreatment = validAudioTreatments.includes(
-    candidate.audio_treatment,
-  )
-    ? candidate.audio_treatment
-    : 'continue_bed'
 
   let elements: EndScreenElement[] = []
   if (Array.isArray(candidate.elements) && candidate.elements.length > 0) {
@@ -302,12 +275,9 @@ export function normalizeEndScreenConfig(
   }
 
   const normalized: EndScreenConfig = {
-    enabled,
     duration_seconds,
     template,
     elements,
-    backdrop_style,
-    audio_treatment,
   }
 
   normalized.notes_for_youtube_studio = buildYouTubeStudioGuidance(normalized)

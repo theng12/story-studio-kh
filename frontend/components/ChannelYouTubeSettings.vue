@@ -3,10 +3,10 @@
     <header class="settings-header">
       <div class="header-titles">
         <span class="eyebrow">YouTube Channel Settings</span>
-        <h3>Playlists &amp; End-Screen Outro</h3>
+        <h3>Playlists &amp; End-Screen Plan</h3>
         <p>
-          Configure the default series playlist for automated uploads and configure local video
-          presentation framing for YouTube end screens.
+          Choose the default playlist for new uploads, and record the end-screen plan you will
+          apply by hand in YouTube Studio.
         </p>
       </div>
       <div class="header-actions">
@@ -150,77 +150,67 @@
         </div>
       </section>
 
-      <!-- ── Section 2: End-Screen Outro Presentation (Honest Local vs Remote) ─ -->
+      <!-- ── Section 2: End-Screen Setup Plan (manual, no API write) ──────────── -->
       <section class="panel end-screen-panel">
         <div class="panel-head">
           <div>
-            <span class="eyebrow">Video Presentation</span>
-            <h4>End-Screen Outro Framing</h4>
+            <span class="eyebrow">Manual Plan</span>
+            <h4>End-Screen Setup Plan</h4>
             <p class="hint">
-              Configure video outro duration, visual slate cards, and layout templates for YouTube end screens.
+              Story Studio saves your plan and writes out the steps to follow in YouTube Studio's
+              editor. Nothing is sent to YouTube from here.
             </p>
           </div>
         </div>
 
-        <!-- Honest Capability Disclosure Callout -->
+        <!-- Honest capability callout -->
         <div class="capability-callout" role="note">
           <div class="callout-header">
             <span class="status-indicator"></span>
-            <strong>Honest Capability Notice: Local Video Presentation Only</strong>
+            <strong>Not supported by the YouTube API — manual plan only</strong>
           </div>
           <p>
-            YouTube Data API v3 <em>does not expose an official endpoint</em> to configure end screen
-            elements programmatically. Story Studio provides local timeline reservation, outro visual cards,
-            and precise setup guidance for the YouTube Studio Editor.
+            YouTube Data API v3 has no official endpoint for end screens, so Story Studio never
+            writes one. The settings below are your plan; the steps underneath are what you apply
+            by hand in YouTube Studio &rarr; Video details &rarr; Editor &rarr; End screen.
           </p>
         </div>
 
-        <!-- Master Switch -->
-        <div class="toggle-row">
-          <label class="switch-label">
-            <input
-              type="checkbox"
-              v-model="endScreenDraft.enabled"
-              class="checkbox"
-            />
-            <span class="switch-title">Include End-Screen Outro Slate in Video Render</span>
-          </label>
-          <span class="switch-hint">
-            {{ endScreenDraft.enabled ? 'Enabled for video assembly' : 'Off by default — video ends directly after final scene' }}
-          </span>
-        </div>
-
-        <!-- End Screen Controls (Expanded when enabled or always visible for setup) -->
-        <div class="end-screen-body" :class="{ 'is-disabled': !endScreenDraft.enabled }">
-          <!-- Duration setting -->
+        <div class="plan-body">
+          <!-- Window setting -->
           <div class="control-group">
             <div class="group-label-row">
-              <label for="outro-duration-slider" class="field-label">Outro Duration</label>
+              <label for="plan-window-slider" class="field-label">
+                End-screen window (last seconds of the video)
+              </label>
               <span class="duration-display">
                 <strong>{{ endScreenDraft.duration_seconds }}s</strong>
                 <span class="sub-duration">({{ formatSecondsToTimestamp(endScreenDraft.duration_seconds) }})</span>
               </span>
             </div>
             <input
-              id="outro-duration-slider"
+              id="plan-window-slider"
               type="range"
               min="5"
               max="20"
               step="1"
               v-model.number="endScreenDraft.duration_seconds"
               class="slider"
-              :disabled="!endScreenDraft.enabled"
-              aria-label="Outro duration in seconds"
+              aria-label="End-screen window in seconds at the end of the video"
             />
             <div class="range-bounds">
               <span>5s (YouTube minimum)</span>
               <span>20s (YouTube maximum)</span>
             </div>
+            <p class="field-hint">
+              Bounds from YouTube Help, “Add end screens to videos”: the last 5–20 seconds, and the
+              video must be at least 25 seconds long.
+            </p>
           </div>
 
           <!-- Template Presets -->
           <div class="control-group">
-            <label class="field-label">Outro Layout Template</label>
+            <label class="field-label">Layout Template</label>
             <div class="template-grid">
               <button
                 v-for="(tpl, key) in END_SCREEN_TEMPLATES"
@@ -228,7 +218,6 @@
                 type="button"
                 class="template-card"
                 :class="{ 'is-selected': endScreenDraft.template === key }"
-                :disabled="!endScreenDraft.enabled"
                 @click="applyTemplate(key)"
               >
                 <div class="template-card-title">{{ tpl.label }}</div>
@@ -237,43 +226,10 @@
             </div>
           </div>
 
-          <!-- Slate & Audio Styles -->
-          <div class="two-column-controls">
-            <div class="control-item">
-              <label for="backdrop-style-select" class="field-label">Outro Visual Style</label>
-              <select
-                id="backdrop-style-select"
-                v-model="endScreenDraft.backdrop_style"
-                class="input"
-                :disabled="!endScreenDraft.enabled"
-              >
-                <option value="dimmed_backdrop">Dimmed Video Backdrop (Subtle darkening)</option>
-                <option value="slate_card">Dedicated Slate Card (Branded clean background)</option>
-                <option value="transparent_clean">Transparent Clean (Unmodified video tail)</option>
-              </select>
-              <p class="field-hint">Visual backdrop behind end-screen interactive elements.</p>
-            </div>
-
-            <div class="control-item">
-              <label for="audio-treatment-select" class="field-label">Outro Audio Treatment</label>
-              <select
-                id="audio-treatment-select"
-                v-model="endScreenDraft.audio_treatment"
-                class="input"
-                :disabled="!endScreenDraft.enabled"
-              >
-                <option value="continue_bed">Continue Background Music Bed</option>
-                <option value="duck_bed">Duck Music Bed (-6dB)</option>
-                <option value="silence">Fade Out to Silence</option>
-              </select>
-              <p class="field-hint">Audio behavior during the outro duration window.</p>
-            </div>
-          </div>
-
-          <!-- Configured Elements List -->
+          <!-- Planned Elements List -->
           <div class="control-group">
             <div class="group-label-row">
-              <label class="field-label">Configured Elements (Max 4)</label>
+              <label class="field-label">Planned Elements (max 4)</label>
               <span class="count-badge">{{ endScreenDraft.elements.length }}/4 Slots</span>
             </div>
 
@@ -288,7 +244,6 @@
                 <select
                   v-model="elem.type"
                   class="input input-sm element-type-select"
-                  :disabled="!endScreenDraft.enabled"
                   @change="onElementTypeChanged(elem)"
                 >
                   <option value="subscribe">Subscribe Button</option>
@@ -303,7 +258,6 @@
                   v-if="elem.type === 'playlist'"
                   v-model="elem.playlist_id"
                   class="input input-sm element-playlist-select"
-                  :disabled="!endScreenDraft.enabled"
                 >
                   <option value="">Default Channel Playlist</option>
                   <option
@@ -322,7 +276,6 @@
                   type="text"
                   placeholder="Video ID or URL"
                   class="input input-sm element-video-input"
-                  :disabled="!endScreenDraft.enabled"
                 />
 
                 <input
@@ -330,13 +283,12 @@
                   type="text"
                   placeholder="Element Label"
                   class="input input-sm element-label-input"
-                  :disabled="!endScreenDraft.enabled"
                 />
 
                 <button
                   type="button"
                   class="btn btn-ghost btn-xs btn-remove"
-                  :disabled="!endScreenDraft.enabled || endScreenDraft.elements.length <= 1"
+                  :disabled="endScreenDraft.elements.length <= 1"
                   @click="removeElement(idx)"
                   title="Remove slot"
                 >
@@ -348,18 +300,21 @@
                 v-if="endScreenDraft.elements.length < 4"
                 type="button"
                 class="btn btn-sm btn-ghost btn-add-element"
-                :disabled="!endScreenDraft.enabled"
                 @click="addElement"
               >
                 + Add End-Screen Element Slot
               </button>
             </div>
+            <p class="field-hint">
+              YouTube allows up to four elements on standard 16:9 videos; other aspect ratios may
+              allow fewer.
+            </p>
           </div>
 
-          <!-- YouTube Studio Guidance Box -->
+          <!-- Manual instructions -->
           <div class="guidance-box">
             <div class="guidance-head">
-              <span class="guidance-title">YouTube Studio Setup Instructions</span>
+              <span class="guidance-title">Steps to apply in YouTube Studio</span>
               <button
                 type="button"
                 class="btn btn-xs"
@@ -395,7 +350,7 @@
             :disabled="busy !== ''"
             @click="saveAllSettings"
           >
-            {{ busy === 'save-all' ? 'Saving…' : 'Save YouTube Settings' }}
+            {{ busy === 'save-all' ? 'Saving…' : 'Save Settings' }}
           </button>
         </div>
       </footer>
@@ -423,7 +378,7 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  (e: 'saved', settings: { defaultPlaylistId: string; endScreen: EndScreenConfig }): void
+  (e: 'saved', settings: { defaultPlaylistId: string; endScreenPlan: EndScreenConfig }): void
 }>()
 
 const { get, put } = useApi()
@@ -560,7 +515,7 @@ async function loadSettings(force = false): Promise<void> {
       defaultPlaylistDraft.value = ''
     }
 
-    // 2. Load project configuration for end screen and default playlist fallback
+    // 2. Load project configuration for the end-screen plan and playlist default
     const config = await get<any>(`/projects/${props.slug}/settings/config`)
     if (config?.youtube_end_screen) {
       endScreenDraft.value = normalizeEndScreenConfig(
@@ -571,7 +526,6 @@ async function loadSettings(force = false): Promise<void> {
       endScreenDraft.value = createDefaultEndScreenConfig(defaultPlaylistDraft.value)
     }
 
-    // If config has youtube_default_playlist mapping
     if (
       !defaultPlaylistDraft.value &&
       config?.youtube_default_playlist &&
@@ -580,11 +534,15 @@ async function loadSettings(force = false): Promise<void> {
       defaultPlaylistDraft.value = config.youtube_default_playlist[inventory.value.account_id] || ''
     }
   } catch (error: any) {
-    loadError.value = error?.message || 'Could not load YouTube channel settings.'
+    loadError.value = messageOf(error, 'Could not load YouTube channel settings.')
   } finally {
     loading.value = false
     busy.value = ''
   }
+}
+
+function messageOf(error: any, fallback: string): string {
+  return error?.data?.detail || error?.data?.message || error?.message || fallback
 }
 
 async function setDefaultPlaylistFromCard(playlistId: string): Promise<void> {
@@ -617,7 +575,7 @@ async function saveDefaultPlaylist(): Promise<void> {
     inventory.value.default_playlist_id = defaultPlaylistDraft.value
     saveResult.value = { kind: 'ok', message: 'Default playlist saved.' }
   } catch (error: any) {
-    saveResult.value = { kind: 'err', message: error?.message || 'Failed to save default playlist.' }
+    saveResult.value = { kind: 'err', message: messageOf(error, 'Failed to save default playlist.') }
   } finally {
     busy.value = ''
   }
@@ -652,13 +610,13 @@ async function saveAllSettings(): Promise<void> {
     inventory.value.default_playlist_id = defaultPlaylistDraft.value
     endScreenDraft.value = payload.youtube_end_screen
 
-    saveResult.value = { kind: 'ok', message: 'All YouTube channel settings saved.' }
+    saveResult.value = { kind: 'ok', message: 'Settings saved.' }
     emit('saved', {
       defaultPlaylistId: defaultPlaylistDraft.value,
-      endScreen: endScreenDraft.value,
+      endScreenPlan: endScreenDraft.value,
     })
   } catch (error: any) {
-    saveResult.value = { kind: 'err', message: error?.message || 'Failed to save settings.' }
+    saveResult.value = { kind: 'err', message: messageOf(error, 'Failed to save settings.') }
   } finally {
     busy.value = ''
   }
@@ -934,40 +892,9 @@ onMounted(() => {
   background: var(--accent);
 }
 
-.toggle-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 12px;
-  padding: 8px 0;
-}
-
-.switch-label {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  cursor: pointer;
-}
-
-.switch-title {
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.switch-hint {
-  font-size: 11px;
-  color: var(--text-muted);
-}
-
-.end-screen-body {
+.plan-body {
   display: grid;
   gap: 14px;
-  transition: opacity 0.2s ease;
-}
-
-.end-screen-body.is-disabled {
-  opacity: 0.55;
-  pointer-events: none;
 }
 
 .control-group {
@@ -1022,7 +949,7 @@ onMounted(() => {
   transition: border-color 0.15s ease, background 0.15s ease;
 }
 
-.template-card:hover:not(:disabled) {
+.template-card:hover {
   border-color: var(--accent);
 }
 
@@ -1041,23 +968,6 @@ onMounted(() => {
   font-size: 10px;
   color: var(--text-muted);
   line-height: 1.35;
-}
-
-.two-column-controls {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-}
-
-@media (max-width: 600px) {
-  .two-column-controls {
-    grid-template-columns: 1fr;
-  }
-}
-
-.control-item {
-  display: grid;
-  gap: 4px;
 }
 
 .elements-list {

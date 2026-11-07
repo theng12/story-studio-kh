@@ -113,18 +113,36 @@ async function mount(options?: {
 }
 
 describe('ChannelYouTubeSettings.vue', () => {
-  test('template honestly distinguishes local presentation vs remote unsupported API', async () => {
+  test('template states the API cannot write end screens — manual plan only', async () => {
     const { el, destroy } = await mount()
     try {
       const text = el.textContent || ''
-      assert.match(text, /Honest Capability Notice: Local Video Presentation Only/)
-      assert.match(text, /does not expose an official endpoint/i)
+      assert.match(text, /Not supported by the YouTube API — manual plan only/)
+      assert.match(text, /has no official endpoint for end screens, so Story Studio never writes one/)
       assert.match(text, /Playlist Series Inventory/)
-      assert.match(text, /End-Screen Outro Framing/)
+      assert.match(text, /End-Screen Setup Plan/)
+      assert.match(text, /Steps to apply in YouTube Studio/)
       assert.match(
         text,
         /YouTube Data API v3 supports playlist inventory and adding uploaded videos/,
       )
+    } finally {
+      destroy()
+    }
+  })
+
+  test('no unimplemented render promises: no render toggle, backdrop or audio controls', async () => {
+    const { el, destroy } = await mount()
+    try {
+      const text = el.textContent || ''
+      assert.equal(el.querySelectorAll('input[type="checkbox"]').length, 0, 'no render toggle')
+      assert.equal(el.querySelector('#backdrop-style-select'), null, 'no backdrop control')
+      assert.equal(el.querySelector('#audio-treatment-select'), null, 'no audio control')
+      assert.equal(el.querySelector('#plan-window-slider')?.disabled, false, 'plan window is editable')
+      assert.ok(!/Slate in Video Render/.test(text), 'no render-slate promise')
+      assert.ok(!/Enabled for video assembly/.test(text), 'no video-assembly claim')
+      assert.ok(!/outro visual cards/i.test(text), 'no outro-card claim')
+      assert.ok(!/local timeline reservation/i.test(text), 'no timeline-reservation claim')
     } finally {
       destroy()
     }
@@ -178,61 +196,11 @@ describe('ChannelYouTubeSettings.vue', () => {
     }
   })
 
-  test('End-screen controls are OFF by default and display only local presentation claims', async () => {
+  test('Plan window slider is bounded to the documented 5-20s', async () => {
     const { el, destroy } = await mount()
     try {
-      const toggles = el.querySelectorAll('input[type="checkbox"]')
-      assert.equal(toggles.length, 1)
-      assert.equal((toggles[0] as HTMLInputElement).checked, false, 'Off by default')
-
-      const durationSlider = el.querySelector('#outro-duration-slider') as HTMLInputElement | null
-      assert.ok(durationSlider, 'Duration slider renders')
-      assert.equal(durationSlider!.disabled, true, 'Disabled when feature is off')
-
-      const text = el.textContent || ''
-      assert.match(text, /Off by default/)
-      assert.match(text, /local timeline reservation/i)
-      assert.match(text, /YouTube Studio Editor/)
-    } finally {
-      destroy()
-    }
-  })
-
-  test('Enabling the feature unlocks duration slider, templates, and adds video assembly claims', async () => {
-    const { el, destroy } = await mount()
-    try {
-      const toggle = el.querySelector('input[type="checkbox"]') as HTMLInputElement
-      toggle.checked = true
-      toggle.dispatchEvent(new Event('change'))
-      await nextTick()
-
-      const durationSlider = el.querySelector('#outro-duration-slider') as HTMLInputElement
-      assert.equal(durationSlider.disabled, false, 'Enabled when checkbox checked')
-
-      const text = el.textContent || ''
-      assert.match(text, /Enabled for video assembly/)
-
-      const templateCards = el.querySelectorAll('.template-card')
-      assert.equal(templateCards.length, 5, 'Must have 5 YouTube layout templates')
-      assert.match(text, /Playlist & Subscribe/)
-      assert.match(text, /1 Video & 1 Subscribe/)
-      assert.match(text, /2 Videos/)
-      assert.match(text, /Video, Playlist & Subscribe/)
-      assert.match(text, /Custom Layout/)
-    } finally {
-      destroy()
-    }
-  })
-
-  test('Outro duration slider is bounded to YouTube 5-20s', async () => {
-    const { el, destroy } = await mount()
-    try {
-      const toggle = el.querySelector('input[type="checkbox"]') as HTMLInputElement
-      toggle.checked = true
-      toggle.dispatchEvent(new Event('change'))
-      await nextTick()
-
-      const slider = el.querySelector('#outro-duration-slider') as HTMLInputElement
+      const slider = el.querySelector('#plan-window-slider') as HTMLInputElement
+      assert.ok(slider, 'plan window slider renders')
       assert.equal(slider.min, '5')
       assert.equal(slider.max, '20')
       assert.equal(slider.step, '1')
@@ -240,19 +208,16 @@ describe('ChannelYouTubeSettings.vue', () => {
       const text = el.textContent || ''
       assert.match(text, /5s \(YouTube minimum\)/)
       assert.match(text, /20s \(YouTube maximum\)/)
+      assert.match(text, /last 5–20 seconds/)
+      assert.match(text, /at least 25 seconds long/)
     } finally {
       destroy()
     }
   })
 
-  test('Applying a layout template resets end-screen elements to the preset', async () => {
+  test('Applying a layout template resets planned elements to the preset', async () => {
     const { el, destroy } = await mount()
     try {
-      const toggle = el.querySelector('input[type="checkbox"]') as HTMLInputElement
-      toggle.checked = true
-      toggle.dispatchEvent(new Event('change'))
-      await nextTick()
-
       const templateCard = [...el.querySelectorAll('.template-card')].find((c) =>
         c.textContent?.includes('2 Videos'),
       )
@@ -270,23 +235,18 @@ describe('ChannelYouTubeSettings.vue', () => {
     }
   })
 
-  test('Saves end-screen settings through PUT config', async () => {
+  test('Saves the plan through PUT config with no render fields', async () => {
     const { el, calls, destroy } = await mount()
     try {
-      const toggle = el.querySelector('input[type="checkbox"]') as HTMLInputElement
-      toggle.checked = true
-      toggle.dispatchEvent(new Event('change'))
-      await nextTick()
-
-      const slider = el.querySelector('#outro-duration-slider') as HTMLInputElement
+      const slider = el.querySelector('#plan-window-slider') as HTMLInputElement
       slider.value = '15'
       slider.dispatchEvent(new Event('input'))
       await nextTick()
 
       const saveBtn = [...el.querySelectorAll('button')].find(
-        (b) => b.textContent?.trim() === 'Save YouTube Settings',
+        (b) => b.textContent?.trim() === 'Save Settings',
       )
-      assert.ok(saveBtn, 'Save YouTube Settings button must render')
+      assert.ok(saveBtn, 'Save Settings button must render')
       ;(saveBtn as HTMLButtonElement).click()
       await nextTick()
       await new Promise((resolve) => setTimeout(resolve, 5))
@@ -294,12 +254,15 @@ describe('ChannelYouTubeSettings.vue', () => {
       const puts = calls.filter((c) => c.method === 'PUT')
       assert.equal(puts.length, 1)
       assert.equal(puts[0].path, '/projects/test-slug/settings/config')
-      assert.ok(puts[0].body.youtube_end_screen)
-      assert.equal(puts[0].body.youtube_end_screen.enabled, true)
-      assert.equal(puts[0].body.youtube_end_screen.duration_seconds, 15)
+      const plan = puts[0].body.youtube_end_screen
+      assert.ok(plan, 'plan must be saved')
+      assert.equal(plan.duration_seconds, 15)
+      assert.ok(!('enabled' in plan), 'no render toggle is written')
+      assert.ok(!('backdrop_style' in plan), 'no backdrop is written')
+      assert.ok(!('audio_treatment' in plan), 'no audio field is written')
 
       const text = el.textContent || ''
-      assert.match(text, /All YouTube channel settings saved\./)
+      assert.match(text, /Settings saved\./)
     } finally {
       destroy()
     }

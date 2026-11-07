@@ -27,7 +27,6 @@ import {
   type YouTubeEndScreenCapability,
   YOUTUBE_END_SCREEN_CAPABILITY,
   normalizeEndScreenConfig,
-  createDefaultEndScreenConfig,
 } from '../contracts/youtube-channel-settings.js'
 
 const TTL_MS = 60_000

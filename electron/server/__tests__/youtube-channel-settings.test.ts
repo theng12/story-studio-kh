@@ -73,35 +73,49 @@ describe('YouTube Channel Settings Contract & Service (Item 20)', () => {
     return fake
   }
 
-  describe('Contract: End-Screen Settings & Capabilities', () => {
-    test('YOUTUBE_END_SCREEN_CAPABILITY honestly reports lack of remote API support', () => {
+  describe('Contract: End-Screen Plan & Capabilities', () => {
+    test('capability honestly reports no remote API and a manual plan only', () => {
       assert.equal(YOUTUBE_END_SCREEN_CAPABILITY.remote_api_supported, false)
       assert.equal(
         YOUTUBE_END_SCREEN_CAPABILITY.remote_status,
         'unsupported_by_youtube_data_api_v3',
       )
-      assert.equal(YOUTUBE_END_SCREEN_CAPABILITY.local_presentation_supported, true)
+      assert.equal(YOUTUBE_END_SCREEN_CAPABILITY.manual_plan_supported, true)
       assert.equal(YOUTUBE_END_SCREEN_CAPABILITY.min_duration_seconds, 5)
       assert.equal(YOUTUBE_END_SCREEN_CAPABILITY.max_duration_seconds, 20)
+      assert.equal(YOUTUBE_END_SCREEN_CAPABILITY.min_video_length_seconds, 25)
       assert.equal(YOUTUBE_END_SCREEN_CAPABILITY.max_elements, 4)
       assert.match(YOUTUBE_END_SCREEN_CAPABILITY.reason, /YouTube Data API v3 does not expose/i)
+      assert.match(YOUTUBE_END_SCREEN_CAPABILITY.reason, /by hand/)
     })
 
-    test('createDefaultEndScreenConfig produces safe, disabled defaults', () => {
+    test('the contract cites YouTube Help 6388789 for its numeric bounds', async () => {
+      const { readFileSync } = await import('node:fs')
+      const { fileURLToPath } = await import('node:url')
+      const src = readFileSync(
+        fileURLToPath(new URL('../contracts/youtube-channel-settings.ts', import.meta.url)),
+        'utf8',
+      )
+      assert.match(src, /support\.google\.com\/youtube\/answer\/6388789/)
+      assert.match(src, /last 5–20 seconds/)
+    })
+
+    test('createDefaultEndScreenConfig produces a manual plan with no render fields', () => {
       const cfg = createDefaultEndScreenConfig('PL_TEST_DEFAULT')
-      assert.equal(cfg.enabled, false, 'End-screen outro must be OFF by default')
-      assert.equal(cfg.duration_seconds, 20, 'Default duration should be 20s (standard YouTube max)')
+      assert.equal(cfg.duration_seconds, 20, 'Default window is YouTube max (20s)')
       assert.equal(cfg.template, 'playlist_and_subscribe')
       assert.equal(cfg.elements.length, 2)
       assert.equal(cfg.elements[0].type, 'playlist')
       assert.equal(cfg.elements[0].playlist_id, 'PL_TEST_DEFAULT')
       assert.equal(cfg.elements[1].type, 'subscribe')
-      assert.equal(cfg.backdrop_style, 'dimmed_backdrop')
-      assert.equal(cfg.audio_treatment, 'continue_bed')
-      assert.ok(cfg.notes_for_youtube_studio, 'Generated guidance notes must be present')
+      assert.ok(cfg.notes_for_youtube_studio, 'Generated manual guidance must be present')
+      assert.match(cfg.notes_for_youtube_studio!, /YouTube Studio/)
+      assert.ok(!('enabled' in cfg), 'no render toggle in the plan shape')
+      assert.ok(!('backdrop_style' in cfg), 'no backdrop field in the plan shape')
+      assert.ok(!('audio_treatment' in cfg), 'no audio field in the plan shape')
     })
 
-    test('normalizeEndScreenConfig clamps duration to YouTube 5-20s limits', () => {
+    test('normalizeEndScreenConfig clamps duration to the documented 5-20s bounds', () => {
       const tooShort = normalizeEndScreenConfig({ duration_seconds: 2 })
       assert.equal(tooShort.duration_seconds, 5, 'Clamps below 5 to 5')
 
@@ -115,7 +129,7 @@ describe('YouTube Channel Settings Contract & Service (Item 20)', () => {
       assert.equal(nanVal.duration_seconds, 20, 'Fallback to 20 on NaN')
     })
 
-    test('normalizeEndScreenConfig caps elements at 4 (YouTube limit)', () => {
+    test('normalizeEndScreenConfig caps elements at 4 (documented 16:9 limit)', () => {
       const fiveElements = [
         { id: '1', type: 'subscribe' },
         { id: '2', type: 'playlist' },
@@ -129,15 +143,17 @@ describe('YouTube Channel Settings Contract & Service (Item 20)', () => {
       assert.equal(normalized.elements[3].type, 'latest_upload')
     })
 
-    test('normalizeEndScreenConfig heals invalid template and backdrop styles', () => {
+    test('normalizeEndScreenConfig heals an invalid template and drops legacy render fields', () => {
       const normalized = normalizeEndScreenConfig({
         template: 'non_existent_template',
+        enabled: true,
         backdrop_style: 'neon_glow',
         audio_treatment: 'explode',
       })
       assert.equal(normalized.template, 'playlist_and_subscribe')
-      assert.equal(normalized.backdrop_style, 'dimmed_backdrop')
-      assert.equal(normalized.audio_treatment, 'continue_bed')
+      assert.ok(!('enabled' in normalized), 'legacy render toggle is not carried forward')
+      assert.ok(!('backdrop_style' in normalized), 'legacy backdrop is not carried forward')
+      assert.ok(!('audio_treatment' in normalized), 'legacy audio field is not carried forward')
     })
 
     test('formatSecondsToTimestamp formats properly', () => {
@@ -149,7 +165,7 @@ describe('YouTube Channel Settings Contract & Service (Item 20)', () => {
       assert.equal(formatSecondsToTimestamp(NaN), '00:00')
     })
 
-    test('buildYouTubeStudioGuidance creates clear timestamp and elements guidance', () => {
+    test('buildYouTubeStudioGuidance states the API cannot write end screens', () => {
       const guidance = buildYouTubeStudioGuidance(
         {
           duration_seconds: 20,
@@ -163,11 +179,12 @@ describe('YouTube Channel Settings Contract & Service (Item 20)', () => {
         'My Series',
       )
 
-      assert.match(guidance, /YouTube Studio End-Screen Setup Guide/)
-      assert.match(guidance, /Timestamp Window: 09:40 - 10:00 \(last 20s\)/)
+      assert.match(guidance, /YouTube Studio End-Screen Setup \(manual\)/)
+      assert.match(guidance, /cannot write end screens/)
+      assert.match(guidance, /Window: 09:40 - 10:00 \(the last 20s/)
       assert.match(guidance, /1\. Playlist \(My Series\)/)
       assert.match(guidance, /2\. Channel Subscribe button/)
-      assert.match(guidance, /YouTube Data API v3 does not support third-party end screen writes/)
+      assert.match(guidance, /at least 25 seconds long/)
     })
   })
 
@@ -208,31 +225,28 @@ describe('YouTube Channel Settings Contract & Service (Item 20)', () => {
       )
     })
 
-    test('getEndScreenSettings returns default when none in config', async () => {
+    test('getEndScreenSettings returns the default plan when none in config', async () => {
       const settings = await getEndScreenSettings(testSlug)
-      assert.equal(settings.enabled, false)
       assert.equal(settings.duration_seconds, 20)
       assert.equal(settings.template, 'playlist_and_subscribe')
+      assert.ok(settings.notes_for_youtube_studio)
     })
 
-    test('updateEndScreenSettings persists valid settings and normalizes', async () => {
+    test('updateEndScreenSettings persists a plan and normalizes it', async () => {
       const updated = await updateEndScreenSettings(testSlug, {
-        enabled: true,
         duration_seconds: 12,
-        backdrop_style: 'slate_card',
-        audio_treatment: 'duck_bed',
-      })
+        template: 'one_video_one_subscribe',
+      } as any)
 
-      assert.equal(updated.enabled, true)
       assert.equal(updated.duration_seconds, 12)
-      assert.equal(updated.backdrop_style, 'slate_card')
-      assert.equal(updated.audio_treatment, 'duck_bed')
+      assert.equal(updated.template, 'one_video_one_subscribe')
 
       const reRead = await getEndScreenSettings(testSlug)
-      assert.equal(reRead.enabled, true)
       assert.equal(reRead.duration_seconds, 12)
-      assert.equal(reRead.backdrop_style, 'slate_card')
-      assert.equal(reRead.audio_treatment, 'duck_bed')
+      assert.equal(reRead.template, 'one_video_one_subscribe')
+      assert.ok(!('enabled' in reRead))
+      assert.ok(!('backdrop_style' in reRead))
+      assert.ok(!('audio_treatment' in reRead))
     })
 
     test('getYouTubeChannelSettings reads live playlists once and reports the default', async () => {
@@ -247,7 +261,7 @@ describe('YouTube Channel Settings Contract & Service (Item 20)', () => {
       assert.equal(summary.inventory.playlists[0].itemCount, 12)
       assert.equal(summary.inventory.playlists[1].privacyStatus, 'private')
       assert.equal(summary.inventory.default_playlist_id, 'PL_SERIES_A')
-      assert.equal(summary.end_screen.enabled, true)
+      assert.equal(summary.end_screen.duration_seconds, 12)
       assert.equal(summary.end_screen_capabilities.remote_api_supported, false)
       assert.equal(fake.calls.length, 1, 'one playlists.list call serves the read')
 
@@ -255,14 +269,14 @@ describe('YouTube Channel Settings Contract & Service (Item 20)', () => {
       assert.equal(fake.calls.length, 1, 'the 60s cache must serve the second read')
     })
 
-    test('updateYouTubeChannelSettings updates both default playlist and end screen', async () => {
+    test('updateYouTubeChannelSettings updates both default playlist and plan', async () => {
       __setYouTubeTransportForTests(queuePlaylists().transport())
       const result = await updateYouTubeChannelSettings(testSlug, accountId, {
         default_playlist_id: 'PL_NEW_DEFAULT',
         end_screen: {
           duration_seconds: 18,
           template: 'one_video_one_subscribe',
-        },
+        } as any,
       })
 
       assert.equal(result.inventory.default_playlist_id, 'PL_NEW_DEFAULT')
