@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.385 — 2026-11-07
+
+- Video assembly aligns scene and tail clips to exact video frames, so videos with many scene joins keep their full planned duration without cutting narration.
+
 ## v1.4.384 — 2026-11-06
 
 - Video Assembly keeps intro, title/chapter styling, transitions, appearance, episode effects, subtitles and outro editing together. Motion Review and Sketch Draw stay separate pages. Editors hold changes until Apply; Cancel keeps the current episode unchanged. Old Effects Library links open the matching episode and scene here.
