@@ -56,7 +56,19 @@ import {
   sessionUrlHash,
 } from '../services/upload-resume-sidecar.js'
 import { SpeedTracker, throttle } from '../lib/speed-tracker.js'
+import { withLock, writeJsonAtomic } from '../lib/atomic-store.js'
 import { readStoredFinalCheck } from '../lib/final-video-check.js'
+import {
+  buildCaptionUploadCheckpoint,
+  normalizeCaptionUploadSettings,
+  type CaptionUploadOutcome,
+  type YouTubeCaptionSettings,
+  type YouTubeCaptionUploadCheckpoint,
+} from '../contracts/youtube-caption-upload.js'
+import {
+  executeOptionalCaptionUpload,
+  readProjectCaptionSettings,
+} from '../services/youtube-caption-upload.js'
 import { requireJobCompletion } from '../services/job-completion.js'
 import { ensureYoutubePlaylistMembership } from '../services/youtube-playlist-sync.js'
 import { describeYouTubeCredential, resolveYouTubeAccountId } from '../services/youtube-credential.js'
@@ -102,6 +114,12 @@ interface YouTubeUploadParams {
   playlist_id?: string | null
   /** Exact episode thumbnail selected in Upload preview. */
   thumbnail_filename?: string | null
+  /**
+   * Optional closed-captions choice carried by the confirmed upload. Absent
+   * means "read this channel's stored caption_settings" — the upload never
+   * invents a choice the owner did not make.
+   */
+  captions?: unknown
   /** Safety checks the Upload Center route let through (channel set to Off/Warn); logged on this job. */
   safety_warnings?: Array<{ check: string; message: string }>
   // NOTE: this job only ever UPLOADS. Re-running it on an episode that is
@@ -259,6 +277,160 @@ async function hasExactResumableRecovery(input: {
   return true
 }
 
+/**
+ * The caption choice this upload acts on: the confirmed choice when the
+ * request carried one, otherwise this channel's stored `caption_settings`.
+ * Absent everywhere is the contract default, OFF.
+ */
+async function captionSettingsForUpload(slug: string, params: YouTubeUploadParams): Promise<YouTubeCaptionSettings> {
+  try {
+    return params.captions !== undefined
+      ? normalizeCaptionUploadSettings(params.captions)
+      : await readProjectCaptionSettings(slug)
+  } catch {
+    // An unreadable setting is OFF, never a reason to fail an accepted video.
+    return normalizeCaptionUploadSettings(undefined)
+  }
+}
+
+/** The sidecar plus the caption outcome recorded beside the video it belongs to. */
+type CaptionedSidecar = UploadSidecar & { caption_upload?: YouTubeCaptionUploadCheckpoint }
+
+/**
+ * Record the caption outcome in the episode's existing upload sidecar, under
+ * the same lock and identity checks as the thumbnail and playlist checkpoints.
+ * It never rewrites video identity: captions are an optional track on an
+ * already-accepted video.
+ */
+async function checkpointCaptionUploadAtPath(
+  filePath: string,
+  expected: { video_id: string; account_id: string; channel_id: string },
+  caption: YouTubeCaptionUploadCheckpoint,
+): Promise<void> {
+  await withLock(filePath, async () => {
+    const current = await readShortSidecarAtPath(filePath) as CaptionedSidecar | null
+    if (!current?.video_id) throw new Error('Cannot checkpoint captions without a valid upload sidecar.')
+    if (current.video_id !== expected.video_id) {
+      throw new Error(`Upload record changed from ${expected.video_id} to ${current.video_id}; captions checkpoint was not written.`)
+    }
+    if (current.channel_id !== expected.channel_id) {
+      throw new Error(`Upload channel changed from ${expected.channel_id} to ${current.channel_id}; captions checkpoint was not written.`)
+    }
+    const next: CaptionedSidecar = {
+      ...current,
+      caption_upload: caption,
+      last_sync_at: new Date().toISOString(),
+    }
+    await writeJsonAtomic(filePath, next)
+  })
+}
+
+/**
+ * Upload the episode's own subtitle track to a video that is already accepted
+ * by YouTube. OFF by default. A failure is recorded and reported, never thrown
+ * and never a reason to upload the video again.
+ */
+async function uploadCaptionsAfterVideo(input: {
+  job: Job
+  slug: string
+  accountId: string
+  /** The channel the accepted video lives on; the sidecar's own identity. */
+  channelId: string
+  videoId: string
+  /** The episode whose subtitle file may be used (the parent for a Short). */
+  episodeCode: string
+  paths: Awaited<ReturnType<typeof resolveEpisodePaths>>
+  sidecarPath: string
+  settings: YouTubeCaptionSettings
+}): Promise<void> {
+  if (!input.settings.enabled) return
+
+  let outcome: CaptionUploadOutcome
+  try {
+    outcome = await executeOptionalCaptionUpload({
+      slug: input.slug,
+      accountId: input.accountId,
+      videoId: input.videoId,
+      episodeCode: input.episodeCode,
+      episodeDir: input.paths.episode_dir,
+      subtitlesDir: input.paths.subtitles_dir,
+      settings: input.settings,
+      logLines: input.job.output_lines,
+    })
+  } catch (error: any) {
+    // The service contract says it never throws; if that regresses, a caption
+    // failure must still never fail an accepted video.
+    outcome = {
+      status: 'failed',
+      remote_video_id: input.videoId,
+      error: String(error?.message || error || 'Captions upload failed'),
+    }
+  }
+
+  const checkpoint = buildCaptionUploadCheckpoint(outcome, input.settings)
+  try {
+    await checkpointCaptionUploadAtPath(
+      input.sidecarPath,
+      { video_id: input.videoId, account_id: input.accountId, channel_id: input.channelId },
+      checkpoint,
+    )
+  } catch (error: any) {
+    input.job.output_lines.push(`⚠ The captions outcome could not be saved to this episode's upload record (${error?.message || error}). The video upload itself is complete.`)
+  }
+
+  input.job.result = { ...(input.job.result || {}), captions: { ...checkpoint } }
+  if (outcome.status === 'failed') {
+    const warning = `Closed captions were not uploaded: ${outcome.error || 'unknown error'}. `
+      + 'The video is uploaded; Retry repairs only the captions, without uploading the video again.'
+    input.job.result = {
+      ...(input.job.result || {}),
+      warnings: [...((input.job.result?.warnings as string[] | undefined) || []), warning],
+    }
+  }
+}
+
+/**
+ * A retry of an accepted video repairs captions only when the last recorded
+ * attempt did not end with a track on the video. A successful track (uploaded,
+ * updated, or already present) is never touched again by a retry.
+ */
+function captionsNeedRepair(recorded: CaptionedSidecar | null, settings: YouTubeCaptionSettings): boolean {
+  if (!settings.enabled) return false
+  const status = recorded?.caption_upload?.status
+  return !status || !['uploaded', 'updated', 'skipped_already_exists'].includes(status)
+}
+
+/** Repair captions on an accepted video, if this channel's choice says so. */
+async function repairCaptionsIfNeeded(input: {
+  job: Job
+  slug: string
+  accountId: string
+  channelId: string
+  videoId: string
+  episodeCode: string
+  paths: Awaited<ReturnType<typeof resolveEpisodePaths>>
+  sidecarPath: string
+  params: YouTubeUploadParams
+}): Promise<void> {
+  const settings = await captionSettingsForUpload(input.slug, input.params)
+  const recorded = await readShortSidecarAtPath(input.sidecarPath) as CaptionedSidecar | null
+  // Only repair against a local record of THIS video; a missing or different
+  // record is the existing "already on YouTube" refusal's business, not ours.
+  if (recorded?.video_id !== input.videoId) return
+  if (!captionsNeedRepair(recorded, settings)) return
+  await uploadCaptionsAfterVideo({
+    job: input.job,
+    slug: input.slug,
+    accountId: input.accountId,
+    channelId: input.channelId,
+    videoId: input.videoId,
+    episodeCode: input.episodeCode,
+    paths: input.paths,
+    sidecarPath: input.sidecarPath,
+    settings,
+  })
+}
+
 export async function generateYoutubeUpload(job: Job): Promise<void> {
   const slug = job.project_slug
   const params = (job.params || {}) as YouTubeUploadParams
@@ -326,7 +498,31 @@ export async function generateYoutubeUpload(job: Job): Promise<void> {
         sidecarPath: sidecarFilePath,
         thumbnailFilename: params.thumbnail_filename,
       })
+      // The same accepted video may also owe a caption track; repair it under
+      // the same rule, still without uploading the video again.
+      await repairCaptionsIfNeeded({
+        job, slug, accountId, channelId: account.remote_id, videoId: remote.video_id,
+        episodeCode: parentCode, paths, sidecarPath: sidecarFilePath, params,
+      })
       return
+    }
+    // Retry after "uploaded, but the captions failed": the video is kept and
+    // only the caption track is reconciled and retried. The service lists the
+    // existing tracks first, so a lost response can never duplicate the track.
+    if (!params.automatic && recorded?.video_id === remote.video_id) {
+      const settings = await captionSettingsForUpload(slug, params)
+      if (captionsNeedRepair(recorded as CaptionedSidecar | null, settings)) {
+        job.output_lines.push(
+          `${episodeId} is already on YouTube (https://youtu.be/${remote.video_id}); repairing only the closed captions — the video is not uploaded again.`,
+        )
+        await uploadCaptionsAfterVideo({
+          job, slug, accountId, channelId: account.remote_id, videoId: remote.video_id,
+          episodeCode: parentCode, paths, sidecarPath: sidecarFilePath, settings,
+        })
+        job.output_dir = paths.episode_dir
+        job.progress = 100
+        return
+      }
     }
     throw new Error(`${alreadyOnYouTubeReason(episodeId, remote)} Nothing was uploaded.`)
   }
@@ -788,6 +984,16 @@ export async function generateYoutubeUpload(job: Job): Promise<void> {
       job.output_lines.push(`YouTube status not checked yet (${e?.message || e}); Story Studio checks again in the background.`)
     }
   }
+
+  // Optional closed captions (OFF by default), AFTER the permanent video
+  // checkpoint: the video is already durably accepted, so a caption failure is
+  // recorded and reported but can never fail the upload or cause a re-upload.
+  // The service reconciles the video's existing tracks before any insert.
+  await uploadCaptionsAfterVideo({
+    job, slug, accountId, channelId: account.remote_id, videoId,
+    episodeCode: parentCode, paths, sidecarPath: sidecarFilePath,
+    settings: await captionSettingsForUpload(slug, params),
+  })
 
   // Thumbnail — REQUIRED. Tried twice (setThumbnail itself also retries the
   // transient "still processing" race); a failure fails the job further down,

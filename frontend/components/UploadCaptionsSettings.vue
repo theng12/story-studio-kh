@@ -142,11 +142,26 @@
         </p>
       </div>
     </div>
+
+    <div v-if="canPersist" class="save-row">
+      <button
+        type="button"
+        class="btn-save"
+        :disabled="disabled || saving || loading"
+        @click="save"
+      >
+        {{ saving ? 'Saving…' : 'Save captions settings' }}
+      </button>
+      <span v-if="loading" class="fine">Loading this channel’s saved caption settings…</span>
+      <span v-else-if="loadError" class="result err" role="alert">{{ loadError }}</span>
+      <span v-else-if="saveResult" :class="['result', saveResult.kind]">{{ saveResult.message }}</span>
+    </div>
   </section>
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { useApi } from '~/composables/useApi'
 
 export type CaptionDedupeMode = 'skip_if_exists' | 'replace_existing' | 'upload_always'
 export type CaptionSourcePreference = 'auto' | 'stitched' | 'whisper' | 'custom'
@@ -166,11 +181,14 @@ const props = withDefaults(
     modelValue?: Partial<YouTubeCaptionSettings>
     disabled?: boolean
     hasSubtitles?: boolean
+    /** The project whose stored caption_settings are read and saved. */
+    slug?: string
   }>(),
   {
     modelValue: () => ({}),
     disabled: false,
     hasSubtitles: undefined,
+    slug: '',
   },
 )
 
@@ -178,7 +196,49 @@ const emit = defineEmits<{
   (e: 'update:modelValue', value: YouTubeCaptionSettings): void
 }>()
 
+const { get, put } = useApi()
+const route = useRoute()
+
 const KNOWN_LANGUAGES = ['en', 'km', 'es', 'ja', 'fr', 'de']
+
+function defaultTrackNameFor(language: string): string {
+  if (language === 'km') return 'Khmer'
+  if (language === 'es') return 'Spanish'
+  if (language === 'ja') return 'Japanese'
+  if (language === 'fr') return 'French'
+  if (language === 'de') return 'German'
+  return 'English'
+}
+
+/** The same defaults and bounds the server contract applies. */
+function normalizeCaptionSettings(input: unknown): YouTubeCaptionSettings {
+  const raw = input && typeof input === 'object' ? input as Record<string, unknown> : {}
+  const language = typeof raw.language === 'string' && raw.language.trim()
+    ? raw.language.trim().toLowerCase()
+    : 'en'
+  const dedupe_mode: CaptionDedupeMode =
+    raw.dedupe_mode === 'replace_existing' || raw.dedupe_mode === 'upload_always'
+      ? raw.dedupe_mode
+      : 'skip_if_exists'
+  const preferred_source: CaptionSourcePreference =
+    raw.preferred_source === 'stitched' || raw.preferred_source === 'whisper' || raw.preferred_source === 'custom'
+      ? raw.preferred_source
+      : 'auto'
+  const custom_srt_path = typeof raw.custom_srt_path === 'string' && raw.custom_srt_path.trim()
+    ? raw.custom_srt_path.trim()
+    : undefined
+  return {
+    enabled: raw.enabled === true,
+    language,
+    track_name: typeof raw.track_name === 'string' && raw.track_name.trim()
+      ? raw.track_name.trim()
+      : defaultTrackNameFor(language),
+    is_draft: raw.is_draft === true,
+    dedupe_mode,
+    preferred_source,
+    ...(custom_srt_path ? { custom_srt_path } : {}),
+  }
+}
 
 const initialLang = props.modelValue.language?.toLowerCase() || 'en'
 const isKnown = KNOWN_LANGUAGES.includes(initialLang)
@@ -195,15 +255,23 @@ const draft = reactive<YouTubeCaptionSettings>({
   custom_srt_path: props.modelValue.custom_srt_path || '',
 })
 
-const defaultTrackName = computed(() => {
-  const lang = effectiveLanguage.value
-  if (lang === 'km') return 'Khmer'
-  if (lang === 'es') return 'Spanish'
-  if (lang === 'ja') return 'Japanese'
-  if (lang === 'fr') return 'French'
-  if (lang === 'de') return 'German'
-  return 'English'
+const loading = ref(false)
+const saving = ref(false)
+const loadError = ref('')
+const saveResult = ref<{ kind: 'ok' | 'warn' | 'err'; message: string } | null>(null)
+/** The server value this panel last read or saved, for the stale-write check. */
+let loadedJson = JSON.stringify(normalizeCaptionSettings(props.modelValue))
+/** Whether loadedJson came from a real read; a failed load has no baseline. */
+let loadedOk = false
+
+const projectSlug = computed(() => {
+  const fromRoute = route.params.slug
+  const routeSlug = Array.isArray(fromRoute) ? fromRoute[0] : fromRoute
+  return props.slug || (typeof routeSlug === 'string' ? routeSlug : '')
 })
+const canPersist = computed(() => !!projectSlug.value)
+
+const defaultTrackName = computed(() => defaultTrackNameFor(effectiveLanguage.value))
 
 const effectiveLanguage = computed(() => {
   if (draft.language === 'other') {
@@ -211,6 +279,31 @@ const effectiveLanguage = computed(() => {
   }
   return draft.language
 })
+
+function currentSettings(): YouTubeCaptionSettings {
+  return normalizeCaptionSettings({
+    enabled: draft.enabled,
+    language: effectiveLanguage.value,
+    track_name: draft.track_name,
+    is_draft: draft.is_draft,
+    dedupe_mode: draft.dedupe_mode,
+    preferred_source: draft.preferred_source,
+    ...(draft.custom_srt_path ? { custom_srt_path: draft.custom_srt_path } : {}),
+  })
+}
+
+function applySettings(input: unknown): void {
+  const settings = normalizeCaptionSettings(input)
+  const known = KNOWN_LANGUAGES.includes(settings.language)
+  customLanguage.value = known ? '' : settings.language
+  draft.enabled = settings.enabled
+  draft.language = known ? settings.language : 'other'
+  draft.track_name = settings.track_name
+  draft.is_draft = settings.is_draft
+  draft.dedupe_mode = settings.dedupe_mode
+  draft.preferred_source = settings.preferred_source
+  draft.custom_srt_path = settings.custom_srt_path || ''
+}
 
 const statusText = computed(() => {
   if (props.hasSubtitles === true) return 'Subtitle file available (.srt)'
@@ -242,18 +335,79 @@ watch(
 watch(
   [draft, effectiveLanguage],
   () => {
-    emit('update:modelValue', {
-      enabled: draft.enabled,
-      language: effectiveLanguage.value,
-      track_name: draft.track_name.trim() || defaultTrackName.value,
-      is_draft: draft.is_draft,
-      dedupe_mode: draft.dedupe_mode,
-      preferred_source: draft.preferred_source,
-      ...(draft.custom_srt_path ? { custom_srt_path: draft.custom_srt_path } : {}),
-    })
+    emit('update:modelValue', currentSettings())
   },
   { deep: true },
 )
+
+function messageOf(error: any, fallback: string): string {
+  return error?.data?.detail || error?.data?.message || error?.message || fallback
+}
+
+async function load(): Promise<void> {
+  if (!canPersist.value) return
+  loading.value = true
+  loadError.value = ''
+  try {
+    const config = await get<any>(`/projects/${encodeURIComponent(projectSlug.value)}/settings/config`)
+    if (config && config.caption_settings !== undefined) {
+      applySettings(config.caption_settings)
+    }
+    loadedJson = JSON.stringify(normalizeCaptionSettings(config?.caption_settings))
+    loadedOk = true
+  } catch (error: any) {
+    loadedOk = false
+    loadError.value = messageOf(error, 'Could not load this channel’s caption settings.')
+  } finally {
+    loading.value = false
+  }
+}
+
+async function save(): Promise<void> {
+  if (!canPersist.value || saving.value) return
+  saving.value = true
+  saveResult.value = null
+  try {
+    // Stale safety: if another screen changed these settings since this panel
+    // read them, refuse rather than overwrite a newer choice.
+    const before = await get<any>(`/projects/${encodeURIComponent(projectSlug.value)}/settings/config`)
+    const beforeJson = JSON.stringify(normalizeCaptionSettings(before?.caption_settings))
+    if (loadedOk && beforeJson !== loadedJson) {
+      saveResult.value = {
+        kind: 'warn',
+        message: 'Captions settings were changed elsewhere since this panel loaded. Reload this panel before saving.',
+      }
+      return
+    }
+
+    const settings = currentSettings()
+    const sentJson = JSON.stringify(settings)
+    // Only this one key: a captions save never rewrites any other setting.
+    await put(`/projects/${encodeURIComponent(projectSlug.value)}/settings/config`, {
+      caption_settings: settings,
+    })
+
+    const readback = await get<any>(`/projects/${encodeURIComponent(projectSlug.value)}/settings/config`)
+    const readbackJson = JSON.stringify(normalizeCaptionSettings(readback?.caption_settings))
+    if (readbackJson !== sentJson) {
+      loadedOk = false
+      saveResult.value = {
+        kind: 'err',
+        message: 'Story Studio saved the captions settings but could not read them back exactly. Reopen this panel to check.',
+      }
+      return
+    }
+    loadedJson = readbackJson
+    loadedOk = true
+    saveResult.value = { kind: 'ok', message: 'Captions settings saved for this channel.' }
+  } catch (error: any) {
+    saveResult.value = { kind: 'err', message: messageOf(error, 'Failed to save captions settings.') }
+  } finally {
+    saving.value = false
+  }
+}
+
+onMounted(() => { void load() })
 </script>
 
 <style scoped>
@@ -441,5 +595,45 @@ select:focus {
 
 .badge-muted {
   color: var(--text-muted, #888);
+}
+
+.save-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  padding-top: 0.5rem;
+}
+
+.btn-save {
+  padding: 0.45rem 0.9rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  border-radius: 4px;
+  border: 1px solid var(--primary, #3b82f6);
+  background: var(--primary, #3b82f6);
+  color: #fff;
+  cursor: pointer;
+}
+
+.btn-save:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.result {
+  font-size: 0.8rem;
+}
+
+.result.ok {
+  color: var(--ok, #4ade80);
+}
+
+.result.warn {
+  color: var(--warn, #facc15);
+}
+
+.result.err {
+  color: var(--danger, #f87171);
 }
 </style>
