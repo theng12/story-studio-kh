@@ -135,8 +135,8 @@ describe('thumbnail prompt batches survive a later provider failure and retry on
 
     // The checkpoint writer ran BEFORE the next provider request went out.
     const lines = job.output_lines
-    const firstSave = lines.findIndex(line => /^Saved thumbnails/.test(line))
-    const secondRequest = lines.findIndex(line => /\(request 2\/3\)/.test(line))
+    const firstSave = lines.findIndex((line: string) => /^Saved thumbnails/.test(line))
+    const secondRequest = lines.findIndex((line: string) => /\(request 2\/3\)/.test(line))
     assert.ok(firstSave >= 0 && secondRequest >= 0, 'both the save and the second request were logged')
     assert.ok(firstSave < secondRequest, 'batch 1 reached disk before request 2 went out')
 
