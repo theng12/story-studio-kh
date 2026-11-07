@@ -669,6 +669,58 @@ export async function generateImagePrompts(job: Job): Promise<void> {
     pm.getProjectDir(projectSlug) || path.join(pm.projectsRoot(), projectSlug), shell.guidanceAsset,
   )
   if (publishedCap) renderCast = await episodeCast(projectSlug, episodeId)
+  // The episode's folders, resolved BEFORE any provider request: a missing
+  // folder must stop the run before money is spent, not after.
+  const paths = await resolveEpisodePaths(projectSlug, episodeId, title)
+  let episodeDir = paths.episode_dir.replace(/\/$/, '')
+  const actualDir = await resolveEpisodeDir(path.dirname(episodeDir), episodeId)
+  if (actualDir) episodeDir = actualDir
+  const names = await resolveSubfolderNames(projectSlug, episodeId)
+  const thumbDir = await resolveSubfolder(episodeDir, names.thumb_prompts)
+  if (!thumbDir) throw new Error(`Thumbnail prompts folder not found: ${names.thumb_prompts}`)
+  // The ONE artifact writer, run after EVERY completed batch as well as at the
+  // end: a later provider failure must not lose output the model already
+  // produced and the customer already paid for (verified completion §8). The
+  // completion manifest and the completion audit still run once, at the end.
+  const saveThumbnails = async () => {
+    if (thumbnails.length === 0) return
+    let output = '# Thumbnail Prompts\n\n'
+    for (const item of thumbnails) {
+      output += `## Thumbnail ${item.number}: ${item.title || `Variation ${item.number}`}\n\n${item.prompt}\n\n`
+    }
+    const outputPath = path.join(thumbDir, `${episodeId}_Thumbnail_Prompts.md`)
+    if (targetNumbers.length) {
+      const { initializeThumbnailOptions } = await import('../services/thumbnail-option-settings.js')
+      await initializeThumbnailOptions(projectSlug, episodeId, thumbnails.map(item => Number(item.number)), {
+        thumbnail_template_id: req.thumbnail_template_id || '',
+        style_tag: req.style_tag || '',
+        thumb_font_style: req.thumb_font_style || 'auto',
+        thumb_text_style: textFree ? 'none' : req.thumb_text_style || 'auto',
+        thumb_text_position: req.thumb_text_position || 'auto',
+      })
+    }
+    await buildImagePromptsDocx(output, episodeId, title, outputPath)
+    job.output_lines.push(`Saved thumbnails → ${path.basename(outputPath)}`)
+  }
+  // Applied once per item per run in practice: the clauses only fire on a
+  // prompt that does not already state the ratio or the title, so re-running
+  // it over an already-enforced prompt adds nothing.
+  const enforceItem = (item: any) => ({
+    ...item,
+    prompt: enforceThumbnailPromptElements(String(item.prompt || ''), {
+      aspectRatio: req.aspect_ratio || '16:9',
+      // An inventing mode's words live in the row's own title, not the episode's.
+      title: headlineInvents(headlineMode) ? String(item.title || '').trim() || title : title,
+      textStyle: textFree ? 'none' : req.thumb_text_style || 'auto',
+      fontStyle: req.thumb_font_style || 'auto',
+      textPosition: req.thumb_text_position || 'auto',
+      headlineMode,
+      fontPhrases: letteringPhrases.font,
+      textPhrases: letteringPhrases.text,
+      fontCustomText: req.thumb_font_style_custom,
+      textCustomText: textFree ? undefined : req.thumb_text_style_custom,
+    }),
+  })
   if (targetNumbers.length > 0) {
     const storyContext = await readStoryContext(projectSlug, episodeId, title)
     const characters = Array.isArray(req.character_ids) && req.character_ids.length
@@ -871,16 +923,25 @@ export async function generateImagePrompts(job: Job): Promise<void> {
     try {
       const promptPolicy = pipelinePolicyForJob(job.params, 'image_prompts')
       const promptCheckpoint = pipelinePolicyCheckpointStore(job.params, () => jq.checkpointJobState(job))
-      // G2: size the WRITING request against the selected model's LIVE limits
-      // using the measured thumbnail answer rate (G0 p95 + 25%: 2,350 en /
-      // 1,750 km tokens per prompt) plus the real assembled prompt — never a
-      // fixed ratio and never a number inferred from a model's name. The image
-      // model's published character cap governs each prompt BODY via
-      // bodyCeiling above; this governs how many prompts one request may ask
-      // for. An absent limit is unknown and enforces nothing.
+      // G2: size the WRITING request against the selected model's LIVE limits.
+      // The prompt side is an ESTIMATE of input tokens — ASCII ÷ 4 plus one
+      // token per non-ASCII character (services/output-token-budget.ts; no
+      // tokenizer or count endpoint exists, so this is an approximation, not
+      // a count) — and the answer side is the G0 measured rate (p95 + 25%:
+      // 2,350 en / 1,750 km per prompt, by the REQUEST's channel language:
+      // Brief G — Khmer channels get English image prose back). No number is
+      // inferred from a model's name. The image model's published character
+      // cap governs each prompt BODY via bodyCeiling above; this governs how
+      // many prompts one request may ask for. An absent limit is unknown and
+      // enforces nothing; a catalogue that cannot be READ throws here, before
+      // any request is made — a transport failure is not "no limit published".
       const thumbnailRates = resolveSceneUnitTokenRates('thumbnail', khmer ? 'km' : 'en')
-      const catalogue = await listChatModels(apiKey).catch(() => null)
-      const product = catalogue?.find(item => item.id === model) ?? null
+      const apiKey = await getApiKey('genstudio').catch(() => '')
+      if (!apiKey) {
+        throw new Error('No Gateway API Key configured. Add it in Settings → This Mac before generating thumbnail prompts.')
+      }
+      const catalogue = await listChatModels(apiKey)
+      const product = catalogue.find(item => item.id === model) ?? null
       const writingLimits: SceneRequestLimits = product
         ? {
             maxRequestTokens: product.max_request_tokens || null,
@@ -923,6 +984,7 @@ export async function generateImagePrompts(job: Job): Promise<void> {
         batches.push(targetNumbers.slice(index, index + perRequest))
       }
       for (const [batchIndex, batch] of batches.entries()) {
+        if (jq.isCancelled(job.job_id)) throw new Error('Cancelled by user')
         const prompt = await buildThumbnailPromptFor(batch)
         job.output_lines.push(
           `Calling ${model} for ${batch.length} thumbnail prompt(s)`
@@ -930,47 +992,69 @@ export async function generateImagePrompts(job: Job): Promise<void> {
         )
         const promptRequestIdentity = freshGenerationRequestIdentity(job, `thumbnail-prompts-${batch.join('-')}`)
           ?? `${projectSlug}:${episodeId}:thumbnail-prompts-${batch.join('-')}`
-        const raw = promptPolicy
-          ? await callAiWithModelPolicy(promptPolicy, '', prompt, aiCreds(config), false, {
-              slug: projectSlug,
-              jobId: job.job_id,
-              signal: controller.signal,
-              requestIdentity: promptRequestIdentity,
-              pipelinePolicyCheckpoint: promptCheckpoint,
-              pipelinePolicyCheckpointKey: promptRequestIdentity,
-              onModelSelected: selected => {
-                job.output_lines.push(`[pipeline] image prompts using Gateway product "${selected}".`)
-              },
-              outputContract: thumbnailPromptsOutputContract(batch.length),
-              // As much as this request can fit — see the sizing above.
-              outputBudget: 'maximum',
-              disableReasoning: true,
-              temperature: 0.35,
-            })
-          : await callAi(model, '', prompt, aiCreds(config), false, {
-              slug: projectSlug,
-              jobId: job.job_id,
-              signal: controller.signal,
-              requestIdentity: promptRequestIdentity,
-              outputContract: thumbnailPromptsOutputContract(batch.length),
-              // As much as this request can fit — see the sizing above.
-              outputBudget: 'maximum',
-              disableReasoning: true,
-              temperature: 0.35,
-            })
-        const generated = normalizeGeneratedPromptItems(
-          parseThumbnailPromptsJson(raw),
-          batch.length,
-        // Episode-title recipes preserve the real episode title. Curiosity-hook
-        // recipes intentionally keep the LLM's short, per-variation hook as the
-        // editable thumbnail headline while YouTube metadata keeps its full
-        // factual episode title elsewhere.
-        ).map((item, index) => ({
-          ...item,
-          title: headlineInvents(headlineMode) ? String(item.title || '').trim() || title : title,
-          number: batch[index],
-        }))
+        let generated: any[]
+        try {
+          const raw = promptPolicy
+            ? await callAiWithModelPolicy(promptPolicy, '', prompt, aiCreds(config), false, {
+                slug: projectSlug,
+                jobId: job.job_id,
+                signal: controller.signal,
+                requestIdentity: promptRequestIdentity,
+                pipelinePolicyCheckpoint: promptCheckpoint,
+                pipelinePolicyCheckpointKey: promptRequestIdentity,
+                onModelSelected: selected => {
+                  job.output_lines.push(`[pipeline] image prompts using Gateway product "${selected}".`)
+                },
+                outputContract: thumbnailPromptsOutputContract(batch.length),
+                // As much as this request can fit — see the sizing above.
+                outputBudget: 'maximum',
+                disableReasoning: true,
+                temperature: 0.35,
+              })
+            : await callAi(model, '', prompt, aiCreds(config), false, {
+                slug: projectSlug,
+                jobId: job.job_id,
+                signal: controller.signal,
+                requestIdentity: promptRequestIdentity,
+                outputContract: thumbnailPromptsOutputContract(batch.length),
+                // As much as this request can fit — see the sizing above.
+                outputBudget: 'maximum',
+                disableReasoning: true,
+                temperature: 0.35,
+              })
+          generated = normalizeGeneratedPromptItems(
+            parseThumbnailPromptsJson(raw),
+            batch.length,
+          // Episode-title recipes preserve the real episode title. Curiosity-hook
+          // recipes intentionally keep the LLM's short, per-variation hook as the
+          // editable thumbnail headline while YouTube metadata keeps its full
+          // factual episode title elsewhere.
+          ).map((item, index) => ({
+            ...item,
+            title: headlineInvents(headlineMode) ? String(item.title || '').trim() || title : title,
+            number: batch[index],
+          }))
+        } catch (error) {
+          // A cancelled job stops; any other batch failure is collected so the
+          // completed batches below reach disk and the completion audit names
+          // exactly what is missing (verified completion §8).
+          if (jq.isCancelled(job.job_id)) throw error
+          const detail = error instanceof Error ? error.message : String(error)
+          job.output_lines.push(
+            `✗ Thumbnail ${batch.join(', Thumbnail ')} request failed: ${detail}. `
+            + 'Verified prompts are already saved; Retry requests only the missing thumbnail prompts.',
+          )
+          continue
+        }
         for (const item of generated) existingByNumber.set(Number(item.number), item)
+        // Checkpoint this completed batch through the SAME artifact writer
+        // BEFORE the next provider request goes out: a later failure must not
+        // lose output that is already valid and already paid for. A save that
+        // cannot be written throws here, stopping before another request.
+        thumbnails = [...existingByNumber.values()]
+          .sort((a, b) => Number(a.number) - Number(b.number))
+          .map(enforceItem)
+        await saveThumbnails()
       }
       thumbnails = [...existingByNumber.values()].sort((a, b) => Number(a.number) - Number(b.number))
     } finally {
@@ -978,22 +1062,7 @@ export async function generateImagePrompts(job: Job): Promise<void> {
     }
   }
 
-  thumbnails = thumbnails.map(item => ({
-    ...item,
-    prompt: enforceThumbnailPromptElements(String(item.prompt || ''), {
-      aspectRatio: req.aspect_ratio || '16:9',
-      // An inventing mode's words live in the row's own title, not the episode's.
-      title: headlineInvents(headlineMode) ? String(item.title || '').trim() || title : title,
-      textStyle: textFree ? 'none' : req.thumb_text_style || 'auto',
-      fontStyle: req.thumb_font_style || 'auto',
-      textPosition: req.thumb_text_position || 'auto',
-      headlineMode,
-      fontPhrases: letteringPhrases.font,
-      textPhrases: letteringPhrases.text,
-      fontCustomText: req.thumb_font_style_custom,
-      textCustomText: textFree ? undefined : req.thumb_text_style_custom,
-    }),
-  }))
+  thumbnails = thumbnails.map(enforceItem)
   const missing = Array.from({ length: count }, (_, index) => index + 1)
     .filter(number => !thumbnails.some(item => Number(item.number) === number && item.prompt?.trim()))
   job.output_lines.push(`Verified ${count - missing.length}/${count} thumbnail prompt(s).`)
@@ -1024,32 +1093,7 @@ export async function generateImagePrompts(job: Job): Promise<void> {
     job.output_lines.push(`Recency tracking skipped: ${error?.message || error}`)
   }
 
-  const paths = await resolveEpisodePaths(projectSlug, episodeId, title)
-  let episodeDir = paths.episode_dir.replace(/\/$/, '')
-  const actualDir = await resolveEpisodeDir(path.dirname(episodeDir), episodeId)
-  if (actualDir) episodeDir = actualDir
-  const names = await resolveSubfolderNames(projectSlug, episodeId)
-  const thumbDir = await resolveSubfolder(episodeDir, names.thumb_prompts)
-  if (!thumbDir) throw new Error(`Thumbnail prompts folder not found: ${names.thumb_prompts}`)
-  if (thumbnails.length > 0) {
-    let output = '# Thumbnail Prompts\n\n'
-    for (const item of thumbnails) {
-      output += `## Thumbnail ${item.number}: ${item.title || `Variation ${item.number}`}\n\n${item.prompt}\n\n`
-    }
-    const outputPath = path.join(thumbDir, `${episodeId}_Thumbnail_Prompts.md`)
-    if (targetNumbers.length) {
-      const { initializeThumbnailOptions } = await import('../services/thumbnail-option-settings.js')
-      await initializeThumbnailOptions(projectSlug, episodeId, thumbnails.map(item => Number(item.number)), {
-        thumbnail_template_id: req.thumbnail_template_id || '',
-        style_tag: req.style_tag || '',
-        thumb_font_style: req.thumb_font_style || 'auto',
-        thumb_text_style: textFree ? 'none' : req.thumb_text_style || 'auto',
-        thumb_text_position: req.thumb_text_position || 'auto',
-      })
-    }
-    await buildImagePromptsDocx(output, episodeId, title, outputPath)
-    job.output_lines.push(`Saved thumbnails → ${path.basename(outputPath)}`)
-  }
+  await saveThumbnails()
   await writePromptCompletionManifest(thumbDir, episodeId, 'thumbnail', count)
   await trackGeneration(projectSlug, 'prompts').catch(() => {})
 

@@ -437,7 +437,9 @@ export function sceneRequestFits(opts: {
 }
 
 /**
- * Measured answer tokens per scene, by kind and output language, with margin.
+ * Measured answer tokens per scene, by kind and REQUEST language (the channel
+ * group), with margin. Brief G: language comes from the request, not the
+ * answer — Khmer channels get English image prose back.
  *
  * These are STARTING VALUES from provider-reported (unverified) usage, not
  * limits: p95 + 25%, rounded up. They are used only by the request-sizing path
@@ -451,7 +453,7 @@ export function sceneRequestFits(opts: {
  * scene pays the pack's whole fixed overhead.
  */
 export type ScenePromptUnitKind = 'visual' | 'motion' | 'planner-window' | 'thumbnail'
-export type ScenePromptOutputLanguage = 'en' | 'km'
+export type ScenePromptRequestLanguage = 'en' | 'km'
 
 export interface SceneUnitTokenRates {
   /** Answer tokens one unit costs inside a request that carries several. */
@@ -461,7 +463,7 @@ export interface SceneUnitTokenRates {
 }
 
 export const SCENE_PROMPT_MEASURED_TOKENS_PER_UNIT: Readonly<
-  Record<ScenePromptUnitKind, Readonly<Record<ScenePromptOutputLanguage, Readonly<SceneUnitTokenRates>>>>
+  Record<ScenePromptUnitKind, Readonly<Record<ScenePromptRequestLanguage, Readonly<SceneUnitTokenRates>>>>
 > = Object.freeze({
   visual: Object.freeze({
     en: Object.freeze({ perUnit: 550, singleUnit: 1_550 }),
@@ -486,7 +488,7 @@ export const SCENE_PROMPT_MEASURED_TOKENS_PER_UNIT: Readonly<
 
 export function resolveSceneUnitTokenRates(
   kind: ScenePromptUnitKind,
-  language: ScenePromptOutputLanguage | string | null | undefined,
+  language: ScenePromptRequestLanguage | string | null | undefined,
   configuredPerScene?: unknown,
 ): SceneUnitTokenRates {
   const owner = Number(configuredPerScene)
