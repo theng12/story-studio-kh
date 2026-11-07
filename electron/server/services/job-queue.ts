@@ -1885,7 +1885,11 @@ async function liveUploadPacingContext(job: Job): Promise<PacingChannelContext |
   const raw = config?.upload_pacing
   if (!raw) return null
   const validated = validateUploadPacingPolicy(raw)
-  if (!validated.ok) return null
+  if (!validated.ok) {
+    // A saved policy that cannot be used is NOT "unconfigured": the channel
+    // chose one, so no upload may run until it is corrected (AGENTS §1, §6).
+    throw new Error(`this channel's saved upload pacing is not usable (${validated.message})`)
+  }
   const registry = await readYouTubeConnectionRegistry()
   const quota = registry.application
     ? await readYouTubeQuota(registry.application.application_id).catch(() => null)
@@ -1906,6 +1910,9 @@ async function liveUploadPacingContext(job: Job): Promise<PacingChannelContext |
 }
 
 let uploadAdmissionInFlight = false
+
+/** A live read failure is transient: retry through the queue's own timer. */
+const UPLOAD_PACING_READ_RETRY_MS = 60_000
 
 function removePendingUpload(jobId: string): void {
   const pending = queues.youtube_upload.pending
@@ -1941,13 +1948,19 @@ async function admitNextPacedUpload(): Promise<boolean> {
       const context = await liveUploadPacingContext(job)
       hold = context ? pacingHoldReason(job, { channelContext: () => context }) : null
     } catch (error) {
-      // A read failure must not strand the lane. Fall back to the previous
-      // admission; the generator's own quota check still refuses a spent call.
-      console.warn('[job-queue] upload pacing inputs unreadable; admitting without a pacing hold', {
+      // Never fail open: an upload must not start when eligibility cannot be
+      // read. Keep the row queued with a loud reason and retry it through the
+      // queue's own durable timer; the scan continues to other channels.
+      const why = error instanceof Error ? error.message : String(error)
+      console.warn('[job-queue] upload eligibility could not be read; holding the upload', {
         job_id: job.job_id,
-        error: error instanceof Error ? error.message : String(error),
+        error: why,
       })
-      hold = null
+      hold = {
+        reason: 'unconfigured_pacing',
+        detail: `Upload eligibility could not be confirmed for this channel — ${why}. Nothing was uploaded; this row stays queued and is retried shortly.`,
+        wake_at: new Date(Date.now() + UPLOAD_PACING_READ_RETRY_MS).toISOString(),
+      }
     }
     if (!hold) {
       removePendingUpload(job.job_id)
@@ -2004,7 +2017,15 @@ function pumpUploadLane(): void {
   })()
 }
 
-/** Ask the upload lane to re-decide from live pacing (a corrected date or policy). */
+/**
+ * Ask the upload lane to re-decide from live pacing now.
+ *
+ * The Upload Center's PUT /projects/:slug/youtube/upload-pacing route calls
+ * this after a successful save, and a corrected publication date should call
+ * it too, so rows parked on the old answer move immediately instead of waiting
+ * for their retry timer. Safe to call at any time; it never starts an upload
+ * whose live eligibility cannot be read.
+ */
 export function reevaluateUploadQueue(): void {
   pump('youtube_upload')
 }

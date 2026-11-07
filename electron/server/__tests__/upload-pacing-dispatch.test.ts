@@ -8,6 +8,8 @@
  *   - every producer's upload reaches one pacing gate in the pump;
  *   - a held channel is skipped so an eligible channel's upload runs;
  *   - a publish-deadline hold stays queued with no invented wake instant;
+ *   - a live eligibility read failure never runs the upload, keeps it queued
+ *     with a loud reason and a timer retry, and other channels still run;
  *   - an unconfigured channel (and every other job type) keeps the previous
  *     admission behaviour;
  *   - boot re-decides a stored pacing instant from live inputs instead of
@@ -125,6 +127,42 @@ test('a held channel is skipped so another channel\'s eligible upload runs', asy
   const heldRow = heldRows.find(row => row.job_id === held.job_id)
   assert.equal(heldRow?.status, 'queued')
   assert.equal(heldRow?.params.quota_retry_at, resetAt, 'the hold is the queue durable marker')
+})
+
+test('a live eligibility read failure never starts an upload and other channels still run', async () => {
+  const brokenProject = await pm.createProject({ name: 'Pacing unreadable channel' })
+  const healthyProject = await pm.createProject({ name: 'Pacing readable channel' })
+  jq._setUploadPacingContextForTesting(job => {
+    if (job.project_slug === brokenProject.slug) throw new Error('quota registry unreadable')
+    return eligibleContext()
+  })
+  const started: string[] = []
+  jq.registerExecutor('youtube_upload', async job => { started.push(job.episode_id) })
+
+  const broken = jq.enqueuePreparedForTest({
+    project_slug: brokenProject.slug,
+    type: 'youtube_upload',
+    episode_id: 'EP-UNREADABLE',
+    params: { expected_channel_id: 'chan-broken' },
+  })
+  jq.enqueuePreparedForTest({
+    project_slug: healthyProject.slug,
+    type: 'youtube_upload',
+    episode_id: 'EP-READABLE',
+    params: { expected_channel_id: 'chan-healthy' },
+  })
+
+  await waitFor(() => started.includes('EP-READABLE'), 'the readable channel upload to start')
+  assert.equal(started.filter(id => id === 'EP-UNREADABLE').length, 0,
+    'an unreadable eligibility must never execute the upload')
+
+  const rows = await jq.getJobs(brokenProject.slug, { type: 'youtube_upload' })
+  const row = rows.find(candidate => candidate.job_id === broken.job_id)
+  assert.equal(row?.status, 'queued')
+  assert.match(String(row?.error), /could not be confirmed/i)
+  const retryAt = Date.parse(String(row?.params.quota_retry_at))
+  assert.ok(Number.isFinite(retryAt), 'the row keeps a retry through the queue timer')
+  assert.ok(retryAt > Date.now())
 })
 
 test('a publish-deadline hold stays queued with no invented wake instant', async () => {
