@@ -2,7 +2,7 @@
 
 ### Release 1.4.385 preparation — frame-exact scene join duration (2026-11-07)
 
-- Release 1.4.384 actually shipped, was installed on the production mini, and was retired; external receipts remain under `_orchestra/story-lead/release384`. Shipped 1.4.384 did NOT contain commit `92d82cc9c`.
+- Release 1.4.384 actually shipped, was installed on the production mini, and its release worktree was retired; external receipts remain under `_orchestra/story-lead/release-384-20261106/`. Shipped 1.4.384 did NOT contain commit `92d82cc9c`.
 - MineePod EP0018 (104 scene clips + 25s tail) reached 2268.100s versus the planned 2268.380s at 30 fps (68,043 frames rendered vs 68,052 needed), stopped by the strict picture length guard. Commit `92d82cc9c` normalises scene durations to exact frame counts and rounds the holding tail up to the frame boundary; strict duration guards and picture checks remain completely unchanged.
 - Focused backend tests, complete ten-step gate, and shipment are pending for 1.4.385. Gate pass and live fix are not claimed before fresh execution and evidence.
 - Existing EP0018 evidence (104 clips, intermediate/temp files, and approved thumbnail) is strictly preserved. No unrelated 1.4.385 features are included.
