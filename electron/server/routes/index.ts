@@ -25,6 +25,7 @@ import { router as visionRouter } from './vision.js'
 import { router as uploadRouter } from './upload.js'
 import { router as youtubeConnectionsRouter } from './youtube-connections.js'
 import { router as youtubeUploadCenterRouter } from './youtube-upload-center.js'
+import { router as youtubeAuditRouter } from './youtube-audit.js'
 import { router as socialPublishingRouter } from './social-publishing.js'
 import { router as appSettingsRouter } from './app-settings.js'
 import { router as localScreeningRouter } from './local-screening.js'
@@ -109,6 +110,7 @@ export function mountRoutes(app: Express): void {
   app.use('/api', uploadRouter)
   app.use('/api', youtubeConnectionsRouter)
   app.use('/api', youtubeUploadCenterRouter)
+  app.use('/api', youtubeAuditRouter)
   app.use('/api', socialPublishingRouter)
   app.use('/api', charactersRouter)
   app.use('/api', characterLibraryRouter)
