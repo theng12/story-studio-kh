@@ -25,6 +25,7 @@ import {
 import { safetyMode } from '../services/safety-checks.js'
 import { revalidatePreview, streamTo } from '../lib/stream-file.js'
 import { findActivePreset, resolveStepParams } from './pipeline.js'
+import { resolveChannelIntroMusic } from '../services/channel-intro-music.js'
 
 export const router = Router()
 
@@ -278,6 +279,21 @@ router.post('/projects/:slug/generate/audio-merge', async (req, res) => {
         detail: `Saved Audio Assembly settings could not be resolved: ${e?.message || e}`,
       })
     }
+  }
+  // 1.4.386 — automatic binding. A request that does NOT state `channel_intro`
+  // (Pipeline, a manual merge) binds this channel's configured intro music. An
+  // explicit pick, or an explicit `null` clear, always wins — and an episode's
+  // own saved choice outranks the channel default, so nothing a person chose is
+  // overwritten. A channel that configures no intro binds nothing, leaving the
+  // release/1.4.383 path exactly as it was.
+  if (!Object.prototype.hasOwnProperty.call(req.body, 'channel_intro')) {
+    const config = await pm.getConfig(slug)
+    const savedEpisode = config?.video_assembly_last_used?.episodes?.[episode_id.trim().toUpperCase()]?.settings ?? null
+    const resolved = resolveChannelIntroMusic({
+      episodeLastUsedSettings: savedEpisode,
+      channelConfig: config,
+    })
+    if (resolved.settings) req.body.channel_intro = { ...resolved.settings, enabled: true }
   }
   // Job3 (1.4.384) — an explicit channel-owned intro is frozen HERE, at the
   // job boundary: the chosen bytes are copied and hashed once, so the merge

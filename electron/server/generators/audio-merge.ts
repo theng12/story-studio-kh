@@ -57,6 +57,7 @@ import { requireJobCompletion } from '../services/job-completion.js'
 import { chapterKeyOf, inspectChapterAudioReadiness, type ChapterAudioReadiness } from '../services/audio-workflow-readiness.js'
 import { safetyGate, safetyMode } from '../services/safety-checks.js'
 import type { ChannelIntroSelection } from '../services/channel-intro-asset.js'
+import { compileIntroAudioFilter } from '../services/channel-intro-music.js'
 import { hashSubtitleAudioSources } from '../services/subtitle-completion.js'
 import { recordSubtitleSourceEvidence } from '../services/subtitle-recovery.js'
 import { ensureStitchedSubtitle } from '../lib/subtitle-autostitch.js'
@@ -1045,11 +1046,30 @@ export async function generateAudioMerge(job: Job): Promise<void> {
     if (introPath && (channelIntroSelected || req.intro)) {
       const introVol = Math.max(0, Math.min(1,
         channelIntroSelected ? channelIntro?.volume ?? 1 : req.intro?.volume ?? 1))
-      // Re-encode the intro at the target volume so we can safely concat it
+      // Probe the source before staging: a fade-out on an untrimmed track needs
+      // its measured length. Probe the source, not the staged copy — same
+      // duration, and the source is what the customer chose. A failed probe
+      // records null rather than 0: an unknown length must not read as zero.
+      const introDur = Number(await getAudioDuration(introPath).catch(() => undefined))
+      const measuredIntroSec = Number.isFinite(introDur) && introDur > 0 ? introDur : null
+      // Trims and fades are applied ONCE here, on the bytes that enter concat —
+      // the existing item-16 helper owns the filter math and its clamping.
+      const introFilter = compileIntroAudioFilter({
+        settings: {
+          file: introPath,
+          volume: introVol,
+          gap_after: 0,
+          trim_start_sec: channelIntroSelected ? channelIntro?.trim_start_sec ?? 0 : 0,
+          duration_sec: channelIntroSelected ? channelIntro?.duration_sec ?? null : null,
+          fade_in_sec: channelIntroSelected ? channelIntro?.fade_in_sec ?? 0 : 0,
+          fade_out_sec: channelIntroSelected ? channelIntro?.fade_out_sec ?? 0 : 0,
+        },
+        measuredDurationSec: measuredIntroSec,
+      })
       const introStaged = path.join(tempDir, 'intro_staged.mp3')
       await runFfmpeg([
         '-y', '-i', introPath,
-        '-af', `aresample=44100,volume=${introVol.toFixed(2)}`,
+        '-af', introFilter.filterGraph,
         '-c:a', 'libmp3lame', '-b:a', '192k',
         introStaged,
       ], { timeoutMs: audioMergeTimeoutMs() })
@@ -1067,19 +1087,26 @@ export async function generateAudioMerge(job: Job): Promise<void> {
         ], { timeoutMs: audioMergeTimeoutMs() })
         concatLines.push(escPath(introGapFile))
       }
-      // Probe the source, not the staged copy: same duration, and the source
-      // is what the customer chose. A failed probe records null rather than 0
-      // — an unknown length must not read as a zero-length intro.
-      const introDur = Number(await getAudioDuration(introPath).catch(() => undefined))
       // Name the record after what the CUSTOMER chose — for a channel intro
       // that is the source's own filename, not the frozen copy's hash.
       const introLabel = channelIntroSelected ? channelIntro?.name || path.basename(introPath) : path.basename(introPath)
       introRecord = {
         filename: introLabel,
-        duration_sec: Number.isFinite(introDur) && introDur > 0 ? Math.round(introDur * 1000) / 1000 : null,
+        // What was actually prepended, not the source length: subtitle timing
+        // adds this to the gap exactly once, so a trimmed intro must report
+        // its trimmed duration or the captions drift by the trim.
+        duration_sec: introFilter.effectiveDurationSec !== null
+          ? Math.round(introFilter.effectiveDurationSec * 1000) / 1000
+          : null,
         gap_after_sec: introGap,
       }
       job.output_lines.push(`Intro prepended (${introLabel}, volume ${Math.round(introVol * 100)}%, ${introGap}s gap)`)
+      if (channelIntroSelected && (channelIntro?.trim_start_sec || channelIntro?.duration_sec != null
+        || channelIntro?.fade_in_sec || channelIntro?.fade_out_sec)) {
+        job.output_lines.push(`Intro trimmed to ${introFilter.effectiveDurationSec?.toFixed(2) ?? '?'}s`
+          + ` (start ${introFilter.trimStartSec.toFixed(2)}s, fade in ${introFilter.fadeInSec.toFixed(2)}s,`
+          + ` fade out ${introFilter.fadeOutSec.toFixed(2)}s)`)
+      }
       if (channelIntroSelected && channelIntro?.sha256) {
         job.output_lines.push(`Channel intro frozen: ${introLabel} (sha256 ${channelIntro.sha256.slice(0, 12)}, ${channelIntro.bytes ?? 0} bytes)`)
       }
