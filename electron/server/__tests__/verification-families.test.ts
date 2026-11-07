@@ -559,13 +559,15 @@ test('10 — bounded resources: explained fixture growth, no orphan child, both 
   const rssBefore = process.memoryUsage().rss
   assert.ok(Number.isFinite(rssBefore) && rssBefore > 0, 'RSS must be a real measurement')
 
-  // One owned child process comes and goes; nothing of ours may linger.
-  const child = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 30)'], { stdio: 'ignore' })
+  // One owned child process exits on stdin EOF; nothing of ours may linger.
+  const child = spawn(process.execPath, ['-e', 'process.stdin.resume()'], { stdio: ['pipe', 'ignore', 'ignore'] })
   assert.ok(child.pid, 'the owned child must have a pid')
-  const exitCode = await new Promise<number>((resolve, reject) => {
-    child.on('error', reject)
-    child.on('exit', code => resolve(code ?? -1))
+  const exitPromise = new Promise<number>((resolve, reject) => {
+    child.once('error', reject)
+    child.once('close', code => resolve(code ?? -1))
   })
+  child.stdin!.end()
+  const exitCode = await exitPromise
   assert.equal(exitCode, 0)
   assert.throws(
     () => process.kill(child.pid!, 0),

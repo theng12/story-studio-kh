@@ -231,7 +231,7 @@ test('an empty selection is not an error, and the identity stays empty', async (
       slug: project.slug, episodeCode: episodeId, characterIds: [],
       episodeDir: paths.episode_dir, ...CAPABLE,
     })
-    assert.deepEqual(resolved, { paths: [], digests: [], names: [], fitted: [] })
+    assert.deepEqual(resolved, { paths: [], digests: [], names: [], fitted: [], omitted: [] })
     assert.equal(await referenceContentIdentity([]), '')
   } finally {
     await temp.cleanup()

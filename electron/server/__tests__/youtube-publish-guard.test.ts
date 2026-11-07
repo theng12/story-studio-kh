@@ -62,8 +62,13 @@ const PNG = Buffer.from(
 )
 
 let cleanup: (() => Promise<void>) | undefined
+const heldTestJobs: Array<{ slug: string; jobId: string }> = []
 afterEach(async () => {
   __resetYouTubeTransportForTests()
+  for (const { slug, jobId } of heldTestJobs.splice(0)) {
+    await jobQueue.requestJobCancellation(slug, jobId)
+    assert.equal(jobQueue.removeTerminalJob(slug, jobId), true)
+  }
   await jobQueue._waitForJobPersistenceForTesting()
   await cleanup?.()
   cleanup = undefined
@@ -352,26 +357,34 @@ describe('the generator re-checks the date it is about to send', () => {
       (await utils.resolveEpisodePaths(slug, episodeCode, title)).video_dir,
       `${episodeCode}_final_video.mp4`,
     )
-    return {
-      slug,
-      job: {
-        job_id: `job-${Math.random().toString(16).slice(2)}`,
-        project_slug: slug,
+    // A recovery fixture is registered without pumping, so the generator's
+    // hold must update a real queued row rather than silently no-op.
+    const job = jobQueue.enqueuePreparedForTest({
+      project_slug: slug,
+      type: 'youtube_upload',
+      episode_id: episodeCode,
+      episode_recovery_job_id: `job-${Math.random().toString(16).slice(2)}`,
+      params: {
         episode_id: episodeCode,
-        output_lines: [] as string[],
-        result: {} as Record<string, unknown>,
-        params: {
-          episode_id: episodeCode,
-          account_id: `registry:${CHANNEL}`,
-          expected_channel_id: CHANNEL,
-          expected_source_revision: await sourceRevisionOf(sourcePath),
-          expected_package_revision: built.package_revision,
-          approved_final_payload: built.final_payload,
-          approved_upload_mode: 'apply-plan',
-          scheduled_for: publishAt,
-        },
+        account_id: `registry:${CHANNEL}`,
+        expected_channel_id: CHANNEL,
+        expected_source_revision: await sourceRevisionOf(sourcePath),
+        expected_package_revision: built.package_revision,
+        approved_final_payload: built.final_payload,
+        approved_upload_mode: 'apply-plan',
+        scheduled_for: publishAt,
       },
-    }
+    })
+    heldTestJobs.push({ slug, jobId: job.job_id })
+    return { slug, job }
+  }
+
+  function assertHeld(jobId: string, reason: RegExp): void {
+    const held = jobQueue.getJob(jobId)!
+    assert.equal(held.status, 'queued')
+    assert.match(held.error || '', reason)
+    assert.match(held.error || '', /upload is held.*choose a new future publication date/i)
+    assert.equal(held.params.quota_retry_at, undefined, 'no publication date is invented')
   }
 
   test('a date that waited past the lead time is refused before any bytes are sent', async () => {
@@ -379,15 +392,8 @@ describe('the generator re-checks the date it is about to send', () => {
     const fake = new FakeYouTube()
     __setYouTubeTransportForTests(fake.transport())
 
-    await assert.rejects(
-      () => generateYoutubeUpload(job),
-      (error: Error) => {
-        assert.match(error.message, /less than 6 hours away/)
-        assert.match(error.message, /Choose a date at least 6 hours from now/)
-        assert.match(error.message, /Nothing was uploaded for EP0001/)
-        return true
-      },
-    )
+    await generateYoutubeUpload(job)
+    assertHeld(job.job_id, /less than 6 hours away/)
     // Not one provider call, and no durable operation record that would read
     // as an upload in flight and block the retry.
     assert.equal(fake.calls.length, 0, 'the provider was never contacted')
@@ -400,20 +406,25 @@ describe('the generator re-checks the date it is about to send', () => {
     const fake = new FakeYouTube()
     __setYouTubeTransportForTests(fake.transport())
 
-    await assert.rejects(() => generateYoutubeUpload(job), /publishes a video immediately/)
+    await generateYoutubeUpload(job)
+    assertHeld(job.job_id, /publishes a video immediately/)
     assert.equal(fake.calls.length, 0)
     assert.equal((await operations.listYouTubeOperations(slug)).length, 0)
   })
 
   test('a retry re-checks; it does not inherit the first run\'s verdict', async () => {
     const { slug, job } = await queuedJobWithDate(60 * 1000)
-    __setYouTubeTransportForTests(new FakeYouTube().transport())
+    const fake = new FakeYouTube()
+    __setYouTubeTransportForTests(fake.transport())
 
-    await assert.rejects(() => generateYoutubeUpload(job), /less than 6 hours away/)
-    // A second run of the SAME job — what the queue's Retry does — must ask
-    // again rather than remember that it already refused.
-    const second = { ...job, output_lines: [] as string[] }
-    await assert.rejects(() => generateYoutubeUpload(second), /less than 6 hours away/)
+    await generateYoutubeUpload(job)
+    assertHeld(job.job_id, /less than 6 hours away/)
+    const firstHoldLines = jobQueue.getJob(job.job_id)!.output_lines.length
+    // Re-entering the same job must make and record the hold decision again.
+    await generateYoutubeUpload({ ...job, output_lines: [] as string[] })
+    assertHeld(job.job_id, /less than 6 hours away/)
+    assert.ok(jobQueue.getJob(job.job_id)!.output_lines.length > firstHoldLines)
+    assert.equal(fake.calls.length, 0)
     assert.equal((await operations.listYouTubeOperations(slug)).length, 0)
   })
 

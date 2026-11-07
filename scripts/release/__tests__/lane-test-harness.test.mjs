@@ -37,6 +37,7 @@ function nestedRunnerEnv() {
   delete env.NODE_OPTIONS
   delete env.STORY_STUDIO_TEST_HARNESS_ROOT
   delete env.STORY_STUDIO_RETAINED_SNAPSHOT_ROOT
+  delete env.STORY_STUDIO_RETAIN_SUCCESSFUL_FIXTURES
   return env
 }
 
@@ -346,8 +347,11 @@ for (const removeLiveWork of [false, true]) {
         assert.equal(exitCode, 0, out)
         const archived = out.match(/retained fixture sandbox: (.+)/)?.[1]?.trim()
         assert.ok(archived?.startsWith(retained + path.sep), out)
-        assert.equal(await fs.readFile(path.join(archived, 'sandbox', 'after-parent.txt'), 'utf8'),
-          'completed after parent action')
+        // exit 0 above proves the child saw `resume` and finished; the settled
+        // successful run released the bulky sandbox. The coverage path the lane
+        // returns must still point at a real file — never a dangling path.
+        const bulky = (await fs.readdir(archived)).filter(name => /^sandbox(-|$)|^snapshots(-|$)/.test(name))
+        assert.deepEqual(bulky, [], 'a successful run must not keep its bulky fixture')
         await assert.rejects(fs.access(path.join(retained, 'old-evidence.txt')), { code: 'ENOENT' })
         const aggregate = out.match(/inputs=(.+)/)?.[1]
         assert.ok(aggregate, out)

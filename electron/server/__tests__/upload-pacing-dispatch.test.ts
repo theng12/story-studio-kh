@@ -314,6 +314,8 @@ test('boot re-decides a stored pacing instant from live inputs', async () => {
     'the stored future marker must not keep a live-eligible upload waiting')
   assert.equal(openRow?.params.quota_retry_at, undefined)
 
+  await waitFor(() => bootQueue.getJob('boot-held')?.params.quota_retry_at === liveReset,
+    'the next admission pass to replace the stale hold instant')
   const heldRows = await bootQueue.getJobs(rewritten.slug, { type: 'youtube_upload' })
   const heldRow = heldRows.find(row => row.job_id === 'boot-held')
   assert.equal(heldRow?.status, 'queued')

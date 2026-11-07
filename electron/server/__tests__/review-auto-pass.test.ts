@@ -255,7 +255,8 @@ describe('Review finals — a deliberate clear is durable', () => {
       path.basename(finalReviewSidecarPath(channel.finalPath)),
     )
     const moved = await fs.readFile(trashed, 'utf8').catch(() => '')
-    assert.match(moved, /"decision":"approved"/, 'the cleared mark must be recoverable from Trash')
+    const parsed = JSON.parse(moved)
+    assert.equal(parsed.decision, 'approved', 'the cleared mark must be recoverable from Trash')
   })
 
   test('an auto-pass write racing a clear is refused, not re-applied', async () => {
@@ -320,11 +321,11 @@ describe('Review finals — auto-pass behavior', () => {
   })
 
   test('finals that existed before the auto-pass switch was turned on are NOT back-filled', async () => {
-    // auto-pass was enabled 2 hours ago; final file was written 2 hours ago (mtime < auto_pass_since).
+    // auto-pass was enabled 2 hours ago; final file was written before that (mtime < auto_pass_since).
     const channel = await makeChannel('Old Final Channel', { autoPassSinceMs: 7_200_000 })
-    // Backdate the final file's mtime to 2 hours ago
-    const twoHoursAgo = new Date(Date.now() - 7_200_000)
-    await fs.utimes(channel.finalPath, twoHoursAgo, twoHoursAgo)
+    // Backdate the final file's mtime to 3 hours ago (before auto_pass_since)
+    const threeHoursAgo = new Date(Date.now() - 10_800_000)
+    await fs.utimes(channel.finalPath, threeHoursAgo, threeHoursAgo)
 
     const listed = await listFinalReviews({ slug: channel.slug })
     assert.equal(listed.finals[0].review.state, 'not_reviewed')

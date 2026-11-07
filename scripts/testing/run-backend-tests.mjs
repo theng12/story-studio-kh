@@ -324,7 +324,40 @@ export async function preflightSandboxRetention(sandbox, fixtures) {
   assertSameDeviceForRetention(sandboxStat.dev, fixturesStat.dev, sandbox)
 }
 
-export async function retainSandbox(sandbox, fixtures, label = '') {
+export const RETAIN_SUCCESSFUL_ENV = 'STORY_STUDIO_RETAIN_SUCCESSFUL_FIXTURES'
+
+/**
+ * Release the bulky sandbox/snapshots of a SUCCESSFUL run, keeping the small
+ * report bytes the lane return and the gate still read: suite-coverage*.jsonl
+ * is lifted out of each sandbox to the container root first. Runs that failed,
+ * threw, refused or never reconciled never reach here — they keep every byte.
+ * STORY_STUDIO_RETAIN_SUCCESSFUL_FIXTURES=1 opts a successful run back into
+ * full retention for debugging (default off: reclamation).
+ */
+async function releaseSuccessfulRunBulk(retained) {
+  const bulky = (await fs.readdir(retained)).filter(name =>
+    name === 'sandbox' || name === 'snapshots'
+    || name.startsWith('sandbox-') || name.startsWith('snapshots-'))
+  for (const name of bulky) {
+    const dir = path.join(retained, name)
+    if (name.startsWith('sandbox')) {
+      const reports = (await fs.readdir(dir)).filter(entry => /^suite-coverage.*\.jsonl$/.test(entry))
+      for (const file of reports) await fs.rename(path.join(dir, file), path.join(retained, file))
+    }
+    await fs.rm(dir, { recursive: true, force: true })
+  }
+  if (bulky.length > 0) {
+    console.log(`[test-harness] released successful-run bulk evidence (${bulky.join(', ')}) under ${retained}`)
+  }
+}
+
+/**
+ * Move finished work into the retained root. `success` is an EXPLICIT claim
+ * by the caller that the run settled: children closed, evidence reconciled,
+ * exit 0. The default (omitted) is safe full retention, so an existing
+ * three-argument call and any uncertain caller keep every byte.
+ */
+export async function retainSandbox(sandbox, fixtures, label = '', success = false) {
   const root = fixtures ?? await resolveRetainedFixturesRoot()
   await fs.mkdir(root, { recursive: true, mode: 0o700 })
   const container = await fs.mkdtemp(path.join(root, label ? `story-studio-${label}-harness-` : 'backend-test-harness-'))
@@ -335,6 +368,15 @@ export async function retainSandbox(sandbox, fixtures, label = '') {
     throw new Error(`could not retain finished test work; original location: ${sandbox} (${error.message})`, { cause: error })
   }
   console.log(`[test-harness] retained ${label ? `${label} ` : ''}sandbox: ${retained}`)
+  if (success && process.env[RETAIN_SUCCESSFUL_ENV] !== '1') {
+    // A failed release keeps whatever it could not remove rather than
+    // turning a green run red; the report bytes are never in its path.
+    try {
+      await releaseSuccessfulRunBulk(retained)
+    } catch (error) {
+      console.error(`[test-harness] successful-run bulk release failed (evidence kept): ${error.message}`)
+    }
+  }
   return retained
 }
 
@@ -766,6 +808,9 @@ async function run(options) {
   let workContainer
   let sandbox
   let retainedFixtures
+  // True only after every check reconciled and exit 0: a throw, a refusal or
+  // a nonzero exit leaves this false, so the finally retains every byte.
+  let settledSuccess = false
   try {
     const workRoot = await resolveWorkRoot()
     retainedFixtures = await resolveRetainedFixturesRoot()
@@ -966,11 +1011,12 @@ async function run(options) {
       exitCode = 1
     }
     process.exitCode = exitCode
+    settledSuccess = exitCode === 0
   } finally {
     // Retire only after the child closed and all evidence was reconciled.
     if (workContainer) {
       console.log(`[test-harness] finished work container: ${workContainer}`)
-      await retainSandbox(workContainer, retainedFixtures)
+      await retainSandbox(workContainer, retainedFixtures, '', settledSuccess)
     }
   }
 }

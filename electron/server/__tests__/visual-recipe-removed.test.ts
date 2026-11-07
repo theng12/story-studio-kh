@@ -93,6 +93,18 @@ before(async () => {
   assert.equal(project.status, 201)
   slug = project.body.slug
 
+  const ideasPath = path.join(temp.dir, 'projects', slug, 'ideas.json')
+  await fs.writeFile(ideasPath, JSON.stringify({
+    ideas: [{
+      id: 'idea-1',
+      title: 'Episode 1',
+      status: 'accepted',
+      episode_code: EPISODE_ID,
+    }],
+    next_episode_number: 2,
+    recycled_numbers: [],
+  }))
+
   const { resolveEpisodePathsByCode, resolveScenePlanPath } = await import('../services/utils.js')
   const paths = await resolveEpisodePathsByCode(slug, EPISODE_ID)
   episodeDir = paths.episode_dir

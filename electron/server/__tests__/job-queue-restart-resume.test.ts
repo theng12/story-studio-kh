@@ -20,8 +20,13 @@ before(async () => {
   cleanup = t.cleanup
   pm = await import('../services/project-manager.js')
   jq = await import('../services/job-queue.js')
+  // Restart recovery is independent of the channel's upload window.
+  jq._setUploadPacingContextForTesting(() => null)
 })
-after(async () => { await cleanup() })
+after(async () => {
+  jq._setUploadPacingContextForTesting(null)
+  await cleanup()
+})
 
 function runningRow(slug: string, id: string, type: string, params: Record<string, unknown> = {}) {
   const now = new Date().toISOString()

@@ -183,7 +183,8 @@ describe('C: an upload refuses an empty description instead of publishing a shel
     assert.ok(Math.max(frozenAt, recoveredAt, freshAt) < providerAt, 'every path is checked before the provider call')
     // The helper that picks the resume target does not swallow the refusal.
     const helperAt = generator.indexOf('async function hasExactResumableRecovery')
-    const helperEnd = generator.indexOf('export async function generateYoutubeUpload')
+    const helperEnd = generator.indexOf('async function captionSettingsForUpload', helperAt)
+    assert.ok(helperAt >= 0 && helperEnd > helperAt, 'the recovery helper boundaries exist')
     assert.doesNotMatch(generator.slice(helperAt, helperEnd), /catch/)
     // It must be a THROW, not a safety gate that can be warned away (§8).
     assert.doesNotMatch(generator.slice(freshAt, freshAt + 200), /stopOrCarryOn|safetyGate/)

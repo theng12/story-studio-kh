@@ -95,6 +95,7 @@ function nestedRunnerEnv() {
   delete env.NODE_OPTIONS
   delete env.STORY_STUDIO_TEST_HARNESS_ROOT
   delete env.STORY_STUDIO_RETAINED_SNAPSHOT_ROOT
+  delete env.STORY_STUDIO_RETAIN_SUCCESSFUL_FIXTURES
   return env
 }
 
@@ -222,11 +223,13 @@ test('the retained fixtures root can be moved out of the shared Trash', async ()
   assert.ok(retained, 'the run must report where it retained its sandbox')
   assert.ok(retained.startsWith(override),
     `the retained sandbox must live under the override root: ${retained}`)
-  assert.equal(
-    await fs.readFile(path.join(retained, 'sandbox', 'configured-projects', 'owner-sentinel', 'owner-marker.txt'), 'utf8'),
-    'must remain byte-identical\n',
-    'the isolated projects sentinel must be retained byte-identically',
-  )
+  // A settled successful run releases its bulky sandbox/snapshots; the small
+  // report bytes the gate reads are what remain under the override root.
+  const bulky = (await fs.readdir(retained)).filter(name => /^sandbox(-|$)|^snapshots(-|$)/.test(name))
+  assert.deepEqual(bulky, [], 'a successful run must not keep its bulky fixture')
+  const reports = (await fs.readdir(retained)).filter(name => /^suite-coverage.*\.jsonl$/.test(name))
+  assert.ok(reports.length > 0, 'the coverage report must survive reclamation')
+  assert.ok((await fs.stat(path.join(retained, reports[0]))).size > 0)
   if (!shared) {
     assert.deepEqual(await runnerFixtureEntries(), before,
       'the shared Trash must gain nothing when the override is set')
@@ -378,7 +381,12 @@ for (const removeLiveWork of [false, true]) {
         assert.match(output, /configured projects root byte-identical: true/)
         const archived = stdout.match(/retained sandbox: (.+)/)?.[1]?.trim()
         assert.ok(archived?.startsWith(retained + path.sep), output)
-        assert.equal(await fs.readFile(path.join(archived, 'sandbox', 'resume'), 'utf8'), 'parent finished')
+        // exit 0 above proves the child saw `resume` and finished; the settled
+        // successful run then released the bulky sandbox instead of keeping it.
+        const bulky = (await fs.readdir(archived)).filter(name => /^sandbox(-|$)|^snapshots(-|$)/.test(name))
+        assert.deepEqual(bulky, [], 'a successful run must not keep its bulky fixture')
+        const reports = (await fs.readdir(archived)).filter(name => /^suite-coverage.*\.jsonl$/.test(name))
+        assert.ok(reports.length > 0, 'the coverage report must survive reclamation')
       }
     } finally {
       await retainSandbox(container, undefined, 'backend-lifecycle-contract')

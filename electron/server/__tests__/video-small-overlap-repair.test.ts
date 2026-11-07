@@ -25,8 +25,8 @@ before(async () => {
     folder_template: '{season_prefix} {season_num}/{code} - {title}/',
   }))
   await fs.writeFile(path.join(projectDir, 'ideas.json'), JSON.stringify({
-    ideas: [1, 2].map(i => ({ id: `idea-${i}`, title: `Ep ${i}`, status: 'accepted', episode_code: `EP000${i}` })),
-    next_episode_number: 3, recycled_numbers: [],
+    ideas: [1, 2, 3, 4, 5].map(i => ({ id: `idea-${i}`, title: `Ep ${i}`, status: 'accepted', episode_code: `EP000${i}` })),
+    next_episode_number: 6, recycled_numbers: [],
   }))
 })
 

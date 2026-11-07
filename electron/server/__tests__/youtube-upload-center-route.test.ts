@@ -71,10 +71,24 @@ async function removeQueuedTestJob(slug: string, jobId: string): Promise<void> {
   jobQueue.removeTerminalJob(slug, jobId)
 }
 
+async function allowFixtureUploads(slug: string): Promise<void> {
+  const hour = new Date().getUTCHours()
+  await pm.updateConfig(slug, {
+    upload_pacing: {
+      tier: 'gentle', daily_limit: 10, timezone: 'UTC', min_spacing_minutes: 0,
+      window: {
+        start: `${String(Math.max(0, hour - 1)).padStart(2, '0')}:00`,
+        end: hour >= 23 ? '23:59' : `${String(hour + 1).padStart(2, '0')}:00`,
+      },
+    },
+  } as any)
+}
+
 async function project(assign: boolean): Promise<string> {
   const temp = await useTempDataDir()
   cleanup = temp.cleanup
   const created = await pm.createProject({ name: 'Center Project' })
+  await allowFixtureUploads(created.slug)
 
   const paths = await utils.resolveEpisodePaths(created.slug, 'EP0001', '')
   await fs.mkdir(path.dirname(paths.metadata_json), { recursive: true })
@@ -3314,6 +3328,7 @@ async function registryOnlyProject(name = 'Registry Only'): Promise<string> {
   const temp = await useTempDataDir()
   cleanup = temp.cleanup
   const created = await pm.createProject({ name })
+  await allowFixtureUploads(created.slug)
   const paths = await utils.resolveEpisodePaths(created.slug, 'EP0001', '')
   await fs.mkdir(path.dirname(paths.metadata_json), { recursive: true })
   await fs.writeFile(paths.metadata_json, JSON.stringify({

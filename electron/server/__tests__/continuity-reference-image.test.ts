@@ -773,7 +773,10 @@ test('a non-character scene drops the episode reference exactly as it drops the 
   assert.equal(withReference.length, 1, 'only the character scene carries the reference')
   assert.match(withReference[0].prompt, /guide beside the artifact/)
   assert.equal(result.uploads, 1)
-  assert.match(result.lines, /1 non-character scene\(s\) render without the references/)
+  assert.match(
+    result.lines,
+    /1 non-character scene\(s\) render without the character guide and episode template/,
+  )
 })
 
 test('turning the switch on changes the saved request identity, so a retry cannot reclaim the text-only image', async () => {
@@ -890,7 +893,7 @@ test('characters plus the episode template over the published ceiling are refuse
     catalogOverrides: REFERENCE_CAPABLE_TWO,
   })
   assert.match(result.error?.message || '',
-    /Scene 1 needs 2 character reference\(s\) plus the episode template, but .* accepts at most 2/)
+    /Scene 1 needs 2 reference\(s\) plus the episode template, but .* accepts at most 2/)
   assert.equal(result.uploads, 0, 'nothing is uploaded for a request that cannot be sent whole')
   assert.equal(result.bodies.length, 0, 'and no text-only render is quietly substituted')
 })
@@ -932,13 +935,29 @@ test('a character whose portrait is too large is fitted, not refused after the u
   assert.match(result.lines, /Reference fitted: Mara 1600x1600 → 1024x1024/)
 })
 
-test('character references are ordered before the episode template', () => {
+test('character references are ordered before the episode template', async () => {
   // The worker attaches the images it receives in order, so the composition
-  // the code builds IS the order the render sees. The mock's asset ids are
-  // generated per upload and uploads run concurrently, so the order cannot be
-  // read back from an id — this is the one place it is pinned.
+  // the code builds IS the order the render sees. The source pins the composition
+  // order for character scenes, while cutaways keep only their own story references.
   const source = readSource('../generators/continuity-render.ts')
-  assert.match(source, /referenceImagePaths: isCharacterScene\(scene\) \? \[\.\.\.ownReferences\.paths, \.\.\.episodeReferencePaths\] : \[\]/)
+  assert.match(
+    source,
+    /referenceImagePaths: isCharacterScene\(scene\) \? \[\.\.\.ownReferences\.paths, \.\.\.episodeReferencePaths\] : ownReferences\.paths/,
+  )
+
+  const result = await render({
+    name: 'Character refs order before template',
+    continuity: { use_episode_sheet: true, references: { sheet: true } },
+    references: [{ name: 'composition.png', width: 800, height: 450 }],
+    characters: [{ id: 'mara', name: 'Mara' }],
+    catalogOverrides: REFERENCE_CAPABLE_TWO,
+  })
+  assert.equal(result.error, null)
+  assert.match(
+    result.lines,
+    /Scene 1 references: Mara \+ episode template composition\.png/,
+    'character references appear before episode template in runtime reference composition',
+  )
 })
 
 test('each scene uses its OWN cast: own list wins, empty means text-only, absent uses the default', async () => {

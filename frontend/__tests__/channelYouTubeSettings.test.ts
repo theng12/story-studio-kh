@@ -55,6 +55,11 @@ const FAKE_CONFIG: Record<string, any> = {
   youtube_default_playlist: { UC_ACCOUNT_1: 'PL_A' },
 }
 
+async function flushPromises(): Promise<void> {
+  await new Promise<void>((resolve) => setImmediate(resolve))
+  await nextTick()
+}
+
 function summaryFor(
   config: Record<string, any>,
   playlists: any[],
@@ -180,9 +185,7 @@ async function mount(options?: {
     }),
   )
   app.mount(el)
-  await nextTick()
-  await nextTick()
-  await new Promise((resolve) => setTimeout(resolve, 5))
+  await flushPromises()
 
   return {
     el,
@@ -270,8 +273,7 @@ describe('ChannelYouTubeSettings.vue', () => {
       )
       assert.ok(setBtn, 'Set Default button must render')
       ;(setBtn as HTMLButtonElement).click()
-      await nextTick()
-      await new Promise((resolve) => setTimeout(resolve, 5))
+      await flushPromises()
 
       const puts = calls.filter((c) => c.method === 'PUT')
       assert.equal(puts.length, 1, 'must send exactly one PUT')
@@ -343,8 +345,7 @@ describe('ChannelYouTubeSettings.vue', () => {
       )
       assert.ok(saveBtn, 'Save Settings button must render')
       ;(saveBtn as HTMLButtonElement).click()
-      await nextTick()
-      await new Promise((resolve) => setTimeout(resolve, 5))
+      await flushPromises()
 
       const puts = calls.filter((c) => c.method === 'PUT')
       assert.equal(puts.length, 1)
@@ -402,8 +403,7 @@ describe('ChannelYouTubeSettings.vue', () => {
       assert.equal(pendingGets[0].path.startsWith('/projects/test-slug/'), true)
 
       setSlug('other-slug')
-      await nextTick()
-      await new Promise((resolve) => setTimeout(resolve, 5))
+      await flushPromises()
       assert.equal(pendingGets.length, 2, 'the slug watcher starts a fresh load')
       assert.equal(pendingGets[1].path.startsWith('/projects/other-slug/'), true)
 
@@ -421,8 +421,7 @@ describe('ChannelYouTubeSettings.vue', () => {
         end_screen: { duration_seconds: 20, template: 'playlist_and_subscribe', elements: [] },
         end_screen_capabilities: { remote_api_supported: false },
       })
-      await nextTick()
-      await new Promise((resolve) => setTimeout(resolve, 5))
+      await flushPromises()
       assert.match(el.textContent || '', /Other Channel Series/)
 
       // …then the OLD slug's response lands late. It must not overwrite the new channel.
@@ -439,8 +438,7 @@ describe('ChannelYouTubeSettings.vue', () => {
         end_screen: { duration_seconds: 20, template: 'playlist_and_subscribe', elements: [] },
         end_screen_capabilities: { remote_api_supported: false },
       })
-      await nextTick()
-      await new Promise((resolve) => setTimeout(resolve, 5))
+      await flushPromises()
 
       const text = el.textContent || ''
       assert.match(text, /Other Channel Series/, 'the current channel stays on screen')

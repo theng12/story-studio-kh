@@ -276,7 +276,10 @@ async function runInvocation(name, lane, discovered, addRetainedAdapter) {
     result = { exitCode, records, coveragePath }
   } finally {
     console.log(`[test-harness] finished ${name} work container: ${workContainer}`)
-    const retained = await retainSandbox(workContainer, retainedFixtures, name)
+    // Success is a fully reconciled exit 0 only; a throw before `result` was
+    // set retains every byte, and suite-coverage.jsonl sits at the container
+    // root (never in the reclaimed sandbox), so coveragePath never dangles.
+    const retained = await retainSandbox(workContainer, retainedFixtures, name, result?.exitCode === 0)
     if (result) result.coveragePath = path.join(retained, 'suite-coverage.jsonl')
   }
   return result
