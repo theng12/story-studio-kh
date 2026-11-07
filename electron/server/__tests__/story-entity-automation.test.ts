@@ -12,15 +12,21 @@
  *     draft never becomes inventory on its own;
  *   - an ordinary save preserves the draft; only an explicit review clears it.
  *
- * The queue wiring (enqueue after a complete script, executor, cancellation
- * audit) is exercised by the release gate's job suites; this file stays on the
- * pure seam and the sidecar contract so it needs no provider call.
+ * The queue wiring is pinned here too, without a provider call: the
+ * expand_chapters follow-on is called with an injected enqueue, and the
+ * completion auditor is called directly. Nothing below enqueues a real job or
+ * reaches the network.
  */
 import { after, before, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'fs/promises'
+import path from 'path'
 import { useTempDataDir } from './_helpers.js'
 import { storyEntityAutomationDecision } from '../generators/story-entities.js'
+import {
+  auditStoryEntityExtraction,
+  enqueueStoryEntitiesAfterScript,
+} from '../boot/executors.js'
 
 describe('story entity automation decision', () => {
   const base = { chapters: 3, fingerprint: 'script-a' }
@@ -64,6 +70,7 @@ describe('story entity review draft', () => {
       name: 'Story Automation',
       episode_prefix: 'EP',
       episode_digits: 3,
+      content_language: 'en',
     })
     slug = project.slug
     const im = await import('../services/idea-manager.js')
@@ -84,6 +91,77 @@ describe('story entity review draft', () => {
 
   after(async () => {
     await cleanup?.()
+  })
+
+  test('an incomplete expansion never queues extraction', async () => {
+    const calls: string[] = []
+    const result = await enqueueStoryEntitiesAfterScript(
+      { project_slug: slug, episode_id: episodeId, params: { chapters_to_expand: [1] } },
+      async (slugArg, episodeArg) => {
+        calls.push(`${slugArg}:${episodeArg}`)
+        return 'enqueued'
+      },
+    )
+    assert.equal(result.outcome, 'incomplete')
+    assert.deepEqual(calls, [], 'nothing may be queued for a script that is not complete')
+  })
+
+  test('a complete expansion queues extraction once, through the existing enqueue seam', async () => {
+    const { resolveEpisodePathsByCode } = await import('../services/utils.js')
+    const paths = await resolveEpisodePathsByCode(slug, episodeId)
+    await fs.mkdir(paths.script_dir, { recursive: true })
+    await fs.writeFile(
+      path.join(paths.script_dir, `${episodeId}_Chapter_01.md`),
+      '# Chapter one\n\nA guide walks the harbour at dawn.',
+      'utf-8',
+    )
+
+    const calls: string[] = []
+    const result = await enqueueStoryEntitiesAfterScript(
+      { project_slug: slug, episode_id: episodeId, params: { chapters_to_expand: [1] } },
+      async (slugArg, episodeArg) => {
+        calls.push(`${slugArg}:${episodeArg}`)
+        return 'enqueued'
+      },
+    )
+    assert.equal(result.outcome, 'enqueued')
+    assert.deepEqual(calls, [`${slug}:${episodeId}`], 'one enqueue for the completed episode')
+  })
+
+  test('a refused enqueue is reported to the script job, never thrown into it', async () => {
+    const result = await enqueueStoryEntitiesAfterScript(
+      { project_slug: slug, episode_id: episodeId, params: { chapters_to_expand: [1] } },
+      async () => {
+        throw new Error('queue is busy')
+      },
+    )
+    assert.equal(result.outcome, 'error')
+    assert.match(result.detail ?? '', /queue is busy/)
+  })
+
+  test('the auditor accepts a moot job for a channel that is off, and demands the durable record when it is on', async () => {
+    const job = { project_slug: slug, episode_id: episodeId, params: { script_fingerprint: 'script-a' } }
+    // Off (the default) and nothing recorded: the executor did nothing by design.
+    assert.equal(await auditStoryEntityExtraction(job), 'complete')
+
+    // On, and no extraction record for this fingerprint: a real missing output.
+    const pm = await import('../services/project-manager.js')
+    await pm.updateConfig(slug, { story_entity_automation: true } as any)
+    assert.equal(await auditStoryEntityExtraction(job), 'repair-required')
+
+    // The durable record is the proof; a different fingerprint is not.
+    const { recordStoryExtraction } = await import('../services/story-entities.js')
+    await recordStoryExtraction(slug, episodeId, {
+      extracted_at: new Date().toISOString(),
+      model: 'test-model',
+      chapters: 1,
+      script_fingerprint: 'script-a',
+    }, [])
+    assert.equal(await auditStoryEntityExtraction(job), 'complete')
+    assert.equal(
+      await auditStoryEntityExtraction({ ...job, params: { script_fingerprint: 'script-b' } }),
+      'repair-required',
+    )
   })
 
   test('the draft persists, keeps the stored decision, and clears only on review', async () => {

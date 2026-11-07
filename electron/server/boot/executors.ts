@@ -73,6 +73,7 @@ import { getLibraryDir } from '../services/music-library.js'
 import { auditSceneClipCompletion, auditSceneImageCompletion } from '../services/scene-media-checkpoint.js'
 import { auditScenePromptCompletion } from '../services/scene-prompt-checkpoint.js'
 import { resolveEpisodePathsByCode, resolveScenePlanPath } from '../services/utils.js'
+import type { Job } from '../models/types.js'
 import { assertDecodableImage } from '../lib/image-validation.js'
 import { inspectBrollAssemblyOutput } from '../services/video-visual-source.js'
 import fs from 'fs/promises'
@@ -222,6 +223,24 @@ export async function auditMusicLibraryTopUp(job: any): Promise<'complete' | 're
 }
 
 /** Register only producer-specific completion proofs; no generic file guess. */
+/**
+ * The extraction job's durable proof: the sidecar's extraction record matches
+ * the script fingerprint this run set out to read. A channel switched off
+ * while the job waited did nothing by design, which is a moot job rather than
+ * a missing output.
+ */
+export async function auditStoryEntityExtraction(
+  job: Pick<Job, 'project_slug' | 'episode_id' | 'params'>,
+): Promise<JobCancellationAudit> {
+  const expected = typeof job.params?.script_fingerprint === 'string' ? job.params.script_fingerprint : ''
+  if (!expected) return 'repair-required'
+  const current = await readStoryEntities(job.project_slug, job.episode_id).catch(() => null)
+  if (!current) return 'repair-required'
+  if (current.doc.extraction?.script_fingerprint === expected) return 'complete'
+  const config = await getConfig(job.project_slug).catch(() => null)
+  return config?.story_entity_automation === true ? 'repair-required' : 'complete'
+}
+
 function registerCancellationAuditors(): void {
   registerJobCancellationAuditor('audio', async job => {
     try {
@@ -350,17 +369,7 @@ function registerCancellationAuditors(): void {
   // Story context extraction — the durable proof is the sidecar's own
   // extraction record, which is written only after every chunk parsed, plus
   // the exact script fingerprint this run set out to read.
-  registerJobCancellationAuditor('story_entities_extract', async job => {
-    const expected = typeof job.params?.script_fingerprint === 'string' ? job.params.script_fingerprint : ''
-    if (!expected) return 'repair-required'
-    const current = await readStoryEntities(job.project_slug, job.episode_id).catch(() => null)
-    if (!current) return 'repair-required'
-    if (current.doc.extraction?.script_fingerprint === expected) return 'complete'
-    // The channel can be switched off while this job waits. The executor then
-    // does nothing by design; that is a moot job, not a missing output.
-    const config = await getConfig(job.project_slug).catch(() => null)
-    return config?.story_entity_automation === true ? 'repair-required' : 'complete'
-  })
+  registerJobCancellationAuditor('story_entities_extract', auditStoryEntityExtraction)
   registerJobCancellationAuditor('introduction-only', async job => {
     const paths = await resolveEpisodePathsByCode(job.project_slug, job.episode_id)
     const audit = await inspectIntroductionCompletion(paths.script_dir, job.episode_id)
@@ -451,6 +460,37 @@ function registerCancellationAuditors(): void {
   })
 }
 
+export interface AfterScriptExtractionResult {
+  outcome: 'incomplete' | 'enqueued' | 'off' | 'fresh' | 'no-script' | 'error'
+  detail?: string
+}
+
+/**
+ * The expand_chapters follow-on, split out so its wiring can be pinned
+ * without a provider call: an incomplete script never queues anything, a
+ * complete one queues exactly once through the existing enqueue seam, and a
+ * refusal is returned for the script job's log instead of thrown into it.
+ */
+export async function enqueueStoryEntitiesAfterScript(
+  job: Pick<Job, 'project_slug' | 'episode_id' | 'params'>,
+  enqueueExtraction: (slug: string, episodeId: string) => Promise<string> = enqueueStoryEntityExtraction,
+): Promise<AfterScriptExtractionResult> {
+  try {
+    const paths = await resolveEpisodePathsByCode(job.project_slug, job.episode_id)
+    const audit = await inspectExpandedScriptCompletion(
+      paths.script_dir,
+      job.episode_id,
+      requestedChapterSelection(job.params),
+      await scriptLanguageForChannel(job.project_slug),
+    )
+    if (!audit.complete) return { outcome: 'incomplete' }
+    const outcome = await enqueueExtraction(job.project_slug, job.episode_id)
+    return { outcome: outcome as AfterScriptExtractionResult['outcome'] }
+  } catch (error: any) {
+    return { outcome: 'error', detail: error?.message || String(error) }
+  }
+}
+
 export function registerAllExecutors(options: { loadSettings?: boolean } = {}): void {
   registerCancellationAuditors()
   // Level B — fail-loud guard for jobs that WRITE into the media-routed heavy
@@ -481,21 +521,11 @@ export function registerAllExecutors(options: { loadSettings?: boolean } = {}): 
     // wrote passes the same completion audit the queue applies next, so an
     // incomplete script never triggers extraction. Any failure here belongs to
     // the extraction job or to this log line — never to the script's outcome.
-    try {
-      const paths = await resolveEpisodePathsByCode(job.project_slug, job.episode_id)
-      const audit = await inspectExpandedScriptCompletion(
-        paths.script_dir,
-        job.episode_id,
-        requestedChapterSelection(job.params),
-        await scriptLanguageForChannel(job.project_slug),
-      )
-      if (!audit.complete) return
-      const outcome = await enqueueStoryEntityExtraction(job.project_slug, job.episode_id)
-      if (outcome === 'enqueued') {
-        job.output_lines.push('Queued story context extraction for the completed script.')
-      }
-    } catch (error: any) {
-      job.output_lines.push(`Story context extraction was not queued: ${error?.message || String(error)}`)
+    const result = await enqueueStoryEntitiesAfterScript(job)
+    if (result.outcome === 'enqueued') {
+      job.output_lines.push('Queued story context extraction for the completed script.')
+    } else if (result.outcome === 'error') {
+      job.output_lines.push(`Story context extraction was not queued: ${result.detail}`)
     }
   })
   registerExecutor('story_entities_extract', generateStoryEntityExtraction)
