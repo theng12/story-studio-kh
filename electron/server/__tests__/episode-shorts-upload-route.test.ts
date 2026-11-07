@@ -89,6 +89,15 @@ beforeEach(() => { youtube.__resetYouTubeTransportForTests() })
 /** A channel with a YouTube channel assigned and one accepted episode. */
 async function project(name: string): Promise<{ slug: string, code: string, title: string, channel: string }> {
   const created = await pm.createProject({ name })
+  // Upload pacing is a deliberate channel choice, so the fixture makes one: an
+  // always-open window whose spread over the daily limit leaves zero spacing,
+  // so a retry Short is not held behind the one that just uploaded.
+  await pm.updateConfig(created.slug, {
+    upload_pacing: {
+      tier: 'gentle', daily_limit: 1440, timezone: 'UTC',
+      window: { start: '00:00', end: '23:59' },
+    },
+  } as any)
   // A YouTube channel belongs to ONE project, so each test gets its own.
   const channel = `UC_shorts_${++channelCounter}`
   await connections.configureYouTubeApplication({ client_id: 'shorts-client', client_secret: 'secret-value' })

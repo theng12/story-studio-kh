@@ -452,12 +452,15 @@ function publicationProjection(
   }
 }
 
-/** The channel's saved upload pacing policy, or null when none was chosen or it is invalid. */
+/** The channel's saved upload pacing policy, or null when none was ever saved. */
 async function readUploadPacingPolicy(slug: string): Promise<UploadPacingPolicy | null> {
   const raw = ((await getConfig(slug)) as any)?.upload_pacing
-  if (!raw) return null
+  // Only "never saved" is absent. A saved false/0/'' is corrupt and must not
+  // be shown as an unchosen window (AGENTS §6).
+  if (raw === undefined || raw === null) return null
   const validated = validateUploadPacingPolicy(raw)
-  return validated.ok ? validated.policy : null
+  if (!validated.ok) throw new Error(validated.message)
+  return validated.policy
 }
 
 router.get('/projects/:slug/youtube/overview', async (req, res) => {
@@ -510,7 +513,15 @@ router.get('/projects/:slug/youtube/overview', async (req, res) => {
     // uses, read live so a changed policy is visible on the next page load.
     const allUploadJobs = await getJobs(slug, { type: 'youtube_upload' })
     const uploadJobs = allUploadJobs.filter(job => ['queued', 'running', 'paused'].includes(job.status))
-    const uploadPolicy = await readUploadPacingPolicy(slug).catch(() => null)
+    let uploadPolicy: UploadPacingPolicy | null = null
+    let uploadPolicyProblem: string | null = null
+    try {
+      uploadPolicy = await readUploadPacingPolicy(slug)
+    } catch (error) {
+      // A saved policy that cannot be read or used is an ERROR, never the
+      // "no window chosen yet" state (AGENTS §6).
+      uploadPolicyProblem = error instanceof Error ? error.message : String(error)
+    }
     let uploadQueue: any[]
     if (!uploadPolicy) {
       uploadQueue = uploadJobs.map((job, index) => ({
@@ -521,7 +532,9 @@ router.get('/projects/:slug/youtube/overview', async (req, res) => {
         wait_reason: job.status === 'paused' ? null : 'unconfigured_pacing',
         wait_detail: job.status === 'paused'
           ? 'Paused. Resume it from the queue when ready.'
-          : 'This channel has no upload window hours yet. Choose them before uploads can start.',
+          : uploadPolicyProblem
+            ? `This channel's saved upload pacing is not usable (${uploadPolicyProblem}). Correct it in Upload Center.`
+            : 'This channel has no upload window hours yet. Choose them before uploads can start.',
         next_eligible_at: null,
         is_paused: job.status === 'paused',
         position: index + 1,
