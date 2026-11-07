@@ -16,12 +16,25 @@
  * YouTube Data API v3 does not expose an official endpoint for programmatic
  * end-screen mutation. Local video presentation/outro config is managed honestly
  * and separated from remote API capabilities.
+ *
+ * The authoritative GET/PUT (`getChannelSettings` / `updateChannelSettings`)
+ * is PINNED to the project's assigned channel via the connection registry —
+ * the client's `account_id` / `expected_account_id` can only confirm that
+ * pin, never choose it. Every config write is one read-modify-write inside
+ * `withLock(configPath)` — the same lock `pm.updateConfig` takes — so a
+ * merged map can never be written back from a stale read.
  */
 
+import fs from 'node:fs/promises'
+import { existsSync } from 'node:fs'
+import path from 'node:path'
 import * as pm from './project-manager.js'
 import { listPlaylists, type Playlist } from '../lib/youtube-client.js'
+import { withLock, writeJsonAtomic } from '../lib/atomic-store.js'
+import { getProjectYouTubeAssignment } from './youtube-connection-store.js'
+import { resolveYouTubeCredential, type YouTubeCredential } from './youtube-credential.js'
+import { YouTubeFoundationError } from '../contracts/youtube-upload-center.js'
 import {
-  type PlaylistSummary,
   type PlaylistInventoryState,
   type EndScreenConfig,
   type YouTubeEndScreenCapability,
@@ -61,6 +74,66 @@ export async function getDefaultPlaylist(slug: string, accountId: string): Promi
   return typeof map?.[accountId] === 'string' ? map[accountId] : ''
 }
 
+function statusError(statusCode: number, message: string): Error {
+  return Object.assign(new Error(message), { statusCode })
+}
+
+function mismatchError(): YouTubeFoundationError {
+  return new YouTubeFoundationError(
+    409,
+    'YOUTUBE_CHANNEL_MISMATCH',
+    'The assigned YouTube channel changed. Reload the channel settings and try again.',
+  )
+}
+
+function unassignedError(): YouTubeFoundationError {
+  return new YouTubeFoundationError(
+    409,
+    'YOUTUBE_CHANNEL_NOT_ASSIGNED',
+    'Assign a YouTube channel to this project first.',
+  )
+}
+
+function notConnectedError(): YouTubeFoundationError {
+  return new YouTubeFoundationError(
+    409,
+    'YOUTUBE_CHANNEL_NOT_CONNECTED',
+    'The assigned YouTube channel is not connected on this Mac. Reconnect it under This Mac → Connections.',
+  )
+}
+
+/** A YouTube call that failed is loud and 502 — never folded into "no channel". */
+function providerError(action: string, error: unknown): Error {
+  const detail = error instanceof Error ? error.message : String(error)
+  return statusError(502, `YouTube could not ${action}: ${detail}`)
+}
+
+/**
+ * One read-modify-write of config.json under the SAME lock key and helpers
+ * `pm.updateConfig` takes (chapter-background-pool pattern). The merge happens
+ * inside the lock, so two concurrent writers serialize instead of the second
+ * one writing back a map it read before the first finished. A no-op mutate
+ * writes nothing: every episode-status row depends on config.json's mtime.
+ */
+async function mutateConfig(slug: string, mutate: (data: Record<string, any>) => void): Promise<void> {
+  const projectDir = pm.getProjectDir(slug)
+  if (!projectDir) throw new Error(`Channel "${slug}" has no project directory on this Mac.`)
+  const configPath = path.join(projectDir, 'config.json')
+  if (!existsSync(configPath)) throw new Error(`Channel "${slug}" has no config.json; nothing was changed.`)
+  await withLock(configPath, async () => {
+    const raw = await fs.readFile(configPath, 'utf8')
+    let data: Record<string, any>
+    try {
+      data = JSON.parse(raw)
+    } catch (error: any) {
+      throw new Error(`config.json for channel "${slug}" is corrupt (${error?.message}); nothing was changed.`, { cause: error })
+    }
+    const before = JSON.stringify(data)
+    mutate(data)
+    if (JSON.stringify(data) !== before) await writeJsonAtomic(configPath, data)
+  })
+}
+
 export async function setDefaultPlaylist(
   slug: string,
   accountId: string,
@@ -71,16 +144,15 @@ export async function setDefaultPlaylist(
     throw new Error('Cannot set default playlist without a valid YouTube account ID.')
   }
   const normPlaylist = typeof playlistId === 'string' ? playlistId.trim() : ''
-  const config = ((await pm.getConfig(slug)) as any) || {}
-  const existingMap = { ...(config.youtube_default_playlist || {}) }
-
-  if (normPlaylist) {
-    existingMap[normAccount] = normPlaylist
-  } else {
-    delete existingMap[normAccount]
-  }
-
-  await pm.updateConfig(slug, { youtube_default_playlist: existingMap } as any)
+  await mutateConfig(slug, (data) => {
+    const existingMap = { ...(data.youtube_default_playlist || {}) }
+    if (normPlaylist) {
+      existingMap[normAccount] = normPlaylist
+    } else {
+      delete existingMap[normAccount]
+    }
+    data.youtube_default_playlist = existingMap
+  })
   return normPlaylist
 }
 
@@ -132,75 +204,171 @@ export async function updateEndScreenSettings(
   slug: string,
   patch: Partial<EndScreenConfig>,
 ): Promise<EndScreenConfig> {
-  const current = await getEndScreenSettings(slug)
-  const next = normalizeEndScreenConfig({ ...current, ...patch })
-  await pm.updateConfig(slug, { youtube_end_screen: next } as any)
-  return next
+  let result: EndScreenConfig = normalizeEndScreenConfig(patch)
+  await mutateConfig(slug, (data) => {
+    const current = normalizeEndScreenConfig(data.youtube_end_screen)
+    result = normalizeEndScreenConfig({ ...current, ...patch })
+    data.youtube_end_screen = result
+  })
+  return result
 }
 
+// ── Authoritative channel settings (pinned to the assigned channel) ────────
+
 export interface YouTubeChannelSettingsSummary {
+  /** The assigned channel this answer is pinned to; null when there is none. */
+  channel_id: string | null
   inventory: PlaylistInventoryState
   end_screen: EndScreenConfig
   end_screen_capabilities: YouTubeEndScreenCapability
 }
 
-export async function getYouTubeChannelSettings(
-  slug: string,
-  accountId?: string,
-  force = false,
-): Promise<YouTubeChannelSettingsSummary> {
-  const [inventory, end_screen] = await Promise.all([
-    getPlaylistInventory(slug, accountId, force),
-    getEndScreenSettings(slug),
-  ])
+type PinnedChannel =
+  | { state: 'unassigned' }
+  | { state: 'not_connected' }
+  | { state: 'ready'; credential: YouTubeCredential }
 
+/**
+ * The one channel this project publishes to, looked up — never taken from
+ * the caller. `resolveYouTubeCredential` already answers null for a healthy
+ * registry with no assignment; a second read separates that from an
+ * assignment whose channel lost its grant.
+ */
+async function resolvePinnedChannel(slug: string): Promise<PinnedChannel> {
+  const credential = await resolveYouTubeCredential(slug)
+  if (credential) return { state: 'ready', credential }
+  const assignment = await getProjectYouTubeAssignment(slug)
+  return assignment ? { state: 'not_connected' } : { state: 'unassigned' }
+}
+
+function emptyInventory(): PlaylistInventoryState {
   return {
-    inventory,
+    account_id: '',
+    playlists: [],
+    default_playlist_id: '',
+    cached_at: null,
+    count: 0,
+    has_connected_account: false,
+  }
+}
+
+async function inventoryFor(slug: string, accountId: string, force: boolean): Promise<PlaylistInventoryState> {
+  try {
+    return await getPlaylistInventory(slug, accountId, force)
+  } catch (error) {
+    throw providerError('list playlists for the assigned channel', error)
+  }
+}
+
+async function assertPlaylistOnChannel(slug: string, accountId: string, playlistId: string): Promise<void> {
+  let listed: Playlist[]
+  try {
+    listed = await getPlaylists(slug, accountId)
+  } catch (error) {
+    throw providerError('list playlists for the assigned channel', error)
+  }
+  if (!listed.some((playlist) => playlist.id === playlistId)) {
+    throw statusError(400, `Playlist "${playlistId}" is not a playlist on the assigned YouTube channel.`)
+  }
+}
+
+/**
+ * Authoritative read. No assignment → the honest no-account state (200).
+ * Assigned but unusable → a loud 409, distinct from "no channel". A YouTube
+ * failure → 502, never mistaken for either. `expectedAccountId` only confirms
+ * the pin: a stale or foreign id is rejected, not honoured.
+ */
+export async function getChannelSettings(
+  slug: string,
+  opts: { force?: boolean; expectedAccountId?: string } = {},
+): Promise<YouTubeChannelSettingsSummary> {
+  const pinned = await resolvePinnedChannel(slug)
+  if (pinned.state === 'not_connected') throw notConnectedError()
+
+  const end_screen = await getEndScreenSettings(slug)
+  if (pinned.state === 'unassigned') {
+    return {
+      channel_id: null,
+      inventory: emptyInventory(),
+      end_screen,
+      end_screen_capabilities: YOUTUBE_END_SCREEN_CAPABILITY,
+    }
+  }
+
+  const { credential } = pinned
+  if (opts.expectedAccountId && opts.expectedAccountId !== credential.accountId) {
+    throw mismatchError()
+  }
+  return {
+    channel_id: credential.channelId,
+    inventory: await inventoryFor(slug, credential.accountId, opts.force === true),
     end_screen,
     end_screen_capabilities: YOUTUBE_END_SCREEN_CAPABILITY,
   }
 }
 
-export async function updateYouTubeChannelSettings(
-  slug: string,
-  accountId: string,
-  input: {
-    default_playlist_id?: string
-    end_screen?: Partial<EndScreenConfig>
-  },
-): Promise<YouTubeChannelSettingsSummary> {
-  if (typeof input.default_playlist_id === 'string' && accountId) {
-    await setDefaultPlaylist(slug, accountId, input.default_playlist_id)
-  }
-  if (input.end_screen && typeof input.end_screen === 'object') {
-    await updateEndScreenSettings(slug, input.end_screen)
-  }
-  return getYouTubeChannelSettings(slug, accountId)
+export interface UpdateYouTubeChannelSettingsInput {
+  /** The account the client loaded this screen from; must match the pin. */
+  expected_account_id?: string
+  /** Present → account-scoped write (set or clear); absent → plan-only save. */
+  default_playlist_id?: string
+  end_screen?: Partial<EndScreenConfig>
 }
 
 /**
- * Route handler helpers for lead integration.
- * Can be mounted into `routes/upload.ts` or `routes/youtube-upload-center.ts`.
+ * Authoritative write. One config lock covers every key in the request, so a
+ * playlist write and a plan write land together or not at all. A non-empty
+ * playlist must belong to the assigned channel (checked against that
+ * channel's own inventory; a failed listing is a loud 502, never a pass).
+ * The end-screen plan is local-only truth and needs no account.
  */
-export async function handleGetChannelYouTubeSettings(req: any, res: any): Promise<void> {
-  try {
-    const slug = req.params.slug
-    const accountId = req.query.account_id as string | undefined
-    const force = req.query.force === '1' || req.query.force === 'true'
-    const settings = await getYouTubeChannelSettings(slug, accountId, force)
-    res.json(settings)
-  } catch (error: any) {
-    res.status(500).json({ error: error?.message || 'Failed to read YouTube channel settings' })
-  }
-}
+export async function updateChannelSettings(
+  slug: string,
+  input: UpdateYouTubeChannelSettingsInput,
+): Promise<YouTubeChannelSettingsSummary> {
+  const pinned = await resolvePinnedChannel(slug)
+  if (pinned.state === 'not_connected') throw notConnectedError()
 
-export async function handleUpdateChannelYouTubeSettings(req: any, res: any): Promise<void> {
-  try {
-    const slug = req.params.slug
-    const accountId = (req.body?.account_id || req.query?.account_id || '') as string
-    const settings = await updateYouTubeChannelSettings(slug, accountId, req.body || {})
-    res.json(settings)
-  } catch (error: any) {
-    res.status(500).json({ error: error?.message || 'Failed to update YouTube channel settings' })
+  const wantsPlaylist = typeof input.default_playlist_id === 'string'
+  const playlistId = wantsPlaylist ? input.default_playlist_id!.trim() : ''
+  const wantsEndScreen = !!input.end_screen && typeof input.end_screen === 'object'
+
+  if (pinned.state === 'unassigned') {
+    // A non-empty playlist without a channel is refused; an explicit clear
+    // with no channel has nothing to clear, so only the local plan can land.
+    if (playlistId !== '') throw unassignedError()
+    if (!wantsEndScreen) return getChannelSettings(slug)
+    await updateEndScreenSettings(slug, input.end_screen!)
+    return getChannelSettings(slug)
   }
+
+  const { credential } = pinned
+  if (wantsPlaylist) {
+    const expected = typeof input.expected_account_id === 'string' ? input.expected_account_id.trim() : ''
+    if (!expected) {
+      throw statusError(400, 'This save must confirm the YouTube channel it was loaded from. Reload the channel settings and try again.')
+    }
+    if (expected !== credential.accountId) throw mismatchError()
+    if (playlistId !== '') await assertPlaylistOnChannel(slug, credential.accountId, playlistId)
+  }
+
+  if (!wantsPlaylist && !wantsEndScreen) return getChannelSettings(slug)
+
+  await mutateConfig(slug, (data) => {
+    if (wantsPlaylist) {
+      const existingMap = { ...(data.youtube_default_playlist || {}) }
+      if (playlistId) {
+        existingMap[credential.accountId] = playlistId
+      } else {
+        delete existingMap[credential.accountId]
+      }
+      data.youtube_default_playlist = existingMap
+    }
+    if (wantsEndScreen) {
+      const current = normalizeEndScreenConfig(data.youtube_end_screen)
+      data.youtube_end_screen = normalizeEndScreenConfig({ ...current, ...input.end_screen! })
+    }
+  })
+
+  return getChannelSettings(slug)
 }

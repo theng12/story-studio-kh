@@ -359,7 +359,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import {
   type PlaylistInventoryState,
   type EndScreenConfig,
@@ -400,6 +400,9 @@ const inventory = ref<PlaylistInventoryState>({
 const defaultPlaylistDraft = ref('')
 const endScreenDraft = ref<EndScreenConfig>(createDefaultEndScreenConfig())
 const saveResult = ref<{ kind: 'ok' | 'warn' | 'err'; message: string } | null>(null)
+// Monotonic id for load/save traffic: a response that comes back after a
+// newer request started (or after the slug changed) is discarded, never applied.
+let requestSeq = 0
 
 function formatCacheAge(timestamp: number | null): string {
   if (!timestamp) return 'recently'
@@ -473,71 +476,53 @@ function removeElement(idx: number): void {
   endScreenDraft.value.elements.splice(idx, 1)
 }
 
+/** Apply one authoritative summary from the channel-settings endpoint. */
+function applySummary(data: any): void {
+  inventory.value = {
+    account_id: data?.inventory?.account_id || '',
+    playlists: Array.isArray(data?.inventory?.playlists) ? data.inventory.playlists : [],
+    default_playlist_id: data?.inventory?.default_playlist_id || '',
+    cached_at: data?.inventory?.cached_at ?? null,
+    count: Array.isArray(data?.inventory?.playlists) ? data.inventory.playlists.length : 0,
+    has_connected_account: Boolean(data?.inventory?.has_connected_account),
+  }
+  defaultPlaylistDraft.value = data?.inventory?.default_playlist_id || ''
+  endScreenDraft.value = normalizeEndScreenConfig(
+    data?.end_screen,
+    defaultPlaylistDraft.value,
+  )
+}
+
 async function loadSettings(force = false): Promise<void> {
+  const seq = ++requestSeq
+  const slug = props.slug
   loading.value = true
   loadError.value = ''
   saveResult.value = null
   if (force) busy.value = 'refresh'
 
   try {
-    // 1. Load playlists from upload playlists endpoint
     const params = new URLSearchParams()
     if (force) params.set('force', '1')
     if (props.accountId) params.set('account_id', props.accountId)
     const qs = params.toString()
-    let plData: any = null
-    try {
-      plData = await get<any>(`/projects/${props.slug}/upload/playlists${qs ? `?${qs}` : ''}`)
-    } catch {
-      // Channel may not be assigned yet
-      plData = null
-    }
-
-    if (plData) {
-      inventory.value = {
-        account_id: plData.account_id || '',
-        playlists: Array.isArray(plData.playlists) ? plData.playlists : [],
-        default_playlist_id: plData.default_playlist_id || '',
-        cached_at: Date.now(),
-        count: Array.isArray(plData.playlists) ? plData.playlists.length : 0,
-        has_connected_account: Boolean(plData.account_id),
-      }
-      defaultPlaylistDraft.value = plData.default_playlist_id || ''
-    } else {
-      inventory.value = {
-        account_id: '',
-        playlists: [],
-        default_playlist_id: '',
-        cached_at: null,
-        count: 0,
-        has_connected_account: false,
-      }
-      defaultPlaylistDraft.value = ''
-    }
-
-    // 2. Load project configuration for the end-screen plan and playlist default
-    const config = await get<any>(`/projects/${props.slug}/settings/config`)
-    if (config?.youtube_end_screen) {
-      endScreenDraft.value = normalizeEndScreenConfig(
-        config.youtube_end_screen,
-        defaultPlaylistDraft.value,
-      )
-    } else {
-      endScreenDraft.value = createDefaultEndScreenConfig(defaultPlaylistDraft.value)
-    }
-
-    if (
-      !defaultPlaylistDraft.value &&
-      config?.youtube_default_playlist &&
-      inventory.value.account_id
-    ) {
-      defaultPlaylistDraft.value = config.youtube_default_playlist[inventory.value.account_id] || ''
-    }
+    const data = await get<any>(
+      `/projects/${slug}/youtube/channel-settings${qs ? `?${qs}` : ''}`,
+      { cache: 'no-store' },
+    )
+    // A newer load owns this screen, or the channel changed under us.
+    if (seq !== requestSeq || props.slug !== slug) return
+    if (props.accountId && data?.inventory?.account_id && data.inventory.account_id !== props.accountId) return
+    applySummary(data)
   } catch (error: any) {
+    if (seq !== requestSeq || props.slug !== slug) return
+    // Real failures surface here — never folded into the "no channel" notice.
     loadError.value = messageOf(error, 'Could not load YouTube channel settings.')
   } finally {
-    loading.value = false
-    busy.value = ''
+    if (seq === requestSeq) {
+      loading.value = false
+      busy.value = ''
+    }
   }
 }
 
@@ -559,20 +544,16 @@ async function saveDefaultPlaylist(): Promise<void> {
 
   busy.value = 'playlist'
   saveResult.value = null
+  const slug = props.slug
   try {
-    const config = (await get<any>(`/projects/${props.slug}/settings/config`)) || {}
-    const existingMap = { ...(config.youtube_default_playlist || {}) }
-    if (defaultPlaylistDraft.value) {
-      existingMap[accountId] = defaultPlaylistDraft.value
-    } else {
-      delete existingMap[accountId]
-    }
-
-    await put(`/projects/${props.slug}/settings/config`, {
-      youtube_default_playlist: existingMap,
+    const data = await put<any>(`/projects/${slug}/youtube/channel-settings`, {
+      expected_account_id: accountId,
+      default_playlist_id: defaultPlaylistDraft.value,
     })
-
-    inventory.value.default_playlist_id = defaultPlaylistDraft.value
+    if (props.slug !== slug) return
+    // The save's readback supersedes any load still in flight.
+    ++requestSeq
+    applySummary(data)
     saveResult.value = { kind: 'ok', message: 'Default playlist saved.' }
   } catch (error: any) {
     saveResult.value = { kind: 'err', message: messageOf(error, 'Failed to save default playlist.') }
@@ -584,31 +565,17 @@ async function saveDefaultPlaylist(): Promise<void> {
 async function saveAllSettings(): Promise<void> {
   busy.value = 'save-all'
   saveResult.value = null
+  const slug = props.slug
   try {
     const accountId = inventory.value.account_id
-    const config = (await get<any>(`/projects/${props.slug}/settings/config`)) || {}
-
-    const payload: Record<string, any> = {
-      youtube_end_screen: normalizeEndScreenConfig(
-        endScreenDraft.value,
-        defaultPlaylistDraft.value,
-      ),
-    }
-
-    if (accountId) {
-      const existingMap = { ...(config.youtube_default_playlist || {}) }
-      if (defaultPlaylistDraft.value) {
-        existingMap[accountId] = defaultPlaylistDraft.value
-      } else {
-        delete existingMap[accountId]
-      }
-      payload.youtube_default_playlist = existingMap
-    }
-
-    await put(`/projects/${props.slug}/settings/config`, payload)
-
-    inventory.value.default_playlist_id = defaultPlaylistDraft.value
-    endScreenDraft.value = payload.youtube_end_screen
+    const data = await put<any>(`/projects/${slug}/youtube/channel-settings`, {
+      expected_account_id: accountId,
+      default_playlist_id: defaultPlaylistDraft.value,
+      end_screen: normalizeEndScreenConfig(endScreenDraft.value, defaultPlaylistDraft.value),
+    })
+    if (props.slug !== slug) return
+    ++requestSeq
+    applySummary(data)
 
     saveResult.value = { kind: 'ok', message: 'Settings saved.' }
     emit('saved', {
@@ -629,6 +596,13 @@ function resetDrafts(): void {
 
 onMounted(() => {
   loadSettings(false)
+})
+
+// A different channel on the same route must not keep this one's settings:
+// blank to the loading state and re-read, while the seq guard discards any
+// response still in flight for the previous slug.
+watch(() => props.slug, () => {
+  void loadSettings(false)
 })
 </script>
 

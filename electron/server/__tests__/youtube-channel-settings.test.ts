@@ -19,8 +19,8 @@ import {
   getEndScreenSettings,
   updateEndScreenSettings,
   getPlaylistInventory,
-  getYouTubeChannelSettings,
-  updateYouTubeChannelSettings,
+  getChannelSettings,
+  updateChannelSettings,
   _resetPlaylistCacheForTesting,
 } from '../services/upload-playlists.js'
 
@@ -249,12 +249,14 @@ describe('YouTube Channel Settings Contract & Service (Item 20)', () => {
       assert.ok(!('audio_treatment' in reRead))
     })
 
-    test('getYouTubeChannelSettings reads live playlists once and reports the default', async () => {
+    test('getChannelSettings reads live playlists once, reports the default, and is pinned to the assignment', async () => {
       await setDefaultPlaylist(testSlug, accountId, 'PL_SERIES_A')
       const fake = queuePlaylists()
       __setYouTubeTransportForTests(fake.transport())
 
-      const summary = await getYouTubeChannelSettings(testSlug, accountId)
+      const summary = await getChannelSettings(testSlug)
+      assert.equal(summary.channel_id, 'UC-channel-settings', 'pinned to the assigned channel')
+      assert.equal(summary.inventory.account_id, accountId, 'account comes from the pin, not the caller')
       assert.equal(summary.inventory.has_connected_account, true)
       assert.equal(summary.inventory.count, 2)
       assert.equal(summary.inventory.playlists[0].title, 'Series A')
@@ -265,27 +267,114 @@ describe('YouTube Channel Settings Contract & Service (Item 20)', () => {
       assert.equal(summary.end_screen_capabilities.remote_api_supported, false)
       assert.equal(fake.calls.length, 1, 'one playlists.list call serves the read')
 
-      await getYouTubeChannelSettings(testSlug, accountId)
+      await getChannelSettings(testSlug)
       assert.equal(fake.calls.length, 1, 'the 60s cache must serve the second read')
     })
 
-    test('updateYouTubeChannelSettings updates both default playlist and plan', async () => {
+    test('getChannelSettings rejects a stale or foreign expected account identity', async () => {
       __setYouTubeTransportForTests(queuePlaylists().transport())
-      const result = await updateYouTubeChannelSettings(testSlug, accountId, {
-        default_playlist_id: 'PL_NEW_DEFAULT',
+      await assert.rejects(
+        () => getChannelSettings(testSlug, { expectedAccountId: 'registry:UC-someone-else' }),
+        (error: any) => error?.statusCode === 409 && error?.code === 'YOUTUBE_CHANNEL_MISMATCH',
+      )
+    })
+
+    test('getChannelSettings reports the honest no-account state for an unassigned project', async () => {
+      const unassigned = await pm.createProject({ name: 'YT Settings Unassigned' })
+      const summary = await getChannelSettings(unassigned.slug)
+      assert.equal(summary.channel_id, null)
+      assert.equal(summary.inventory.has_connected_account, false)
+      assert.equal(summary.inventory.account_id, '')
+      assert.equal(summary.inventory.playlists.length, 0)
+      assert.equal(summary.end_screen_capabilities.remote_api_supported, false)
+    })
+
+    test('a YouTube failure is a loud provider error, never the no-channel state', async () => {
+      const fake = new FakeYouTube()
+      fake.rejectNext({
+        method: 'GET',
+        path: '/youtube/v3/playlists?part=snippet%2Cstatus%2CcontentDetails&mine=true&maxResults=50',
+        status: 503,
+        body: { error: { message: 'backend unavailable' } },
+      })
+      __setYouTubeTransportForTests(fake.transport())
+      await assert.rejects(
+        () => getChannelSettings(testSlug),
+        (error: any) => error?.statusCode === 502 && /YouTube could not list playlists/.test(error?.message ?? ''),
+      )
+    })
+
+    test('updateChannelSettings updates both default playlist and plan', async () => {
+      __setYouTubeTransportForTests(queuePlaylists().transport())
+      const result = await updateChannelSettings(testSlug, {
+        expected_account_id: accountId,
+        default_playlist_id: 'PL_SLEEP',
         end_screen: {
           duration_seconds: 18,
           template: 'one_video_one_subscribe',
         } as any,
       })
 
-      assert.equal(result.inventory.default_playlist_id, 'PL_NEW_DEFAULT')
+      assert.equal(result.channel_id, 'UC-channel-settings')
+      assert.equal(result.inventory.default_playlist_id, 'PL_SLEEP')
       assert.equal(result.end_screen.duration_seconds, 18)
       assert.equal(result.end_screen.template, 'one_video_one_subscribe')
 
-      const verified = await getYouTubeChannelSettings(testSlug, accountId)
-      assert.equal(verified.inventory.default_playlist_id, 'PL_NEW_DEFAULT')
+      const verified = await getChannelSettings(testSlug)
+      assert.equal(verified.inventory.default_playlist_id, 'PL_SLEEP')
       assert.equal(verified.end_screen.duration_seconds, 18)
+    })
+
+    test('updateChannelSettings refuses a playlist that is not on the assigned channel', async () => {
+      __setYouTubeTransportForTests(queuePlaylists().transport())
+      const before = await getDefaultPlaylist(testSlug, accountId)
+      await assert.rejects(
+        () => updateChannelSettings(testSlug, {
+          expected_account_id: accountId,
+          default_playlist_id: 'PL_NOT_ON_THIS_CHANNEL',
+        }),
+        (error: any) => error?.statusCode === 400 && /not a playlist on the assigned YouTube channel/.test(error?.message ?? ''),
+      )
+      assert.equal(await getDefaultPlaylist(testSlug, accountId), before, 'config untouched by the refusal')
+    })
+
+    test('updateChannelSettings refuses a stale expected account identity', async () => {
+      __setYouTubeTransportForTests(queuePlaylists().transport())
+      const before = await getDefaultPlaylist(testSlug, accountId)
+      await assert.rejects(
+        () => updateChannelSettings(testSlug, {
+          expected_account_id: 'registry:UC-someone-else',
+          default_playlist_id: 'PL_SERIES_A',
+        }),
+        (error: any) => error?.statusCode === 409 && error?.code === 'YOUTUBE_CHANNEL_MISMATCH',
+      )
+      assert.equal(await getDefaultPlaylist(testSlug, accountId), before)
+    })
+
+    test('updateChannelSettings refuses a non-empty playlist when no channel is assigned', async () => {
+      const unassigned = await pm.createProject({ name: 'YT Settings No Channel Write' })
+      await assert.rejects(
+        () => updateChannelSettings(unassigned.slug, { default_playlist_id: 'PL_ANY' }),
+        (error: any) => error?.code === 'YOUTUBE_CHANNEL_NOT_ASSIGNED',
+      )
+      // The local end-screen plan still saves without a channel — it is local truth.
+      const summary = await updateChannelSettings(unassigned.slug, {
+        end_screen: { duration_seconds: 9 } as any,
+      })
+      assert.equal(summary.inventory.has_connected_account, false)
+      assert.equal(summary.end_screen.duration_seconds, 9)
+    })
+
+    test('concurrent default-playlist writes for two accounts both survive', async () => {
+      // The old merge read the map OUTSIDE the config lock; two racing writes
+      // produced one account and lost the other. Both must land.
+      await Promise.all([
+        setDefaultPlaylist(testSlug, 'UC_RACE_A', 'PL_RACE_A'),
+        setDefaultPlaylist(testSlug, 'UC_RACE_B', 'PL_RACE_B'),
+      ])
+      const config = (await pm.getConfig(testSlug)) as any
+      assert.equal(config.youtube_default_playlist.UC_RACE_A, 'PL_RACE_A')
+      assert.equal(config.youtube_default_playlist.UC_RACE_B, 'PL_RACE_B')
     })
   })
 })
