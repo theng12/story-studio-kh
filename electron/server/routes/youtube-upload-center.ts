@@ -4764,7 +4764,7 @@ function normalizeFutureScheduleTime(value: string): string | null {
  */
 type VisibilityOutcome =
   | { status: number; error: { code: string; detail: string } }
-  | { recorded: boolean; response: Record<string, unknown> }
+  | { recorded: boolean; response: Record<string, unknown>; awaitingConfirmation?: boolean }
 
 async function applyVideoVisibility(input: {
   slug: string
@@ -4798,6 +4798,10 @@ async function applyVideoVisibility(input: {
       'That episode belongs to a YouTube channel this project no longer publishes to.',
     )
   }
+  const operation = remote.source === 'operation_record'
+    ? records.find(record => record.episode_code === episodeCode
+      && record.video_id === remote.video_id && record.channel_id === channelId)
+    : undefined
   const updated = await updateVideoMetadata({
     slug,
     accountId,
@@ -4807,16 +4811,41 @@ async function applyVideoVisibility(input: {
     status: { privacyStatus: privacy, publishAt },
     ...(requirePrivacyStatus ? { requirePrivacyStatus } : {}),
   })
-  if (updated.id !== remote.video_id || updated.status?.privacyStatus !== privacy
-    || !sameInstant(updated.status?.publishAt, publishAt)) {
+  const reportedPrivacy = updated.status?.privacyStatus
+  const reportedPublishAt = updated.status?.publishAt
+  // A 2xx means YouTube accepted the write, but its answer can still carry the
+  // state from BEFORE the change (readback lag) or omit the status block. That
+  // is neither a confirmation nor a refusal: leave the receipt unwritten and
+  // let the existing READ-only check reconcile it. A definite different answer
+  // — another video id, privacy or instant — is YouTube's verdict and stays a
+  // hard error.
+  const contradicted = updated.id !== remote.video_id
+    || (typeof reportedPrivacy === 'string' && reportedPrivacy !== privacy)
+    || (publishAt === null
+      ? reportedPublishAt != null
+      : reportedPublishAt != null && !sameInstant(reportedPublishAt, publishAt))
+  const confirmed = !contradicted
+    && typeof reportedPrivacy === 'string'
+    && sameInstant(reportedPublishAt, publishAt)
+  if (!confirmed && !contradicted) {
+    return {
+      recorded: false,
+      awaitingConfirmation: true,
+      response: {
+        ...(operation ? { operation_id: operation.operation_id } : {}),
+        episode_code: episodeCode,
+        video_id: remote.video_id,
+        awaiting_confirmation: true,
+        requested_privacy_status: privacy,
+        requested_scheduled_at: publishAt,
+      },
+    }
+  }
+  if (!confirmed) {
     throw scheduleRouteError(502, publishAt
       ? 'YouTube did not confirm the requested private schedule. The local receipt was not changed.'
       : `YouTube did not confirm ${episodeCode} as ${privacy}. The local receipt was not changed.`)
   }
-  const operation = remote.source === 'operation_record'
-    ? records.find(record => record.episode_code === episodeCode
-      && record.video_id === remote.video_id && record.channel_id === channelId)
-    : undefined
   const recorded = await (async () => {
     if (operation) {
       await updatePinnedYouTubeOperation({
@@ -4915,6 +4944,14 @@ router.post('/projects/:slug/youtube/episodes/:episode_code/schedule', async (re
       res.status(outcome.status).json(outcome.error)
       return
     }
+    if (outcome.awaitingConfirmation) {
+      res.status(202).json({
+        code: 'YOUTUBE_SCHEDULE_AWAITING_CONFIRMATION',
+        detail: `YouTube accepted the schedule for ${episodeCode} but has not shown the new state yet. Story Studio did not record it as done and will not send it again by itself. Check the video on YouTube (a read-only check) before retrying.`,
+        ...outcome.response,
+      })
+      return
+    }
     if (!outcome.recorded) {
       res.status(503).json({
         code: 'YOUTUBE_SCHEDULE_RECEIPT_UNRECORDED',
@@ -4967,6 +5004,14 @@ router.post('/projects/:slug/youtube/episodes/:episode_code/visibility', async (
     })
     if ('error' in outcome) {
       res.status(outcome.status).json(outcome.error)
+      return
+    }
+    if (outcome.awaitingConfirmation) {
+      res.status(202).json({
+        code: 'YOUTUBE_VISIBILITY_AWAITING_CONFIRMATION',
+        detail: `YouTube accepted the request to make ${episodeCode} ${privacy} but has not shown the new state yet. Story Studio did not record it as done and will not send it again by itself. Check the video on YouTube (a read-only check) before retrying.`,
+        ...outcome.response,
+      })
       return
     }
     if (!outcome.recorded) {

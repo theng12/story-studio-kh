@@ -2447,10 +2447,12 @@ const bulkRun = ref<BulkRun | null>(null)
  * already done stay done and the rest are simply not started. The note on
  * screen says exactly that.
  */
+type RowWorkResult = string | { message: string; kind: 'ok' | 'warn' }
+
 async function runPerRow(
   label: string,
   rows: PublishableEpisode[],
-  work: (ep: PublishableEpisode, slug: string) => Promise<string>,
+  work: (ep: PublishableEpisode, slug: string) => Promise<RowWorkResult>,
 ): Promise<void> {
   const action = beginAction('bulk-run')
   const run: BulkRun = {
@@ -2463,10 +2465,12 @@ async function runPerRow(
     if (!actionIsCurrent(action)) return
     if (live.stopRequested) { live.stopped = true; break }
     try {
-      const message = await work(ep, action.slug)
+      const result = await work(ep, action.slug)
       if (!actionIsCurrent(action)) return
-      rowResults[ep.episode_code] = { kind: 'ok', message }
-      live.done += 1
+      const outcome = typeof result === 'string' ? { kind: 'ok' as const, message: result } : result
+      rowResults[ep.episode_code] = outcome
+      if (outcome.kind === 'ok') live.done += 1
+      else live.failed += 1
     } catch (error: any) {
       if (!actionIsCurrent(action)) return
       rowResults[ep.episode_code] = { kind: 'err', message: `${ep.episode_code}: ${error?.data?.detail || error?.message || 'This row could not be done.'}` }
@@ -2515,9 +2519,16 @@ async function confirmBulkSchedule(): Promise<void> {
   const rows = scheduleRows.value.filter(ep => times.has(ep.episode_code))
   await runPerRow('Schedule on YouTube', rows, async (ep, requestSlug) => {
     const publishAt = times.get(ep.episode_code)!
-    await post(`/projects/${requestSlug}/youtube/episodes/${encodeURIComponent(ep.episode_code)}/schedule`, {
+    const result = await post<{ awaiting_confirmation?: boolean }>(`/projects/${requestSlug}/youtube/episodes/${encodeURIComponent(ep.episode_code)}/schedule`, {
       publish_at: publishAt, confirm: true, expected_channel_id: channelId,
     })
+    if (result?.awaiting_confirmation) {
+      return reconcileAwaitingVisibility(ep, requestSlug, {
+        privacy: 'private',
+        publishAt,
+        what: `schedule ${ep.episode_code} for ${formatZonedWhen(publishAt)}`,
+      })
+    }
     return `${ep.episode_code} is scheduled on YouTube for ${formatZonedWhen(publishAt)}. It stays private until then.`
   })
 }
@@ -2530,6 +2541,46 @@ const VISIBILITY_CHOICES: Array<{ value: Visibility; label: string; hint: string
   { value: 'private', label: 'Private', hint: 'Only you can watch them.' },
 ]
 function visibilityLabel(value: Visibility): string { return VISIBILITY_CHOICES.find(choice => choice.value === value)!.label }
+function sameInstantValue(a?: string | null, b?: string | null): boolean {
+  if (a == null || b == null) return a == null && b == null
+  const left = Date.parse(a)
+  const right = Date.parse(b)
+  return Number.isFinite(left) && Number.isFinite(right) && left === right
+}
+/**
+ * A metadata write YouTube accepted can come back before YouTube's own answer
+ * shows the change. Never call that confirmed and never send the write again:
+ * run the existing READ-only check once and report only what it observed.
+ */
+async function reconcileAwaitingVisibility(
+  ep: PublishableEpisode,
+  requestSlug: string,
+  expected: { privacy: Visibility; publishAt: string | null; what: string },
+): Promise<{ message: string; kind: 'ok' | 'warn' }> {
+  const operationId = ep.operation?.operation_id
+  if (operationId) {
+    try {
+      const result = await post<{ state?: { snapshot?: { privacy_status?: string; scheduled_for?: string | null } } }>(
+        `/projects/${requestSlug}/youtube/operations/${encodeURIComponent(operationId)}/refresh`, {},
+      )
+      const snapshot = result?.state?.snapshot
+      const confirmed = snapshot?.privacy_status === expected.privacy
+        && (expected.publishAt === null
+          ? !snapshot?.scheduled_for
+          : sameInstantValue(snapshot?.scheduled_for, expected.publishAt))
+      if (confirmed) {
+        return { kind: 'ok', message: `${ep.episode_code}: YouTube accepted the request to ${expected.what}, and a read-only check has now confirmed it.` }
+      }
+    } catch { /* a check that could not answer is not a verdict */ }
+  }
+  return {
+    kind: 'warn',
+    message: `YouTube accepted the request to ${expected.what} but has not shown the new state yet. Story Studio did not record it as done and will not send it again by itself. `
+      + (operationId
+        ? 'Use Check on YouTube (read-only) before retrying.'
+        : 'Use Check All Uploads in the Upload Center (read-only) before retrying.'),
+  }
+}
 const bulkVisibilityOpen = ref(false)
 const bulkVisibility = ref<Visibility | ''>('')
 function openBulkVisibility(): void {
@@ -2544,9 +2595,16 @@ async function confirmBulkVisibility(): Promise<void> {
   if (!channelId || !visibility || !rows.length) return
   bulkVisibilityOpen.value = false
   await runPerRow(`Set visibility to ${visibilityLabel(visibility)}`, rows, async (ep, requestSlug) => {
-    await post(`/projects/${requestSlug}/youtube/episodes/${encodeURIComponent(ep.episode_code)}/visibility`, {
+    const result = await post<{ awaiting_confirmation?: boolean }>(`/projects/${requestSlug}/youtube/episodes/${encodeURIComponent(ep.episode_code)}/visibility`, {
       privacy_status: visibility, confirm: true, expected_channel_id: channelId,
     })
+    if (result?.awaiting_confirmation) {
+      return reconcileAwaitingVisibility(ep, requestSlug, {
+        privacy: visibility,
+        publishAt: null,
+        what: `make ${ep.episode_code} ${visibilityLabel(visibility)}`,
+      })
+    }
     return `${ep.episode_code} is now ${visibilityLabel(visibility)} on YouTube.`
   })
 }

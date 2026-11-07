@@ -176,3 +176,92 @@ test('unscheduling omits publishAt from the updated status part and records prov
   assert.equal(snapshot?.privacy_status, 'private')
   assert.equal(snapshot?.scheduled_for, null)
 })
+
+test('a visibility write YouTube accepted but did not show yet stays awaiting, and a read-only check can confirm it', async () => {
+  const { slug, episodeCode, operationId } = await uploadedVideo()
+  const fake = new FakeYouTube()
+  // The PUT is accepted, but its answer carries an empty status block: a
+  // readback we cannot judge, not a refusal and not a confirmation.
+  queueVisibility(fake, { privacyStatus: 'private' }, {})
+  // The existing READ-only check is what reconciles the original outcome.
+  fake.respond({
+    method: 'GET',
+    path: `/youtube/v3/videos?part=snippet,status,processingDetails&id=${VIDEO}`,
+    body: { items: [{
+      id: VIDEO,
+      snippet: { title: 'A bulk visibility story', description: '', tags: [], categoryId: '24' },
+      status: { uploadStatus: 'processed', privacyStatus: 'unlisted' },
+    }] },
+  })
+  youtube.__setYouTubeTransportForTests(fake.transport())
+
+  const res = await request(app)
+    .post(`/api/projects/${slug}/youtube/episodes/${episodeCode}/visibility`)
+    .send({ privacy_status: 'unlisted', confirm: true, expected_channel_id: CHANNEL })
+
+  assert.equal(res.status, 202, JSON.stringify(res.body))
+  assert.equal(res.body.code, 'YOUTUBE_VISIBILITY_AWAITING_CONFIRMATION')
+  assert.equal(res.body.awaiting_confirmation, true)
+  assert.equal((await operations.readYouTubeOperation(slug, operationId))?.remote_snapshot, undefined,
+    'an unconfirmed answer writes no receipt')
+  assert.equal(fake.calls.filter(call => call.method === 'PUT').length, 1,
+    'the write is never sent a second time automatically')
+
+  const checked = await request(app)
+    .post(`/api/projects/${slug}/youtube/operations/${operationId}/refresh`)
+    .send({})
+  assert.equal(checked.status, 200, JSON.stringify(checked.body))
+  assert.equal(checked.body.state.snapshot.privacy_status, 'unlisted')
+  assert.equal((await operations.readYouTubeOperation(slug, operationId))?.remote_snapshot?.privacy_status, 'unlisted')
+})
+
+test('a schedule YouTube accepted but did not show yet stays awaiting, and a read-only check can confirm it', async () => {
+  const { slug, episodeCode, operationId } = await uploadedVideo()
+  const publishAt = new Date(Date.now() + 86_400_000).toISOString()
+  const fake = new FakeYouTube()
+  fake.respond({
+    method: 'GET',
+    path: `/youtube/v3/videos?part=snippet,status&id=${VIDEO}`,
+    body: { items: [{
+      id: VIDEO, etag: 'schedule-etag',
+      snippet: { title: 'A bulk visibility story', description: '', tags: [], categoryId: '24' },
+      status: { privacyStatus: 'private' },
+    }] },
+  })
+  // Accepted, but the answer is still the old unscheduled state.
+  fake.respond({
+    method: 'PUT',
+    path: '/youtube/v3/videos?part=status',
+    body: { id: VIDEO, status: { privacyStatus: 'private' } },
+  })
+  fake.respond({
+    method: 'GET',
+    path: `/youtube/v3/videos?part=snippet,status,processingDetails&id=${VIDEO}`,
+    body: { items: [{
+      id: VIDEO,
+      snippet: { title: 'A bulk visibility story', description: '', tags: [], categoryId: '24' },
+      status: { uploadStatus: 'processed', privacyStatus: 'private', publishAt },
+    }] },
+  })
+  youtube.__setYouTubeTransportForTests(fake.transport())
+
+  const res = await request(app)
+    .post(`/api/projects/${slug}/youtube/episodes/${episodeCode}/schedule`)
+    .send({ publish_at: publishAt, confirm: true, expected_channel_id: CHANNEL })
+
+  assert.equal(res.status, 202, JSON.stringify(res.body))
+  assert.equal(res.body.code, 'YOUTUBE_SCHEDULE_AWAITING_CONFIRMATION')
+  assert.equal(res.body.awaiting_confirmation, true)
+  assert.equal((await operations.readYouTubeOperation(slug, operationId))?.remote_snapshot, undefined,
+    'an unconfirmed answer writes no receipt')
+  assert.equal(fake.calls.filter(call => call.method === 'PUT').length, 1,
+    'the write is never sent a second time automatically')
+
+  const checked = await request(app)
+    .post(`/api/projects/${slug}/youtube/operations/${operationId}/refresh`)
+    .send({})
+  assert.equal(checked.status, 200, JSON.stringify(checked.body))
+  assert.equal(checked.body.state.snapshot.privacy_status, 'private')
+  assert.equal(checked.body.state.snapshot.scheduled_for, publishAt)
+  assert.equal((await operations.readYouTubeOperation(slug, operationId))?.remote_snapshot?.scheduled_for, publishAt)
+})
