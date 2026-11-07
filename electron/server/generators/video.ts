@@ -5372,6 +5372,151 @@ export async function prepareSceneClips(
     job.output_lines.push(`Scene ${index + 1}: native renderer skipped (${key}) — rendering with FFmpeg.`)
   }
 
+  /**
+   * Item 14 — a chapter heading's drawtext filters, shared by the still and reveal render paths.
+   * A reveal clip replaces the still's whole picture, so it must draw the same heading; without
+   * this a reveal-enabled chapter boundary silently loses its chapter title.
+   */
+  const chapterTitleFilters = async (
+    scene: GenerateVideoRequest['scenes'][number],
+  ): Promise<{ titleVfParts: string[]; durationSec: number }> => {
+    const titleVfParts: string[] = []
+    if (!(canDrawtext && chapterTitles?.enabled && scene.title && scene.show_title)) {
+      return { titleVfParts, durationSec: 0 }
+    }
+    // Size against the SHORT edge (identical to `h` on any landscape canvas),
+    // position against the height — a vertical fraction is still a vertical
+    // fraction in portrait, but `h/18` is nearly twice too big there.
+    const fontSize = getFontSize(chapterTitles.font_size, frameTextUnit(w, h))
+    const yPos = getTextPosition(chapterTitles.position, h)
+    let fontColor = getStyleColor(chapterTitles.style)
+    const titleDur = chapterTitles.duration || 3
+    const anim = chapterTitles.animation || 'none'
+    // Cap the transition at duration/2 — a 1s fade-in plus 1s
+    // fade-out can't fit inside a 1.5s title. Sane minimum 0.05s
+    // avoids div-by-zero in the alpha/x/y expressions below.
+    const animDur = Math.max(0.05, Math.min(
+      chapterTitles.animation_duration ?? 0.5,
+      titleDur / 2,
+    ))
+    // 1.4.384 — an EXPLICIT chapter font changes the emitted graph, and only then.
+    // Nothing selected (no presentation, or no face resolved) leaves the string
+    // below exactly as it was, byte for byte — appearance rides the face and
+    // never reaches the graph on its own.
+    const staged = await stageChapterTitleFont(chapterTitles.chapter_title_presentation, tempDir)
+    const appearance = chapterTitleAppearance(chapterTitles.chapter_title_presentation)
+    let fontfileOpt = ''
+    let borderColor = 'black@0.6'
+    let borderWidth = 2
+    if (staged && appearance?.color) fontColor = normalizeDrawtextColor(appearance.color)
+    if (staged && typeof appearance?.outline === 'number' && Number.isFinite(appearance.outline)) {
+      borderWidth = Math.max(0, Math.min(12, Math.round(appearance.outline)))
+    }
+    if (borderWidth === 0) borderColor = 'black@0'
+    let lines = [String(scene.title)]
+    // The size drawtext is actually told: the style's own until a picked face fits it.
+    let drawFontSize = fontSize
+    if (staged) {
+      await assertChapterTitleCovers(staged, String(scene.title), `Chapter title "${scene.title}"`)
+      fontfileOpt = `:fontfile=${escapeChapterFontfile(staged.fontfile)}`
+      const layout = await layoutChapterTitle({
+        text: String(scene.title),
+        fontSize,
+        frameWidth: w,
+        frameHeight: h,
+        family: staged.family,
+        wrap: appearance?.wrap === true,
+        automaticFit: chapterTitles.chapter_title_presentation?.automatic_fit === true,
+      })
+      if (layout.fontSize !== fontSize) {
+        job.output_lines.push(`Chapter title: auto-fit ${fontSize}px → ${layout.fontSize}px for "${scene.title}".`)
+      }
+      drawFontSize = layout.fontSize
+      lines = layout.lines
+    }
+    const drawCommon = (line: string) => `text='${escapeDrawtext(line)}':fontsize=${drawFontSize}:fontcolor=${fontColor}:enable='lt(t,${titleDur})':borderw=${borderWidth}:bordercolor=${borderColor}${fontfileOpt}`
+    // A wrapped heading is ONE block. Each line used to take the single-line
+    // position for itself and then step down, so a centred block hung below
+    // centre and a bottom block walked straight off the frame; the position
+    // now anchors the whole measured block and the lines step within it.
+    const lineStepPx = Math.round(drawFontSize * 1.18)
+    const yForLine = (lineIndex: number): string => {
+      if (lines.length === 1) return yPos
+      const offset = lineIndex * lineStepPx
+      if (chapterTitles.position === 'top') return String(Math.round(h * 0.08) + offset)
+      if (chapterTitles.position === 'bottom') {
+        return String(Math.round(h * 0.85) - (lines.length - 1) * lineStepPx + offset)
+      }
+      return `((h-${lines.length * lineStepPx})/2)+${offset}`
+    }
+    lines.forEach((line, lineIndex) => {
+      const shiftedY = yForLine(lineIndex)
+      let drawXY = `x=(w-text_w)/2:y=${shiftedY}`
+      let drawAlpha = ''
+      switch (anim) {
+        case 'fade-in-out': {
+          // alpha 0→1 over animDur, hold, 1→0 over animDur. The
+          // `enable=` gate above kills the drawtext past titleDur so
+          // we don't have to worry about negative alpha clamping.
+          drawAlpha = `:alpha='if(lt(t,${animDur.toFixed(3)}),t/${animDur.toFixed(3)},if(lt(t,${(titleDur - animDur).toFixed(3)}),1,(${titleDur.toFixed(3)}-t)/${animDur.toFixed(3)}))'`
+          break
+        }
+        case 'slide-from-left': {
+          // Start offscreen-left (x = -text_w), lerp to centered.
+          // After animDur, hold at center until enable= hides it.
+          drawXY = `x='if(lt(t,${animDur.toFixed(3)}),-text_w+((w+text_w)/2)*(t/${animDur.toFixed(3)}),(w-text_w)/2)':y=${shiftedY}`
+          break
+        }
+        case 'slide-from-right': {
+          // Start offscreen-right (x = w), lerp to centered.
+          drawXY = `x='if(lt(t,${animDur.toFixed(3)}),w-((w+text_w)/2)*(t/${animDur.toFixed(3)}),(w-text_w)/2)':y=${shiftedY}`
+          break
+        }
+        case 'slide-up': {
+          // Start below the frame (y = h), lerp upward to yPos.
+          // yPos may be a literal (e.g. '86') or an expression (e.g.
+          // '(h-text_h)/2') — both substitute fine.
+          drawXY = `x=(w-text_w)/2:y='if(lt(t,${animDur.toFixed(3)}),h-(h-(${shiftedY}))*(t/${animDur.toFixed(3)}),${shiftedY})'`
+          break
+        }
+        case 'none':
+        default:
+          // No animation — leave drawXY at static center+yPos and
+          // drawAlpha empty so the emitted string matches the
+          // pre-v1.0.56 output exactly.
+          break
+      }
+      titleVfParts.push(`drawtext=${drawCommon(line)}:${drawXY}${drawAlpha}`)
+    })
+    return { titleVfParts, durationSec: titleDur }
+  }
+
+  /**
+   * Item 14 — a chapter boundary's pool background, drawn under its heading for the heading
+   * window. `sceneChain` is the incoming picture's complete `[0:v]` chain (the still's camera
+   * move, or `setsar=1` for an already-rendered reveal clip). Returns the extra input and the
+   * `-filter_complex`/`-map` pair, so the still and reveal paths emit the same composition.
+   */
+  const chapterBackgroundArgs = async (
+    backgroundPath: string,
+    titleVfParts: string[],
+    titleDurationSec: number,
+    sceneChain: string,
+    renderDuration: number,
+  ): Promise<{ inputArgs: string[]; outputArgs: string[] }> => {
+    const bgVideo = /\.(mp4|mov|webm|mkv|m4v)$/i.test(backgroundPath)
+    const inputArgs = bgVideo
+      ? ['-stream_loop', '-1', '-i', backgroundPath]
+      : [...(await stillDecoderArgs(backgroundPath)), '-loop', '1', '-t', renderDuration.toString(), '-i', backgroundPath]
+    // The background replaces the picture only inside the heading window; the
+    // scene's own camera move keeps running underneath for when it returns.
+    const bgChain = `[1:v]scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h},setsar=1,fps=${quality.fps}[bg]`
+    const filterComplex = `[0:v]${sceneChain}[scene];${bgChain};`
+      + `[scene][bg]overlay=enable='lt(t,${titleDurationSec})'[withbg];`
+      + `[withbg]${titleVfParts.join(',')},format=yuv420p[out]`
+    return { inputArgs, outputArgs: ['-filter_complex', filterComplex, '-map', '[out]'] }
+  }
+
   const prepOne = async (i: number): Promise<void> => {
     if (clipPaths[i]) return
     const scene = scenes[i]
@@ -5444,6 +5589,9 @@ export async function prepareSceneClips(
       await fs.rename(staged, clipPath)
       return ` [living: ${drawn.join(', ')}]`
     }
+    // Item 14 — the heading filters are built once and shared by the still and reveal paths.
+    const chapterTitle = await chapterTitleFilters(scene)
+    const wantsChapterTitle = chapterTitle.titleVfParts.length > 0
     if (reveal && !reusable.has(i)) {
       const revealPath = revealClipPath(tempDir, i)
       const rendered = await renderRevealClip({
@@ -5475,7 +5623,25 @@ export async function prepareSceneClips(
       })
       if (rendered.renderer === 'native-drift') nativeTally.native++
       await fs.unlink(path.join(tempDir, `reveal_drift_${String(i).padStart(4, '0')}.mp4`)).catch(() => {})
-      clipPaths[i] = revealPath
+      let finalClip = revealPath
+      if (wantsChapterTitle) {
+        // The reveal owns the picture; draw the chapter's heading (and its pool background
+        // under it) onto that clip instead of returning before the title filters run.
+        const background = chapterBackgroundPath.get(i)
+        const overlay = background
+          ? await chapterBackgroundArgs(background, chapterTitle.titleVfParts, chapterTitle.durationSec, 'setsar=1', renderDuration)
+          : null
+        const args = [
+          '-y', '-i', revealPath,
+          ...(overlay ? overlay.inputArgs : []),
+          ...(overlay ? overlay.outputArgs : ['-vf', [...chapterTitle.titleVfParts, 'format=yuv420p'].join(',')]),
+          ...sceneClipEncodeArgs(quality.crf, quality.fps, renderDuration),
+          clipPath,
+        ]
+        await (recovery?.encodeSceneClip || runFfmpeg)(args, { timeoutMs: 10 * 60_000 })
+        finalClip = clipPath
+      }
+      clipPaths[i] = finalClip
       preparedCount++
       job.output_lines.push(
         `Scene clips: ${preparedCount}/${scenes.length} done [reveal ${reveal.preset_id}${rendered.renderer === 'native-drift' ? ' native drift' : ''} `
@@ -5506,7 +5672,6 @@ export async function prepareSceneClips(
 
     // Native fast path: a still with a camera move, no chapter-title drawtext (that is an FFmpeg
     // filter), not footage. Anything else, and any failure, falls through to the FFmpeg chain below.
-    const wantsChapterTitle = !!(canDrawtext && chapterTitles?.enabled && scene.title && scene.show_title)
     if (nativeOn && !isVideoScene && !wantsChapterTitle) {
       let detail = ''
       try {
@@ -5576,130 +5741,17 @@ export async function prepareSceneClips(
     // Pad before overlays so their timing continues normally over the held frame.
     if (holdVideo) vfParts.push(`tpad=stop_mode=clone:stop_duration=${renderDuration}`)
 
-    // Chapter title overlay. v1.0.56+ optionally animates entry via
-    // drawtext's `alpha=` (fade) or `x=` / `y=` (slide) expressions.
-    // The legacy `animation: 'none'` (or missing field) emits exactly
-    // the same filtergraph string the pre-animation pipeline produced
-    // so older projects render byte-identically. See
-    // VideoChapterTitles.animation in types.ts for preset semantics.
-    // Item 14 — the chapter background is drawn UNDER the heading for the same
+    // Chapter title overlay (v1.0.56 animation semantics) — built once by
+    // `chapterTitleFilters` above so the still and reveal paths emit the same
+    // heading. Item 14: the chapter background is drawn UNDER it for the same
     // title window, so these filters must sit after the background overlay.
-    const titleVfParts: string[] = []
-    let chapterTitleDurationSec = 0
-    if (canDrawtext && chapterTitles?.enabled && scene.title && scene.show_title) {
-      // Size against the SHORT edge (identical to `h` on any landscape canvas),
-      // position against the height — a vertical fraction is still a vertical
-      // fraction in portrait, but `h/18` is nearly twice too big there.
-      const fontSize = getFontSize(chapterTitles.font_size, frameTextUnit(w, h))
-      const yPos = getTextPosition(chapterTitles.position, h)
-      let fontColor = getStyleColor(chapterTitles.style)
-      const titleDur = chapterTitles.duration || 3
-      chapterTitleDurationSec = titleDur
-      const anim = chapterTitles.animation || 'none'
-      // Cap the transition at duration/2 — a 1s fade-in plus 1s
-      // fade-out can't fit inside a 1.5s title. Sane minimum 0.05s
-      // avoids div-by-zero in the alpha/x/y expressions below.
-      const animDur = Math.max(0.05, Math.min(
-        chapterTitles.animation_duration ?? 0.5,
-        titleDur / 2,
-      ))
-      // 1.4.384 — an EXPLICIT chapter font changes the emitted graph, and only then.
-      // Nothing selected (no presentation, or no face resolved) leaves the string
-      // below exactly as it was, byte for byte — appearance rides the face and
-      // never reaches the graph on its own.
-      const staged = await stageChapterTitleFont(chapterTitles.chapter_title_presentation, tempDir)
-      const appearance = chapterTitleAppearance(chapterTitles.chapter_title_presentation)
-      let fontfileOpt = ''
-      let borderColor = 'black@0.6'
-      let borderWidth = 2
-      if (staged && appearance?.color) fontColor = normalizeDrawtextColor(appearance.color)
-      if (staged && typeof appearance?.outline === 'number' && Number.isFinite(appearance.outline)) {
-        borderWidth = Math.max(0, Math.min(12, Math.round(appearance.outline)))
-      }
-      if (borderWidth === 0) borderColor = 'black@0'
-      let lines = [String(scene.title)]
-      // The size drawtext is actually told: the style's own until a picked face fits it.
-      let drawFontSize = fontSize
-      if (staged) {
-        await assertChapterTitleCovers(staged, String(scene.title), `Chapter title "${scene.title}"`)
-        fontfileOpt = `:fontfile=${escapeChapterFontfile(staged.fontfile)}`
-        const layout = await layoutChapterTitle({
-          text: String(scene.title),
-          fontSize,
-          frameWidth: w,
-          frameHeight: h,
-          family: staged.family,
-          wrap: appearance?.wrap === true,
-          automaticFit: chapterTitles.chapter_title_presentation?.automatic_fit === true,
-        })
-        if (layout.fontSize !== fontSize) {
-          job.output_lines.push(`Chapter title: auto-fit ${fontSize}px → ${layout.fontSize}px for "${scene.title}".`)
-        }
-        drawFontSize = layout.fontSize
-        lines = layout.lines
-      }
-      const drawCommon = (line: string) => `text='${escapeDrawtext(line)}':fontsize=${drawFontSize}:fontcolor=${fontColor}:enable='lt(t,${titleDur})':borderw=${borderWidth}:bordercolor=${borderColor}${fontfileOpt}`
-      // A wrapped heading is ONE block. Each line used to take the single-line
-      // position for itself and then step down, so a centred block hung below
-      // centre and a bottom block walked straight off the frame; the position
-      // now anchors the whole measured block and the lines step within it.
-      const lineStepPx = Math.round(drawFontSize * 1.18)
-      const yForLine = (lineIndex: number): string => {
-        if (lines.length === 1) return yPos
-        const offset = lineIndex * lineStepPx
-        if (chapterTitles.position === 'top') return String(Math.round(h * 0.08) + offset)
-        if (chapterTitles.position === 'bottom') {
-          return String(Math.round(h * 0.85) - (lines.length - 1) * lineStepPx + offset)
-        }
-        return `((h-${lines.length * lineStepPx})/2)+${offset}`
-      }
-      lines.forEach((line, lineIndex) => {
-        const shiftedY = yForLine(lineIndex)
-        let drawXY = `x=(w-text_w)/2:y=${shiftedY}`
-        let drawAlpha = ''
-        switch (anim) {
-          case 'fade-in-out': {
-            // alpha 0→1 over animDur, hold, 1→0 over animDur. The
-            // `enable=` gate above kills the drawtext past titleDur so
-            // we don't have to worry about negative alpha clamping.
-            drawAlpha = `:alpha='if(lt(t,${animDur.toFixed(3)}),t/${animDur.toFixed(3)},if(lt(t,${(titleDur - animDur).toFixed(3)}),1,(${titleDur.toFixed(3)}-t)/${animDur.toFixed(3)}))'`
-            break
-          }
-          case 'slide-from-left': {
-            // Start offscreen-left (x = -text_w), lerp to centered.
-            // After animDur, hold at center until enable= hides it.
-            drawXY = `x='if(lt(t,${animDur.toFixed(3)}),-text_w+((w+text_w)/2)*(t/${animDur.toFixed(3)}),(w-text_w)/2)':y=${shiftedY}`
-            break
-          }
-          case 'slide-from-right': {
-            // Start offscreen-right (x = w), lerp to centered.
-            drawXY = `x='if(lt(t,${animDur.toFixed(3)}),w-((w+text_w)/2)*(t/${animDur.toFixed(3)}),(w-text_w)/2)':y=${shiftedY}`
-            break
-          }
-          case 'slide-up': {
-            // Start below the frame (y = h), lerp upward to yPos.
-            // yPos may be a literal (e.g. '86') or an expression (e.g.
-            // '(h-text_h)/2') — both substitute fine.
-            drawXY = `x=(w-text_w)/2:y='if(lt(t,${animDur.toFixed(3)}),h-(h-(${shiftedY}))*(t/${animDur.toFixed(3)}),${shiftedY})'`
-            break
-          }
-          case 'none':
-          default:
-            // No animation — leave drawXY at static center+yPos and
-            // drawAlpha empty so the emitted string matches the
-            // pre-v1.0.56 output exactly.
-            break
-        }
-        titleVfParts.push(`drawtext=${drawCommon(line)}:${drawXY}${drawAlpha}`)
-      })
-    }
 
     // Item 14 — a chapter boundary draws its channel background for the same
     // title window the heading occupies. No pick, no title or no pool leaves
     // the graph byte-identical to today's render.
     const chapterBackground = chapterBackgroundPath.get(i)
-    const useChapterBackground = !!chapterBackground && wantsChapterTitle && chapterTitleDurationSec > 0
-    if (!useChapterBackground) vfParts.push(...titleVfParts, 'format=yuv420p')
+    const useChapterBackground = !!chapterBackground && wantsChapterTitle && chapterTitle.durationSec > 0
+    if (!useChapterBackground) vfParts.push(...chapterTitle.titleVfParts, 'format=yuv420p')
 
     // Explicit bt709 color tagging to match prepareTitleClip, prepareOutroClip
     // and commonPostArgs. Without this, scene clips emit "unspecified" color
@@ -5752,19 +5804,13 @@ export async function prepareSceneClips(
         : [...stillDecoder, '-loop', '1', '-t', renderDuration.toString(), '-i', scene.image_path]
     let args: string[]
     if (useChapterBackground) {
-      const bgVideo = /\.(mp4|mov|webm|mkv|m4v)$/i.test(chapterBackground!)
-      const bgInput = bgVideo
-        ? ['-stream_loop', '-1', '-i', chapterBackground!]
-        : [...(await stillDecoderArgs(chapterBackground!)), '-loop', '1', '-t', renderDuration.toString(), '-i', chapterBackground!]
-      // The background replaces the picture only inside the heading window; the
-      // scene's own camera move keeps running underneath for when it returns.
-      const bgChain = `[1:v]scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h},setsar=1,fps=${quality.fps}[bg]`
-      const composed = `[0:v]${vfParts.join(',')},setsar=1[scene];${bgChain};`
-        + `[scene][bg]overlay=enable='lt(t,${chapterTitleDurationSec})'[withbg];`
-        + `[withbg]${titleVfParts.join(',')},format=yuv420p[out]`
+      const overlay = await chapterBackgroundArgs(
+        chapterBackground!, chapterTitle.titleVfParts, chapterTitle.durationSec,
+        [...vfParts, 'setsar=1'].join(','), renderDuration,
+      )
       args = [
-        '-y', ...inputArgs, ...bgInput,
-        '-filter_complex', composed, '-map', '[out]',
+        '-y', ...inputArgs, ...overlay.inputArgs,
+        ...overlay.outputArgs,
         // Exact output duration (window + optional xfade tail), bt709 tags (see above).
         ...sceneClipEncodeArgs(quality.crf, quality.fps, renderDuration),
         clipPath,
