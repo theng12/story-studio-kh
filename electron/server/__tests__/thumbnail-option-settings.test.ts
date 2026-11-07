@@ -270,19 +270,23 @@ test('regression: approved style longer than 1000 characters roundtrips through 
   assert.equal(ThumbnailOptionStoredSchema.safeParse({ style_tag: overCeiling }).success, false)
   assert.equal(ThumbnailOptionUpdateSchema.safeParse({ number: 1, style_tag: overCeiling }).success, false)
 
-  // 3. Generator initialization verification: options[1-3] initialized with long style
-  // (the exact failure mode of MineePod EP20 image_prompts thumbnails job pipeline-handoff-7d5b434d7f7d8374fbaaae43)
-  await initializeThumbnailOptions(slug, code, [1, 2], { style_tag: longStyle })
-  const settings = await readThumbnailOptionSettings(slug, code)
+  // New generation starts without sidecar selections; existing user choices must survive initialization.
+  const regressionCode = 'EP0003'
+  const { resolveEpisodePaths } = await import('../services/utils.js')
+  const regressionPaths = await resolveEpisodePaths(slug, regressionCode, '')
+  await fs.mkdir(path.dirname(regressionPaths.thumb_prompts_docx), { recursive: true })
+  await fs.writeFile(regressionPaths.thumb_prompts_docx, promptsFile(PROMPT_1), 'utf8')
+  await initializeThumbnailOptions(slug, regressionCode, [1, 2], { style_tag: longStyle })
+  const settings = await readThumbnailOptionSettings(slug, regressionCode)
   assert.equal(settings.options['1']?.style_tag, longStyle, 'option 1 must preserve exact style bytes')
   assert.equal(settings.options['2']?.style_tag, longStyle, 'option 2 must preserve exact style bytes')
 
   // 4. API update verification: PUT preserves exact bytes and GET returns them
-  const put = await request(app).put(optionsEndpoint(code)).send({ number: 1, style_tag: longStyle })
+  const put = await request(app).put(optionsEndpoint(regressionCode)).send({ number: 1, style_tag: longStyle })
   assert.equal(put.status, 200)
   assert.equal(put.body.options[1].style_tag, longStyle)
 
-  const get = await request(app).get(optionsEndpoint(code))
+  const get = await request(app).get(optionsEndpoint(regressionCode))
   assert.equal(get.status, 200)
   assert.equal(get.body.options[1].style_tag, longStyle, 'GET must return exact style bytes')
   assert.equal(get.body.options[1].style_tag.length, longStyle.length)
