@@ -47,12 +47,15 @@ import { chapterForTime, readSectionClock, sectionWindows } from '../services/tr
 import { resolveEpisodePathsByCode } from '../services/utils.js'
 import * as pm from '../services/project-manager.js'
 import { listPresets, readFontPoolCursor } from '../services/still-posts.js'
+import { bindChapterTitleFontDurably } from './chapter-title-binding-store.js'
 
 /** One scene's answer: draw a heading or do not, and the text to draw. */
 export interface ChapterTitleSceneBinding {
   show_title: boolean
   /** The chapter heading, only when `show_title` is true. null = keep the caller's own title. */
   title: string | null
+  /** The chapter this scene opens, or null when it draws no heading. */
+  chapter_slug: string | null
 }
 
 /** The chapter clock's shape this module needs — the same rows `sectionWindows` returns. */
@@ -76,17 +79,33 @@ export function chapterHeadingFor(slug: string, headings?: Record<string, string
 }
 
 /**
+ * A section the owner does not want titled: the branded/spoken Introduction
+ * and the outro are not content chapters. The same "Introduction" rule the
+ * intro-lead-in clock uses, so the title moment and the story-start clock
+ * agree on where content begins.
+ */
+export function isNonContentChapterSlug(slug: string): boolean {
+  const value = String(slug || '').trim()
+  return /^introduction$/i.test(value) || /^intro\b/i.test(value) || /^outro\b/i.test(value)
+}
+
+/**
  * Which scenes open a chapter, and what they say.
  *
  * A scene opens a chapter when the chapter its start time falls in differs from
  * the chapter the previous scene fell in — so a chapter that spans several
  * scenes titles only its first, and a scene that lands in a gap still belongs
- * to the nearer chapter rather than inventing a fourth one.
+ * to the nearer chapter rather than inventing a fourth one. Introduction and
+ * outro sections are not content chapters and carry no heading.
  *
  * `leadInShiftSec` is `audio_lead_in_shift_sec`: when the plan was timed
  * without the merged audio's intro lead-in, every scene's clock sits that many
  * seconds behind the chapter clock and is moved forward here. Passing it is
  * what keeps the binding honest on a music-lead-in episode.
+ *
+ * A scene with no start time among scenes that have one is refused rather than
+ * coerced to 0: a silent 0 would land a heading on whatever chapter covers the
+ * first second, which is exactly the wrong heading on the wrong scene.
  */
 export function bindChapterTitlesToScenes(input: {
   scenes: Array<{ start_sec?: number }>
@@ -95,22 +114,33 @@ export function bindChapterTitlesToScenes(input: {
   leadInShiftSec?: number
 }): ChapterTitleSceneBinding[] {
   const { scenes, windows } = input
-  const keep = (): ChapterTitleSceneBinding => ({ show_title: false, title: null })
+  const keep = (): ChapterTitleSceneBinding => ({ show_title: false, title: null, chapter_slug: null })
   if (!scenes.length || !windows.length) return scenes.map(keep)
+  const clocked = scenes.filter(scene => Number.isFinite(Number(scene.start_sec))).length
+  if (clocked > 0 && clocked < scenes.length) {
+    const missing = scenes.findIndex(scene => !Number.isFinite(Number(scene.start_sec)))
+    throw new Error(
+      `Chapter titles are switched on, but scene ${missing + 1} has no start time. `
+      + 'A missing scene clock cannot be guessed — re-time the Scene Plan, or switch chapter titles off for this render.',
+    )
+  }
   // No scene carries a clock (an Image Pool render): chapter membership is
   // unknowable, so nothing is titled rather than something guessed.
-  if (!scenes.some(scene => Number.isFinite(Number(scene.start_sec)))) return scenes.map(keep)
+  if (!clocked) return scenes.map(keep)
 
   const shift = Number(input.leadInShiftSec) > 0 ? Number(input.leadInShiftSec) : 0
   let previous: string | null = null
   return scenes.map((scene) => {
     const raw = Number(scene.start_sec)
-    const at = (Number.isFinite(raw) ? raw : 0) + shift
+    const at = raw + shift
     const slug = chapterForTime(windows as ChapterWindow[], at)
     if (!slug) return keep()
     const opens = slug !== previous
     previous = slug
-    return opens ? { show_title: true, title: chapterHeadingFor(slug, input.headings) } : keep()
+    if (isNonContentChapterSlug(slug)) return keep()
+    return opens
+      ? { show_title: true, title: chapterHeadingFor(slug, input.headings), chapter_slug: slug }
+      : keep()
   })
 }
 
@@ -153,9 +183,9 @@ export function chapterTitleSeedRng(seed: string): () => number {
  * Missing or unreadable narration is an empty map — a fallback label, never a
  * failure (AGENTS §8: the honest answer, not a thrown render).
  */
-export async function readChapterHeadings(slug: string, episodeId: string): Promise<Record<string, string>> {
-  const paths = await resolveEpisodePathsByCode(slug, episodeId)
-  const sections = await parseNarrationDocx(paths.narration_docx).catch(() => [])
+export async function readChapterHeadings(slug: string, episodeId: string, narrationDocx?: string): Promise<Record<string, string>> {
+  const docx = narrationDocx || (await resolveEpisodePathsByCode(slug, episodeId)).narration_docx
+  const sections = await parseNarrationDocx(docx).catch(() => [])
   const headings: Record<string, string> = {}
   for (const section of sections) {
     const title = String(section?.title || '').trim()
@@ -203,9 +233,10 @@ export interface AutomaticChapterTitles {
  * The whole automatic answer for one render, or null when the feature is off.
  *
  * Null means "keep today's behaviour exactly" — the caller then leaves
- * `show_title` false and the presentation alone. Everything else comes back
- * with a note explaining anything that could not be resolved, so a render that
- * shows no headings says why instead of quietly doing nothing.
+ * `show_title` false and the presentation alone. An enabled feature is a
+ * requirement, not a preference: a missing chapter clock or a mixed scene
+ * clock throws a plain, actionable message instead of quietly rendering a
+ * video with no headings the customer asked for.
  */
 export async function applyAutomaticChapterTitles(opts: {
   slug: string
@@ -218,19 +249,28 @@ export async function applyAutomaticChapterTitles(opts: {
   if (!opts.enabled) return null
   const notes: string[] = []
   const presentation = opts.presentation ?? null
+  const paths = await resolveEpisodePathsByCode(opts.slug, opts.episodeId)
 
   let windows: ChapterWindow[] = []
   try {
     windows = sectionWindows(await readSectionClock(opts.slug, opts.episodeId))
-  } catch {
-    notes.push('The chapter clock could not be read for this episode, so no chapter headings were added. Run Audio Assembly, then render again.')
-    return { scenes: opts.scenes.map(() => ({ show_title: false, title: null })), presentation, notes }
+  } catch (error: any) {
+    throw new Error(
+      `Chapter titles are switched on, so the chapter clock is required: ${error?.message || error}`,
+      { cause: error },
+    )
   }
-  if (!windows.length || !opts.scenes.length) {
-    return { scenes: opts.scenes.map(() => ({ show_title: false, title: null })), presentation, notes }
+  if (!windows.length) {
+    throw new Error(
+      'Chapter titles are switched on, but this episode has no chapters to title. '
+      + 'Run Audio Assembly so its chapters exist, or switch chapter titles off for this render.',
+    )
+  }
+  if (!opts.scenes.length) {
+    return { scenes: [], presentation, notes }
   }
 
-  const headings = await readChapterHeadings(opts.slug, opts.episodeId).catch(() => ({}))
+  const headings = await readChapterHeadings(opts.slug, opts.episodeId, paths.narration_docx).catch(() => ({}))
   if (!Object.keys(headings).length) {
     notes.push('The narration names no chapter titles, so headings use each chapter\'s own label (Chapter 01, Chapter 02, …).')
   }
@@ -244,9 +284,13 @@ export async function applyAutomaticChapterTitles(opts: {
   if (!opener?.title) return { scenes, presentation, notes }
 
   // The font only matters where a heading is actually drawn.
-  const { pool, cursor } = await readChannelFontPool(opts.slug, chapterTitleScriptFor(opener.title)).catch(() => ({ pool: null, cursor: null }))
-  const bound = bindChapterTitleFont(presentation, pool, {
-    cursor,
+  const { pool } = await readChannelFontPool(opts.slug, chapterTitleScriptFor(opener.title)).catch(() => ({ pool: null, cursor: null }))
+  const bound = await bindChapterTitleFontDurably({
+    slug: opts.slug,
+    episodeDir: paths.episode_dir,
+    script: chapterTitleScriptFor(opener.title),
+    pool,
+    presentation,
     rng: chapterTitleSeedRng(opts.episodeId),
   })
   if (bound !== presentation && !presentation?.font_id && !presentation?.resolved_font_id && presentation?.channel_look !== false) {

@@ -116,6 +116,9 @@ const FIELD_POLICY = {
   narrationOffsetSec: 'captured-authority',
   segmentation: 'optimizer-hint',
   stillTailFromSec: 'optimizer-hint',
+  // Drawn by the local composer after the base video; not part of the exported
+  // recipe, so it must never be classified as one.
+  sleepTitle: 'local-orchestration',
   job: 'local-orchestration',
 } as const satisfies Record<keyof CompositionOpts, 'source' | 'recipe' | 'captured-authority' | 'local-orchestration' | 'optimizer-hint' | 'unsupported-when-active'>
 
@@ -126,7 +129,7 @@ test('every current composition option has an explicit export policy', () => {
     'agedArchiveFilm', 'letterbox', 'frame', 'subtitles', 'contextualCues', 'sceneEffects',
     'episodeStack', 'excludeIntroFromEffects', 'preSceneDuration', 'sceneTimelineOffsetSec',
     'postAudioStart', 'encodingEffort', 'codec', 'videoBitrateKbps', 'resolvedLoudness', 'finalCheckExpected', 'narrationOffsetSec',
-    'segmentation', 'stillTailFromSec', 'job',
+    'segmentation', 'stillTailFromSec', 'sleepTitle', 'job',
   ])
 })
 

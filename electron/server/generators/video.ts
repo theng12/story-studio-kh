@@ -42,6 +42,8 @@ import { assertDecodableImage, isDecodableImage } from '../lib/image-validation.
 import { getFFmpegPath } from '../services/ffmpeg-manager.js'
 import { bundledFontsFilterOption } from '../lib/subtitle-font-dir.js'
 import { stageChapterTitleFont, escapeChapterFontfile, layoutChapterTitle, chapterTitleAppearance, assertChapterTitleCovers } from '../lib/chapter-title-font.js'
+import { applyAutomaticChapterTitles } from '../lib/chapter-title-binding.js'
+import { peekChapterBackground, recordChapterBackgroundPick, resolveChapterBackground } from '../services/chapter-background-pool.js'
 import { assertValidMedia, getMediaInfo, summarizeMedia, fileExistsNonEmpty } from '../lib/ffmpeg-validation.js'
 import { checkPictureLength } from '../lib/final-duration-guard.js'
 import { planTransitions, buildXfadeFilterComplex, buildVariableXfadeFilterComplex, buildEngineTransitionFilterComplex, fallbackXfadeKeywords, hasTransitionEngine } from '../lib/transition-filters.js'
@@ -2679,6 +2681,8 @@ export async function prepareUnifiedVideoAssemblyInputs(
     scene_number: scene.planned_scene_index || scene.number,
     title: `Scene ${scene.planned_scene_index || scene.number}`,
     show_title: false,
+    // Item 18: the chapter binding reads each scene's own plan clock.
+    start_sec: scene.start_sec,
     __scene_plan_duration: true,
     clip_shortfall_mode: scene.clip_shortfall_mode,
   }))
@@ -2702,6 +2706,30 @@ export async function prepareUnifiedVideoAssemblyInputs(
       + `from narration at 0s. Scene 1 holds through the intro and every later scene moves ${leadInShiftSec.toFixed(2)}s; `
       + 'captions already follow the merged audio. Nothing is re-made.',
     )
+  }
+  // Item 18 — automatic chapter-only headings, backed by the plan's own clock
+  // and bound to the channel font pool. Off keeps today's render untouched.
+  const autoChapterTitles = await applyAutomaticChapterTitles({
+    slug,
+    episodeId,
+    enabled: req.chapter_titles?.enabled === true,
+    scenes: req.scenes.map(scene => ({ start_sec: scene.start_sec })),
+    leadInShiftSec,
+    presentation: req.chapter_titles?.chapter_title_presentation ?? null,
+  })
+  if (autoChapterTitles) {
+    autoChapterTitles.scenes.forEach((binding, index) => {
+      const scene = req.scenes[index]
+      if (!scene) return
+      scene.show_title = binding.show_title
+      if (binding.title) scene.title = binding.title
+      // The same boundary the heading opens is the chapter-background boundary.
+      scene.chapter_slug = binding.show_title ? binding.chapter_slug ?? undefined : undefined
+    })
+    if (autoChapterTitles.presentation && req.chapter_titles) {
+      req.chapter_titles = { ...req.chapter_titles, chapter_title_presentation: autoChapterTitles.presentation }
+    }
+    for (const note of autoChapterTitles.notes) job?.output_lines.push(note)
   }
   await hydrateEpisodeRenderCues(slug, episodeId, req, job, false, leadInShiftSec, new Map(
     available.filter(scene => scene.plan_scene_id && scene.still_path)
@@ -3420,6 +3448,114 @@ export async function generateVideo(job: Job): Promise<VideoAssemblyDisposition>
       }),
     }
 
+    // ── Sleep title (v1.4.386, item 15): shown ONCE, after the intro ────────
+    // Owner rule: a sleep video's title appears after the branded intro clip
+    // AND after the spoken "Introduction" chapter — over the picture that
+    // already plays there, never as an extra head clip (that would move every
+    // scene off its narration). The head slot keeps exactly the duration
+    // today's title clip would have occupied, so the opening clock is
+    // unchanged; the title itself is drawn later by `sleepTitle` in the final
+    // composition. Sleep detection reads the project's effective Formula
+    // document (family / starting_scene_pacing / id) — never a name match.
+    let sleepPlacement: SleepTitlePlacementResult | null = null
+    let sleepOpeningKeepSec = 0
+    try {
+      const sleepNiche = await getEffectiveNiche(project_slug).catch(() => null)
+      const sleepFacts: SleepVideoContext | null = sleepNiche ? {
+        id: sleepNiche.id,
+        formulaFamily: sleepNiche.formulaFamily,
+        starting_scene_pacing: (sleepNiche as SleepVideoContext & { starting_scene_pacing?: unknown }).starting_scene_pacing,
+      } : null
+      if (isSleepNiche(sleepFacts)) {
+        // The spoken Introduction's end — the SAME clock Scene Plan's intro
+        // skip and the intro-hold route use (lib/intro-lead-in.ts).
+        let spokenStoryStartSec = 0
+        try {
+          const chaptersPath = path.join(episodeDir, 'audio_chapters.json')
+          if (existsSync(chaptersPath)) {
+            const sc = JSON.parse(await fs.readFile(chaptersPath, 'utf-8'))
+            const story = await computeStoryStartSec(
+              req.merged_audio_path || null,
+              sc.sections || [],
+              Number(sc.gap_duration_s) || 0,
+            )
+            spokenStoryStartSec = story?.story_start_sec || 0
+          }
+        } catch { /* no chapter clock: the title falls back to after the branded opening */ }
+        // What TODAY's render would put in the head title slot (post-suppression).
+        const headTitleWouldPlay = !!(
+          (req.title_image?.enabled && (req.title_image.image_path || authoritativeAssets.thumbnails[0]?.path))
+          || (req.title_card?.enabled && !!req.title_card.text?.trim() && canDrawtext)
+        )
+        const headTitleDurationSec = (req.title_card?.enabled && req.title_card.text?.trim() && canDrawtext)
+          ? Math.max(1, Number(req.title_card.duration) || 5)
+          : (typeof req.title_image?.duration === 'number' && req.title_image.duration > 0 ? req.title_image.duration : 5)
+        sleepPlacement = resolveSleepTitlePlacement({
+          project: sleepFacts,
+          title_image: req.title_image,
+          title_card: req.title_card,
+          intro: req.intro,
+          intro_audio: { has_intro_chapter: spokenStoryStartSec > 0, story_start_sec: spokenStoryStartSec },
+          thumbnail_path: authoritativeAssets.thumbnails[0]?.path,
+          default_title_text: titleHint || undefined,
+          can_drawtext: canDrawtext,
+        })
+        const openingPlan = sleepTitleOpeningPlan(sleepPlacement, {
+          head_title_would_play: headTitleWouldPlay,
+          head_title_duration_sec: headTitleDurationSec,
+        })
+        if (openingPlan.suppress_opening_title) {
+          sleepOpeningKeepSec = openingPlan.opening_slot_keep_sec
+          if (req.title_image) req.title_image = { ...req.title_image, enabled: false }
+          if (req.title_card) req.title_card = { ...req.title_card, enabled: false }
+        }
+        if (sleepPlacement.display_title) {
+          job.output_lines.push(
+            `Sleep title: ${sleepPlacement.explanation}`
+            + (sleepOpeningKeepSec > 0
+              ? ` The opening keeps its ${sleepOpeningKeepSec.toFixed(1)}s window on scene 1's picture — no duration is added.`
+              : ''),
+          )
+        } else {
+          job.output_lines.push(`Sleep title: ${sleepPlacement.explanation}`)
+        }
+      }
+    } catch (e: any) {
+      sleepPlacement = null
+      sleepOpeningKeepSec = 0
+      job.output_lines.push(`Sleep title: could not resolve (${e?.message || e}) — rendering without it.`)
+    }
+
+    // Item 15 — the ONE title overlay both layouts draw. The window is on the
+    // composed clock: `pre_scene_sec` where the scene track starts and the
+    // narration lead-in the premix adds. It never adds duration or a clip.
+    const sleepTitleForClock = (clock: { pre_scene_sec: number; narration_lead_in_sec: number }) => {
+      if (!sleepPlacement?.display_title) return undefined
+      const window = sleepTitleOverlayWindow(sleepPlacement, clock)
+      if (!window) return undefined
+      if (sleepPlacement.title_type === 'title_image') {
+        const source = sleepPlacement.effective_title_image.image_path
+        if (source && checkAssetAvailability(source, 'title_image.image_path').status === 'available') {
+          return { source_path: source, start_s: window.start_s, end_s: window.end_s }
+        }
+        job.output_lines.push('Sleep title: the title image is unavailable — falling back to the title text.')
+      }
+      const text = sleepPlacement.effective_title_card.text?.trim()
+      if (text && canDrawtext) {
+        return {
+          text,
+          subtitle: sleepPlacement.effective_title_card.subtitle?.trim() || undefined,
+          style: sleepPlacement.effective_title_card.style,
+          start_s: window.start_s,
+          end_s: window.end_s,
+        }
+      }
+      job.output_lines.push(text
+        ? 'Sleep title: this FFmpeg build has no drawtext filter — no title shown.'
+        : 'Sleep title: no title text or image is available — no title shown.')
+      return undefined
+    }
+
     // ── Compilation video layout (Path C / v1.0.63+) ─────────────────────
     // When the request opts into compilation mode, the standard scene-
     // clip pipeline below is bypassed entirely. Instead we render a
@@ -3533,6 +3669,7 @@ export async function generateVideo(job: Job): Promise<VideoAssemblyDisposition>
           },
           finalCheckExpected: compExpected,
           narrationOffsetSec: 0,
+          sleepTitle: sleepTitleForClock({ pre_scene_sec: 0, narration_lead_in_sec: 0 }),
           job,
         })
         if (compositionResult?.kind === 'video-assembly-remote-wait') {
@@ -3790,6 +3927,11 @@ export async function generateVideo(job: Job): Promise<VideoAssemblyDisposition>
       sceneClipDurations = frameExactSceneDurations(sceneClipDurations, quality.fps)
     }
 
+    // Item 14 — the scenes a chapter heading opens are its background boundaries.
+    const chapterBackgroundBoundaries = new Map<number, string>()
+    req.scenes.forEach((scene, index) => {
+      if (scene.show_title && scene.chapter_slug) chapterBackgroundBoundaries.set(index, scene.chapter_slug)
+    })
     let sceneClips: string[] = []
     if (authoritativeAssets.visual_source !== 'image_pool') {
       sceneClips = await prepareSceneClips(
@@ -3807,6 +3949,9 @@ export async function generateVideo(job: Job): Promise<VideoAssemblyDisposition>
           native: { enabled: planTransitionTail > 0 },
           ...(sceneStage?.byScene.size ? { sceneStage: { byScene: sceneStage.byScene, episodeDir } } : {}),
           ...(sceneVision ? { vision: sceneVision } : {}),
+          ...(chapterBackgroundBoundaries.size
+            ? { chapterBackgrounds: { slug: project_slug, episodeCode: code, byIndex: chapterBackgroundBoundaries } }
+            : {}),
         },
         sceneClipDurations,
         exactSceneTiming ? planTransitionTail : 0,
@@ -3862,83 +4007,6 @@ export async function generateVideo(job: Job): Promise<VideoAssemblyDisposition>
       }
     }
 
-    // ── Sleep title (v1.4.386, item 15): shown ONCE, after the intro ────────
-    // Owner rule: a sleep video's title appears after the branded intro clip
-    // AND after the spoken "Introduction" chapter — over the picture that
-    // already plays there, never as an extra head clip (that would move every
-    // scene off its narration). The head slot keeps exactly the duration
-    // today's title clip would have occupied, so the opening clock is
-    // unchanged; the title itself is drawn later by `sleepTitle` in the final
-    // composition. Sleep detection reads the project's effective Formula
-    // document (family / starting_scene_pacing / id) — never a name match.
-    let sleepPlacement: SleepTitlePlacementResult | null = null
-    let sleepOpeningKeepSec = 0
-    try {
-      const sleepNiche = await getEffectiveNiche(project_slug).catch(() => null)
-      const sleepFacts: SleepVideoContext | null = sleepNiche ? {
-        id: sleepNiche.id,
-        formulaFamily: sleepNiche.formulaFamily,
-        starting_scene_pacing: (sleepNiche as SleepVideoContext & { starting_scene_pacing?: unknown }).starting_scene_pacing,
-      } : null
-      if (isSleepNiche(sleepFacts)) {
-        // The spoken Introduction's end — the SAME clock Scene Plan's intro
-        // skip and the intro-hold route use (lib/intro-lead-in.ts).
-        let spokenStoryStartSec = 0
-        try {
-          const chaptersPath = path.join(episodeDir, 'audio_chapters.json')
-          if (existsSync(chaptersPath)) {
-            const sc = JSON.parse(await fs.readFile(chaptersPath, 'utf-8'))
-            const story = await computeStoryStartSec(
-              req.merged_audio_path || null,
-              sc.sections || [],
-              Number(sc.gap_duration_s) || 0,
-            )
-            spokenStoryStartSec = story?.story_start_sec || 0
-          }
-        } catch { /* no chapter clock: the title falls back to after the branded opening */ }
-        // What TODAY's render would put in the head title slot (post-suppression).
-        const headTitleWouldPlay = !!(
-          (req.title_image?.enabled && (req.title_image.image_path || authoritativeAssets.thumbnails[0]?.path))
-          || (req.title_card?.enabled && !!req.title_card.text?.trim() && canDrawtext)
-        )
-        const headTitleDurationSec = (req.title_card?.enabled && req.title_card.text?.trim() && canDrawtext)
-          ? Math.max(1, Number(req.title_card.duration) || 5)
-          : (typeof req.title_image?.duration === 'number' && req.title_image.duration > 0 ? req.title_image.duration : 5)
-        sleepPlacement = resolveSleepTitlePlacement({
-          project: sleepFacts,
-          title_image: req.title_image,
-          title_card: req.title_card,
-          intro: req.intro,
-          intro_audio: { has_intro_chapter: spokenStoryStartSec > 0, story_start_sec: spokenStoryStartSec },
-          thumbnail_path: authoritativeAssets.thumbnails[0]?.path,
-          default_title_text: titleHint || undefined,
-          can_drawtext: canDrawtext,
-        })
-        const openingPlan = sleepTitleOpeningPlan(sleepPlacement, {
-          head_title_would_play: headTitleWouldPlay,
-          head_title_duration_sec: headTitleDurationSec,
-        })
-        if (openingPlan.suppress_opening_title) {
-          sleepOpeningKeepSec = openingPlan.opening_slot_keep_sec
-          if (req.title_image) req.title_image = { ...req.title_image, enabled: false }
-          if (req.title_card) req.title_card = { ...req.title_card, enabled: false }
-        }
-        if (sleepPlacement.display_title) {
-          job.output_lines.push(
-            `Sleep title: ${sleepPlacement.explanation}`
-            + (sleepOpeningKeepSec > 0
-              ? ` The opening keeps its ${sleepOpeningKeepSec.toFixed(1)}s window on scene 1's picture — no duration is added.`
-              : ''),
-          )
-        } else {
-          job.output_lines.push(`Sleep title: ${sleepPlacement.explanation}`)
-        }
-      }
-    } catch (e: any) {
-      sleepPlacement = null
-      sleepOpeningKeepSec = 0
-      job.output_lines.push(`Sleep title: could not resolve (${e?.message || e}) — rendering without it.`)
-    }
 
     // Optional: drop intro captions from the BURN copy (welcome / CTA / breathing).
     // The full SRT sidecar (YouTube upload) is left untouched — we burn a trimmed
@@ -4590,35 +4658,7 @@ export async function generateVideo(job: Job): Promise<VideoAssemblyDisposition>
     // Sleep title (item 15): ONE window on the composed clock, after the
     // intro, drawn over picture that already exists — never a head clip, so
     // the render's total duration and every other clock stay untouched.
-    const sleepTitle = (() => {
-      if (!sleepPlacement?.display_title) return undefined
-      const window = sleepTitleOverlayWindow(sleepPlacement, {
-        pre_scene_sec: preSceneDuration,
-        narration_lead_in_sec: narrationLeadInSec,
-      })
-      if (!window) return undefined
-      if (sleepPlacement.title_type === 'title_image') {
-        const source = sleepPlacement.effective_title_image.image_path
-        if (source && checkAssetAvailability(source, 'title_image.image_path').status === 'available') {
-          return { source_path: source, start_s: window.start_s, end_s: window.end_s }
-        }
-        job.output_lines.push('Sleep title: the title image is unavailable — falling back to the title text.')
-      }
-      const text = sleepPlacement.effective_title_card.text?.trim()
-      if (text && canDrawtext) {
-        return {
-          text,
-          subtitle: sleepPlacement.effective_title_card.subtitle?.trim() || undefined,
-          style: sleepPlacement.effective_title_card.style,
-          start_s: window.start_s,
-          end_s: window.end_s,
-        }
-      }
-      job.output_lines.push(text
-        ? 'Sleep title: this FFmpeg build has no drawtext filter — no title shown.'
-        : 'Sleep title: no title text or image is available — no title shown.')
-      return undefined
-    })()
+    const sleepTitle = sleepTitleForClock({ pre_scene_sec: preSceneDuration, narration_lead_in_sec: narrationLeadInSec })
 
     let encodeSucceeded = false
     try {
@@ -5182,6 +5222,9 @@ export async function prepareSceneClips(
     crf?: number
     /** Light sharpening of smaller stills while they are upscaled to the canvas (request `upscale_sharpen`). */
     upscaleSharpen?: 'off' | 'light'
+    /** Item 14 — chapter-opening scene index → its chapter slug, rendered in
+     *  serial peek → render → record order so the rotation never pre-picks. */
+    chapterBackgrounds?: { slug: string; episodeCode: string; byIndex: Map<number, string> }
     /**
      * Render still scenes with the native Metal/VideoToolbox helper, falling back to FFmpeg per clip.
      *
@@ -5309,6 +5352,7 @@ export async function prepareSceneClips(
   // cores for the rest of the app. Per-clip work + errors stay per-scene.
   const PREP_CONCURRENCY = Math.max(2, Math.min(4, os.cpus().length - 2))
   let preparedCount = 0
+  const chapterBackgroundPath = new Map<number, string>()
   job.output_lines.push(`Preparing ${scenes.length} scene clip(s) — up to ${PREP_CONCURRENCY} in parallel…`)
 
   // Native fast path (Metal + VideoToolbox). Decided once; every clip still falls back on its own.
@@ -5329,6 +5373,7 @@ export async function prepareSceneClips(
   }
 
   const prepOne = async (i: number): Promise<void> => {
+    if (clipPaths[i]) return
     const scene = scenes[i]
     const clipPath = path.join(tempDir, `scene_${String(i).padStart(4, '0')}.mp4`)
 
@@ -5537,6 +5582,10 @@ export async function prepareSceneClips(
     // the same filtergraph string the pre-animation pipeline produced
     // so older projects render byte-identically. See
     // VideoChapterTitles.animation in types.ts for preset semantics.
+    // Item 14 — the chapter background is drawn UNDER the heading for the same
+    // title window, so these filters must sit after the background overlay.
+    const titleVfParts: string[] = []
+    let chapterTitleDurationSec = 0
     if (canDrawtext && chapterTitles?.enabled && scene.title && scene.show_title) {
       // Size against the SHORT edge (identical to `h` on any landscape canvas),
       // position against the height — a vertical fraction is still a vertical
@@ -5545,6 +5594,7 @@ export async function prepareSceneClips(
       const yPos = getTextPosition(chapterTitles.position, h)
       let fontColor = getStyleColor(chapterTitles.style)
       const titleDur = chapterTitles.duration || 3
+      chapterTitleDurationSec = titleDur
       const anim = chapterTitles.animation || 'none'
       // Cap the transition at duration/2 — a 1s fade-in plus 1s
       // fade-out can't fit inside a 1.5s title. Sane minimum 0.05s
@@ -5640,11 +5690,16 @@ export async function prepareSceneClips(
             // pre-v1.0.56 output exactly.
             break
         }
-        vfParts.push(`drawtext=${drawCommon(line)}:${drawXY}${drawAlpha}`)
+        titleVfParts.push(`drawtext=${drawCommon(line)}:${drawXY}${drawAlpha}`)
       })
     }
 
-    vfParts.push('format=yuv420p')
+    // Item 14 — a chapter boundary draws its channel background for the same
+    // title window the heading occupies. No pick, no title or no pool leaves
+    // the graph byte-identical to today's render.
+    const chapterBackground = chapterBackgroundPath.get(i)
+    const useChapterBackground = !!chapterBackground && wantsChapterTitle && chapterTitleDurationSec > 0
+    if (!useChapterBackground) vfParts.push(...titleVfParts, 'format=yuv420p')
 
     // Explicit bt709 color tagging to match prepareTitleClip, prepareOutroClip
     // and commonPostArgs. Without this, scene clips emit "unspecified" color
@@ -5695,13 +5750,34 @@ export async function prepareSceneClips(
       : singleFrameStill
         ? [...stillDecoder, '-i', scene.image_path]
         : [...stillDecoder, '-loop', '1', '-t', renderDuration.toString(), '-i', scene.image_path]
-    const args = [
-      '-y', ...inputArgs,
-      '-vf', vfParts.join(','),
-      // Exact output duration (window + optional xfade tail), bt709 tags (see above).
-      ...sceneClipEncodeArgs(quality.crf, quality.fps, renderDuration),
-      clipPath,
-    ]
+    let args: string[]
+    if (useChapterBackground) {
+      const bgVideo = /\.(mp4|mov|webm|mkv|m4v)$/i.test(chapterBackground!)
+      const bgInput = bgVideo
+        ? ['-stream_loop', '-1', '-i', chapterBackground!]
+        : [...(await stillDecoderArgs(chapterBackground!)), '-loop', '1', '-t', renderDuration.toString(), '-i', chapterBackground!]
+      // The background replaces the picture only inside the heading window; the
+      // scene's own camera move keeps running underneath for when it returns.
+      const bgChain = `[1:v]scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h},setsar=1,fps=${quality.fps}[bg]`
+      const composed = `[0:v]${vfParts.join(',')},setsar=1[scene];${bgChain};`
+        + `[scene][bg]overlay=enable='lt(t,${chapterTitleDurationSec})'[withbg];`
+        + `[withbg]${titleVfParts.join(',')},format=yuv420p[out]`
+      args = [
+        '-y', ...inputArgs, ...bgInput,
+        '-filter_complex', composed, '-map', '[out]',
+        // Exact output duration (window + optional xfade tail), bt709 tags (see above).
+        ...sceneClipEncodeArgs(quality.crf, quality.fps, renderDuration),
+        clipPath,
+      ]
+    } else {
+      args = [
+        '-y', ...inputArgs,
+        '-vf', vfParts.join(','),
+        // Exact output duration (window + optional xfade tail), bt709 tags (see above).
+        ...sceneClipEncodeArgs(quality.crf, quality.fps, renderDuration),
+        clipPath,
+      ]
+    }
 
     // Hard per-clip ceiling: a healthy clip renders in seconds; only a genuine
     // wedge (bad input, dead disk) trips this — fail THAT scene loudly instead
@@ -5712,6 +5788,34 @@ export async function prepareSceneClips(
       await runFfmpeg(['-y', ...maskInput, '-vf', cameraVf.join(','), ...sceneClipEncodeArgs(12, quality.fps, renderDuration), maskOut], { timeoutMs: 10 * 60_000 })
     })
     await completePlainClip(`${tagLog}${living}`)
+  }
+
+  // Item 14 — chapter boundaries render SERIALLY: peek → resolve → render the
+  // clip → record only after that clip is committed → next peek. Pre-computing
+  // every peek would hand every chapter the same background.
+  const chapterBackgrounds = animationOpts?.chapterBackgrounds
+  if (chapterBackgrounds?.byIndex.size) {
+    const boundaries = [...chapterBackgrounds.byIndex.entries()].sort((a, b) => a[0] - b[0])
+    for (const [index, chapterSlug] of boundaries) {
+      const pick = await peekChapterBackground(chapterBackgrounds.slug, chapterBackgrounds.episodeCode, chapterSlug)
+      if (!pick) continue // pool off/empty: today's look
+      let backgroundPath: string
+      try {
+        backgroundPath = await resolveChapterBackground(chapterBackgrounds.slug, pick.item.reference)
+      } catch (error: any) {
+        job.output_lines.push(`Chapter background for "${chapterSlug}" could not be resolved (${error?.message || error}) — its scene keeps its own picture.`)
+        continue
+      }
+      chapterBackgroundPath.set(index, backgroundPath)
+      try {
+        await prepOne(index)
+      } catch (e: any) {
+        throw new Error(`Scene ${index + 1}/${scenes.length}: ${e?.message || e}`, { cause: e })
+      }
+      // The clip is committed (validated + checkpointed) before the rotation moves.
+      await recordChapterBackgroundPick(chapterBackgrounds.slug, chapterBackgrounds.episodeCode, chapterSlug, pick.item.id)
+      job.output_lines.push(`Chapter background "${pick.item.name || pick.item.id}" → "${chapterSlug}".`)
+    }
   }
 
   // Worker pool over scene indices. An error in any scene aborts the pool and

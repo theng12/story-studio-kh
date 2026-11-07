@@ -27,6 +27,7 @@
  */
 
 import assert from 'node:assert/strict'
+import path from 'node:path'
 import test, { after } from 'node:test'
 
 import {
@@ -60,22 +61,24 @@ const scene = (start_sec: number) => ({ start_sec })
 
 // ── Chapter-only ────────────────────────────────────────────────────────────
 
-test('only the first scene of each chapter carries its heading', () => {
+test('only the first scene of each CONTENT chapter carries its heading', () => {
   const bindings = bindChapterTitlesToScenes({
     scenes: [scene(0), scene(8), scene(20), scene(35), scene(70)],
     windows: WINDOWS,
     headings: HEADINGS,
   })
   assert.deepEqual(
-    bindings.map(binding => [binding.show_title, binding.title]),
+    bindings.map(binding => [binding.show_title, binding.title, binding.chapter_slug]),
     [
-      [true, 'Introduction'],
-      [false, null],
-      [true, 'The Quiet Harbor'],
-      [false, null],
-      [true, 'A Lantern in the Fog'],
+      // Scenes 0 and 8 sit in the spoken Introduction: the owner asked for no
+      // heading there (it is not a content chapter).
+      [false, null, null],
+      [false, null, null],
+      [true, 'The Quiet Harbor', 'Chapter_01'],
+      [false, null, null],
+      [true, 'A Lantern in the Fog', 'Chapter_02'],
     ],
-    'one heading per chapter, on the scene that opens it',
+    'one heading per content chapter, on the scene that opens it',
   )
 })
 
@@ -86,7 +89,7 @@ test('a chapter spanning many scenes titles exactly one of them', () => {
     headings: HEADINGS,
   })
   assert.equal(bindings.filter(binding => binding.show_title).length, 1)
-  assert.deepEqual(bindings[0], { show_title: true, title: 'The Quiet Harbor' })
+  assert.deepEqual(bindings[0], { show_title: true, title: 'The Quiet Harbor', chapter_slug: 'Chapter_01' })
 })
 
 test('a heading falls back to the chapter label, never to invented prose', () => {
@@ -100,13 +103,13 @@ test('a heading falls back to the chapter label, never to invented prose', () =>
 
 test('the music lead-in shift moves the binding with the narration it describes', () => {
   // The plan was timed without the intro's lead-in: its clock sits 12s behind
-  // the chapter clock, so scene 2 at plan-time 12 is chapter 1's opener.
+  // the chapter clock, so plan-time 12 is chapter 1's opener.
   const unshifted = bindChapterTitlesToScenes({
     scenes: [scene(0), scene(12), scene(50)],
     windows: WINDOWS,
     headings: HEADINGS,
   })
-  assert.deepEqual(unshifted.map(binding => binding.show_title), [true, false, true])
+  assert.deepEqual(unshifted.map(binding => binding.show_title), [false, false, true])
 
   const shifted = bindChapterTitlesToScenes({
     scenes: [scene(0), scene(12), scene(50)],
@@ -114,18 +117,30 @@ test('the music lead-in shift moves the binding with the narration it describes'
     headings: HEADINGS,
     leadInShiftSec: 12,
   })
-  assert.deepEqual(shifted.map(binding => binding.show_title), [true, true, true],
+  assert.deepEqual(shifted.map(binding => binding.show_title), [false, true, true],
     'with the lead-in added, plan-time 12 lands at 24s — no longer inside the intro, so it opens Chapter 01')
+})
+
+test('a mixed scene clock is refused, never coerced to chapter 0', () => {
+  assert.throws(
+    () => bindChapterTitlesToScenes({
+      scenes: [scene(20), {}, scene(70)],
+      windows: WINDOWS,
+      headings: HEADINGS,
+    }),
+    /scene 2 has no start time/,
+    'a silent 0 would put a heading on whatever chapter covers the first second',
+  )
 })
 
 test('nothing is titled when the clock cannot say which chapter a scene belongs to', () => {
   assert.deepEqual(
     bindChapterTitlesToScenes({ scenes: [scene(20), scene(40)], windows: [] }),
-    [{ show_title: false, title: null }, { show_title: false, title: null }],
+    [{ show_title: false, title: null, chapter_slug: null }, { show_title: false, title: null, chapter_slug: null }],
   )
   assert.deepEqual(
     bindChapterTitlesToScenes({ scenes: [{ }, { }], windows: WINDOWS }),
-    [{ show_title: false, title: null }, { show_title: false, title: null }],
+    [{ show_title: false, title: null, chapter_slug: null }, { show_title: false, title: null, chapter_slug: null }],
     'an Image Pool render carries no plan clock, so guessing a chapter would be worse than showing none',
   )
   assert.deepEqual(bindChapterTitlesToScenes({ scenes: [], windows: WINDOWS }), [])
@@ -201,17 +216,47 @@ test('the feature is off until the customer turns it on: enabled false answers n
   assert.equal(result, null, 'an off switch leaves the caller exactly where it was')
 })
 
-test('an unreadable chapter clock is a note and no titles, never a failed render', async () => {
+test('an enabled feature with no readable chapter clock fails plainly instead of rendering without headings', async () => {
   cleanups.push((await useTempDataDir()).cleanup)
-  const result = await applyAutomaticChapterTitles({
-    slug: 'no-such-channel-for-chapter-titles',
-    episodeId: 'EP0001',
-    enabled: true,
-    scenes: [scene(0), scene(20)],
+  await assert.rejects(
+    applyAutomaticChapterTitles({
+      slug: 'no-such-channel-for-chapter-titles',
+      episodeId: 'EP0001',
+      enabled: true,
+      scenes: [scene(0), scene(20)],
+    }),
+    /chapter clock is required/,
+  )
+})
+
+test('the episode binding is durable and a new episode advances the shared pool once', async () => {
+  const temp = await useTempDataDir()
+  cleanups.push(temp.cleanup)
+  const { bindChapterTitleFontDurably, readChapterTitleBinding } = await import('../lib/chapter-title-binding-store.js')
+  const pool = {
+    usage_mode: 'serial' as const,
+    allow_repeat: false,
+    fonts: [{ font_id: 'kantumruy-pro', weight: 1 }, { font_id: 'inter', weight: 1 }],
+  }
+  const firstDir = path.join(temp.dir, 'episodes', 'EP0001')
+  const secondDir = path.join(temp.dir, 'episodes', 'EP0002')
+
+  const first = await bindChapterTitleFontDurably({ slug: 'chapter-binding-test', episodeDir: firstDir, script: 'latn', pool })
+  assert.equal(first?.resolved_font_id, 'kantumruy-pro')
+  assert.deepEqual(await readChapterTitleBinding(firstDir, 'latn'), { font_id: 'kantumruy-pro', index: 0 })
+
+  // A retry of the same episode keeps its face and does not move the cursor.
+  const retry = await bindChapterTitleFontDurably({ slug: 'chapter-binding-test', episodeDir: firstDir, script: 'latn', pool })
+  assert.equal(retry?.resolved_font_id, 'kantumruy-pro')
+
+  // A different episode rotates to the next face in pool order.
+  const second = await bindChapterTitleFontDurably({ slug: 'chapter-binding-test', episodeDir: secondDir, script: 'latn', pool })
+  assert.equal(second?.resolved_font_id, 'inter')
+
+  // A deliberate choice is never overridden or persisted.
+  const explicit = await bindChapterTitleFontDurably({
+    slug: 'chapter-binding-test', episodeDir: path.join(temp.dir, 'episodes', 'EP0003'),
+    script: 'latn', pool, presentation: { font_id: 'anton' },
   })
-  assert.ok(result, 'the feature was on, so an answer comes back')
-  assert.deepEqual(result!.scenes, [{ show_title: false, title: null }, { show_title: false, title: null }])
-  assert.equal(result!.presentation, null)
-  assert.equal(result!.notes.length, 1)
-  assert.match(result!.notes[0]!, /chapter clock could not be read/)
+  assert.deepEqual(explicit, { font_id: 'anton' })
 })
