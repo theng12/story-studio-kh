@@ -148,7 +148,7 @@ test('a YouTube answer that does not match the request is not recorded as done',
   assert.equal((await operations.readYouTubeOperation(slug, operationId))?.remote_snapshot, undefined)
 })
 
-test('unscheduling a private scheduled video clears publishAt by sending it explicitly as null', async () => {
+test('unscheduling omits publishAt from the updated status part and records provider-confirmed removal', async () => {
   const { slug, episodeCode, operationId } = await uploadedVideo()
   const scheduledTime = new Date(Date.now() + 86_400_000).toISOString()
   const fake = new FakeYouTube()
@@ -168,9 +168,9 @@ test('unscheduling a private scheduled video clears publishAt by sending it expl
   assert.ok(putCall, 'expected a PUT request to YouTube')
   const sent = JSON.parse(putCall.body!)
   assert.equal(sent.status.privacyStatus, 'private')
-  // The YouTube Data API v3 requires publishAt to be explicitly null to clear an existing schedule
-  assert.equal('publishAt' in sent.status, true, 'publishAt must be sent as null to unschedule')
-  assert.equal(sent.status.publishAt, null, 'publishAt must be null when unscheduling a private video')
+  // https://developers.google.com/youtube/v3/docs/videos/update: omitted properties in an updated part are deleted.
+  assert.equal(Object.hasOwn(sent.status, 'publishAt'), false)
+  // This fixture checks the documented request contract, not the cause of EP0039's original 502.
 
   const snapshot = (await operations.readYouTubeOperation(slug, operationId))?.remote_snapshot
   assert.equal(snapshot?.privacy_status, 'private')
