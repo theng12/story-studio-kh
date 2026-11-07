@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
-import { pickLastUsedSettings, recordLastUsedSettings, scopeLastUsedSettings } from '../utils/video-assembly-last-used.js'
+import {
+  coveredSectionsFromActivePresets,
+  pickLastUsedSettings,
+  recordLastUsedSettings,
+  scopeLastUsedSettings,
+} from '../utils/video-assembly-last-used.js'
 
 function sortedKeys(value: object | undefined): string[] {
   return Object.keys(value ?? {}).sort()
@@ -87,6 +92,45 @@ test('for a NEW episode a selected preset beats the stale channel snapshot, sect
   assert.equal(scopeLastUsedSettings(pick, ['intro', 'timeline', 'effects', 'subtitles', 'export']), null)
 })
 
+test('a bundle with fallback sections only covers those sections and preserves uncovered channel fallback', () => {
+  // Item 19 / 2026-11-07: When a bundle preset applies its fallback snapshot,
+  // it clears slot.activeId. The covered set must inspect the bundle's fallback
+  // so the selected bundle fallback is not overwritten by a stale channel snapshot.
+  const emptySlots = { intro: '', timeline: '', effects: '', subtitles: '', export: '' }
+  const bundleFallback = {
+    timeline: { scene_animation: { type: 'pan-left' } },
+    export: { quality: 'compact' },
+  }
+
+  // Only timeline and export are covered by the bundle fallback; intro/effects/subtitles are not.
+  const covered = coveredSectionsFromActivePresets(emptySlots, bundleFallback)
+  assert.deepEqual(covered.sort(), ['export', 'timeline'])
+
+  const channel = {
+    episode_id: 'EP0001', saved_at: '2026-11-01T00:00:00.000Z',
+    settings: {
+      intro: { enabled: true, video_path: 'stale-intro.mp4' },
+      timeline: { scene_animation: { type: 'stale-pan' } },
+      export: { quality: 'stale-low' },
+      subtitles: { enabled: true },
+    },
+  }
+  const pick = pickLastUsedSettings({ channel }, 'EP0009')
+  const scoped = scopeLastUsedSettings(pick, covered)
+
+  // Timeline and export were dropped from channel pick (bundle fallback wins).
+  // Intro and subtitles remain (uncovered channel fallback preserved).
+  assert.equal('timeline' in (scoped?.settings || {}), false, 'bundle fallback timeline wins; stale channel timeline dropped')
+  assert.equal('export' in (scoped?.settings || {}), false, 'bundle fallback export wins; stale channel export dropped')
+  assert.deepEqual(scoped?.settings.intro, { enabled: true, video_path: 'stale-intro.mp4' }, 'uncovered intro keeps channel fallback')
+  assert.deepEqual(scoped?.settings.subtitles, { enabled: true }, 'uncovered subtitles keeps channel fallback')
+
+  // Own episode ignores covered and returns whole.
+  const own = { timeline: { scene_animation: { type: 'own' } }, export: { quality: 'own' } }
+  const ownPick = { scope: 'episode' as const, from_episode: 'EP0009', settings: own as any }
+  assert.deepEqual(scopeLastUsedSettings(ownPick, covered)?.settings, own, 'own episode returns whole')
+})
+
 test('a NEW episode\'s own snapshot ignores the covered-set and wins whole', () => {
   const own = { timeline: { transition: { type: 'mine' } } }
   const pick = {
@@ -104,11 +148,12 @@ test('Video Assembly records on a queued render and restores after presets load 
   const restore = page.indexOf('await restoreLastUsedSettings()', bundleLoad)
   assert.ok(bundleLoad > 0 && restore > bundleLoad, 'restore must run after the bundle preset auto-applies')
   assert.match(page, /watch\(episodeId, \(\) => \{ if \(lastUsedReady\) void restoreLastUsedSettings\(\) \}\)/)
-  // The restore must scope the channel pick by the selected per-section presets,
-  // not blindly apply it — that is the precedence fix.
+  // The restore must scope the channel pick by the selected per-section presets and bundle fallback.
   assert.match(page, /scopeLastUsedSettings\(pickLastUsedSettings\(/, 'the mount/episode-switch restore scopes the channel pick by selected presets')
+  assert.match(page, /coveredSectionsFromActivePresets\(\{/, 'covered is derived from active presets and bundle fallback')
+  assert.match(page, /bundleFallback/, 'bundle fallback is included in covered derivation')
   for (const ref of ['introPresets', 'timelinePresets', 'effectsPresets', 'subtitlesPresets', 'exportPresets']) {
-    assert.match(page, new RegExp(`if \\(${ref}\\.activeId\\.value\\) covered\\.push\\(`), `${ref} contributes its selected section to the covered set`)
+    assert.match(page, new RegExp(`${ref}\\.activeId\\.value`), `${ref} contributes its activeId`)
   }
   // Regression 2026-11-07: applyTimelineData called applyRevealBundle(data)
   // before if(!data)return, so a covered timeline slot passing undefined

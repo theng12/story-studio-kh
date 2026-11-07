@@ -72,6 +72,27 @@ export function pickLastUsedSettings(
 }
 
 /**
+ * Resolves which sections are covered by the current active preset state.
+ * A section is covered if it has a pointed slot preset (slotActive is truthy)
+ * OR if the selected video bundle supplies a valid fallback for that section.
+ * When a bundle applies fallback data, it clears slot.activeId, so inspecting
+ * both sources is necessary to ensure selected bundle fallbacks are not
+ * overwritten by a stale channel snapshot (Production 2026-11-07 item 19).
+ */
+export function coveredSectionsFromActivePresets(
+  slots: Partial<Record<SnapshotSection, unknown>>,
+  bundleFallback?: Partial<Record<SnapshotSection, unknown>> | null,
+): SnapshotSection[] {
+  const covered: SnapshotSection[] = []
+  for (const section of SNAPSHOT_SECTIONS) {
+    const hasSlot = Boolean(slots[section])
+    const hasFallback = Boolean(bundleFallback && bundleFallback[section] && typeof bundleFallback[section] === 'object')
+    if (hasSlot || hasFallback) covered.push(section)
+  }
+  return covered
+}
+
+/**
  * A NEW episode has no own snapshot, so the channel's last render is the only
  * starting point the store offers — but it is a STALE snapshot from a previous
  * episode, and it must not silently overwrite the bundle / per-section presets

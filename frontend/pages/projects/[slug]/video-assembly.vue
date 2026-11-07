@@ -3080,7 +3080,7 @@ import { DEFAULT_EXCLUDE_KEYS } from '~/composables/usePresets'
 import { describeMergedAudioOpening } from '~/utils/merged-audio-opening'
 import { describeOpeningSync } from '~/utils/opening-sync'
 import { estimateRender, formatEstimateGb, formatEstimateTime } from '~/utils/render-estimate'
-import { LAST_USED_CONFIG_KEY, pickLastUsedSettings, recordLastUsedSettings, scopeLastUsedSettings, type SnapshotSection } from '~/utils/video-assembly-last-used'
+import { LAST_USED_CONFIG_KEY, coveredSectionsFromActivePresets, pickLastUsedSettings, recordLastUsedSettings, scopeLastUsedSettings, type SnapshotSection } from '~/utils/video-assembly-last-used'
 import { applyAssemblyStepDraft, beginAssemblyStepDraft, cancelAssemblyStepDraft, sameAssemblyStepScope, type AssemblyStepDraft, type AssemblyStepScope } from '~/utils/assembly-step-draft'
 import type { StillPostFontCursor, StillPostFontPool } from '@shared/still-post-fonts'
 import { aspectRatioOptions, canvasFor, parseAspectRatio, DEFAULT_ASPECT_RATIO } from '~/utils/aspect-ratios'
@@ -6555,12 +6555,14 @@ async function restoreLastUsedSettings(): Promise<void> {
     // channel last-used snapshot is stale and must not run over them; only
     // unconfigured sections may still start from the channel's last render.
     // The episode's OWN snapshot, when it exists, ignores this and wins whole.
-    const covered: SnapshotSection[] = []
-    if (introPresets.activeId.value) covered.push('intro')
-    if (timelinePresets.activeId.value) covered.push('timeline')
-    if (effectsPresets.activeId.value) covered.push('effects')
-    if (subtitlesPresets.activeId.value) covered.push('subtitles')
-    if (exportPresets.activeId.value) covered.push('export')
+    const bundleFallback = (videoBundlePresets.activeData.value as any)?.fallback
+    const covered = coveredSectionsFromActivePresets({
+      intro: introPresets.activeId.value,
+      timeline: timelinePresets.activeId.value,
+      effects: effectsPresets.activeId.value,
+      subtitles: subtitlesPresets.activeId.value,
+      export: exportPresets.activeId.value,
+    }, bundleFallback)
     const pick = scopeLastUsedSettings(pickLastUsedSettings(config?.[LAST_USED_CONFIG_KEY], episode), covered)
     if (!pick) { lastUsedNotice.value = ''; channelIntro.value = null; return }
     applyIntroData(pick.settings.intro)
