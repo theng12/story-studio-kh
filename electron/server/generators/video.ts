@@ -4564,10 +4564,12 @@ export async function generateVideo(job: Job): Promise<VideoAssemblyDisposition>
     const requestedPostAudio = req.post_audio ?? { behavior: 'fade-to-black' as const, fade_duration: 5 }
     const postAudio = preventBlackTail(requestedPostAudio)
     if (req.post_audio && postAudio !== requestedPostAudio) {
+      const asked = !req.post_audio.behavior
+        ? 'an ending with no saved choice (it used to default to a fade to black)'
+        : req.post_audio.behavior === 'black-screen' ? 'a black screen' : 'a fade to black'
       job.output_lines.push(
-        `Ending: this render asked for ${req.post_audio.behavior === 'black-screen' ? 'a black screen' : 'a fade to black'}, `
-        + 'which Story no longer draws. It holds the last scene instead for '
-        + `${postRollSeconds(postAudio).toFixed(1)}s under the same closing music. `
+        `Ending: this render asked for ${asked}, which Story no longer draws. `
+        + `It holds the last scene instead for ${postRollSeconds(postAudio).toFixed(1)}s under the same closing music. `
         + 'Your saved settings were not changed — set the ending to Hold Last Scene (or Hard Cut) to match what will be drawn.',
       )
     }
@@ -6983,8 +6985,8 @@ async function buildConcatList(
 
   // Bucket 4 of 4 — after_outro: very end of the video. Same effect-gate
   // story as the outro (beyond sceneEndTime → never graded/vignetted/etc).
-  // This is where the user's multi-hour black screen for sleep stories
-  // lives — previously hacked into the outro slot.
+  // User-supplied after-outro timeline clips play here — the clip list
+  // replaced the old "stick it in the outro slot" workaround.
   for (const c of buckets.after_outro) {
     lines.push(esc(c.path))
   }

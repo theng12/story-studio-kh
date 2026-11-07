@@ -55,11 +55,12 @@ export function postRollSeconds(postAudio: VideoPostAudio | null | undefined): n
  * block for the draw, and the caller says what it substituted.
  */
 export function preventBlackTail(postAudio: VideoPostAudio): VideoPostAudio {
-  if (postAudio.behavior !== 'black-screen' && postAudio.behavior !== 'fade-to-black') return postAudio
-  const seconds = postAudio.behavior === 'fade-to-black'
-    ? Math.max(0, postAudio.fade_duration || 5)
-    : Math.max(0, postAudio.tail_seconds ?? 4)
-  return { ...postAudio, behavior: 'hold-last-scene', tail_seconds: seconds }
+  const behavior = postAudio.behavior
+  if (behavior === 'hold-last-scene' || behavior === 'hard-cut' || behavior === 'continue-cycling') return postAudio
+  // black-screen, fade-to-black, or a legacy block that names no behavior (the
+  // old default was fade-to-black at 5 s): hold over exactly the seconds
+  // postRollSeconds already gives that block — one formula, one answer.
+  return { ...postAudio, behavior: 'hold-last-scene', tail_seconds: postRollSeconds(postAudio) }
 }
 
 /** The completion record Audio Assembly writes beside `{code}_merged_audio.mp3`. */

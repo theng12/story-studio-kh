@@ -934,6 +934,7 @@
       <div class="settings-section mt-2">
         <h4>After Narration Ends</h4>
         <p class="text-muted text-sm hint-line">What happens to the video after all narration audio has played</p>
+        <p v-if="blackEndingNotice && postAudio.behavior === 'hold-last-scene'" class="text-muted text-sm hint-line">{{ blackEndingNotice }}</p>
 
         <div class="post-audio-grid mt-2">
           <div v-for="pa in postAudioOptions" :key="pa.id"
@@ -945,17 +946,10 @@
           </div>
         </div>
 
-        <div v-if="postAudio.behavior === 'fade-to-black'" class="mt-2">
-          <div class="form-group field-narrow">
-            <label>Fade Duration ({{ postAudio.fade_duration }}s)</label>
-            <SliderWithNumber v-model="postAudio.fade_duration" :min="3" :max="15" :step="1" suffix="s" />
-          </div>
-        </div>
-
         <!-- v1.0.354 — these tails carry their own length now that Target Duration is gone. -->
-        <div v-if="postAudio.behavior === 'black-screen' || postAudio.behavior === 'hold-last-scene'" class="mt-2">
+        <div v-if="postAudio.behavior === 'hold-last-scene'" class="mt-2">
           <div class="form-group field-narrow">
-            <label>{{ postAudio.behavior === 'black-screen' ? 'Black screen' : 'Hold' }} length ({{ postAudio.tail_seconds }}s)</label>
+            <label>Hold length ({{ postAudio.tail_seconds }}s)</label>
             <SliderWithNumber v-model="postAudio.tail_seconds" :min="1" :max="45" :step="1" suffix="s" />
             <p class="text-muted text-sm hint-line">
               The channel's closing is 20–30 s of music here. Audio Assembly bakes that music into the merged audio at
@@ -3701,8 +3695,6 @@ const colorGradingPresets = [
 ]
 
 const postAudioOptions = [
-  { id: 'fade-to-black', label: 'Fade to Black', icon: '&#9681;', description: 'Fade the last scene out' },
-  { id: 'black-screen', label: 'Black Screen', icon: '&#9632;', description: 'Cut to black for a few seconds' },
   { id: 'hold-last-scene', label: 'Hold Last Scene', icon: '&#9634;', description: 'Freeze on the final image' },
   { id: 'hard-cut', label: 'Hard Cut', icon: '&#9724;', description: 'End the moment narration stops' },
 ]
@@ -3749,16 +3741,21 @@ const sceneRecycling = reactive({
 })
 
 const postAudio = reactive({
-  behavior: 'fade-to-black' as string,
+  // Black endings are retired (owner, 2026-11-07): a new form starts on a hold
+  // over the same 5 s the old fade-to-black default drew.
+  behavior: 'hold-last-scene' as string,
   fade_duration: 5,
-  // v1.0.354 — length of the appended tail for 'black-screen' / 'hold-last-scene'.
-  // (fade-to-black uses fade_duration; hard-cut has no tail.)
-  tail_seconds: 4,
+  // v1.0.354 — length of the appended tail for 'hold-last-scene'. fade_duration
+  // stays in the block because stored presets carry it (hard-cut has no tail).
+  tail_seconds: 5,
   // 2026-10-19 — how the background music behaves over that tail. Audio Assembly
   // bakes the bed into the merged mix and reads these from this very preset, so
   // what the page shows is what the mix does. Length stays `tail_seconds` above.
   closing_music: { ...CLOSING_MUSIC_DEFAULTS },
 })
+
+/** Plain words shown when a stored black ending was normalized in memory only. */
+const blackEndingNotice = ref('')
 
 const transition = reactive({
   type: 'crossfade',
@@ -6244,6 +6241,20 @@ function applyPostAudioPreset(data: any) {
   const { closing_music: closingMusic, ...rest } = data
   Object.assign(postAudio, rest)
   applyClosingMusicPreset(postAudio.closing_music, closingMusic)
+  blackEndingNotice.value = ''
+  // Black endings are retired (owner, 2026-11-07). The BLOCK's own behavior
+  // decides: black-screen / fade-to-black, or a saved block that names none
+  // (the old default was fade-to-black). It normalizes IN MEMORY over exactly
+  // the seconds that block would have drawn — the stored preset is not rewritten.
+  const b = rest.behavior
+  if (b === 'black-screen' || b === 'fade-to-black' || b == null) {
+    const seconds = b === 'black-screen'
+      ? Math.max(0, rest.tail_seconds ?? 4)
+      : Math.max(0, rest.fade_duration || 5)
+    postAudio.behavior = 'hold-last-scene'
+    postAudio.tail_seconds = seconds
+    blackEndingNotice.value = `Black endings are retired — this ending now holds the last scene for ${seconds}s under the same closing music. Your saved preset was not changed.`
+  }
 }
 
 function snapshotTimelineData() {
@@ -7065,8 +7076,6 @@ const postAudioSummary = computed(() => {
   // 2026-10-19 — the tail is not silent any more: say what the music does over
   // it, in the same sentence as the picture it plays under.
   const music = closingMusicSummary.value
-  if (b === 'fade-to-black') return `Scenes play during narration (~${formatDurationLong(narrDur)}), then fade to black over ${postAudio.fade_duration}s${music}`
-  if (b === 'black-screen') return `Scenes play during narration (~${formatDurationLong(narrDur)}), then ${formatDurationLong(tail)} of black${music}`
   if (b === 'hold-last-scene') return `Scenes play during narration (~${formatDurationLong(narrDur)}), then hold the last scene for ${formatDurationLong(tail)}${music}`
   return `Scenes play during narration (~${formatDurationLong(narrDur)}), then end on a hard cut`
 })

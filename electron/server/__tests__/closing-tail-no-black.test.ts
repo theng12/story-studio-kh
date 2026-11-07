@@ -51,6 +51,19 @@ describe('preventBlackTail', () => {
     assert.equal(postRollSeconds(safe), postRollSeconds(raw))
   })
 
+  test('a legacy block that names no behavior takes the old default, then holds', () => {
+    const raw = { fade_duration: 15 } as any as VideoPostAudio // runtime legacy: behavior omitted
+    const safe = preventBlackTail(raw)
+    assert.equal(safe.behavior, 'hold-last-scene')
+    assert.equal(safe.tail_seconds, 15, 'no behavior meant fade-to-black at fade_duration (||5)')
+    assert.equal(postRollSeconds(safe), postRollSeconds(raw))
+    const bare = { } as any as VideoPostAudio // no behavior and no duration: the old fade-5 default
+    const heldBare = preventBlackTail(bare)
+    assert.equal(heldBare.behavior, 'hold-last-scene')
+    assert.equal(heldBare.tail_seconds, 5)
+    assert.equal(postRollSeconds(heldBare), postRollSeconds(bare))
+  })
+
   test('hold-last-scene and the no-tail behaviors pass through untouched', () => {
     const hold: VideoPostAudio = { behavior: 'hold-last-scene', fade_duration: 5, tail_seconds: 20 }
     assert.equal(preventBlackTail(hold), hold, 'the same block back — nothing to substitute')
