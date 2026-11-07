@@ -37,6 +37,7 @@ import * as pm from './project-manager.js'
 import * as plans from './upload-plans.js'
 import type { UploadPlan, UploadSchedule, UploadPlanDefaults } from './upload-plans.js'
 import type { UploadPlatform } from './upload-store.js'
+import { validateUploadPacingPolicy, type UploadPacingPolicy } from './upload-pacing.js'
 
 export const CADENCE_CONFIG_KEY = 'publish_cadence'
 
@@ -236,6 +237,7 @@ export interface ChannelSchedule {
   channel: { channel_id: string; title: string } | null
   /** `registry:<channel id>` when a channel is assigned, else ''. */
   account_id: string
+  upload_pacing: UploadPacingPolicy | null
   /** The channel's active plan — THE schedule once a channel is assigned. */
   plan: UploadPlan | null
   /** Every saved plan for this channel, so either screen can switch between them. */
@@ -281,12 +283,15 @@ export async function readChannelSchedule(slug: string): Promise<ChannelSchedule
   const channel = await assignedChannel(slug)
   if (channel) await ensurePlanForAccount(slug, 'youtube', channel.account_id, channel.title)
   const config = (await pm.getConfig(slug)) as any
+  const pacing = config?.upload_pacing == null ? null : validateUploadPacingPolicy(config.upload_pacing)
+  if (pacing && !pacing.ok) throw new Error(`Saved upload pacing is invalid: ${pacing.message}`)
+  const uploadPacing = pacing?.ok ? pacing.policy : null
   const cadence = await readCadence(slug)
   const auto = autoScheduleEnabled(config)
   const fallback = defaultSchedule(slug)
   if (!channel) {
     return {
-      channel: null, account_id: '', plan: null, plans: [], cadence,
+      channel: null, account_id: '', plan: null, plans: [], cadence, upload_pacing: uploadPacing,
       default_schedule: fallback, auto_schedule_on_render: auto, auto_schedule_require_final_check: config?.auto_schedule_require_final_check !== false, auto_upload: autoUploadMode(config),
       shorts_auto_upload: shortsAutoUploadMode(config), shorts_upload_spacing_days: shortsUploadSpacingDays(config),
       shorts_per_episode: (await import('./episode-shorts.js')).shortsPerEpisode((config as any).shorts_per_episode),
@@ -297,6 +302,7 @@ export async function readChannelSchedule(slug: string): Promise<ChannelSchedule
   return {
     channel: { channel_id: channel.channel_id, title: channel.title },
     account_id: channel.account_id,
+    upload_pacing: uploadPacing,
     plan: own.find(p => p.id === activeId) || null,
     plans: own,
     cadence,
@@ -309,6 +315,7 @@ export async function readChannelSchedule(slug: string): Promise<ChannelSchedule
 }
 
 export interface ChannelScheduleInput {
+  upload_pacing?: UploadPacingPolicy
   /** Absent when only the auto-schedule switch is being flipped. */
   schedule?: UploadSchedule
   /** Plan name; only used when a plan is created or renamed. */
@@ -332,6 +339,12 @@ export interface ChannelScheduleInput {
  */
 export async function saveChannelSchedule(slug: string, input: ChannelScheduleInput): Promise<ChannelSchedule> {
   const badRequest = (detail: string) => Object.assign(new Error(detail), { statusCode: 400, status: 400, expose: true })
+  if (input.upload_pacing !== undefined) {
+    const pacing = validateUploadPacingPolicy(input.upload_pacing)
+    if (!pacing.ok) throw badRequest(pacing.message)
+    await pm.updateConfig(slug, { upload_pacing: pacing.policy } as any)
+    await (await import('./job-queue.js')).reevaluateUploadQueue()
+  }
   if (typeof input.auto_schedule_on_render === 'boolean') {
     await pm.updateConfig(slug, { auto_schedule_on_render: input.auto_schedule_on_render } as any)
   }

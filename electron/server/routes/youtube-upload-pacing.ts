@@ -14,8 +14,8 @@
 import { Router } from 'express'
 
 import { getProjectDir, getConfig, updateConfig } from '../services/project-manager.js'
-import { getJobs } from '../services/job-queue.js'
-import { readYouTubeConnectionRegistry, getProjectYouTubeAssignment } from '../services/youtube-connection-store.js'
+import { getJobs, reevaluateUploadQueue } from '../services/job-queue.js'
+import { readYouTubeConnectionRegistry } from '../services/youtube-connection-store.js'
 import { readYouTubeQuota } from '../services/youtube-quota-ledger.js'
 import { pacingInputsForPolicy } from '../services/youtube-pacing-inputs.js'
 import {
@@ -47,7 +47,8 @@ async function readPolicy(slug: string): Promise<UploadPacingPolicy | null> {
   const raw = config?.upload_pacing
   if (!raw) return null
   const validated = validateUploadPacingPolicy(raw)
-  return validated.ok ? validated.policy : null
+  if (!validated.ok) throw Object.assign(new Error(`Saved upload pacing is invalid: ${validated.message}`), { statusCode: 409 })
+  return validated.policy
 }
 
 router.get('/projects/:slug/youtube/upload-pacing', async (req, res) => {
@@ -55,7 +56,12 @@ router.get('/projects/:slug/youtube/upload-pacing', async (req, res) => {
     const slug = req.params.slug
     if (!getProjectDir(slug)) return res.status(404).json({ detail: 'Project not found' })
     const policy = await readPolicy(slug)
+    const registry = await readYouTubeConnectionRegistry()
+    const quota = registry.application
+      ? await readYouTubeQuota(registry.application.application_id)
+      : null
     res.json({
+      quota,
       // Starting counts are DEFAULTS the UI offers, never a policy this route applies.
       tier_defaults: UPLOAD_PACING_TIER_DEFAULTS,
       tiers: UPLOAD_PACING_TIERS,
@@ -88,6 +94,7 @@ router.put('/projects/:slug/youtube/upload-pacing', async (req, res) => {
       res.status(409).json({ code: 'UPLOAD_PACING_UNSAVED', detail: 'This project has no config to save into.' })
       return
     }
+    await reevaluateUploadQueue()
     res.json({ policy: validated.policy, saved: true })
   } catch (error) {
     fail(res, error, 'Failed to save the channel upload pacing.')

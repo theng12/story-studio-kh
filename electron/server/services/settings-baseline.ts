@@ -50,7 +50,7 @@ export {
   isSafeBaselineKey,
   isProtectedExcludedKey,
 } from '../contracts/settings-baseline.js'
-import { readJsonOr, withLock, writeJsonAtomic } from '../lib/atomic-store.js'
+import { withLock, writeJsonAtomic } from '../lib/atomic-store.js'
 import { assertWriteIsolatedInTests } from '../lib/test-isolation.js'
 import { getProjectDir, projectsRoot } from './project-manager.js'
 
@@ -153,9 +153,20 @@ async function readStore(): Promise<SettingsBaselineStoreFile> {
   if (!store || typeof store !== 'object' || Array.isArray(store) || store.format !== SETTINGS_BASELINE_FORMAT) {
     throw new Error('Settings baseline store has an unrecognized format; refusing to read or overwrite it.')
   }
-  store.baselines ??= {}
-  store.snapshots ??= {}
+  for (const key of ['baselines', 'snapshots'] as const) {
+    if (!store[key] || typeof store[key] !== 'object' || Array.isArray(store[key])) {
+      throw new Error(`Settings baseline store has an invalid ${key} map; refusing to read or overwrite it.`)
+    }
+  }
   return store
+}
+
+async function readChannelConfig(configPath: string): Promise<Record<string, unknown>> {
+  const config: unknown = JSON.parse(await fs.readFile(configPath, 'utf-8'))
+  if (!config || typeof config !== 'object' || Array.isArray(config)) {
+    throw new Error('Channel config.json is not a settings object; refusing to overwrite it.')
+  }
+  return config as Record<string, unknown>
 }
 
 async function writeStore(store: SettingsBaselineStoreFile): Promise<void> {
@@ -187,7 +198,8 @@ async function resolveChannelConfigPath(slug: string): Promise<string | null> {
     if (!st.isDirectory()) return null
     if (!existsSync(path.join(realDir, 'project.json'))) return null
     const configPath = path.join(realDir, 'config.json')
-    return existsSync(configPath) ? configPath : null
+    const configStat = await fs.lstat(configPath)
+    return configStat.isFile() && !configStat.isSymbolicLink() ? configPath : null
   } catch {
     return null
   }
@@ -265,7 +277,7 @@ export async function snapshotChannelAsBaseline(
   if (!configPath || !existsSync(configPath)) {
     throw new Error(`Channel configuration not found for slug "${slug}".`)
   }
-  const config = await readJsonOr<Record<string, unknown>>(configPath, {})
+  const config = await readChannelConfig(configPath)
   const safePayload = filterSafeBaselinePayload(config)
   if (Object.keys(safePayload).length === 0) {
     throw new Error(`Channel "${slug}" has no safe baseline configuration to snapshot.`)
@@ -278,7 +290,7 @@ export async function snapshotChannelAsBaseline(
 
 export async function createChannelSnapshot(
   slug: string,
-  reason: 'pre_apply' | 'manual_snapshot' | 'restore_point',
+  reason: 'pre_apply' | 'pre_restore' | 'manual_snapshot' | 'restore_point',
   baselineId?: string,
 ): Promise<SettingsSnapshot> {
   const configPath = await resolveChannelConfigPath(slug)
@@ -286,7 +298,7 @@ export async function createChannelSnapshot(
     throw new Error(`Channel configuration not found for slug "${slug}".`)
   }
 
-  const config = await readJsonOr<Record<string, unknown>>(configPath, {})
+  const config = await readChannelConfig(configPath)
   const id = `snp_${Date.now()}_${randomUUID().slice(0, 8)}`
   const now = new Date().toISOString()
   const snapshot: SettingsSnapshot = {
@@ -336,7 +348,7 @@ export async function previewBaselineApplication(
   for (const slug of channelSlugs) {
     const configPath = await resolveChannelConfigPath(slug)
     if (!configPath) throw new Error(`Channel not found for "${slug}".`)
-    const currentConfig = await readJsonOr<Record<string, unknown>>(configPath, {})
+    const currentConfig = await readChannelConfig(configPath)
 
     const diffs: SettingsFieldDiff[] = []
     let hasChanges = false
@@ -540,7 +552,7 @@ export async function applyBaseline(
       let readback: SettingsReadbackVerification | undefined
 
       await withLock(configPath, async () => {
-        const currentConfig = await readJsonOr<Record<string, unknown>>(configPath, {})
+        const currentConfig = await readChannelConfig(configPath)
 
         // 2. Prepare new config, strictly preserving presets, secrets, and episode pacing
         const updatedConfig = structuredClone(currentConfig)
@@ -653,13 +665,7 @@ export async function restoreChannelSnapshot(
   let readback: SettingsReadbackVerification | undefined
 
   await withLock(configPath, async () => {
-    const currentRaw = await fs.readFile(configPath, 'utf-8')
-    let current: Record<string, unknown>
-    try {
-      current = JSON.parse(currentRaw) as Record<string, unknown>
-    } catch {
-      throw new Error('Channel config.json is corrupt; refusing to restore over it.')
-    }
+    const current = await readChannelConfig(configPath)
     // Exact-current hash guard: the restore must match what the caller previewed.
     if (computePayloadSha256(current) !== options.expected_current_sha256) {
       throw new Error('Channel config changed since the restore preview; preview again before restoring.')
@@ -711,7 +717,7 @@ export async function previewChannelRestore(
   }
   const configPath = await resolveChannelConfigPath(channelSlug)
   if (!configPath) throw new Error(`Channel configuration not found for "${channelSlug}".`)
-  const current = JSON.parse(await fs.readFile(configPath, 'utf-8')) as Record<string, unknown>
+  const current = await readChannelConfig(configPath)
   const diffs: SettingsFieldDiff[] = []
   const keys = new Set([...Object.keys(snapshot.config_snapshot), ...Object.keys(current)])
   let hasChanges = false

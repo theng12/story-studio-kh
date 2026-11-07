@@ -1720,7 +1720,7 @@ export async function getSafeConfig(slug: string): Promise<any | null> {
       key === 'script_custom_styles' ||
       // Video Assembly's last-render settings (per episode + channel starting point).
       key === 'video_assembly_last_used' || key === 'pipeline_last_steps' ||
-      key === 'youtube_default_playlist' || key === 'youtube_end_screen'
+      key === 'youtube_default_playlist' || key === 'youtube_end_screen' || key === 'upload_pacing' || key === 'caption_settings'
     if (shouldPassThrough) safe[key] = migratePresetField(key, raw[key])
   }
 

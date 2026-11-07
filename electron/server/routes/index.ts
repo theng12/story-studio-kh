@@ -9,6 +9,7 @@ import type { Express } from 'express'
 import { router as projectsRouter } from './projects.js'
 import { router as channelProfileRouter } from './channel-profile.js'
 import { router as settingsRouter } from './settings.js'
+import { router as settingsBaselinesRouter } from './settings-baselines.js'
 import { router as jobsRouter } from './jobs.js'
 import { router as scriptsRouter } from './scripts.js'
 import { router as imagesRouter } from './images.js'
@@ -26,11 +27,13 @@ import { router as uploadRouter } from './upload.js'
 import { router as youtubeConnectionsRouter } from './youtube-connections.js'
 import { router as youtubeUploadCenterRouter } from './youtube-upload-center.js'
 import { router as youtubeAuditRouter } from './youtube-audit.js'
+import { router as youtubeUploadPacingRouter } from './youtube-upload-pacing.js'
 import { router as socialPublishingRouter } from './social-publishing.js'
 import { router as appSettingsRouter } from './app-settings.js'
 import { router as localScreeningRouter } from './local-screening.js'
 import { router as lastSessionRouter } from './last-session.js'
 import { router as charactersRouter } from './characters.js'
+import { router as storyEntitiesRouter } from './story-entities.js'
 import { router as characterLibraryRouter } from './character-library.js'
 import { router as nichesRouter } from './niches.js'
 import { router as thumbnailTemplatesRouter } from './thumbnail-templates.js'
@@ -86,6 +89,7 @@ export function mountRoutes(app: Express): void {
   app.use('/api', projectsRouter)
   app.use('/api', channelProfileRouter)
   app.use('/api', settingsRouter)
+  app.use('/api', settingsBaselinesRouter)
   app.use('/api', appSettingsRouter)
   // Optional, in-app duplicate screening (owner 2026-10-27). Warns; gates nothing.
   app.use('/api', localScreeningRouter)
@@ -111,8 +115,10 @@ export function mountRoutes(app: Express): void {
   app.use('/api', youtubeConnectionsRouter)
   app.use('/api', youtubeUploadCenterRouter)
   app.use('/api', youtubeAuditRouter)
+  app.use('/api', youtubeUploadPacingRouter)
   app.use('/api', socialPublishingRouter)
   app.use('/api', charactersRouter)
+  app.use('/api', storyEntitiesRouter)
   app.use('/api', characterLibraryRouter)
   app.use('/api', nichesRouter)
   app.use('/api', thumbnailTemplatesRouter)

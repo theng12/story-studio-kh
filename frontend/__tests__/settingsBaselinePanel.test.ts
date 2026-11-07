@@ -230,7 +230,7 @@ test('panel renders baseline selector, target channels, safety notice, and resto
     assert.match(text, /Owner Standard Baseline/)
 
     // Explicit operation badge & safety notice
-    assert.match(text, /Explicit User Operation/)
+    assert.match(text, /Preview before applying/)
     assert.match(text, /never rewrite stored disk presets/)
     assert.match(text, /Scene rhythm stays per-episode/)
 

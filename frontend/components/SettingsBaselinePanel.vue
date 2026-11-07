@@ -2,23 +2,21 @@
   <section class="panel settings-baseline-panel" data-setting="settings-baseline" aria-labelledby="settings-baseline-title">
     <header class="sb-header">
       <div class="copy">
-        <span class="eyebrow">Production Standards</span>
-        <h4 id="settings-baseline-title">Settings Baseline &amp; Safe Application</h4>
+        <h4 id="settings-baseline-title">Settings baselines</h4>
         <p>
-          Snapshot, preview, apply, and restore configuration baselines across channels.
-          Every application creates a pre-apply restore point, strictly preserves episode pacing and disk presets,
-          and performs honest readback verification against disk before reporting success.
+          Copy reusable settings from one channel to others. Preview the changes before applying them.
+          Changed settings are checked after saving, with a restore point to undo them.
         </p>
       </div>
       <div class="sb-mode-badge" role="note">
         <span class="sb-badge-dot"></span>
-        <span>Explicit User Operation</span>
+        <span>Preview before applying</span>
       </div>
     </header>
 
     <!-- Pacing and preset safety notice -->
     <div class="sb-notice" role="note">
-      <strong>Safety rules (AGENTS.md &sect;5 &amp; &sect;6):</strong>
+      <strong>Your episodes keep their settings.</strong>
       Baselines never rewrite stored disk presets or secret credentials.
       Scene rhythm stays per-episode; channel default pacing acts only as a starting template for new episodes,
       and existing episode pacing is never modified.

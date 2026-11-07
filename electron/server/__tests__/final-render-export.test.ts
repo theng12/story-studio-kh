@@ -118,7 +118,7 @@ const FIELD_POLICY = {
   stillTailFromSec: 'optimizer-hint',
   // Drawn by the local composer after the base video; not part of the exported
   // recipe, so it must never be classified as one.
-  sleepTitle: 'local-orchestration',
+  sleepTitle: 'unsupported-when-active',
   job: 'local-orchestration',
 } as const satisfies Record<keyof CompositionOpts, 'source' | 'recipe' | 'captured-authority' | 'local-orchestration' | 'optimizer-hint' | 'unsupported-when-active'>
 
@@ -374,6 +374,7 @@ test('active unsupported creative choices and ambiguous classic values stay loca
     ['contextual cues', { contextualCues: [{ id: 'cue', text: 'cue', start_sec: 1, end_sec: 2 } as any] }, 'contextual_cues'],
     ['scene effects', { sceneEffects: { enabled: true, overlays: [{ id: 'film', enabled: true }] } as any }, 'scene_effects'],
     ['episode stack', { episodeStack: { entries: [{}] } as any }, 'episode_stack'],
+    ['sleep title', { sleepTitle: { text: 'A quiet journey', start_s: 0.5, end_s: 1.5 } }, 'sleep_title'],
     ['custom logo placement', { logo: { enabled: true, image_path: '/schema/logo.png', position: 'custom', custom_x: 4, custom_y: 5, opacity: 1, scale: 0.1, margin: 20, hide_during_intro: false } }, 'logo_custom_position'],
     ['unprepared shaped logo', { logo: { enabled: true, image_path: '/schema/logo.png', position: 'top-left', opacity: 1, scale: 0.1, margin: 20, hide_during_intro: false, shape: 'circle' } }, 'logo_shape'],
     ['literal zero logo margin', { logo: { enabled: true, image_path: '/schema/logo.png', position: 'top-left', opacity: 1, scale: 0.1, margin: 0, hide_during_intro: false } }, 'logo_margin_default'],

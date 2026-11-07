@@ -85,8 +85,9 @@ test('filterSafeBaselinePayload keeps safe reusable keys and drops secrets, disk
   assert.deepEqual(safe.audio_quality, { mode: 'flag_issues' })
   assert.deepEqual(safe.default_scene_pacing, { phases: [{ end: 180, min: 5, max: 10 }] })
   assert.deepEqual(safe.pipeline_last_steps, { volume: 0.06, enabled: true })
-  assert.deepEqual(safe.default_models, { writing: 'story-llm', image: 'qwen' })
-  assert.equal(safe.aspect_ratio, '16:9')
+  assert.equal('default_models' in safe, false)
+  assert.equal('music_bed_defaults' in safe, false)
+  assert.equal('aspect_ratio' in safe, false)
 
   // Secrets, disk presets, episode pacing, and retired fields are dropped
   assert.equal('genstudio_api_key' in safe, false)
@@ -251,7 +252,7 @@ test('applyBaseline atomic application, readback verification, and restorable sn
     create_restore_point: true,
   })
 
-  assert.equal(result.success_count, 1)
+  assert.equal(result.success_count, 1, JSON.stringify(result.channels))
   assert.equal(result.failure_count, 0)
 
   const channelRes = result.channels[slug]
@@ -348,6 +349,58 @@ test('corrupt store bytes are preserved, never silently replaced', async () => {
     assert.equal(await fs.readFile(target, 'utf-8'), garbage, 'corrupt bytes must be preserved')
   } finally {
     await fs.writeFile(target, original, 'utf-8')
+  }
+})
+
+test('invalid store maps are preserved and refused', async () => {
+  const target = settingsBaseline.settingsBaselineStorePath()
+  const original = await fs.readFile(target, 'utf-8')
+  try {
+    for (const patch of [{ baselines: [] }, { snapshots: null }]) {
+      const bytes = JSON.stringify({ ...JSON.parse(original), ...patch })
+      await fs.writeFile(target, bytes)
+      await assert.rejects(settingsBaseline.listBaselines(), /invalid .* map/)
+      assert.equal(await fs.readFile(target, 'utf-8'), bytes)
+    }
+  } finally {
+    await fs.writeFile(target, original)
+  }
+})
+
+test('symlinked config cannot expose a foreign snapshot or replace another channel settings', async () => {
+  const project = await pm.createProject({ name: 'Config Link Baseline' } as any)
+  const configPath = path.join(tempDir, 'projects', project.slug, 'config.json')
+  const originalPath = `${configPath}.original`
+  const foreignPath = path.join(tempDir, 'foreign-config.json')
+  const foreignBytes = JSON.stringify({ audio_quality: { mode: 'off' }, private_key: 'foreign-private-value' })
+  await fs.writeFile(foreignPath, foreignBytes)
+  await fs.rename(configPath, originalPath)
+  await fs.symlink(foreignPath, configPath)
+  const baseline = await settingsBaseline.createBaseline('Config link refusal', { audio_quality: { mode: 'flag_issues' } })
+  const result = await settingsBaseline.applyBaseline({
+    baseline_id: baseline.id, channel_slugs: [project.slug], explicit_confirm: true,
+  })
+  assert.equal(result.channels[project.slug].status, 'failed')
+  await assert.rejects(settingsBaseline.createChannelSnapshot(project.slug, 'manual_snapshot'))
+  assert.deepEqual(await settingsBaseline.listRestorePoints(project.slug), [])
+  assert.equal(await fs.readFile(foreignPath, 'utf-8'), foreignBytes)
+  assert.equal((await fs.lstat(configPath)).isSymbolicLink(), true)
+})
+
+test('corrupt channel config refuses apply and snapshots without replacing its bytes', async () => {
+  const project = await pm.createProject({ name: 'Corrupt Channel Baseline' } as any)
+  const configPath = path.join(tempDir, 'projects', project.slug, 'config.json')
+  const baseline = await settingsBaseline.createBaseline('Corrupt config refusal', { audio_quality: { mode: 'off' } })
+  for (const bytes of ['{ broken config', '[]', 'null']) {
+    await fs.writeFile(configPath, bytes)
+    const result = await settingsBaseline.applyBaseline({
+      baseline_id: baseline.id, channel_slugs: [project.slug], explicit_confirm: true,
+    })
+    assert.equal(result.failure_count, 1)
+    assert.equal(result.channels[project.slug].status, 'failed')
+    await assert.rejects(settingsBaseline.createChannelSnapshot(project.slug, 'manual_snapshot'))
+    assert.equal(await fs.readFile(configPath, 'utf-8'), bytes)
+    assert.deepEqual(await settingsBaseline.listRestorePoints(project.slug), [])
   }
 })
 

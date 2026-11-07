@@ -131,7 +131,15 @@ describe('story entity inventory', () => {
     const body = await getInventory(epB)
     assert.equal(body.exists, false)
     assert.deepEqual(body.doc.entities, [])
-    assert.equal(body.chapters, null, 'no script folder must read as null, never as 0 (§6)')
+    assert.equal(body.chapters, 0, 'the accepted idea creates a readable but empty script folder')
+    const { resolveEpisodePathsByCode } = await import('../services/utils.js')
+    const scriptDir = (await resolveEpisodePathsByCode(slug, epB)).script_dir
+    await fs.rename(scriptDir, `${scriptDir}.held-for-missing-folder-test`)
+    try {
+      assert.equal((await getInventory(epB)).chapters, null, 'a missing script folder is unmeasurable, never zero')
+    } finally {
+      await fs.rename(`${scriptDir}.held-for-missing-folder-test`, scriptDir)
+    }
   })
 
   test('the completed script on disk is counted for this episode', async () => {

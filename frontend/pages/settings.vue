@@ -29,6 +29,7 @@
     </nav>
 
     <ThisMacSettings :key="section" :section="section" />
+    <SettingsBaselinePanel v-if="section === 'all' || section === 'backup'" />
   </div>
 </template>
 

@@ -180,6 +180,7 @@ export function describeFinalRenderExport(
   if ((lateLabels?.unknown_cue_ids.length ?? 0) > 0) return local('contextual_cues_unknown_template')
   if (cues.length > 0 && (!lateLabels || lateLabels.labels.length === 0)) return local('contextual_cues')
   if (opts.sceneEffects?.enabled) return local('scene_effects')
+  if (opts.sleepTitle) return local('sleep_title')
   if ((opts.episodeStack?.entries?.length ?? 0) > 0) return local('episode_stack')
   if (opts.segmentation?.checkpoint?.final_stage) return local('saved_final_recovery')
 
