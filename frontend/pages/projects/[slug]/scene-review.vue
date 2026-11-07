@@ -614,6 +614,13 @@
         </div>
       </div>
 
+      <!-- A malformed story-context sidecar is named here. The scene rows
+           below must not read as "nothing is linked" when it could not be read (§6). -->
+      <div v-if="storyContextError" class="review-story-error mt-2" role="alert">
+        <strong>Story context could not be read, so linking is off.</strong>
+        <span>{{ storyContextError }}</span>
+      </div>
+
       <ul class="review-scene-list mt-2">
         <li
           v-for="scene in renderedScenes"
@@ -737,6 +744,71 @@
             <details class="review-prompt-details disclosure">
               <summary class="text-muted text-xs">Visual prompt</summary>
               <p class="review-prompt">{{ scene.visual_prompt }}</p>
+            </details>
+            <!-- Episode Visual Setup Phase 2 — link this scene's cast/locations/
+                 objects and record what changed for them here. -->
+            <details v-if="(keptStoryEntities.length || scene.story_context?.length) && !storyContextError" class="review-story-details disclosure">
+              <summary class="text-muted text-xs">
+                Story context
+                <span v-if="scene.story_context?.length"> · {{ scene.story_context.length }} linked</span>
+              </summary>
+              <div class="review-story-picker">
+                <label v-for="entity in keptStoryEntities" :key="entity.id" class="review-story-chip">
+                  <input
+                    type="checkbox"
+                    :checked="!!storyLink(scene, entity.id)"
+                    @change="toggleStoryEntity(scene, entity.id)"
+                  >
+                  <span>{{ entity.name }}</span>
+                  <span class="review-story-kind">{{ STORY_ENTITY_KIND_LABELS[entity.kind] }}</span>
+                  <span
+                    v-if="entity.important"
+                    class="review-story-important"
+                    title="Holds one canonical reference at render time"
+                  >reference</span>
+                </label>
+              </div>
+              <div
+                v-for="link in scene.story_context || []"
+                :key="link.entity_id"
+                class="review-story-state"
+                :class="{ 'is-orphan': !isStoryLinkKept(link) }"
+              >
+                <div class="review-story-state-head">
+                  <strong>{{ storyEntityName(link.entity_id) }}</strong>
+                  <span v-if="!isStoryLinkKept(link)" class="review-story-orphan">
+                    No longer in the kept story context — remove this link to save.
+                  </span>
+                  <button
+                    v-if="!isStoryLinkKept(link)"
+                    type="button"
+                    class="btn btn-sm btn-ghost"
+                    @click="removeStoryLink(scene, link.entity_id)"
+                  >Remove</button>
+                </div>
+                <div v-if="isStoryLinkKept(link)" class="review-story-fields">
+                  <label v-for="field in STORY_STATE_FIELDS" :key="field" class="review-story-field">
+                    <span>{{ STORY_STATE_LABELS[field] }}</span>
+                    <input
+                      v-model="link.state[field]"
+                      class="input"
+                      type="text"
+                      :placeholder="field === 'time' ? 'e.g. night' : 'unchanged'"
+                      @input="markStoryDirty(scene)"
+                    >
+                  </label>
+                </div>
+              </div>
+              <div class="review-story-actions">
+                <button
+                  type="button"
+                  class="btn btn-sm btn-secondary"
+                  :disabled="storySavingScene === scene.id || !storyDirtyScenes.has(scene.id) || storySceneHasOrphan(scene)"
+                  :title="storySceneHasOrphan(scene) ? 'Remove links to entities no longer in the kept story context first.' : 'Save this scene\'s story links and state'"
+                  @click="saveStoryContext(scene)"
+                >{{ storySavingScene === scene.id ? 'Saving…' : 'Save story context' }}</button>
+                <span v-if="storyDirtyScenes.has(scene.id)" class="text-muted text-xs">Unsaved changes</span>
+              </div>
             </details>
           </div>
 
@@ -922,6 +994,10 @@ import {
   type SceneReferenceDrop,
 } from '../../../utils/scene-reference-characters.js'
 import { sceneReviewPresetApply, sceneReviewPresetSnapshot, type SceneReviewPresetData } from '../../../utils/scene-review-preset.js'
+// Episode Visual Setup Phase 2 — one source of truth with the backend for the
+// linkable state fields and the inventory labels.
+import { STORY_STATE_FIELDS, type StoryStateField } from '../../../../electron/server/contracts/scene-story-context.js'
+import { STORY_ENTITY_KIND_LABELS, type StoryEntity } from '../../../../electron/server/contracts/story-entities.js'
 import { findGenStudioProduct } from '../../../../electron/server/contracts/genstudio-product-identity'
 import { pacingBandAt, type ScenePacing } from '@shared/pacing'
 import { SCENE_IMAGE_CHECK_SHADOW_UNTIL, SCENE_VISION_AXES, sceneImageCheckShadowOver, type SceneVisionAxis } from '@shared/scene-image-check'
@@ -958,6 +1034,11 @@ const scenePlanLink = computed(() => episodeId.value
   ? `/projects/${slug.value}/scene-plan?episode_id=${encodeURIComponent(episodeId.value)}`
   : `/projects/${slug.value}/scene-plan`)
 
+interface SceneStoryLinkDraft {
+  entity_id: string
+  /** Only what this scene changes; empty means the inventory description stands. */
+  state: Partial<Record<StoryStateField, string>>
+}
 interface ReviewScene {
   id: string
   scene_index: number
@@ -1016,6 +1097,8 @@ interface ReviewScene {
   scene_type?: 'character' | 'event' | 'environment' | 'map' | 'artifact'
   /** This scene's OWN reference characters; absent = the render default applies. */
   reference_character_ids?: string[]
+  /** Episode Visual Setup Phase 2 — this scene's links into the episode's story inventory. */
+  story_context?: SceneStoryLinkDraft[]
 }
 interface ReviewStats {
   total_scenes: number
@@ -1065,6 +1148,20 @@ interface ManualRedoSetting { enabled: boolean }
 
 const plan = ref<PlanMeta | null>(null)
 const scenes = ref<ReviewScene[]>([])
+// Episode Visual Setup Phase 2 — this episode's story inventory, its read
+// error, and the per-scene drafts. All three are episode state (§4).
+const storyEntities = ref<StoryEntity[]>([])
+const storyContextError = ref('')
+const storyDirtyScenes = ref<Set<string>>(new Set())
+const storySavingScene = ref<string | null>(null)
+const keptStoryEntities = computed(() => storyEntities.value.filter(entity => entity.review === 'keep'))
+const STORY_STATE_LABELS: Record<StoryStateField, string> = {
+  outfit: 'Outfit',
+  age: 'Age',
+  time: 'Time of day',
+  weather: 'Weather',
+  damage: 'Damage',
+}
 const SCENE_RENDER_BATCH = 40
 const renderedSceneLimit = ref(SCENE_RENDER_BATCH)
 const renderedScenes = computed(() => scenes.value.slice(0, renderedSceneLimit.value))
@@ -1590,6 +1687,97 @@ async function saveSceneReferences(scene: ReviewScene, ids: string[]): Promise<v
   }
 }
 
+// ── Per-scene story links (Episode Visual Setup Phase 2) ─────────────
+//
+// The episode's kept inventory is the only linkable set; the server refuses a
+// link to anything else, so the picker never offers one. Story state is saved
+// per scene and merged server-side, so saving one scene cannot wipe another's.
+
+function storyEntity(entityId: string): StoryEntity | undefined {
+  return storyEntities.value.find(entity => entity.id === entityId)
+}
+
+/** Give every link an editable state object; the server omits an empty state. */
+function normalizeStoryLinks(links: Array<{ entity_id: string; state?: Partial<Record<StoryStateField, string>> }> | undefined): SceneStoryLinkDraft[] {
+  return (links || []).map(link => ({ entity_id: link.entity_id, state: { ...(link.state || {}) } }))
+}
+
+function storyEntityName(entityId: string): string {
+  return storyEntity(entityId)?.name || entityId
+}
+
+function storyLink(scene: ReviewScene, entityId: string): SceneStoryLinkDraft | undefined {
+  return scene.story_context?.find(link => link.entity_id === entityId)
+}
+
+/** A link kept after its entity was dropped is shown as such, never silently removed. */
+function isStoryLinkKept(link: SceneStoryLinkDraft): boolean {
+  return storyEntity(link.entity_id)?.review === 'keep'
+}
+
+/** The server refuses a save that still names a dropped entity, so Save waits for its removal. */
+function storySceneHasOrphan(scene: ReviewScene): boolean {
+  return (scene.story_context || []).some(link => !isStoryLinkKept(link))
+}
+
+function markStoryDirty(scene: ReviewScene): void {
+  if (storyDirtyScenes.value.has(scene.id)) return
+  storyDirtyScenes.value = new Set(storyDirtyScenes.value).add(scene.id)
+}
+
+function toggleStoryEntity(scene: ReviewScene, entityId: string): void {
+  const current = scene.story_context || []
+  scene.story_context = current.some(link => link.entity_id === entityId)
+    ? current.filter(link => link.entity_id !== entityId)
+    : [...current, { entity_id: entityId, state: {} }]
+  markStoryDirty(scene)
+}
+
+function removeStoryLink(scene: ReviewScene, entityId: string): void {
+  scene.story_context = (scene.story_context || []).filter(link => link.entity_id !== entityId)
+  markStoryDirty(scene)
+}
+
+async function saveStoryContext(scene: ReviewScene): Promise<void> {
+  if (storySavingScene.value || storyContextError.value || storySceneHasOrphan(scene)) return
+  const episode = episodeId.value
+  storySavingScene.value = scene.id
+  try {
+    const result = await put<{ ok: true; doc: { scenes: Array<{ scene_id: string; entities: Array<{ entity_id: string; state?: Record<string, string> }> }> } }>(
+      `/projects/${slug.value}/scene-review/${episode}/story-context`,
+      {
+        scenes: [{
+          scene_id: scene.id,
+          entities: (scene.story_context || []).map(link => ({
+            entity_id: link.entity_id,
+            state: Object.fromEntries(
+              Object.entries(link.state).map(([field, value]) => [field, (value || '').trim()]).filter(([, value]) => value),
+            ),
+          })),
+        }],
+      },
+    )
+    if (episode !== episodeId.value) return
+    const saved = result?.doc?.scenes?.find(entry => entry.scene_id === scene.id)
+    if (!saved) throw new Error('The save answered without this scene — reload before editing again.')
+    // Read the saved scene back from the server's own answer, not from what
+    // was typed: an empty field is omitted there, and the page must match.
+    const target = scenes.value.find(item => item.id === scene.id)
+    if (target) {
+      target.story_context = saved.entities.map(link => ({
+        entity_id: link.entity_id,
+        state: { ...(link.state || {}) },
+      }))
+    }
+    storyDirtyScenes.value = new Set([...storyDirtyScenes.value].filter(id => id !== scene.id))
+    success(`Scene ${scene.scene_index} story context saved.`)
+  } catch (e: any) {
+    showError(e?.data?.detail || e?.message || 'Could not save this scene\'s story context')
+  } finally {
+    if (storySavingScene.value === scene.id) storySavingScene.value = null
+  }
+}
+
 function togglePreviewSceneReference(characterId: string): void {
   const scene = previewScene.value
   if (!scene) return
@@ -1940,6 +2128,9 @@ async function loadReview(): Promise<void> {
   if (!ep) {
     plan.value = null
     scenes.value = []
+    storyEntities.value = []
+    storyContextError.value = ''
+    storyDirtyScenes.value = new Set()
     audioPath.value = null
     stats.value = null
     visualSource.value = 'scene_plan'
@@ -1962,11 +2153,27 @@ async function loadReview(): Promise<void> {
       prompt_integrity?: PromptIntegrity
       subtitle_integrity?: SubtitleIntegrity
       visual_source?: 'scene_plan' | 'image_pool'
+      story_entities?: StoryEntity[]
+      story_context_error?: string
     }
     const r = await get<ReviewResponse>(`/projects/${project}/scene-review/${ep}`)
     if (!current()) return
     plan.value = r.scene_plan
-    scenes.value = r.scenes
+    // A malformed sidecar is reported, never read as "no links" (§6). The
+    // drafts are normalized to an editable shape here only. A render poll must
+    // not throw away unsaved story edits on the same episode (§4): a dirty
+    // scene keeps its own draft; the server's copy wins everywhere else.
+    storyEntities.value = r.story_entities || []
+    storyContextError.value = r.story_context_error || ''
+    const previousStory = new Map(scenes.value.map(scene => [scene.id, scene.story_context || []]))
+    const dirtyStoryScenes = storyDirtyScenes.value
+    scenes.value = r.scenes.map(scene => ({
+      ...scene,
+      story_context: dirtyStoryScenes.has(scene.id) && previousStory.has(scene.id)
+        ? previousStory.get(scene.id)!
+        : normalizeStoryLinks(scene.story_context),
+    }))
+    storyDirtyScenes.value = new Set([...dirtyStoryScenes].filter(id => r.scenes.some(scene => scene.id === id)))
     audioPath.value = r.audio_path
     audioVersion.value = r.audio_version ?? null
     stats.value = r.stats
@@ -2865,6 +3072,10 @@ watch([slug, episodeId], () => {
   // "Greenlit" links, render banner) shows while — or if — this one fails to load.
   plan.value = null
   scenes.value = []
+  storyEntities.value = []
+  storyContextError.value = ''
+  storyDirtyScenes.value = new Set()
+  storySavingScene.value = null
   stats.value = null
   audioPath.value = null
   audioVersion.value = null
@@ -3470,6 +3681,43 @@ watch(() => replaceableUncertainJob.value?.job_id || '', (sourceJobId, previousS
   color: var(--text-muted);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   line-height: 1.45;
+}
+
+/* Per-scene story links and state (Episode Visual Setup Phase 2). */
+.review-story-details { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--border); }
+.review-story-details summary { cursor: pointer; }
+.review-story-picker { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.review-story-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 9px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.review-story-chip:has(input:checked) { border-color: var(--accent); color: var(--text-primary); }
+.review-story-chip input { accent-color: var(--accent); }
+.review-story-kind { font-size: 11px; color: var(--text-muted); }
+.review-story-important { font-size: 11px; color: var(--accent); }
+.review-story-state { margin-top: 8px; padding: 9px 10px; border: 1px solid var(--border); border-radius: 9px; }
+.review-story-state.is-orphan { border-color: color-mix(in srgb, var(--warning) 45%, var(--border)); }
+.review-story-state-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; font-size: 12px; }
+.review-story-orphan { color: var(--warning); font-size: 11px; }
+.review-story-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 7px 9px; margin-top: 7px; }
+.review-story-field { display: flex; flex-direction: column; gap: 3px; font-size: 11px; color: var(--text-muted); }
+.review-story-actions { display: flex; align-items: center; gap: 9px; margin-top: 9px; }
+.review-story-error {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--danger) 45%, var(--border));
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
+  border-radius: 8px;
+  font-size: 12px;
 }
 
 .review-actions-cell {
