@@ -110,4 +110,13 @@ test('Video Assembly records on a queued render and restores after presets load 
   for (const ref of ['introPresets', 'timelinePresets', 'effectsPresets', 'subtitlesPresets', 'exportPresets']) {
     assert.match(page, new RegExp(`if \\(${ref}\\.activeId\\.value\\) covered\\.push\\(`), `${ref} contributes its selected section to the covered set`)
   }
+  // Regression 2026-11-07: applyTimelineData called applyRevealBundle(data)
+  // before if(!data)return, so a covered timeline slot passing undefined
+  // invoked applyRevealBundle(undefined) which reset sceneReveal.enabled=false.
+  // The guard must come before applyRevealBundle.
+  assert.match(
+    page,
+    /function applyTimelineData\(data: any\) \{\s*if \(!data\) return\s*applyRevealBundle\(data\)/,
+    'applyTimelineData must guard undefined data before applyRevealBundle so a covered timeline cannot touch reveal',
+  )
 })

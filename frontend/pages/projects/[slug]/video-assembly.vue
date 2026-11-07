@@ -6268,8 +6268,8 @@ function snapshotTimelineData() {
   }
 }
 function applyTimelineData(data: any) {
-  applyRevealBundle(data)
   if (!data) return
+  applyRevealBundle(data)
   applyTitleImagePreset(titleImage, data.title_image)
   if (data.scene_recycling) Object.assign(sceneRecycling, data.scene_recycling)
   if (data.post_audio) applyPostAudioPreset(data.post_audio)
