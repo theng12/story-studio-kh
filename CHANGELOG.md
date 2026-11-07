@@ -6,18 +6,18 @@ What's new in each release. Newest first.
 
 ## v1.4.386 — 2026-11-07
 
-- Video Assembly endings retire black and fade ending options; ending on a hold keeps the final scene visible while background music plays to completion. Trimming of finished videos is cancelled; only new videos prevent black or fade ends.
-- Video Assembly applies an explicitly selected preset over a channel's stale last-used preset, and guards timeline application against missing reveal configurations.
-- Chapter background management imports image files directly into the channel pool folder, previews fonts against the standing pool, and draws headings and backgrounds across reveal scene clips.
-- Audio Assembly combines Opening, Narration, and Closing into a single page with four clear sections, binds channel intro music with trims and fades, and preserves existing audio when saving automatic bindings.
-- Upload pacing separates Upload on and Publish on dates with daily pacing tiers (Gentle 3, Regular 6, Bulk 12) and explicit channel release window hours. Uploads pause when pacing is unconfigured or corrupt, reviewed thumbnail bytes are sent directly from temporary work storage, and unconfirmed metadata updates wait rather than failing.
-- YouTube uploads support optional separate caption track uploads with reviewable parameters, and paused uploads are never projected as quota exhausted.
-- Story entity inventory lets you extract episode characters from completed chapters and link them and reference images to scenes, with an off-by-default automation switch for channel generation.
-- Sketch Draw adds optional scene-type reveal and hold controls, off by default, verified during final video checks.
-- Thumbnail generation supports art style tags up to the authoritative 12,000-character limit without truncation.
-- Preset inspection serves allowlisted read-only scalar values without modifying project state.
-- Existing style aliases and recovery paths remain available in 1.4.386; legacy path removal is deferred to 1.4.387, and 43 new style packs remain unpublished.
-- Fleet render parity remains separate with no remote eligibility claim in this release.
+- New video endings keep the last scene visible during closing music, or end with a hard cut. Older black and fade endings become a hold of the same duration; finished videos stay unchanged.
+- Video Assembly respects the selected bundle and section presets when starting a new episode, while keeping each episode's own saved render choices.
+- Chapter backgrounds can be imported into a channel's reusable rotation. Chapter headings use scene images and the channel's font pool; sleep videos can show their title once after the intro.
+- Audio Assembly brings opening, narration and closing controls together, with separate sound pools, intro music trims and fades, and closing remixes that retain the narration's full duration.
+- Upload pacing separates Upload on and Publish on dates, with editable Gentle 3, Regular 6 and Bulk 12 daily tiers and channel upload windows. The queue explains why an upload is waiting and rechecks its reviewed files before sending them.
+- Publication changes awaiting confirmation stay pending instead of reporting a false failure. Optional separate caption uploads start off, and channel settings show playlist inventory and the manual end-screen choices.
+- Review finals supports Pass and automatic passing, with a durable clear action tied to the exact final video.
+- Character Sheet keeps an episode's extracted characters, scene links and reference images together. Automatic extraction is optional and starts off.
+- Motion Review adds optional scene-type Sketch Draw reveal and hold rules, off by default.
+- Thumbnail prompts preserve approved style text up to the published 12,000-character style limit. Scene and motion prompt sizing follows the selected model's available budget.
+- The Gateway pill counts only this Story instance's jobs. Read-only metadata and preset inspection expose the saved state without changing project files, and settings snapshots remain restorable.
+- Existing content aliases and recovery paths remain available.
 
 ## v1.4.385 — 2026-11-07
 
