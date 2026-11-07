@@ -133,12 +133,32 @@ function hasReviewedFreshUploadParams(params: YouTubeUploadParams): boolean {
  * No date is not a failure: a private upload with no schedule is a normal
  * upload and has nothing to check.
  */
-function assertPublishDateUsable(pkg: YouTubeMetadataPackage, episodeId: string): void {
+function publishDateRefusal(pkg: YouTubeMetadataPackage): string | null {
   const publishAt = pkg.status.publishAt
-  if (!publishAt) return
-  const refusal = youTubePublishDateRefusal(publishAt)
-  if (!refusal) return
-  throw new Error(`${refusal} Nothing was uploaded for ${episodeId}.`)
+  if (!publishAt) return null
+  return youTubePublishDateRefusal(publishAt)
+}
+
+/**
+ * A passed publication deadline HOLDS the job — it never publishes now and
+ * never fails permanently (Story 386 Item 1, owner brief 7). The row is parked
+ * with no wake instant (we do not invent a date); Upload Center shows the plain
+ * reason and the owner picks a new future date. A date YouTube would still
+ * accept passes through untouched.
+ *
+ * Returns true when the job was held, so the caller returns WITHOUT throwing —
+ * a thrown error would mark a correctly-held row as failed.
+ */
+async function holdForPassedPublishDeadline(job: Job, pkg: YouTubeMetadataPackage, episodeId: string): Promise<boolean> {
+  const refusal = publishDateRefusal(pkg)
+  if (!refusal) return false
+  const { holdJobUntil } = await import('../services/job-queue.js')
+  await holdJobUntil(
+    job.job_id,
+    null,
+    `${refusal} The upload is held for ${episodeId}; choose a new future publication date in the Upload Center. Nothing was uploaded.`,
+  )
+  return true
 }
 
 /**
@@ -456,7 +476,7 @@ export async function generateYoutubeUpload(job: Job): Promise<void> {
         // for hours, and the date that was safe when it was admitted can have
         // passed by the time the bytes are sent. A past publishAt does not
         // fail at YouTube — it publishes the video immediately.
-        assertPublishDateUsable(metadataPackage, episodeId)
+        if (await holdForPassedPublishDeadline(job, metadataPackage, episodeId)) return
         // uploadVideo persists the credential-bearing sidecar before it calls
         // the operation checkpoint. A process/store failure in that narrow
         // window leaves a valid session beside the one matching uploading
@@ -546,7 +566,7 @@ export async function generateYoutubeUpload(job: Job): Promise<void> {
       // leave nothing behind that later reads as an upload in flight. Legacy
       // jobs — no approved package — resolve their date above and go through
       // exactly the same rule; a retry re-checks it.
-      assertPublishDateUsable(metadataPackage, episodeId)
+      if (await holdForPassedPublishDeadline(job, metadataPackage, episodeId)) return
       operationHandle = await beginYouTubeOperation({
         project_slug: slug,
         episode_code: episodeId,

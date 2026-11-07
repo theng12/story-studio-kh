@@ -4065,6 +4065,10 @@ export async function admitYouTubeUpload(
           ...(shortSource ? { short_source: shortSource, parent_episode_code: episodeCode } : {}),
           account_id: accountId,
           expected_channel_id: channelId,
+          // "Upload on" (Story 386 Item 1): the earliest allowed transfer start.
+          // Persisted so a restart re-reads the instant rather than a relative
+          // delay, and so the queue's pacing pump can hold it fairly.
+          ...(typeof body?.upload_on === 'string' && body.upload_on.trim() ? { upload_on: body.upload_on.trim() } : {}),
           expected_package_revision: built.package_revision,
           // The revision the owner actually reviewed. The generator compares it
           // with the hash of the open handle it uploads from and runs the

@@ -89,6 +89,23 @@ export type YouTubeLocalUploadProjection = {
   speed_bps?: number
   eta_seconds?: number
   reason?: string
+  /**
+   * Pacing (Story 386 Item 1). "Upload on" is the earliest allowed transfer
+   * start; "publish on" is the YouTube publishAt. Both are read LIVE from the
+   * job / package, never persisted into a projection. The wait fields are the
+   * plain reason this upload is not moving yet and the actual next eligible
+   * instant, computed fresh by the pacing service.
+   */
+  upload_on?: string | null
+  publish_at?: string | null
+  pacing_tier?: string
+  pacing_daily_limit?: number
+  uploads_today?: number
+  wait_reason?: string
+  wait_detail?: string
+  next_eligible_at?: string | null
+  /** A passed publication deadline holds here; it never moves silently and never publishes now (§6). */
+  held_for_publish_deadline?: boolean
 }
 
 /** Production Board receipt status, independent of local media and generation readiness. */
