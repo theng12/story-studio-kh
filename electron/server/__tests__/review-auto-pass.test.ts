@@ -17,6 +17,7 @@ import express from 'express'
 import request from 'supertest'
 
 import { useTempDataDir } from './_helpers.js'
+import type { FinalReviewDecision, FinalReviewState } from '../contracts/final-review.js'
 
 const isolated = await useTempDataDir()
 
@@ -41,6 +42,11 @@ before(async () => {
 after(async () => {
   await isolated.cleanup()
 })
+
+/** The stored decision of a read mark; `undefined` when there is no decision. */
+function decisionOf(review: FinalReviewState): FinalReviewDecision | undefined {
+  return review.state === 'current' || review.state === 'stale' ? review.decision : undefined
+}
 
 interface ChannelFixture {
   slug: string
@@ -83,22 +89,21 @@ async function makeChannel(
   const finalPath = path.join(paths.video_dir, `${code}_final_video.mp4`)
   await fs.writeFile(finalPath, Buffer.alloc(options.bytes ?? 64, 7))
   if (options.autoPassSinceMs !== undefined) {
-    const pastDate = new Date(Date.now() - options.autoPassSinceMs).toISOString()
-    await pm.updateConfig(project.slug, {
-      final_review: {
-        enabled: options.review !== false,
-        auto_pass: true,
-        auto_pass_enabled_at: pastDate,
-      },
-    })
+    // Built as a variable: the reserved types.ts still declares final_review as
+    // `{ enabled }` only, and a fresh literal would trip the excess-property check.
+    const block: { enabled: boolean; auto_pass: boolean; auto_pass_enabled_at: string } = {
+      enabled: options.review !== false,
+      auto_pass: true,
+      auto_pass_enabled_at: new Date(Date.now() - options.autoPassSinceMs).toISOString(),
+    }
+    await pm.updateConfig(project.slug, { final_review: block })
   } else if (options.autoPass === true) {
-    await pm.updateConfig(project.slug, {
-      final_review: {
-        enabled: options.review !== false,
-        auto_pass: true,
-        auto_pass_enabled_at: new Date().toISOString(),
-      },
-    })
+    const block: { enabled: boolean; auto_pass: boolean; auto_pass_enabled_at: string } = {
+      enabled: options.review !== false,
+      auto_pass: true,
+      auto_pass_enabled_at: new Date().toISOString(),
+    }
+    await pm.updateConfig(project.slug, { final_review: block })
   } else if (options.review === true) {
     await pm.updateConfig(project.slug, { final_review: { enabled: true } })
   }
@@ -178,7 +183,7 @@ describe('Review finals — auto-pass behavior', () => {
     const listed = await listFinalReviews({ slug: channel.slug })
     assert.equal(listed.channels[0].auto_pass_enabled, true)
     assert.equal(listed.finals[0].review.state, 'current')
-    assert.equal(listed.finals[0].review.decision, 'auto_passed')
+    assert.equal(decisionOf(listed.finals[0].review), 'auto_passed')
     assert.ok((listed.finals[0].review as any).decided_at, 'decided_at must be recorded with its time')
     assert.equal(listed.channels[0].auto_pass_count, 1)
 
@@ -212,37 +217,37 @@ describe('Review finals — auto-pass behavior', () => {
 
     const listed = await listFinalReviews({ slug: channel.slug })
     assert.equal(listed.finals[0].review.state, 'current')
-    assert.equal(listed.finals[0].review.decision, 'needs_changes')
+    assert.equal(decisionOf(listed.finals[0].review), 'needs_changes')
   })
 
   test('owner can Pass an auto-passed final', async () => {
     const channel = await makeChannel('Pass Auto Channel', { autoPassSinceMs: 10_000 })
     // Auto-pass already ran
     let listed = await listFinalReviews({ slug: channel.slug })
-    assert.equal(listed.finals[0].review.decision, 'auto_passed')
+    assert.equal(decisionOf(listed.finals[0].review), 'auto_passed')
 
     // Owner clicks Pass: decision becomes approved
     const updated = await writeFinalReview(channel.finalPath, 'approved')
     assert.equal(updated.state, 'current')
-    assert.equal(updated.decision, 'approved')
+    assert.equal(decisionOf(updated), 'approved')
 
     listed = await listFinalReviews({ slug: channel.slug })
-    assert.equal(listed.finals[0].review.decision, 'approved')
+    assert.equal(decisionOf(listed.finals[0].review), 'approved')
   })
 
   test('owner can mark Needs changes on an auto-passed final', async () => {
     const channel = await makeChannel('Needs Changes Auto Channel', { autoPassSinceMs: 10_000 })
     const updated = await writeFinalReview(channel.finalPath, 'needs_changes')
-    assert.equal(updated.decision, 'needs_changes')
+    assert.equal(decisionOf(updated), 'needs_changes')
 
     const listed = await listFinalReviews({ slug: channel.slug })
-    assert.equal(listed.finals[0].review.decision, 'needs_changes')
+    assert.equal(decisionOf(listed.finals[0].review), 'needs_changes')
   })
 
   test('owner can clear an auto-passed final back to not_reviewed', async () => {
     const channel = await makeChannel('Clear Auto Channel', { autoPassSinceMs: 10_000 })
     let listed = await listFinalReviews({ slug: channel.slug })
-    assert.equal(listed.finals[0].review.decision, 'auto_passed')
+    assert.equal(decisionOf(listed.finals[0].review), 'auto_passed')
 
     await deleteFinalReview(channel.finalPath)
     listed = await listFinalReviews({ slug: channel.slug })
@@ -263,8 +268,9 @@ describe('Review finals — auto-pass behavior', () => {
     assert.equal(res.body.review_enabled, true)
 
     const config = await pm.getConfig(channel.slug)
-    assert.equal(config?.final_review?.auto_pass, true)
-    assert.ok(config?.final_review?.auto_pass_enabled_at, 'enabled_at must be stamped when turning on')
+    const saved = (config?.final_review ?? {}) as { auto_pass?: boolean; auto_pass_enabled_at?: string }
+    assert.equal(saved.auto_pass, true)
+    assert.ok(saved.auto_pass_enabled_at, 'enabled_at must be stamped when turning on')
   })
 
   test('HTTP POST with decision auto_passed is accepted as a manual auto-pass', async () => {
@@ -284,5 +290,31 @@ describe('Review finals — auto-pass behavior', () => {
       })
       .expect(200)
     assert.equal(res.body.review.decision, 'auto_passed')
+  })
+
+  test('auto-pass is note-only: no queue, generator, upload or schedule step reads the mark', async () => {
+    // Brief H: the mark authorises nothing. Pin the execution paths: none of
+    // them may mention auto_passed or import the review service at all.
+    const server = new URL('..', import.meta.url) // electron/server/
+    const executionPaths = [
+      'services/job-queue.ts',
+      'generators/video.ts',
+      'generators/youtube-upload.ts',
+      'routes/youtube-upload-center.ts',
+      'services/publish-cadence.ts',
+    ]
+    for (const rel of executionPaths) {
+      const src = await fs.readFile(new URL(rel, server), 'utf8')
+      assert.ok(!src.includes('auto_passed'), `${rel} must not read an auto-pass mark`)
+      assert.ok(!src.includes('final-review'), `${rel} must not import the review service`)
+    }
+    // The review service itself imports nothing that uploads or publishes.
+    const reviewSrc = await fs.readFile(new URL('services/final-review.ts', server), 'utf8')
+    for (const line of reviewSrc.match(/^import .*$/gm) || []) {
+      assert.ok(
+        !/youtube-upload|publish-cadence|upload-center/.test(line),
+        `review service must not import an upload/publish module: ${line}`,
+      )
+    }
   })
 })

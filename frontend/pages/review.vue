@@ -94,6 +94,9 @@
       <span v-if="unreviewedInFilter > 0">
         {{ unreviewedInFilter }} video{{ unreviewedInFilter === 1 ? '' : 's' }} to review. Start with the top one.
       </span>
+      <span v-else-if="autoPassedInFilter > 0">
+        Nothing left to review. {{ autoPassedInFilter }} auto-passed — not reviewed by you.
+      </span>
       <span v-else>All reviewed.</span>
     </p>
 
@@ -221,6 +224,12 @@ const filteredFinals = computed(() => {
 
 const unreviewedInFilter = computed(() => {
   return filteredFinals.value.filter(item => item.review.state === 'not_reviewed').length
+})
+
+// Auto-passed finals leave the review count but must never read as reviewed
+// by the owner (Brief H), so the summary names them when nothing is left.
+const autoPassedInFilter = computed(() => {
+  return filteredFinals.value.filter(item => item.review.state === 'current' && item.review.decision === 'auto_passed').length
 })
 
 /** Channels sorted unreviewed-first so a channel needing attention leads. */

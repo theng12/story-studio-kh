@@ -19,8 +19,8 @@ const template = await fs.readFile(reviewVuePath, 'utf8')
 
 describe('Review page — Pass button and auto-pass UI', () => {
   test('Approve button is renamed to Pass', () => {
-    assert.match(template, />Pass<\/button>/)
-    assert.doesNotMatch(template, />Approve<\/button>/)
+    assert.match(template,/: 'Pass' }}<\/button>/)
+    assert.doesNotMatch(template, /Approve/)
   })
 
   test('Stored decision for Pass remains approved in script', () => {
@@ -68,7 +68,9 @@ describe('Review page — Pass button and auto-pass UI', () => {
   })
 
   test('Auto-pass and review marks are note-only: no upload/schedule/publish is triggered', () => {
-    // No upload, schedule or publish action in this component
-    assert.doesNotMatch(template, /upload|schedule|publish/i)
+    // The component may SAY a mark "does not upload, schedule or publish" —
+    // what it must never do is CALL an upload, schedule or publish endpoint.
+    assert.doesNotMatch(template, /\/upload|\/publish|\/schedule/i)
+    assert.doesNotMatch(template, /youtube-upload|scheduleVideo|publishVideo/i)
   })
 })

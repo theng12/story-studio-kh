@@ -108,7 +108,13 @@ router.put('/review/channels/:slug', async (req, res) => {
     }
     const currentConfig = await pm.getConfig(req.params.slug)
     if (!currentConfig) return res.status(404).json({ detail: 'Project not found' })
-    const existing = currentConfig.final_review
+    // The auto-pass fields are not in the reserved types.ts declaration yet;
+    // updateConfig passes them through, so read them through a local view.
+    const existing = (currentConfig.final_review ?? {}) as {
+      enabled?: boolean
+      auto_pass?: boolean
+      auto_pass_enabled_at?: string
+    }
     const nextEnabled = typeof enabled === 'boolean' ? enabled : existing?.enabled ?? false
     const nextAutoPass = typeof autoPass === 'boolean' ? autoPass : existing?.auto_pass ?? false
     let autoPassEnabledAt = existing?.auto_pass_enabled_at

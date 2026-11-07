@@ -9,7 +9,7 @@
  *     server's own final-video route, and the browser holds only the sign-in
  *     cookie the app already issues;
  *   - the copy says a mark is a review note only, never an upload or publish;
- *   - Approve / Needs changes send one decision for that final and show it;
+ *   - Pass / Needs changes send one decision for that final and show it;
  *   - a mark that no longer matches the file says the file changed;
  *   - a channel with review off lists nothing and offers the switch.
  */
@@ -200,7 +200,7 @@ test('no key, bearer or token appears in the page or in what it renders', async 
   } finally { app.unmount() }
 })
 
-test('Approve sends one decision for that final and shows the mark', async () => {
+test('Pass sends one decision for that final and shows the mark', async () => {
   const { host, app, calls } = await mount(listWithFinal({ state: 'not_reviewed' }))
   try {
     host.querySelector<HTMLButtonElement>('.rv-btn-ok')!.click()
@@ -209,7 +209,7 @@ test('Approve sends one decision for that final and shows the mark', async () =>
       url: '/review/finals/demo/EP0001',
       body: { decision: 'approved', expected_size: 64, expected_mtime_ms: 1_760_000_000_000, expected_ino: 42 },
     }])
-    assert.match(host.textContent || '', /Approved/)
+    assert.match(host.textContent || '', /Passed/)
   } finally { app.unmount() }
 })
 
@@ -235,7 +235,7 @@ test('a mark that no longer matches the file says the file changed', async () =>
     current: { path: IDENTITY.path, size: 128, mtime_ms: 1_760_000_100_000, ino: 43 },
   }))
   try {
-    assert.match(host.textContent || '', /This file changed since it was marked approved/)
+    assert.match(host.textContent || '', /This file changed since it was marked passed/)
     assert.match(host.textContent || '', /Watch it again, then mark it/)
   } finally { app.unmount() }
 })

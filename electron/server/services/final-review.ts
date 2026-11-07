@@ -35,14 +35,30 @@ import * as pm from './project-manager.js'
 import { resolveEpisodePaths, resolveEpisodeTitleByCode } from './utils.js'
 import { findYouTubeSourceVideoPath, resolveYouTubeSourceRevisionCached } from './youtube-source-video.js'
 
+/**
+ * The channel's `final_review` block. `models/types.ts` (reserved to the lead)
+ * still declares only `{ enabled: boolean }`; the auto-pass fields are written
+ * through `updateConfig`'s pass-through, so they are read through this view.
+ */
+interface FinalReviewBlock {
+  enabled?: boolean
+  auto_pass?: boolean
+  auto_pass_enabled_at?: string
+}
+
+function reviewBlock(config: ProjectConfig | null | undefined): FinalReviewBlock {
+  return (config as { final_review?: FinalReviewBlock } | null | undefined)?.final_review ?? {}
+}
+
 /** Absent or false = off. Only an explicit `true` turns a channel's review on. */
 export function finalReviewEnabled(config: ProjectConfig | null | undefined): boolean {
-  return config?.final_review?.enabled === true
+  return reviewBlock(config).enabled === true
 }
 
 /** Absent or false = off. Only true when both review and auto_pass are turned on. */
 export function finalAutoPassEnabled(config: ProjectConfig | null | undefined): boolean {
-  return config?.final_review?.enabled === true && config?.final_review?.auto_pass === true
+  const block = reviewBlock(config)
+  return block.enabled === true && block.auto_pass === true
 }
 
 /** The mark lives beside the final it is about, so it travels with the file. */
@@ -207,9 +223,10 @@ export async function listFinalReviews(options: { slug?: string } = {}): Promise
     }
     const enabled = finalReviewEnabled(config)
     const autoPassEnabled = finalAutoPassEnabled(config)
-    const autoPassSince = config?.final_review?.auto_pass_enabled_at
-      ? new Date(config.final_review.auto_pass_enabled_at).getTime()
-      : null
+    const autoPassAt = reviewBlock(config).auto_pass_enabled_at
+    // An unparseable stamp reads NaN and fails the `>=` comparison, so a torn
+    // config never auto-passes anything (§6: could-not-read must not pass).
+    const autoPassSince = autoPassAt ? new Date(autoPassAt).getTime() : null
     const channel: FinalReviewChannel = {
       slug: project.slug,
       name: project.name,
