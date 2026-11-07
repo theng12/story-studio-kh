@@ -16,6 +16,15 @@ type FinalPayload = {
   status_json: string
   source_sha256: string
   /**
+   * The content hash of the thumbnail file approved with this payload.
+   *
+   * Optional: a payload frozen before this field existed carries no hash, and
+   * dispatch then keeps its old behaviour. When present, the generator compares
+   * it with the bytes it is about to send, so a same-named replacement cannot
+   * slip through unreviewed.
+   */
+  thumbnail_sha256?: string
+  /**
    * Whether the frozen title is the OWNER's own text rather than a model's.
    *
    * The editorial strips (markdown furniture, section labels, the URL
@@ -351,7 +360,7 @@ function decodeFinalPayload(value: unknown): FinalPayload {
   if (!isRecord(value)) throw corrupt('The YouTube operation final payload is invalid.')
   // The authorship fields are OPTIONAL: a payload frozen before they existed
   // decodes exactly as it always did, and is treated as generated text.
-  exactKeys(value, ['snippet_json', 'status_json', 'source_sha256'], ['title_authored', 'description_authored'])
+  exactKeys(value, ['snippet_json', 'status_json', 'source_sha256'], ['title_authored', 'description_authored', 'thumbnail_sha256'])
   const snippet = text(value.snippet_json, 'final_payload.snippet_json')
   const status = text(value.status_json, 'final_payload.status_json')
   try {
@@ -368,6 +377,9 @@ function decodeFinalPayload(value: unknown): FinalPayload {
       : {}),
     ...(hasOwn(value, 'description_authored')
       ? { description_authored: boolean(value.description_authored, 'final_payload.description_authored') }
+      : {}),
+    ...(hasOwn(value, 'thumbnail_sha256')
+      ? { thumbnail_sha256: text(value.thumbnail_sha256, 'final_payload.thumbnail_sha256') }
       : {}),
   }
 }

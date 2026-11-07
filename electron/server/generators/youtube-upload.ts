@@ -24,6 +24,7 @@ import { isCancelled } from '../services/job-queue.js'
 import { probeForUpload } from '../lib/ffprobe-check.js'
 import { resolveUploadMetadata, assertUploadMetadataComplete } from '../lib/upload-metadata.js'
 import { resolveYouTubeUploadSettings, buildYouTubeMetadataPackage, metadataPackageFromFinalPayload } from '../services/youtube-metadata-package.js'
+import { thumbnailFileHash } from '../services/thumbnail-scoring.js'
 import { youTubePublishDateRefusal } from '../services/youtube-publish-guard.js'
 import { uploadVideo, setThumbnail, type PrivacyStatus } from '../lib/youtube-client.js'
 import {
@@ -155,6 +156,39 @@ function publishDateRefusal(pkg: YouTubeMetadataPackage): string | null {
   const publishAt = pkg.status.publishAt
   if (!publishAt) return null
   return youTubePublishDateRefusal(publishAt)
+}
+
+/**
+ * The thumbnail the owner approved travels in the frozen payload as a CONTENT
+ * hash, not just a filename. Overwriting the file between preview and upload
+ * keeps the name and changes the picture, so compare the bytes that will be
+ * sent with the ones that were reviewed. A legacy payload carries no hash and
+ * keeps its old behaviour; an explicit no-thumbnail choice has nothing to
+ * compare.
+ */
+async function assertApprovedThumbnailUnchanged(
+  metadataPackage: YouTubeMetadataPackage,
+  thumbnailPath: string,
+  episodeId: string,
+  thumbnailFilename: string | null | undefined,
+): Promise<void> {
+  const frozen = metadataPackage.final_payload.thumbnail_sha256
+  if (!frozen || thumbnailFilename === null) return
+  let actual: string
+  try {
+    actual = await thumbnailFileHash(thumbnailPath)
+  } catch {
+    throw new Error(
+      `The thumbnail approved for ${episodeId} is missing or could not be read. `
+      + 'Preview and confirm the upload again; nothing was uploaded.',
+    )
+  }
+  if (actual !== frozen) {
+    throw new Error(
+      `The thumbnail approved for ${episodeId} changed after confirmation. `
+      + 'Preview and confirm the upload again; nothing was uploaded.',
+    )
+  }
 }
 
 /**
@@ -668,6 +702,7 @@ export async function generateYoutubeUpload(job: Job): Promise<void> {
         const record = matches[0]!
         operationHandle = { operation_id: record.operation_id, channel_id: record.channel_id, revision: record.revision }
         metadataPackage = metadataPackageFromFinalPayload(record.final_payload!, episodeId)
+        await assertApprovedThumbnailUnchanged(metadataPackage, meta.thumbnailPath, episodeId, params.thumbnail_filename)
         // Re-checked here, not only at admission: a job can sit in the queue
         // for hours, and the date that was safe when it was admitted can have
         // passed by the time the bytes are sent. A past publishAt does not
@@ -726,6 +761,7 @@ export async function generateYoutubeUpload(job: Job): Promise<void> {
         if (metadataPackage.package_revision !== params.expected_package_revision) {
           throw new Error('The approved YouTube upload details are invalid. Preview and confirm the upload again; nothing was uploaded.')
         }
+        await assertApprovedThumbnailUnchanged(metadataPackage, meta.thumbnailPath, episodeId, params.thumbnail_filename)
         uploadModeForRecord = params.approved_upload_mode
       } else {
         // Legacy jobs have no approved package, so resolve their mutable upload

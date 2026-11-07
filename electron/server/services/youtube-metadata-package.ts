@@ -17,6 +17,7 @@ import { createHash } from 'node:crypto'
 import path from 'node:path'
 
 import { resolveUploadMetadata, snippetFromMeta } from '../lib/upload-metadata.js'
+import { thumbnailFileHash } from './thumbnail-scoring.js'
 import * as pm from './project-manager.js'
 import { getYoutubeDefaults } from './app-settings.js'
 import { checkYouTubePublishDate, describeYouTubePublishDateProblem } from './youtube-publish-guard.js'
@@ -86,6 +87,18 @@ export interface YouTubeMetadataPackage {
     title_authored?: boolean
     /** Whether the frozen description is the owner's own text. */
     description_authored?: boolean
+    /**
+     * The sha256 of the thumbnail FILE the owner approved.
+     *
+     * The filename is not the picture: overwriting the file between preview and
+     * upload keeps the name and changes the bytes. Freezing the content hash
+     * makes the previewed picture part of the exact payload, so dispatch can
+     * refuse a same-named replacement instead of sending it unreviewed.
+     *
+     * Optional: a payload frozen before this field existed carries no hash and
+     * keeps its old behaviour.
+     */
+    thumbnail_sha256?: string
   }
 }
 
@@ -133,7 +146,11 @@ export function metadataPackageFromFinalPayload(
     )
   }
   return {
-    package_revision: sha256(canonical({ snippet, status })),
+    package_revision: sha256(canonical({
+      snippet,
+      status,
+      ...(finalPayload.thumbnail_sha256 ? { thumbnail_sha256: finalPayload.thumbnail_sha256 } : {}),
+    })),
     source_sha256: finalPayload.source_sha256,
     snippet,
     status,
@@ -308,8 +325,27 @@ export async function buildYouTubeMetadataPackage(input: {
   const titleAuthored = meta.title_from_override === true
   const descriptionAuthored = meta.description_from_override === true
 
+  // Freeze the thumbnail's CONTENT identity, not just its filename. An absent
+  // thumbnail stays valid and carries no hash; a selected file that cannot be
+  // read is refused here, where the owner can still choose another.
+  let thumbnailSha256: string | undefined
+  if (meta.thumbnailPath) {
+    try {
+      thumbnailSha256 = await thumbnailFileHash(meta.thumbnailPath)
+    } catch {
+      throw new Error(
+        `The selected thumbnail ${path.basename(meta.thumbnailPath)} for ${input.episode_code} could not be read. `
+        + 'Choose another thumbnail before uploading.',
+      )
+    }
+  }
+
   return {
-    package_revision: sha256(canonical({ snippet, status })),
+    package_revision: sha256(canonical({
+      snippet,
+      status,
+      ...(thumbnailSha256 ? { thumbnail_sha256: thumbnailSha256 } : {}),
+    })),
     source_sha256,
     snippet,
     status,
@@ -326,6 +362,7 @@ export async function buildYouTubeMetadataPackage(input: {
       source_sha256,
       ...(titleAuthored ? { title_authored: true } : {}),
       ...(descriptionAuthored ? { description_authored: true } : {}),
+      ...(thumbnailSha256 ? { thumbnail_sha256: thumbnailSha256 } : {}),
     },
   }
 }

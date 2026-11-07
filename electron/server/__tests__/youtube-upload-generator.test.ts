@@ -25,6 +25,7 @@ import { readYouTubeProjectPublishingState } from '../services/youtube-project-p
 import { recordYouTubeQuotaAttempt } from '../services/youtube-quota-ledger.js'
 import { readYouTubeConnectionRegistry } from '../services/youtube-connection-store.js'
 import { buildYouTubeMetadataPackage, resolveYouTubeUploadSettings } from '../services/youtube-metadata-package.js'
+import { thumbnailFileHash } from '../services/thumbnail-scoring.js'
 import { resolveSourceRevision } from '../services/youtube-operation-recorder.js'
 
 let cleanup: (() => Promise<void>) | undefined
@@ -222,6 +223,66 @@ describe('youtube upload generator', () => {
 
     await assert.rejects(generateYoutubeUpload(job(slug, accountId)), /this episode has none/)
     assert.equal(fake.calls.length, 0)
+  })
+
+  test('a thumbnail changed under the same filename is refused before provider work or an operation', async () => {
+    const { slug, accountId } = await setUp(true)
+    const paths = await resolveEpisodePaths(slug, CODE, TITLE)
+    const reviewed = reviewedParamsBySlug.get(slug)!
+    // Same name, different picture: the defect this pins is a filename-only
+    // revision, which cannot tell these two apart.
+    await sharp({ create: { width: 16, height: 9, channels: 3, background: '#aa3322' } })
+      .png().toFile(path.join(paths.thumb_dir, `${CODE}_Thumb01_v1.png`))
+
+    const settings = await resolveYouTubeUploadSettings(slug)
+    const rebuilt = await buildYouTubeMetadataPackage({
+      project_slug: slug,
+      episode_code: CODE,
+      privacy_status: 'private',
+      mark_as_ai_generated: settings.mark_as_ai_generated,
+      ...(settings.category_id !== undefined ? { category_id: settings.category_id } : {}),
+      fallback_title: TITLE,
+    })
+    assert.notEqual(rebuilt.package_revision, reviewed.expected_package_revision,
+      'the preview revision covers the picture, so confirmation sees a changed one')
+
+    const fake = fakeAcceptingUpload('must-not-upload')
+    __setYouTubeTransportForTests(fake.transport())
+    await assert.rejects(
+      generateYoutubeUpload(job(slug, accountId)),
+      /thumbnail approved for EP0001 changed after confirmation.*Preview and confirm the upload again/,
+    )
+    assert.equal(fake.calls.length, 0, 'YouTube was never contacted')
+    assert.equal((await listYouTubeOperations(slug)).length, 0, 'no durable operation was opened')
+  })
+
+  test('the unchanged approved thumbnail still uploads, and an absent thumbnail stays valid', async () => {
+    const { slug, accountId } = await setUp(true)
+    const paths = await resolveEpisodePaths(slug, CODE, TITLE)
+    const approved = reviewedParamsBySlug.get(slug)!.approved_final_payload as Record<string, string>
+    assert.equal(
+      approved.thumbnail_sha256,
+      await thumbnailFileHash(path.join(paths.thumb_dir, `${CODE}_Thumb01_v1.png`)),
+      'the frozen payload carries the approved picture, not just its name',
+    )
+
+    const fake = fakeAcceptingUpload('video-thumb-unchanged')
+    __setYouTubeTransportForTests(fake.transport())
+    await generateYoutubeUpload(job(slug, accountId))
+    assert.equal((await listYouTubeOperations(slug))[0]?.video_id, 'video-thumb-unchanged')
+
+    const settings = await resolveYouTubeUploadSettings(slug)
+    const absent = await buildYouTubeMetadataPackage({
+      project_slug: slug,
+      episode_code: CODE,
+      privacy_status: 'private',
+      mark_as_ai_generated: settings.mark_as_ai_generated,
+      ...(settings.category_id !== undefined ? { category_id: settings.category_id } : {}),
+      fallback_title: TITLE,
+      thumbnail_filename: null,
+    })
+    assert.equal(absent.thumbnail_filename, null)
+    assert.equal(absent.final_payload.thumbnail_sha256, undefined)
   })
 
   test('a thumbnail that fails twice fails the job with the video kept, and Retry sets only the thumbnail', async () => {
