@@ -285,6 +285,40 @@ describe('youtube upload generator', () => {
     assert.equal(absent.final_payload.thumbnail_sha256, undefined)
   })
 
+  test('a thumbnail replaced during the video transfer is refused, keeping the accepted video', async () => {
+    const { slug, accountId } = await setUp(true)
+    const paths = await resolveEpisodePaths(slug, CODE, TITLE)
+    let thumbnailCalls = 0
+    __setYouTubeTransportForTests((async (input, init) => {
+      const url = String(input)
+      if (url.includes('/thumbnails/set')) {
+        thumbnailCalls++
+        return new Response('{}', { status: 200 })
+      }
+      if ((init?.method || 'GET') === 'POST' && url.includes('/upload/youtube/v3/videos')) {
+        return new Response('', { status: 200, headers: { Location: SESSION } })
+      }
+      if ((init?.method || 'GET') === 'PUT' && url === SESSION) {
+        // Same name, different picture while the video bytes are in flight.
+        await sharp({ create: { width: 16, height: 9, channels: 3, background: '#aa3322' } })
+          .png().toFile(path.join(paths.thumb_dir, `${CODE}_Thumb01_v1.png`))
+        return new Response(JSON.stringify({ id: 'video-thumb-raced' }), { status: 200 })
+      }
+      throw new Error(`Unexpected request: ${init?.method || 'GET'} ${url}`)
+    }) as typeof fetch)
+
+    await assert.rejects(
+      generateYoutubeUpload(job(slug, accountId)),
+      /thumbnail approved for EP0001 changed after confirmation.*Preview and confirm the upload again/,
+    )
+    assert.equal(thumbnailCalls, 0, 'the unreviewed picture was never sent')
+    const [record] = await listYouTubeOperations(slug)
+    assert.equal(record?.video_id, 'video-thumb-raced', 'the accepted video is preserved')
+    assert.equal(record?.lifecycle, 'accepted')
+    const { readSidecarRaw } = await import('../services/upload-sidecar.js')
+    assert.equal((await readSidecarRaw(slug, CODE, TITLE, 'youtube'))?.thumbnail_set, false)
+  })
+
   test('a thumbnail that fails twice fails the job with the video kept, and Retry sets only the thumbnail', async () => {
     const { slug, accountId } = await setUp(true)
     await setSafety(slug, 'thumbnail_present', 'block')
