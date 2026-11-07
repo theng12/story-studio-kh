@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import fs from 'node:fs/promises'
 import path from 'node:path'
-import { after, before, beforeEach, describe, test, type TestContext } from 'node:test'
+import { after, before, describe, test, type TestContext } from 'node:test'
 
 import { useTempDataDir, type RetainedTempDataDir } from './_helpers.js'
 import { installTestSafeStorage, setTestSafeStorageAvailable } from './safe-storage-test-double.js'
@@ -108,9 +108,6 @@ async function observeBeforeRelease<T>(work: Promise<T>, label: string): Promise
 }
 
 describe('storage space summary timeout boundaries', () => {
-  let expireMeasurements: ReturnType<typeof measurementClock>
-  beforeEach(t => { expireMeasurements = measurementClock(t) })
-
   before(async () => {
     // The fixture is a RETAINED one: it must survive the run and must never be
     // tidied by automation. The retained helper puts it inside the harness
@@ -154,6 +151,7 @@ describe('storage space summary timeout boundaries', () => {
   })
 
   test('returns measured Trash totals while free-space measurement remains in flight', async t => {
+    const expireMeasurements = measurementClock(t)
     const entered = deferred()
     const release = deferred()
     const lateCallSettled = deferred()
@@ -203,6 +201,7 @@ describe('storage space summary timeout boundaries', () => {
   })
 
   test('returns other measurements while the whole-Library Trash traversal remains in flight', async t => {
+    const expireMeasurements = measurementClock(t)
     const entered = deferred()
     const release = deferred()
     const lateCallSettled = deferred()
@@ -253,6 +252,7 @@ describe('storage space summary timeout boundaries', () => {
   })
 
   test('reuses a timed-out raw project measurement, then measures fresh after actual settlement', async t => {
+    const expireMeasurements = measurementClock(t)
     const entered = deferred()
     const release = deferred()
     const lateCallSettled = deferred()
@@ -296,6 +296,7 @@ describe('storage space summary timeout boundaries', () => {
   })
 
   test('shares a still-running whole-Library Trash traversal across project slugs', async t => {
+    const expireMeasurements = measurementClock(t)
     const entered = deferred()
     const release = deferred()
     const lateCallSettled = deferred()
@@ -346,6 +347,7 @@ describe('storage space summary timeout boundaries', () => {
   })
 
   test('retains coalescing until every started root walk settles after a sibling errors', async t => {
+    const expireMeasurements = measurementClock(t)
     const release = deferred()
     const bothBlockedWalksSettled = deferred()
     const bothBlockedWalksEntered = deferred()
@@ -402,6 +404,7 @@ describe('storage space summary timeout boundaries', () => {
   })
 
   test('reports unreadable Trash as unknown but a missing Trash branch as measured zero', async t => {
+    measurementClock(t)
     const originalReaddir = fs.readdir.bind(fs)
     const originalStatfs = fs.statfs.bind(fs)
     const oldProjectTrash = path.join(projectDir, '_trash')
