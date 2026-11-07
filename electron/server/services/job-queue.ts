@@ -1882,21 +1882,42 @@ export function _setUploadPacingContextForTesting(
   uploadPacingContextForTesting = loader
 }
 
-/** Resolve this job's channel context from live data, or null when unconfigured. */
+/**
+ * A channel with no window, or with a saved policy that cannot be used, is not
+ * "open": the row holds durably until the owner configures it. This is a
+ * deliberate hold, not a transient read failure, so it gets no invented wake.
+ */
+class UploadPacingConfigError extends Error {}
+
+/**
+ * Resolve this job's channel context from live data. Only the test seam may
+ * answer null; production holds a channel whose policy is missing or corrupt.
+ */
 async function liveUploadPacingContext(job: Job): Promise<PacingChannelContext | null> {
+  // Test-only seam. Production always reads the channel's own saved policy.
   if (uploadPacingContextForTesting) return uploadPacingContextForTesting(job)
   const config = await getConfig(job.project_slug) as { upload_pacing?: unknown } | null
   const raw = config?.upload_pacing
-  if (!raw) return null
+  // Only "never saved" is unconfigured. A saved false/0/'' is corrupt, not
+  // absent: treating it as no policy would silently restore a default window.
+  if (raw === undefined || raw === null) {
+    throw new UploadPacingConfigError(
+      'This channel has no upload window hours yet. Choose its upload window and tier in Upload Center before uploads can start — nothing was uploaded.',
+    )
+  }
   const validated = validateUploadPacingPolicy(raw)
   if (!validated.ok) {
     // A saved policy that cannot be used is NOT "unconfigured": the channel
     // chose one, so no upload may run until it is corrected (AGENTS §1, §6).
-    throw new Error(`this channel's saved upload pacing is not usable (${validated.message})`)
+    throw new UploadPacingConfigError(
+      `This channel's saved upload pacing is not usable (${validated.message}). Correct it in Upload Center — nothing was uploaded.`,
+    )
   }
   const registry = await readYouTubeConnectionRegistry()
+  // An unreadable quota ledger is not "nothing used": let the read failure hold
+  // the row rather than admit an upload on an assumed zero (§6).
   const quota = registry.application
-    ? await readYouTubeQuota(registry.application.application_id).catch(() => null)
+    ? await readYouTubeQuota(registry.application.application_id)
     : null
   const projectJobs = [...jobs.values()].filter(candidate =>
     candidate.project_slug === job.project_slug && candidate.type === 'youtube_upload')
@@ -1954,18 +1975,25 @@ async function admitNextPacedUpload(): Promise<boolean> {
       const context = await liveUploadPacingContext(job)
       hold = context ? pacingHoldReason(job, { channelContext: () => context }) : null
     } catch (error) {
-      // Never fail open: an upload must not start when eligibility cannot be
-      // read. Keep the row queued with a loud reason and retry it through the
-      // queue's own durable timer; the scan continues to other channels.
-      const why = error instanceof Error ? error.message : String(error)
-      console.warn('[job-queue] upload eligibility could not be read; holding the upload', {
-        job_id: job.job_id,
-        error: why,
-      })
-      hold = {
-        reason: 'unconfigured_pacing',
-        detail: `Upload eligibility could not be confirmed for this channel — ${why}. Nothing was uploaded; this row stays queued and is retried shortly.`,
-        wake_at: new Date(Date.now() + UPLOAD_PACING_READ_RETRY_MS).toISOString(),
+      if (error instanceof UploadPacingConfigError) {
+        // A configuration hold waits for the owner, not for a clock: it keeps
+        // the row in the lane and is re-decided by any later pump (the Upload
+        // Center save calls reevaluateUploadQueue).
+        hold = { reason: 'unconfigured_pacing', detail: error.message, wake_at: null }
+      } else {
+        // Never fail open: an upload must not start when eligibility cannot be
+        // read. Keep the row queued with a loud reason and retry it through the
+        // queue's own durable timer; the scan continues to other channels.
+        const why = error instanceof Error ? error.message : String(error)
+        console.warn('[job-queue] upload eligibility could not be read; holding the upload', {
+          job_id: job.job_id,
+          error: why,
+        })
+        hold = {
+          reason: 'unconfigured_pacing',
+          detail: `Upload eligibility could not be confirmed for this channel — ${why}. Nothing was uploaded; this row stays queued and is retried shortly.`,
+          wake_at: new Date(Date.now() + UPLOAD_PACING_READ_RETRY_MS).toISOString(),
+        }
       }
     }
     if (!hold) {
