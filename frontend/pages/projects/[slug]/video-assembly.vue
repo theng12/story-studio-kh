@@ -537,6 +537,62 @@
         <span v-if="!episodeId" class="text-muted text-xs">Pick an episode in Step 1 first.</span>
       </div>
 
+      <!-- Sleep title placement (item 15): reachable for sleep channels; edits
+           the same live title card / cover reactives the render reads. -->
+      <SleepTitleSettings
+        :is-sleep="isSleepChannel"
+        :title-card="titleCard"
+        :title-image="titleImage"
+        :intro="intro"
+        :intro-hold="introHold"
+        :disabled="!episodeId"
+        @update:title-card="(value) => Object.assign(titleCard, value)"
+        @update:title-image="(value) => Object.assign(titleImage, value)"
+      />
+
+      <!-- Chapter background pool (item 14): a CHANNEL setting, separate from
+           the episode-only title draft above. Opening reads; Apply writes. -->
+      <div class="settings-section mt-2">
+        <div class="flex gap-2 items-center justify-between flex-wrap">
+          <div>
+            <h4>Chapter backgrounds <span class="text-muted text-xs">(channel)</span></h4>
+            <p class="text-muted text-sm mt-1">
+              Reusable chapter backgrounds for this channel, taken one after another in order.
+              Empty pool = today's behaviour.
+            </p>
+          </div>
+          <button type="button" class="btn btn-sm btn-secondary" :disabled="chapterBgLoading" @click="toggleChapterBackgroundPool">
+            {{ chapterBgOpen ? 'Close' : 'Manage' }}
+          </button>
+        </div>
+        <div v-if="chapterBgOpen" class="mt-2">
+          <p v-if="chapterBgLoading" class="text-muted text-sm" role="status">Loading chapter backgrounds…</p>
+          <p v-if="chapterBgError" class="text-danger text-sm" role="alert">
+            {{ chapterBgError }}
+            <button v-if="!chapterBgLoaded" type="button" class="btn btn-sm btn-secondary" @click="loadChapterBackgroundPool">Retry</button>
+          </p>
+          <p v-if="chapterBgLoaded && !chapterBgCatalogAvailable" class="text-muted text-sm" role="status">
+            {{ chapterBgCatalogReason || 'App backgrounds are unavailable right now; only this channel’s own background files can be added.' }}
+          </p>
+          <template v-if="chapterBgLoaded">
+            <ChapterBackgroundPoolEditor
+              v-model="chapterBgPool"
+              :cursor="chapterBgCursor"
+              :catalog="chapterBgCatalog"
+              :channel-files="chapterBgChannelFiles"
+              :disabled="chapterBgSaving"
+              @reset-cursor="resetChapterBackgroundCursor"
+            />
+            <div class="flex gap-2 mt-2 items-center">
+              <button type="button" class="btn btn-sm btn-primary" :disabled="chapterBgSaving" @click="saveChapterBackgroundPool">
+                {{ chapterBgSaving ? 'Saving…' : 'Apply' }}
+              </button>
+              <span class="text-muted text-sm">Apply saves this channel’s pool.</span>
+            </div>
+          </template>
+        </div>
+      </div>
+
       <Modal
         :visible="!!titleMotionDraft"
         size="xxl"
@@ -783,6 +839,9 @@
                       :pool="titleMotionPool"
                     />
                   </div>
+                  <p v-else-if="titleMotionSampleLoading" class="text-muted text-sm mt-2" role="status">
+                    Reading this episode's chapter heading…
+                  </p>
                   <p v-else class="text-muted text-sm mt-2">
                     This episode has no saved chapter heading to preview yet. Choose a chapter font
                     only after its Scene Plan supplies one.
@@ -3000,6 +3059,7 @@
 <script setup lang="ts">
 import type { CSSProperties } from 'vue'
 import type { FinalReviewListResponse, FinalReviewState } from '@shared/final-review'
+import type { ChapterBackgroundCursor, ChapterBackgroundPool } from '@shared/chapter-background-pool'
 import { describeEffectStack, duplicatePresetHints, normalizeEffectsLook } from '@shared/effects-look'
 import { findBuiltInOverlay } from '@shared/scene-effect-presets'
 import {
@@ -3045,7 +3105,7 @@ useAppTitle('Video Assembly')
 
 const route = useRoute()
 const slug = computed(() => route.params.slug as string)
-const { get, post, put } = useApi()
+const { get, post, put, patch } = useApi()
 const { success, error: showError, info } = useToast()
 const { videoAssemblyGenerating } = useGenerating()
 // v1.0.514 — no cost/duration confirmation for video assembly (free local render).
@@ -3147,11 +3207,17 @@ watch([() => scannedAssets.value?.finished_video_url, episodeId], () => {
 function finalReviewText(review: FinalReviewState): string {
   if (review.state === 'unreadable') return `The review mark could not be read. ${review.error}`
   if (review.state === 'stale') return 'The file changed since it was marked — review it again.'
-  if (review.state === 'current') return review.decision === 'approved' ? 'Final approved (review note only).' : 'Marked as needing changes.'
+  if (review.state === 'current') {
+    if (review.decision === 'auto_passed') return 'Final auto-passed (review note only).'
+    if (review.decision === 'approved') return 'Final approved (review note only).'
+    return 'Marked as needing changes.'
+  }
   return 'Final not reviewed yet.'
 }
 function finalReviewTone(review: FinalReviewState): string {
-  return review.state === 'current' ? review.decision : review.state
+  if (review.state !== 'current') return review.state
+  // Auto-pass reads with the same positive tone as an approval (board does the same).
+  return review.decision === 'auto_passed' ? 'approved' : review.decision
 }
 // v1.4.314 — pinning which merged track this episode's video uses.
 const selectingMergedAudio = ref(false)
@@ -4853,13 +4919,186 @@ const titleMotionAdoptRoot = ref('')
 // The modal body is only rendered while a draft exists, so this is non-null there.
 const titleMotion = computed(() => titleMotionDraft.value?.value as TitleMotionDraftSettings)
 
-/** The heading the render will actually draw: this episode's first titled scene. */
+/**
+ * The heading the render will actually draw: this episode's first content
+ * chapter (the narration's own title) over the Scene Plan scene that opens it.
+ * Cleared the moment the episode changes (§4); an in-flight read for a previous
+ * episode is discarded, and nothing derived here is ever persisted.
+ */
+const titleMotionChapterText = ref('')
+const titleMotionSampleLoading = ref(false)
+let chapterSampleSequence = 0
 const titleMotionChapterSample = computed(() => {
-  const scene = scenes.value.find(entry => entry.title?.trim())
-  return {
-    text: scene?.title?.trim() || '',
-    background: scene?.image_path ? getImagePreviewUrl(scene.image_path) : '',
+  const text = titleMotionChapterText.value.trim()
+  if (!text) return { text: '', background: '' }
+  const rows = ((scannedAssets.value?.scenes || []) as Array<Record<string, any>>)
+    .filter((row) => {
+      const start = row?.start_sec
+      return typeof start === 'number' && Number.isFinite(start)
+    })
+    .sort((a, b) => a.start_sec - b.start_sec)
+  const storyStart = introHold.value?.has_intro_chapter ? Number(introHold.value.story_start_sec) || 0 : 0
+  // With a spoken Introduction the first content chapter opens at/after the
+  // story start; without one the earliest plan scene opens chapter 1.
+  const scene = rows.find(row => row.start_sec >= storyStart - 1e-6) || rows[0]
+  if (!scene) return { text: '', background: '' }
+  const file = String(scene.still_path || scene.path || '')
+  return { text, background: file ? getImagePreviewUrl(file) : '' }
+})
+
+async function loadTitleMotionChapterSample(): Promise<void> {
+  const request = ++chapterSampleSequence
+  const channel = slug.value
+  const episode = episodeId.value
+  titleMotionChapterText.value = '' // never keep the previous episode's heading (§4)
+  titleMotionSampleLoading.value = false
+  if (!channel || !episode) return
+  titleMotionSampleLoading.value = true
+  try {
+    const r = await get<{ chapters?: Array<{ number: number; title: string; present?: boolean }> }>(
+      `/projects/${channel}/episodes/${episode}/chapter-list`)
+    if (request !== chapterSampleSequence || slug.value !== channel || episodeId.value !== episode) return
+    const heading = (Array.isArray(r?.chapters) ? r.chapters : [])
+      .find(chapter => chapter && chapter.present !== false)?.title?.trim() || ''
+    titleMotionChapterText.value = heading
+  } catch {
+    if (request === chapterSampleSequence) titleMotionChapterText.value = ''
+  } finally {
+    if (request === chapterSampleSequence) titleMotionSampleLoading.value = false
   }
+}
+
+// Discard any in-flight chapter read the moment the episode changes (§4).
+watch([slug, episodeId], () => {
+  chapterSampleSequence++
+  titleMotionChapterText.value = ''
+  titleMotionSampleLoading.value = false
+}, { flush: 'sync' })
+
+// ── Sleep title placement (item 15) ───────────────────────────────────────
+// Mirrors the render's isSleepVideo on this channel's live effective-niche
+// facts; a non-sleep channel renders nothing here (the component's own v-if),
+// and a new channel never inherits the last one's answer (§4).
+const isSleepChannel = ref(false)
+let sleepNicheSequence = 0
+async function loadSleepNiche(): Promise<void> {
+  const request = ++sleepNicheSequence
+  const channel = slug.value
+  isSleepChannel.value = false
+  if (!channel) return
+  try {
+    const r = await get<{ niche: any | null }>(`/projects/${channel}/effective-niche`)
+    if (request !== sleepNicheSequence || slug.value !== channel) return
+    const n = r?.niche
+    if (!n || typeof n !== 'object') return
+    if (n.is_sleep === true) { isSleepChannel.value = true; return }
+    if (n.is_sleep === false) return
+    if (String(n.id || n.niche_id || '').trim() === 'sleep') { isSleepChannel.value = true; return }
+    if (String(n.formulaFamily || '').trim().toLowerCase() === 'calm stories') { isSleepChannel.value = true; return }
+    isSleepChannel.value = n.starting_scene_pacing != null
+  } catch {
+    if (request === sleepNicheSequence) isSleepChannel.value = false
+  }
+}
+watch(slug, () => { void loadSleepNiche() }, { immediate: true })
+
+// ── Channel chapter background pool (item 14) ─────────────────────────────
+// A CHANNEL setting, deliberately separate from the episode-only title draft.
+// Opening reads; Apply is the only write; nothing is saved on open.
+interface ChapterBackgroundPoolState {
+  pool: ChapterBackgroundPool
+  cursor: ChapterBackgroundCursor | null
+  catalog?: { available: boolean; entries?: Array<{ id: string; name: string; reference: string }>; reason?: string } | null
+  channel_files?: string[] | null
+}
+const chapterBgOpen = ref(false)
+const chapterBgLoading = ref(false)
+const chapterBgSaving = ref(false)
+const chapterBgLoaded = ref(false)
+const chapterBgError = ref('')
+const chapterBgPool = ref<ChapterBackgroundPool>({ items: [] })
+const chapterBgCursor = ref<ChapterBackgroundCursor | null>(null)
+const chapterBgCatalog = ref<Array<{ id: string; name: string; reference: string }> | null>(null)
+const chapterBgCatalogAvailable = ref(true)
+const chapterBgCatalogReason = ref('')
+const chapterBgChannelFiles = ref<string[] | null>(null)
+
+function applyChapterBgState(state: ChapterBackgroundPoolState | null): void {
+  chapterBgPool.value = state?.pool ?? { items: [] }
+  chapterBgCursor.value = state?.cursor ?? null
+  chapterBgCatalog.value = state?.catalog?.available === false ? null : (state?.catalog?.entries ?? null)
+  chapterBgCatalogAvailable.value = state?.catalog?.available !== false
+  chapterBgCatalogReason.value = String(state?.catalog?.reason || '')
+  chapterBgChannelFiles.value = state?.channel_files ?? null
+}
+
+async function loadChapterBackgroundPool(): Promise<void> {
+  const channel = slug.value
+  if (!channel) return
+  chapterBgLoading.value = true
+  chapterBgError.value = ''
+  try {
+    const state = await get<ChapterBackgroundPoolState>(`/projects/${channel}/chapter-background-pool`)
+    if (slug.value !== channel) return // another channel opened; its own read owns the state
+    applyChapterBgState(state)
+    chapterBgLoaded.value = true
+  } catch (e: any) {
+    if (slug.value !== channel) return
+    chapterBgLoaded.value = false // a failed read must never look like an empty pool (§6)
+    chapterBgError.value = e?.data?.detail || e?.message || 'Could not load chapter backgrounds.'
+  } finally {
+    if (slug.value === channel) chapterBgLoading.value = false
+  }
+}
+
+function toggleChapterBackgroundPool(): void {
+  chapterBgOpen.value = !chapterBgOpen.value
+  if (chapterBgOpen.value) void loadChapterBackgroundPool()
+}
+
+async function saveChapterBackgroundPool(): Promise<void> {
+  const channel = slug.value
+  if (!channel || !chapterBgLoaded.value || chapterBgSaving.value) return
+  chapterBgSaving.value = true
+  chapterBgError.value = ''
+  try {
+    const state = await patch<ChapterBackgroundPoolState>(`/projects/${channel}/chapter-background-pool`, { items: chapterBgPool.value.items })
+    if (slug.value !== channel) return
+    applyChapterBgState(state)
+  } catch (e: any) {
+    if (slug.value !== channel) return
+    chapterBgError.value = e?.data?.detail || e?.message || 'Could not save chapter backgrounds.'
+  } finally {
+    if (slug.value === channel) chapterBgSaving.value = false
+  }
+}
+
+async function resetChapterBackgroundCursor(): Promise<void> {
+  const channel = slug.value
+  if (!channel || chapterBgSaving.value) return
+  chapterBgSaving.value = true
+  chapterBgError.value = ''
+  try {
+    const state = await post<ChapterBackgroundPoolState>(`/projects/${channel}/chapter-background-pool/reset-cursor`, {})
+    if (slug.value !== channel) return
+    // Only the cursor moves: unsaved pool edits in this draft stay untouched.
+    chapterBgCursor.value = state?.cursor ?? null
+  } catch (e: any) {
+    if (slug.value !== channel) return
+    chapterBgError.value = e?.data?.detail || e?.message || 'Could not reset the chapter background rotation.'
+  } finally {
+    if (slug.value === channel) chapterBgSaving.value = false
+  }
+}
+
+// A different channel never shows the previous one's pool or cursor (§4).
+watch(slug, () => {
+  chapterBgOpen.value = false
+  chapterBgLoading.value = false
+  chapterBgSaving.value = false
+  chapterBgLoaded.value = false
+  chapterBgError.value = ''
+  applyChapterBgState(null)
 })
 
 /** What this step currently holds, so the editor has one summary home. */
@@ -4918,7 +5157,10 @@ function openTitleMotionEditor(): void {
   }
   titleMotionSettingsBaseline.value = JSON.parse(JSON.stringify(snapshotAllSettings()))
   titleMotionAdoptRoot.value = episodesRoot.value
-  void loadTitleMotionPool(titleMotionChapterSample.value.text)
+  void (async () => {
+    await loadTitleMotionChapterSample()
+    await loadTitleMotionPool(titleMotionChapterSample.value.text)
+  })()
 }
 
 function pickTitleMotionImage(filePath: string): void {
