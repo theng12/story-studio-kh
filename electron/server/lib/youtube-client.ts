@@ -999,9 +999,14 @@ export async function updateVideoMetadata(opts: {
       ? opts.status.publishAt : live.publishAt ?? undefined
     const privacyStatus = opts.status.privacyStatus ?? live.privacyStatus
     const effectivePrivacy = publishAt ? 'private' : privacyStatus
+    // The YouTube Data API v3 (revision 2026-11-07) requires that when clearing an existing
+    // scheduled publishAt time while retaining privacyStatus, publishAt must be explicitly
+    // set to null. If publishAt is omitted from the request body when status.part is included,
+    // YouTube keeps the previous scheduled time even if privacyStatus is unchanged. This causes
+    // videos.update to return the old scheduled timestamp, failing validation in applyVideoVisibility.
     body.status = {
       privacyStatus: effectivePrivacy,
-      ...(publishAt ? { publishAt } : {}),
+      ...(publishAt ? { publishAt } : (Object.prototype.hasOwnProperty.call(opts.status, 'publishAt') ? { publishAt: null } : {})),
       selfDeclaredMadeForKids: opts.status.selfDeclaredMadeForKids ?? live.selfDeclaredMadeForKids,
       containsSyntheticMedia: opts.status.containsSyntheticMedia ?? live.containsSyntheticMedia,
       embeddable: opts.status.embeddable ?? live.embeddable,

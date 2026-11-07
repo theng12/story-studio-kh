@@ -147,3 +147,32 @@ test('a YouTube answer that does not match the request is not recorded as done',
   assert.match(res.body.detail, /did not confirm .* as unlisted/)
   assert.equal((await operations.readYouTubeOperation(slug, operationId))?.remote_snapshot, undefined)
 })
+
+test('unscheduling a private scheduled video clears publishAt by sending it explicitly as null', async () => {
+  const { slug, episodeCode, operationId } = await uploadedVideo()
+  const scheduledTime = new Date(Date.now() + 86_400_000).toISOString()
+  const fake = new FakeYouTube()
+  queueVisibility(fake,
+    { privacyStatus: 'private', publishAt: scheduledTime },
+    { privacyStatus: 'private', publishAt: null })
+  youtube.__setYouTubeTransportForTests(fake.transport())
+
+  const res = await request(app)
+    .post(`/api/projects/${slug}/youtube/episodes/${episodeCode}/visibility`)
+    .send({ privacy_status: 'private', confirm: true, expected_channel_id: CHANNEL })
+
+  assert.equal(res.status, 200, JSON.stringify(res.body))
+  assert.equal(res.body.scheduled_at, null)
+
+  const putCall = fake.calls.find(call => call.method === 'PUT')
+  assert.ok(putCall, 'expected a PUT request to YouTube')
+  const sent = JSON.parse(putCall.body!)
+  assert.equal(sent.status.privacyStatus, 'private')
+  // The YouTube Data API v3 requires publishAt to be explicitly null to clear an existing schedule
+  assert.equal('publishAt' in sent.status, true, 'publishAt must be sent as null to unschedule')
+  assert.equal(sent.status.publishAt, null, 'publishAt must be null when unscheduling a private video')
+
+  const snapshot = (await operations.readYouTubeOperation(slug, operationId))?.remote_snapshot
+  assert.equal(snapshot?.privacy_status, 'private')
+  assert.equal(snapshot?.scheduled_for, null)
+})
