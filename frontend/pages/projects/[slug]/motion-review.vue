@@ -237,6 +237,58 @@
               <SketchRevealPicker model-value="mix" :reveals="revealCatalog" :weight="episodeLineWeight ?? channelLineWeight" :mix="revealMixDraft" :disabled="revealSaving || !revealCatalog.length" multiple label="Choose Mix reveal styles" title="Choose Mix styles" description="Pick at least two styles. Each scene uses one." @mix="pickRevealMix" @weight="saveLineWeight" />
             </div>
           </div>
+          <div v-if="isSketchDraw && revealLoaded" class="model-field renderer-field">
+            <div class="field-label-row">
+              <span class="field-label">
+                <span>Scene-type rules</span>
+                <span class="field-hint">
+                  <button type="button" class="field-hint-dot" aria-label="Help" aria-describedby="scene-type-rules-help" @keydown.esc.prevent="($event.target as HTMLElement).blur()">?</button>
+                  <span id="scene-type-rules-help" class="field-hint-pop" role="status">
+                    Optional, off by default. When on, each scene type below draws with its own reveal and closing hold; a type with no rule keeps the reveal above, and a pin on one scene still wins. Every hold fits inside the scene's own length — narration and the image's art style never change.
+                    <span v-if="!sceneTypesEnabled">Currently off: every scene uses the reveal above.</span>
+                    <span v-else>{{ sceneTypeRuleCount }} scene-type rule{{ sceneTypeRuleCount === 1 ? '' : 's' }} on this setting.</span>
+                    <span v-if="sceneTypesError" class="stale-note" role="alert">{{ sceneTypesError }}</span>
+                  </span>
+                </span>
+              </span>
+              <button v-if="sceneTypesPending" type="button" class="btn btn-sm" :disabled="sceneTypesSaving || revealSaving" @click="saveSceneTypes">Apply scene-type rules</button>
+            </div>
+            <label class="scene-type-toggle">
+              <input v-model="sceneTypesEnabled" type="checkbox" :disabled="sceneTypesSaving || revealSaving">
+              <span>Use scene-type rules for this setting</span>
+            </label>
+            <div v-if="sceneTypesEnabled" class="scene-type-rules">
+              <p v-if="!sceneTypeRuleCount" class="field-hint">No rules yet. Pick a reveal or a closing hold for a scene type below, then Apply.</p>
+              <div v-for="row in SCENE_TYPE_CHOICES" :key="row.id" class="scene-type-row">
+                <span class="scene-type-row-name">{{ row.label }}</span>
+                <select v-model="sceneTypeDrafts[row.id].reveal" class="input scene-type-select" :aria-label="`Reveal rule for ${row.label}`" :disabled="sceneTypesSaving">
+                  <option value="">No rule — use the reveal above</option>
+                  <option v-for="option in revealCatalog" :key="option.id" :value="option.id">{{ option.label }}</option>
+                  <option value="mix">Its own Mix pool…</option>
+                </select>
+                <select v-model="sceneTypeDrafts[row.id].hold" class="input scene-type-select" :aria-label="`Closing hold rule for ${row.label}`" :disabled="sceneTypesSaving">
+                  <option value="">No rule — use the hold above</option>
+                  <option value="off">No hold</option>
+                  <option value="auto">Auto (follows the clip)</option>
+                  <option value="fixed">Fixed seconds…</option>
+                  <option value="range">Range, random per scene…</option>
+                </select>
+                <template v-if="sceneTypeDrafts[row.id].hold === 'fixed'">
+                  <input v-model="sceneTypeDrafts[row.id].holdDrafts.fixed" type="number" class="input scene-type-seconds" min="0.1" :max="HOLD_MAX_SECONDS" step="0.1" inputmode="decimal" :aria-label="`Fixed hold seconds for ${row.label}`" :disabled="sceneTypesSaving">
+                </template>
+                <template v-else-if="sceneTypeDrafts[row.id].hold === 'range'">
+                  <input v-model="sceneTypeDrafts[row.id].holdDrafts.min" type="number" class="input scene-type-seconds" min="0.1" :max="HOLD_MAX_SECONDS" step="0.1" inputmode="decimal" :aria-label="`Shortest hold seconds for ${row.label}`" :disabled="sceneTypesSaving">
+                  <input v-model="sceneTypeDrafts[row.id].holdDrafts.max" type="number" class="input scene-type-seconds" min="0.1" :max="HOLD_MAX_SECONDS" step="0.1" inputmode="decimal" :aria-label="`Longest hold seconds for ${row.label}`" :disabled="sceneTypesSaving">
+                </template>
+                <div v-if="sceneTypeDrafts[row.id].reveal === 'mix'" class="scene-type-mix">
+                  <label v-for="option in revealCatalog" :key="option.id" class="scene-type-mix-option">
+                    <input type="checkbox" :checked="sceneTypeDrafts[row.id].mix.includes(option.id)" :disabled="sceneTypesSaving" @change="toggleSceneTypeMix(row.id, option.id)">
+                    <span>{{ option.label }}</span>
+                  </label>
+                </div>
+              </div>
+            </div>
+          </div>
           <div v-if="isSketchDraw" class="model-field renderer-field">
             <div class="field-label-row">
               <span class="field-label">
@@ -582,7 +634,7 @@ import type { GenStudioVideoControl } from '~/composables/useGenStudioMediaModel
 import { emptyDefaultModels, normalizeDefaultModels, resolveEffectiveModel } from '~/utils/live-genstudio-model-selection'
 import { motionBatchEligible, sketchSelectionReady } from '~/utils/motion-review-sketch'
 import { HOLD_MAX_SECONDS, holdDrafts, holdFromDraft, holdLabel, type HoldChoice, type HoldDrafts, type SketchHold } from '~/utils/sketch-hold'
-import { REVEAL_LABELS, REVEAL_TYPES, setRevealCatalog, applyRevealPreset, revealChoiceOf, revealForPreset, revealFromDraft, revealLabel, revealMixDraft as revealMixFor, type SketchReveal, type SketchRevealStyle, type SketchRevealType } from '~/utils/sketch-reveal'
+import { REVEAL_LABELS, REVEAL_TYPES, setRevealCatalog, applyRevealPreset, effectiveSceneTypes, revealChoiceOf, revealForPreset, revealFromDraft, revealLabel, revealMixDraft as revealMixFor, sceneTypeRuleDrafts, sceneTypeRulesFromDrafts, sceneTypesEqual, SCENE_TYPE_CHOICES, type SceneTypeRuleDraft, type SketchReveal, type SketchRevealStyle, type SketchRevealType } from '~/utils/sketch-reveal'
 import { LINE_WEIGHTS, lineWeightFromDraft, lineWeightLabel, type LineWeightChoice, type SketchLineWeight } from '~/utils/sketch-line-weight'
 
 // usePresets captures the project slug at setup. Recreate this page for a
@@ -763,6 +815,40 @@ const revealPending = computed(() => {
   const parsed = revealFromDraft('mix', revealMixDraft.value)
   return !parsed.ok || JSON.stringify(parsed.reveal) !== JSON.stringify(episodeReveal.value)
 })
+// The optional scene-type mode (OFF by default): drafts live here until Apply, so a half-typed
+// number or an unticked box never reaches a saved setting. The stored value is only replaced by
+// an explicit save, and a save always carries this episode's pins across.
+const sceneTypesEnabled = ref(false)
+const sceneTypeDrafts = ref<Record<string, SceneTypeRuleDraft>>(sceneTypeRuleDrafts(null))
+const sceneTypesError = ref('')
+const sceneTypesSaving = ref(false)
+function syncSceneTypeDrafts() {
+  const effective = effectiveSceneTypes(episodeReveal.value, channelReveal.value)
+  sceneTypesEnabled.value = effective?.enabled ?? false
+  sceneTypeDrafts.value = sceneTypeRuleDrafts(effective)
+  sceneTypesError.value = ''
+}
+function builtSceneTypes() {
+  return sceneTypeRulesFromDrafts(sceneTypesEnabled.value, sceneTypeDrafts.value)
+}
+// True while the rows shown are not the setting saved — including a half-invalid draft, so Apply
+// stays reachable and can say what to fix instead of the button silently doing nothing.
+const sceneTypesPending = computed(() => {
+  const built = builtSceneTypes()
+  if (!built.ok) return true
+  return !sceneTypesEqual(built.scene_types, effectiveSceneTypes(episodeReveal.value, channelReveal.value))
+})
+const sceneTypeRuleCount = computed(() => {
+  const built = builtSceneTypes()
+  return built.ok ? Object.keys(built.scene_types.rules).length : 0
+})
+function toggleSceneTypeMix(kind: string, type: string) {
+  const draft = sceneTypeDrafts.value[kind]
+  if (!draft) return
+  const at = draft.mix.indexOf(type)
+  if (at >= 0) draft.mix.splice(at, 1)
+  else draft.mix.push(type)
+}
 // The ink weight follows the same pattern: a channel default, and this episode's own when it has
 // one. Absent means normal, the engine's own weight, so a clip keeps the look it was drawn with.
 const channelLineWeight = ref<SketchLineWeight>('normal')
@@ -894,6 +980,7 @@ async function loadEpisodeReveal() {
     revealUnreadable.value = result.error || ''
     revealChoice.value = acceptedRevealChoice()
     revealMixDraft.value = revealMixFor(result.episode_reveal)
+    syncSceneTypeDrafts()
     revealLoaded.value = true
   } catch (error: any) {
     if (ep === episodeId.value) presentationError.value = error?.data?.detail || error?.message || `Could not load the reveal style for ${ep}. Switch episodes and back to retry.`
@@ -923,6 +1010,52 @@ async function saveReveal(next: SketchReveal | null) {
     revealError.value = error?.data?.detail || error?.message || `Could not save the reveal style for ${ep}. Try again.`
     showError(revealError.value)
   } finally { if (ep === episodeId.value) revealSaving.value = false }
+}
+/**
+ * Save the scene-type rules as this episode's own reveal. The mode rides the reveal object the
+ * routes already parse, so no route or config schema is involved. An episode that was following
+ * the channel detaches here — announced — because editing rules IS choosing a look of its own.
+ * AGENTS.md §4: a late answer for the previous episode is dropped.
+ */
+async function saveSceneTypes() {
+  const ep = episodeId.value
+  if (!ep) return
+  const built = builtSceneTypes()
+  if ('error' in built) {
+    sceneTypesError.value = built.error
+    showError(built.error)
+    return
+  }
+  const base = episodeReveal.value ?? channelReveal.value ?? { style: 'line' as const, mix: [] as SketchRevealType[] }
+  const next: SketchReveal = { style: base.style, mix: [...base.mix] }
+  if (base.overrides) next.overrides = { ...base.overrides }
+  next.scene_types = built.scene_types
+  const wasFollowing = !episodeReveal.value
+  sceneTypesSaving.value = true
+  sceneTypesError.value = ''
+  presentationError.value = ''
+  try {
+    await put(`/projects/${slug.value}/scene-review/${encodeURIComponent(ep)}/motion-reveal`, { reveal: next })
+    if (ep !== episodeId.value) return
+    episodeReveal.value = next
+    revealUnreadable.value = ''
+    revealChoice.value = acceptedRevealChoice()
+    revealMixDraft.value = revealMixFor(next)
+    syncSceneTypeDrafts()
+    const count = Object.keys(built.scene_types.rules).length
+    success(`Scene-type rules for ${ep}: ${built.scene_types.enabled ? 'on' : 'off'}, ${count} rule${count === 1 ? '' : 's'}. ${
+      built.scene_types.enabled
+        ? 'A scene whose type has a rule draws with that rule; a scene with no rule keeps the episode reveal. '
+        : 'Every scene uses the episode reveal. '
+    }Scenes whose resolved style or hold changed need re-generating.${
+      wasFollowing ? ` ${ep} now has its own reveal; other episodes are not affected.` : ''
+    }`)
+    await loadReview()
+  } catch (error: any) {
+    if (ep !== episodeId.value) return
+    sceneTypesError.value = error?.data?.detail || error?.message || `Could not save the scene-type rules for ${ep}. Try again.`
+    showError(sceneTypesError.value)
+  } finally { if (ep === episodeId.value) sceneTypesSaving.value = false }
 }
 // AGENTS.md §4: the weight belongs to one episode. A late answer for the previous episode is dropped.
 async function loadEpisodeLineWeight() {
@@ -1034,7 +1167,13 @@ function onRevealChoice() {
   const parsed = revealFromDraft(revealChoice.value, [])
   if (parsed.ok) {
     const overrides = episodeReveal.value?.overrides
-    void saveReveal(parsed.reveal && overrides ? { ...parsed.reveal, overrides: { ...overrides } } : parsed.reveal)
+    // The rules in force: this episode's own when it has them, else the channel's — detaching
+    // from the channel must not silently drop the rules that were governing these scenes.
+    const rules = (episodeReveal.value ?? channelReveal.value)?.scene_types
+    let next = parsed.reveal
+    if (next && overrides) next = { ...next, overrides: { ...overrides } }
+    if (next && rules) next = { ...next, scene_types: { ...rules, rules: { ...rules.rules } } }
+    void saveReveal(next)
   }
 }
 function applyReveal() {
@@ -1043,7 +1182,11 @@ function applyReveal() {
   revealError.value = ''
   // The episode's own pins are editorial choices about THIS episode; a Mix edit must not drop them.
   const overrides = episodeReveal.value?.overrides
-  void saveReveal(parsed.reveal && overrides ? { ...parsed.reveal, overrides: { ...overrides } } : parsed.reveal)
+  const rules = (episodeReveal.value ?? channelReveal.value)?.scene_types
+  let next = parsed.reveal
+  if (next && overrides) next = { ...next, overrides: { ...overrides } }
+  if (next && rules) next = { ...next, scene_types: { ...rules, rules: { ...rules.rules } } }
+  void saveReveal(next)
 }
 /**
  * Pin ONE scene to a reveal style, or clear the pin so it follows the episode again.
@@ -1060,7 +1203,14 @@ async function setScenePin(scene: MotionScene, type: string) {
   const overrides = { ...(base.overrides ?? {}) }
   if (type) overrides[scene.id] = type as SketchRevealType
   else delete overrides[scene.id]
-  let next: SketchReveal | null = { style: base.style, mix: [...base.mix], ...(Object.keys(overrides).length ? { overrides } : {}) }
+  let next: SketchReveal | null = {
+    style: base.style,
+    mix: [...base.mix],
+    ...(Object.keys(overrides).length ? { overrides } : {}),
+    // Scene-type rules ride the reveal they govern: the base's own, else the channel's, so pinning
+    // a scene never silently switches the mode off for this episode.
+    ...(base.scene_types ? { scene_types: { ...base.scene_types, rules: { ...base.scene_types.rules } } } : {}),
+  }
   // Clearing the last pin from a look that is exactly the channel's leaves nothing of its own:
   // hand the episode back to the channel rather than freezing a copy of today's default.
   if (!type && Object.keys(overrides).length === 0 && channelReveal.value && JSON.stringify(next) === JSON.stringify(channelReveal.value)) next = null
@@ -1102,10 +1252,14 @@ async function setChannelRevealDefault() {
   presentationError.value = ''
   try {
     // Per-scene pins name this episode's scenes, so they never become a channel default.
+    // Scene-type rules key on type ids — channel-level editorial configuration — so they DO.
     const look = revealForPreset(reveal)!
     await put(`/projects/${slug.value}/motion-presentation`, { renderer: clipRenderer.value, reveal: look })
     channelReveal.value = look
-    success(`Channel default reveal is now ${revealLabel(reveal)}. Episodes without their own reveal follow it.`)
+    const rulesNote = reveal.scene_types?.enabled
+      ? ` with scene-type rules on (${Object.keys(reveal.scene_types.rules).length} rule${Object.keys(reveal.scene_types.rules).length === 1 ? '' : 's'})`
+      : ''
+    success(`Channel default reveal is now ${revealLabel(reveal)}${rulesNote}. Episodes without their own reveal follow it.`)
     if (ep === episodeId.value) await loadReview()
   } catch (error: any) {
     presentationError.value = error?.data?.detail || error?.message || 'Could not save the channel default reveal. Try again.'
@@ -2287,6 +2441,12 @@ function resetEpisodeScopedMotionState() {
   revealSaving.value = false
   revealUnreadable.value = ''
   revealError.value = ''
+  // The scene-type drafts are episode state too: blank them until this episode's load answers,
+  // so a previous episode's rules can never show as this one's (AGENTS.md §4).
+  sceneTypesEnabled.value = false
+  sceneTypeDrafts.value = sceneTypeRuleDrafts(null)
+  sceneTypesError.value = ''
+  sceneTypesSaving.value = false
   pinSavingId.value = null
   // Likewise the ink weight, which is this episode's own too.
   episodeLineWeight.value = null
@@ -2389,6 +2549,18 @@ watch(episodeId, () => {
 .weight-tab:disabled { opacity: .55; cursor: not-allowed; }
 .hold-inputs { display: flex; flex-wrap: wrap; align-items: end; gap: 8px; }
 .hold-inputs .model-field { min-width: 0; flex: 0 1 104px; }
+/* Scene-type rules: one row per approved type, reveal and hold side by side; a row's Mix pool
+   breaks to its own line so thirteen rows stay scannable instead of turning into a grid maze. */
+.scene-type-toggle { display: flex; align-items: center; gap: 8px; margin: 2px 0 8px; color: var(--text-secondary); font-size: 13px; cursor: pointer; }
+.scene-type-rules { display: flex; flex-direction: column; gap: 2px; }
+.scene-type-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; padding: 7px 0; border-top: 1px solid var(--border); }
+.scene-type-row:first-of-type { border-top: 0; padding-top: 2px; }
+.scene-type-row-name { flex: 0 1 150px; min-width: 118px; color: var(--text-secondary); font-size: 13px; font-weight: 650; line-height: 1.3; }
+.scene-type-select { flex: 1 1 158px; min-width: 138px; }
+.scene-type-seconds { flex: 0 1 86px; min-width: 74px; }
+.scene-type-mix { display: flex; flex-basis: 100%; flex-wrap: wrap; gap: 4px 14px; padding: 2px 0 2px 4px; }
+.scene-type-mix-option { display: inline-flex; align-items: center; gap: 5px; color: var(--text-muted); font-size: 12px; cursor: pointer; }
+.scene-type-mix-option input { cursor: pointer; }
 .motion-tools.sketch-tools { display: flex; flex-wrap: wrap; gap: 8px; }
 .motion-tools.sketch-tools > .btn { grid-column: auto; grid-row: auto; }
 .motion-tools { display: grid; grid-template-columns: minmax(300px, 1.2fr) minmax(140px, .45fr) minmax(420px, 1.4fr) max-content max-content; align-items: end; justify-content: stretch; }

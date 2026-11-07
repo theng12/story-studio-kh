@@ -1,5 +1,7 @@
 import { createHash } from 'crypto'
 
+import { parseSketchHold, type SketchHoldSetting } from './sketch-hold.js'
+
 /**
  * The Sketch Draw reveal style: how the finished drawing arrives — one style, or a Mix that gives
  * each scene a different one.
@@ -40,6 +42,28 @@ export interface SketchRevealSetting {
    * deliberate editorial choice, so it stays valid even after the mix set moves away from it.
    */
   overrides?: Record<string, SketchRevealType>
+  /**
+   * The optional scene-type mode (owner, 2026-11-05: OFF by default, no type-to-look mappings
+   * approved). Absent = off: every scene resolves exactly as it did before this field existed.
+   * When on, each scene whose `subject_kind` names a rule draws with that rule's reveal and
+   * closing hold; a scene with no rule, or a caller that cannot supply the scene's type, falls
+   * through to the style/Mix above. A per-scene pin still wins over a type rule.
+   */
+  scene_types?: SketchSceneTypeRules
+}
+
+/** One scene type's rule: a reveal (a single style or a Mix pool) and/or a closing hold. */
+export interface SketchSceneTypeRule {
+  /** No `overrides` inside a type rule — pins are per scene and live on the setting itself. */
+  reveal?: { style: SketchRevealStyle; mix: SketchRevealType[] }
+  hold?: SketchHoldSetting
+}
+
+export interface SketchSceneTypeRules {
+  /** The mode switch. Absent or false = off, which is the default for every stored setting. */
+  enabled: boolean
+  /** Keyed by the channel scene-type id (a `subject_kind`, e.g. `interior`). Unknown ids never match. */
+  rules: Record<string, SketchSceneTypeRule>
 }
 
 /** What a channel that has never opened the control renders with. Not what it is measured against. */
@@ -79,7 +103,57 @@ export function parseSketchReveal(value: unknown): { ok: true; reveal: SketchRev
       overrides[sceneId] = type
     }
   }
-  return { ok: true, reveal: { style: raw.style, mix, ...(overrides ? { overrides } : {}) } }
+  let sceneTypes: SketchSceneTypeRules | undefined
+  if (raw.scene_types !== undefined && raw.scene_types !== null) {
+    const container = raw.scene_types as Record<string, unknown>
+    if (typeof container !== 'object' || Array.isArray(container)) return bad('Scene-type rules must be an object.')
+    const rules: Record<string, SketchSceneTypeRule> = {}
+    const rawRules = container.rules
+    if (rawRules !== undefined && rawRules !== null) {
+      if (typeof rawRules !== 'object' || Array.isArray(rawRules)) return bad('Scene-type rules must be keyed by scene type.')
+      for (const [kind, entry] of Object.entries(rawRules as Record<string, unknown>)) {
+        if (!kind.trim()) return bad('Every scene-type rule must name a scene type.')
+        if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return bad('A scene-type rule must be an object.')
+        const source = entry as Record<string, unknown>
+        const rule: SketchSceneTypeRule = {}
+        if (source.reveal !== undefined && source.reveal !== null) {
+          const sub = source.reveal as Record<string, unknown>
+          if (typeof sub !== 'object' || Array.isArray(sub) || !isStyle(sub.style)) return bad('A scene-type rule needs a valid reveal style.')
+          const subMix: SketchRevealType[] = []
+          if (sub.mix !== undefined && sub.mix !== null) {
+            if (!Array.isArray(sub.mix)) return bad('A scene-type Mix needs a list of styles.')
+            for (const item of sub.mix) {
+              if (!isType(item)) return bad('A scene-type Mix may only contain valid reveal styles.')
+              if (subMix.includes(item)) return bad('Each style may appear once in a scene-type Mix.')
+              subMix.push(item)
+            }
+          }
+          if (sub.style === 'mix' && (subMix.length < SKETCH_REVEAL_MIN_MIX || subMix.length > SKETCH_REVEAL_MAX_MIX)) {
+            return bad(`A scene-type Mix needs between ${SKETCH_REVEAL_MIN_MIX} and ${SKETCH_REVEAL_MAX_MIX} styles.`)
+          }
+          rule.reveal = { style: sub.style, mix: subMix }
+        }
+        if (source.hold !== undefined && source.hold !== null) {
+          const parsedHold = parseSketchHold(source.hold)
+          if ('error' in parsedHold) return bad(parsedHold.error)
+          rule.hold = parsedHold.hold
+        }
+        rules[kind] = rule
+      }
+    }
+    // `enabled` defaults to false: OFF by default is the stored default, never inferred from rules
+    // being present — a customer can keep rules drafted while the mode is switched off.
+    sceneTypes = { enabled: container.enabled === true, rules }
+  }
+  return {
+    ok: true,
+    reveal: {
+      style: raw.style,
+      mix,
+      ...(overrides ? { overrides } : {}),
+      ...(sceneTypes ? { scene_types: sceneTypes } : {}),
+    },
+  }
 }
 
 /**
@@ -100,16 +174,59 @@ export function sketchRevealFingerprint(reveal: SketchRevealSetting): string {
   const overrides = reveal.overrides
     ? Object.keys(reveal.overrides).sort().map(id => [id, reveal.overrides![id]])
     : []
-  return createHash('sha256').update(JSON.stringify([reveal.style, reveal.mix, overrides])).digest('hex')
+  const sceneTypes = reveal.scene_types
+    ? [
+        reveal.scene_types.enabled,
+        Object.keys(reveal.scene_types.rules)
+          .sort()
+          .map(kind => {
+            const rule = reveal.scene_types!.rules[kind]
+            return [kind, rule.reveal ?? null, rule.hold ?? null]
+          }),
+      ]
+    : null
+  return createHash('sha256').update(JSON.stringify([reveal.style, reveal.mix, overrides, sceneTypes])).digest('hex')
 }
 
 /**
  * Whether a scene's resolved type depends on the other scenes of its episode. Only a real Mix does:
  * a single style, or a pin, is answered by the scene's own id. A caller that cannot supply the
- * episode's ordered scenes is only ever allowed to skip it when this is false.
+ * episode's ordered scenes is only ever allowed to skip it when this is false. An enabled scene-type
+ * rule whose own reveal is a Mix counts — its scenes also need the ordered plan.
  */
 export function sketchRevealNeedsScenes(reveal: SketchRevealSetting): boolean {
-  return reveal.style === 'mix' && reveal.mix.length >= 2
+  if (reveal.style === 'mix' && reveal.mix.length >= 2) return true
+  const rules = sceneTypeRulesFor(reveal)
+  if (!rules) return false
+  return Object.values(rules.rules).some(rule => rule.reveal?.style === 'mix' && rule.reveal.mix.length >= 2)
+}
+
+/**
+ * The scene-type rules in force, or null when the mode is off — the default for every stored
+ * setting, and the behaviour of every caller that has never heard of this feature.
+ */
+export function sceneTypeRulesFor(reveal: SketchRevealSetting | null | undefined): SketchSceneTypeRules | null {
+  const rules = reveal?.scene_types
+  if (!rules || !rules.enabled) return null
+  return rules
+}
+
+/** The reveal a scene's type asks for, or null to fall through to the pin / style / Mix above. */
+export function sceneTypeRevealFor(
+  reveal: SketchRevealSetting | null | undefined,
+  subjectKind: string | null | undefined,
+): { style: SketchRevealStyle; mix: SketchRevealType[] } | null {
+  if (!subjectKind) return null
+  return sceneTypeRulesFor(reveal)?.rules[subjectKind]?.reveal ?? null
+}
+
+/** The closing hold a scene's type asks for, or null to fall through to the episode/channel hold. */
+export function sceneTypeHoldFor(
+  reveal: SketchRevealSetting | null | undefined,
+  subjectKind: string | null | undefined,
+): SketchHoldSetting | null {
+  if (!subjectKind) return null
+  return sceneTypeRulesFor(reveal)?.rules[subjectKind]?.hold ?? null
 }
 
 const SALT = 'sketch-reveal-v1'
@@ -131,15 +248,24 @@ export function resetSketchRevealPlanCache(): void { planCache.clear() }
  * the episode and its ordered scene ids, which is what determinism needs — adding or renumbering
  * scenes invalidates the episode anyway, because every clip's window and source image move too.
  *
- * Memoised on (episode, setting, ordered scene ids), because the freshness rule asks this question
- * once per scene of a review poll.
+ * Memoised on (episode, setting, ordered scene ids, and — when the scene-type mode is on — the
+ * scene types), because the freshness rule asks this question once per scene of a review poll.
+ *
+ * `kinds` maps scene id -> the scene's `subject_kind`. It is optional: without it, or with the mode
+ * off, the plan is byte-for-byte the one this function has always produced. Precedence is
+ * per scene: pin > scene-type rule > style/Mix.
  */
 export function resolveSketchRevealPlan(
   episodeId: string,
   sceneIds: readonly string[],
   reveal: SketchRevealSetting,
+  kinds?: Readonly<Record<string, string | undefined>>,
 ): ReadonlyMap<string, SketchRevealType> {
-  const key = `${episodeId.trim().toUpperCase()}\n${sketchRevealFingerprint(reveal)}\n${sceneIds.join(',')}`
+  const rules = sceneTypeRulesFor(reveal)
+  const usesKinds = Boolean(rules && kinds)
+  const key =
+    `${episodeId.trim().toUpperCase()}\n${sketchRevealFingerprint(reveal)}\n${sceneIds.join(',')}` +
+    (usesKinds ? `\n${sceneIds.map(id => kinds![id] ?? '').join(',')}` : '')
   const cached = planCache.get(key)
   if (cached) return cached
   const plan = new Map<string, SketchRevealType>()
@@ -148,9 +274,19 @@ export function resolveSketchRevealPlan(
   let previous: SketchRevealType | null = null
   for (const sceneId of sceneIds) {
     const pin = reveal.overrides?.[sceneId]
+    const typeRule = usesKinds ? sceneTypeRevealFor(reveal, kinds![sceneId]) : null
     let chosen: SketchRevealType
     if (pin) {
       chosen = pin
+    } else if (typeRule) {
+      if (typeRule.style === 'mix') {
+        // The type's own pool, resolved the same deterministic way as the episode's Mix.
+        const pool = typeRule.mix
+        chosen = pool[baseIndex(episodeId, sceneId, pool.length)]
+        if (pool.length >= 2 && chosen === previous) chosen = pool[(pool.indexOf(chosen) + 1) % pool.length]
+      } else {
+        chosen = typeRule.style
+      }
     } else if (reveal.style !== 'mix') {
       chosen = reveal.style
     } else {
@@ -167,9 +303,22 @@ export function resolveSketchRevealPlan(
   return plan
 }
 
-/** The one scene's type, when the setting does not need the rest of the episode. Null means it does. */
-export function sketchRevealForSingleScene(reveal: SketchRevealSetting, sceneId: string): SketchRevealType | null {
+/**
+ * The one scene's type, when the setting does not need the rest of the episode. Null means it does.
+ * `subjectKind` lets an enabled scene-type rule answer on its own; without it the rule cannot apply,
+ * exactly like a caller that cannot supply the ordered scenes.
+ */
+export function sketchRevealForSingleScene(
+  reveal: SketchRevealSetting,
+  sceneId: string,
+  subjectKind?: string | null,
+): SketchRevealType | null {
   if (reveal.overrides?.[sceneId]) return reveal.overrides[sceneId]
+  const typeRule = sceneTypeRevealFor(reveal, subjectKind)
+  if (typeRule) {
+    if (typeRule.style === 'mix') return typeRule.mix.length === 1 ? typeRule.mix[0] : null
+    return typeRule.style
+  }
   if (reveal.style === 'mix') return reveal.mix.length === 1 ? reveal.mix[0] : null
   return reveal.style
 }
