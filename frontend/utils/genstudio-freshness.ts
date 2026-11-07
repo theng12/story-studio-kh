@@ -67,9 +67,14 @@ export function keepStandingAfterFailedRefresh(
 }
 
 /**
- * The Gateway's `paid_active_jobs` / `paid_concurrency_limit` count EVERY job
- * it runs (free local and free-pool ones included) against the fleet's live
- * capacity — not paid work. Say that plainly, and say nothing when idle.
+ * One line for a job count: "N jobs running", with "room for M more" only
+ * when the caller owns a capacity limit for that same scope.
+ *
+ * The header passes THIS Story instance's running jobs from the local queue
+ * and `null` for the limit: the Gateway's `paid_active_jobs` /
+ * `paid_concurrency_limit` count EVERY job it runs (free local and free-pool
+ * ones included) against the fleet's live capacity, and room cannot be
+ * claimed from one instance's count alone. Say nothing when idle or unread.
  */
 export function gatewayJobsLine(active: number | null, limit: number | null): string {
   if (!active || active < 0) return ''

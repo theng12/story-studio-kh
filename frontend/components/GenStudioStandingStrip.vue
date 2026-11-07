@@ -55,14 +55,19 @@ const { variant = 'stacked' } = defineProps<{ variant?: 'stacked' | 'inline' }>(
 
 const {
   genstudioTier,
-  genstudioActiveLanes,
-  genstudioLaneLimit,
   genstudioConfigured,
   usageError,
   startPolling,
 } = useCredits()
 const appSettingsModal = useAppSettingsModal()
 const { connection, gatewayDown } = useConnectionStatus()
+
+// This Story instance's own running jobs, from the local /jobs/all stream.
+// The Gateway overview's job figure is fleet-wide — every Mac behind one
+// key — so the pill never reads it. Null while the first snapshot is
+// pending: an unread queue is not a measured zero.
+const { stats: ownJobStats, isLoading: ownJobsLoading, start: startOwnJobs, stop: stopOwnJobs } = useAllJobs()
+const gatewayOwnJobs = computed(() => (ownJobsLoading.value ? null : ownJobStats.value.running))
 
 /** The only wording the no-key state needs; money never appears in this strip. */
 const connectionSummary = computed(() => {
@@ -73,14 +78,21 @@ const connectionSummary = computed(() => {
 const standingSummary = computed(() => {
   const facts: string[] = []
   if (genstudioTier.value) facts.push(genstudioTier.value.current.display_name)
-  const jobs = gatewayJobsLine(genstudioActiveLanes.value, genstudioLaneLimit.value)
+  // No limit: remaining room is fleet capacity, which one instance's count cannot claim.
+  const jobs = gatewayJobsLine(gatewayOwnJobs.value, null)
   if (jobs) facts.push(jobs)
   return facts.join(' · ')
 })
 
 let releasePolling: (() => void) | null = null
-onMounted(() => { releasePolling = startPolling() })
-onUnmounted(() => { releasePolling?.() })
+onMounted(() => {
+  releasePolling = startPolling()
+  startOwnJobs()
+})
+onUnmounted(() => {
+  releasePolling?.()
+  stopOwnJobs()
+})
 </script>
 
 <style scoped>
