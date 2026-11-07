@@ -344,6 +344,8 @@ export interface SketchScenePlanEntry {
   id: string
   start_sec: number
   end_sec: number
+  /** The scene's content type; an enabled scene-type rule reads it, exactly as the render does. */
+  subject_kind?: string
   clip_renderer?: string
   motion_choice?: string
   clip_sketch?: {
@@ -401,8 +403,10 @@ export function sketchSceneBlankStarts(input: {
   if (!(cursor >= -SCENE_TIMING_TOLERANCE_SEC)) return []
 
   const reveal = input.reveal ?? null
+  // The same scene types the renderer resolved against, so a type rule cannot read stale here.
+  const kinds = Object.fromEntries(timed.map(entry => [entry.scene.id, entry.scene.subject_kind]))
   const plan = reveal && sketchRevealNeedsScenes(reveal)
-    ? resolveSketchRevealPlan(input.episode_id, timed.map(entry => entry.scene.id), reveal)
+    ? resolveSketchRevealPlan(input.episode_id, timed.map(entry => entry.scene.id), reveal, kinds)
     : null
 
   const starts: FinalCheckSceneBlankStart[] = []
@@ -423,7 +427,7 @@ export function sketchSceneBlankStarts(input: {
     const receiptType = typeof receipt?.reveal_type === 'string' ? receipt.reveal_type : null
     const resolvedType = plan
       ? plan.get(scene.id)
-      : reveal ? sketchRevealForSingleScene(reveal, scene.id) : null
+      : reveal ? sketchRevealForSingleScene(reveal, scene.id, scene.subject_kind) : null
     starts.push({
       scene_id: scene.id,
       start_sec: Math.round(start * 1000) / 1000,

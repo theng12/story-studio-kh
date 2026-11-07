@@ -564,15 +564,12 @@
               <span>Reveal for this scene</span>
               <SketchRevealPicker :model-value="scenePinOf(scene)" :reveals="revealCatalog" :weight="episodeLineWeight ?? channelLineWeight" :disabled="!revealLoaded || !!revealUnreadable || revealSaving || pinSavingId === scene.id || !revealCatalog.length || lineWeightSaving" :label="`Reveal style for scene ${scene.scene_index}`" title="Choose a reveal for this scene" :inherit-label="`Follow the episode (${revealLabel(episodeReveal ?? channelReveal)})`" @pick="setScenePin(scene, $event)" @weight="saveLineWeight" />
             </div>
-            <p v-if="scene.reveal_type" :id="`scene-reveal-help-${scene.id}`" class="reveal-note">
-              {{ scenePinOf(scene) ? 'Pinned' : 'Draws' }}: {{ REVEAL_LABELS[scene.reveal_type] }}<template
-                v-if="revealIsMix"
-              >{{ scenePinOf(scene) ? ' — this pin wins over the Mix' : ' — picked by the Mix for this scene' }}</template>
+            <p v-if="scene.subject_kind" class="reveal-note">Scene type: {{ sceneTypeLabel(scene.subject_kind) }}</p>
+            <p :id="`scene-reveal-help-${scene.id}`" class="reveal-note">
+              {{ sceneRevealRow(scene) }}
               <span v-if="pinSavingId === scene.id"> Saving…</span>
             </p>
-            <p v-else :id="`scene-reveal-help-${scene.id}`" class="reveal-note">
-              {{ sceneRevealHelp() }}
-            </p>
+            <p v-if="sceneHoldRow(scene)" class="reveal-note">{{ sceneHoldRow(scene) }}</p>
           </div>
           <p v-if="scene.clip_stale" class="stale-note">This clip needs to be generated again: {{ scene.clip_stale_reason || 'its source or scene window changed' }}. Re-generate before approval.</p>
         </div>
@@ -634,7 +631,7 @@ import type { GenStudioVideoControl } from '~/composables/useGenStudioMediaModel
 import { emptyDefaultModels, normalizeDefaultModels, resolveEffectiveModel } from '~/utils/live-genstudio-model-selection'
 import { motionBatchEligible, sketchSelectionReady } from '~/utils/motion-review-sketch'
 import { HOLD_MAX_SECONDS, holdDrafts, holdFromDraft, holdLabel, type HoldChoice, type HoldDrafts, type SketchHold } from '~/utils/sketch-hold'
-import { REVEAL_LABELS, REVEAL_TYPES, setRevealCatalog, applyRevealPreset, effectiveSceneTypes, revealChoiceOf, revealForPreset, revealFromDraft, revealLabel, revealMixDraft as revealMixFor, sceneTypeRuleDrafts, sceneTypeRulesFromDrafts, sceneTypesEqual, SCENE_TYPE_CHOICES, type SceneTypeRuleDraft, type SketchReveal, type SketchRevealStyle, type SketchRevealType } from '~/utils/sketch-reveal'
+import { REVEAL_LABELS, REVEAL_TYPES, setRevealCatalog, applyRevealPreset, effectiveSceneTypes, revealChoiceOf, revealForPreset, revealFromDraft, revealLabel, revealMixDraft as revealMixFor, sceneTypeRuleDrafts, sceneTypeRulesFromDrafts, sceneTypesEqual, SCENE_TYPE_CHOICES, type SceneTypeRule, type SceneTypeRuleDraft, type SketchReveal, type SketchRevealStyle, type SketchRevealType } from '~/utils/sketch-reveal'
 import { LINE_WEIGHTS, lineWeightFromDraft, lineWeightLabel, type LineWeightChoice, type SketchLineWeight } from '~/utils/sketch-line-weight'
 
 // usePresets captures the project slug at setup. Recreate this page for a
@@ -666,6 +663,10 @@ interface MotionScene {
   clip_renderer?: 'sketch_draw' | 'image_to_video' | 'text_to_video' | 'external'
   /** The reveal style this Sketch Draw scene resolves to, or null for other renderers. */
   reveal_type?: SketchRevealType | null
+  /** This scene's content type (`subject_kind`), when the scene has been classified. */
+  subject_kind?: string | null
+  /** The recorded Sketch Draw receipt: the hold the clip actually rendered with. */
+  clip_sketch?: { fps?: number; frames?: number; hold_frames?: number; reveal_type?: string } | null
   /** The style this scene is pinned to, or null when it follows the episode's reveal. */
   reveal_pin?: SketchRevealType | null
   motion_choice?: MotionChoice
@@ -807,6 +808,56 @@ function sceneRevealHelp(): string {
   if (revealUnreadable.value) return 'Choose a reveal style above to pin this scene.'
   if (!(episodeReveal.value ?? channelReveal.value)) return 'Choose a reveal style for this episode, or pin one here.'
   return 'This scene is not a Sketch Draw clip, so it has no reveal to show.'
+}
+function sceneTypeLabel(kind: string | null | undefined): string {
+  if (!kind) return ''
+  return SCENE_TYPE_CHOICES.find(row => row.id === kind)?.label ?? kind
+}
+/** The scene-type rule in force for this scene, or null when the mode is off or the type has none. */
+function sceneTypeRuleOf(scene: MotionScene): SceneTypeRule | null {
+  const rules = effectiveSceneTypes(episodeReveal.value, channelReveal.value)
+  if (!rules?.enabled || !scene.subject_kind) return null
+  return rules.rules[scene.subject_kind] ?? null
+}
+/** What this scene draws with, and why. A pin wins; then its scene-type rule; then the episode setting. */
+function sceneRevealRow(scene: MotionScene): string {
+  const pin = scenePinOf(scene)
+  if (pin) return `Reveal: ${REVEAL_LABELS[pin] ?? pin} — pinned for this scene`
+  const rule = sceneTypeRuleOf(scene)
+  if (rule?.reveal) {
+    const label = sceneTypeLabel(scene.subject_kind!)
+    if (rule.reveal.style === 'mix') {
+      const pool = rule.reveal.mix.map(type => REVEAL_LABELS[type] ?? type).join(', ')
+      return `Reveal: one of ${pool} — picked by the ${label} scene-type rule`
+    }
+    return `Reveal: ${REVEAL_LABELS[rule.reveal.style] ?? rule.reveal.style} — set by the ${label} scene-type rule`
+  }
+  if (scene.reveal_type) {
+    return `${revealIsMix.value ? 'Draws' : 'Reveal'}: ${REVEAL_LABELS[scene.reveal_type] ?? scene.reveal_type}`
+      + (revealIsMix.value ? ' — picked by the Mix for this scene' : '')
+  }
+  return sceneRevealHelp()
+}
+/**
+ * The closing hold a scene-type rule asks for, against the hold its clip actually recorded. The
+ * recorded frames are the effective answer; without a clip the scene's own half-length is the bound.
+ */
+function sceneHoldRow(scene: MotionScene): string {
+  const hold = sceneTypeRuleOf(scene)?.hold
+  if (!hold) return ''
+  const requested = holdLabel(hold)
+  const receipt = scene.clip_sketch
+  const fps = Number(receipt?.fps)
+  const frames = Number(receipt?.hold_frames)
+  if (fps > 0 && Number.isInteger(frames) && frames >= 0) {
+    const effective = frames / fps
+    const window = scene.end_sec - scene.start_sec
+    const wanted = hold.mode === 'fixed' ? hold.seconds : hold.mode === 'range' ? hold.min_seconds : 0
+    const clamped = (hold.mode === 'fixed' || hold.mode === 'range') && wanted > window / 2 + 0.05
+    return `Closing hold: ${requested} — this clip holds ${effective.toFixed(1)} s`
+      + (clamped ? ' (fitted inside the scene)' : '')
+  }
+  return `Closing hold: ${requested} — fitted inside this scene when rendered`
 }
 const pinSavingId = ref<string | null>(null)
 // A Mix waits for Apply; this is true while what is shown is not what is saved.

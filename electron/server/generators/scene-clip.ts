@@ -372,12 +372,15 @@ export async function generateSketchDrawSceneClip(job: Job, render = renderSketc
   const settings = await resolveSketchDrawSettings(job.project_slug, episodeId)
   const frames = Math.round(window * settings.fps)
   if (!Number.isSafeInteger(frames) || frames < 1) throw new Error(`Scene ${sceneId} has no renderable frames. Repair Scene Plan and Retry.`)
-  // The hold resolves to exact frames for THIS scene, from the same rule freshness applies to the receipt.
-  const holdFrames = sketchHoldFramesFor(settings, episodeId, sceneId, frames)
-  // One reveal type per scene, resolved fresh here from the episode's own ordered scene ids — the
-  // same resolver freshness and Motion Review call, so a re-render can never drift from the check.
+  // The hold resolves to exact frames for THIS scene, from the same rule freshness applies to the
+  // receipt. A scene-type rule's own hold wins, then the episode/channel hold.
+  const holdFrames = sketchHoldFramesFor(settings, episodeId, sceneId, frames, scene.subject_kind)
+  // One reveal type per scene, resolved fresh here from the episode's own ordered scene ids and their
+  // scene types — the same resolver freshness and Motion Review call, so a re-render can never drift
+  // from the check.
   const revealScenes = plan.scenes.map(item => item.id)
-  const revealType = revealTypeFor(settings.reveal ?? DEFAULT_SKETCH_REVEAL, { slug: job.project_slug, episodeId, episodeDir: paths.episode_dir, revealScenes }, sceneId)
+  const sceneKinds = Object.fromEntries(plan.scenes.map(item => [item.id, item.subject_kind]))
+  const revealType = revealTypeFor(settings.reveal ?? DEFAULT_SKETCH_REVEAL, { slug: job.project_slug, episodeId, episodeDir: paths.episode_dir, revealScenes, sceneKinds }, sceneId, scene.subject_kind)
   if (!revealType) throw new Error(`Scene ${sceneId} cannot resolve its reveal style. Repair Scene Plan and Retry.`)
   const outDir = await resolveVideoAssetsDir(job.project_slug, episodeId.toUpperCase(), paths.episode_dir)
   await fs.mkdir(outDir, { recursive: true })
@@ -422,7 +425,7 @@ export async function generateSketchDrawSceneClip(job: Job, render = renderSketc
           // final frame is the scene picture either way, so a changed map never stales a clip.
           reveal_type: revealType, line_weight: settings.lineWeight },
         candidate_path: candidatePath,
-        context: { slug: job.project_slug, episodeId, episodeDir: paths.episode_dir, imagePath, revealScenes }, assertActive,
+        context: { slug: job.project_slug, episodeId, episodeDir: paths.episode_dir, imagePath, revealScenes, sceneKinds }, assertActive,
       })
     activated = true
     job.output_dir = outDir
@@ -454,10 +457,13 @@ export async function generateSketchDrawBatch(job: Job, render = renderSketchDra
   // Eligibility uses one snapshot; the completion audit below re-resolves live settings so a
   // pen/fps change during the batch is reported as stale by scene name, never as success.
   const revealScenes = plan.scenes.map(item => item.id)
+  // The scene types travel with every freshness context here so a type rule resolves exactly as the
+  // render did; a scene with no type is honestly absent, never guessed.
+  const sceneKinds = Object.fromEntries(plan.scenes.map(item => [item.id, item.subject_kind]))
   // Resolved once for the whole batch: the freshness rule proves a clip against the scene's own
   // image, and a folder lookup per scene would mean one readdir per scene.
   const imagesDir = await resolveSceneImagesDir(job.project_slug, episodeId.toUpperCase(), paths.episode_dir).catch(() => null)
-  const filterContext = { slug: job.project_slug, episodeId, episodeDir: paths.episode_dir, revealScenes, imagesDir,
+  const filterContext = { slug: job.project_slug, episodeId, episodeDir: paths.episode_dir, revealScenes, sceneKinds, imagesDir,
     sketchSettings: plan.scenes.some(scene => scene.clip_renderer === 'sketch_draw')
       ? await resolveSketchDrawSettings(job.project_slug, episodeId).catch(() => undefined) : undefined }
   const requiredIds: string[] = []
@@ -489,7 +495,7 @@ export async function generateSketchDrawBatch(job: Job, render = renderSketchDra
             renderer: 'sketch_draw', source_image_sha256: scene.clip_source_image_sha256,
             scene_window_seconds: scene.clip_scene_window_seconds, sketch: scene.clip_sketch,
             shortfall_mode: 'hold',
-            context: { slug: job.project_slug, episodeId, episodeDir: paths.episode_dir, revealScenes },
+            context: { slug: job.project_slug, episodeId, episodeDir: paths.episode_dir, revealScenes, sceneKinds },
           })
       } catch (error) {
         const reason = error instanceof Error ? error.message : String(error)
@@ -533,7 +539,7 @@ export async function generateSketchDrawBatch(job: Job, render = renderSketchDra
   // during this batch and names affected scenes through the audit.
   const auditSettings = await resolveSketchDrawSettings(job.project_slug, episodeId).catch(() => undefined)
   const audit = await auditSceneClipCompletion(planPath, ids, clipsDir, {},
-    { slug: job.project_slug, episodeId, episodeDir: paths.episode_dir, revealScenes, sketchSettings: auditSettings, stillIds: [...stillIds], requireSelected: autoApprove })
+    { slug: job.project_slug, episodeId, episodeDir: paths.episode_dir, revealScenes, sceneKinds, sketchSettings: auditSettings, stillIds: [...stillIds], requireSelected: autoApprove })
   requireJobCompletion(job, { label: 'Sketch Draw batch', expected: audit.expected, completed: audit.completed,
     missing: audit.missing, invalid: [...audit.invalid, ...failures],
     retry_hint: 'Retry renders only missing, invalid or stale scenes. Every verified clip is kept.' })
@@ -994,7 +1000,7 @@ export async function generateSceneClipsBatchJob(job: Job): Promise<void> {
     const clipPath = path.join(clipsDir, `${scene.id}.mp4`)
     const clipStat = await fs.stat(clipPath).catch(() => null)
     const freshClip = !!clipStat?.isFile() && clipStat.size > 0
-      && !await sceneClipStaleReason(scene, { slug: job.project_slug, episodeId: episode_id, episodeDir: paths.episode_dir, imagesDir, revealScenes: plan.scenes.map(item => item.id) })
+      && !await sceneClipStaleReason(scene, { slug: job.project_slug, episodeId: episode_id, episodeDir: paths.episode_dir, imagesDir, revealScenes: plan.scenes.map(item => item.id), sceneKinds: Object.fromEntries(plan.scenes.map(item => [item.id, item.subject_kind])) })
       && scene.motion_choice === 'clip'
     if (!freshClip) ready.push(scene)
   }
@@ -1133,6 +1139,7 @@ export async function sceneClipBatchOutputsComplete(job: Job): Promise<boolean> 
   if (!plan.scenes.length) return false
   const clipsDir = await resolveVideoAssetsDir(job.project_slug, episodeId.toUpperCase(), paths.episode_dir)
   const revealScenes = plan.scenes.map(scene => scene.id)
+  const sceneKinds = Object.fromEntries(plan.scenes.map(scene => [scene.id, scene.subject_kind]))
   const imagesDir = await resolveSceneImagesDir(job.project_slug, episodeId.toUpperCase(), paths.episode_dir).catch(() => null)
   const sketch = params.renderer === 'sketch_draw'
 
@@ -1177,6 +1184,7 @@ export async function sceneClipBatchOutputsComplete(job: Job): Promise<boolean> 
     episodeId,
     episodeDir: paths.episode_dir,
     revealScenes,
+    sceneKinds,
     imagesDir,
     ...(sketchSettings ? { sketchSettings } : {}),
     ...(stillIds ? { stillIds } : {}),

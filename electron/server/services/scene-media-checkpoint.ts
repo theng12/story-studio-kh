@@ -10,7 +10,7 @@ import { getMediaInfo } from '../lib/ffmpeg-validation.js'
 import { SKETCH_DRAW_COMPATIBLE_HELPER_VERSIONS } from '../lib/native-scene-clip-version.js'
 import { resolveSketchHoldFrames, sketchHoldFingerprint, sketchHoldSelection, type SketchHoldSetting } from '../lib/sketch-hold.js'
 import {
-  DEFAULT_SKETCH_REVEAL, resolveSketchRevealPlan, sketchRevealChoice, sketchRevealFingerprint,
+  DEFAULT_SKETCH_REVEAL, resolveSketchRevealPlan, sceneTypeHoldFor, sketchRevealChoice, sketchRevealFingerprint,
   sketchRevealForSingleScene, sketchRevealNeedsScenes, type SketchRevealSetting, type SketchRevealType,
 } from '../lib/sketch-reveal.js'
 import {
@@ -305,9 +305,14 @@ export async function pinEpisodesFollowingChannelSketch(
   for (const write of writes) await write()
 }
 
-/** Frames of closing hold for one scene of an episode under these settings; the freshness rule and the generator share it. */
-export function sketchHoldFramesFor(settings: Pick<SketchDrawSettings, 'hold' | 'fps'>, episodeId: string, sceneId: string, frames: number): number {
-  return resolveSketchHoldFrames(settings.hold, { episodeId, sceneId, frames, fps: settings.fps })
+/**
+ * Frames of closing hold for one scene of an episode under these settings; the freshness rule and the
+ * generator share it. `subjectKind` lets an enabled scene-type rule's own hold win, exactly as the
+ * reveal rule does; without it the episode/channel hold applies unchanged.
+ */
+export function sketchHoldFramesFor(settings: Pick<SketchDrawSettings, 'hold' | 'fps' | 'reveal'>, episodeId: string, sceneId: string, frames: number, subjectKind?: string | null): number {
+  const hold = sceneTypeHoldFor(settings.reveal, subjectKind) ?? settings.hold
+  return resolveSketchHoldFrames(hold, { episodeId, sceneId, frames, fps: settings.fps })
 }
 
 /** Resolve selections again at execution/read time; never persist a copied name, logo or fps. */
@@ -377,6 +382,11 @@ export interface SceneClipFreshnessContext {
    * real Mix reads it; a single style is answered by the scene's own id.
    */
   revealScenes?: readonly string[]
+  /**
+   * Scene id -> `subject_kind` for this episode's scenes, when the caller has them. Only the optional
+   * scene-type rules read it; absent, the plan is the pre-mode one byte-for-byte.
+   */
+  sceneKinds?: Readonly<Record<string, string | undefined>>
   /** Resolved reveal type for the scene being checked, when the caller already has the plan. */
   revealType?: SketchRevealType
 }
@@ -459,11 +469,15 @@ const SETTINGS_UNAVAILABLE = 'Sketch Draw settings could not be checked. Choose 
 const REVEAL_NEEDS_EPISODE = 'Sketch Draw cannot check its reveal style here. Open Motion Review and Retry.'
 
 /** The reveal type one scene resolves to, or null when a Mix needs the episode's scene order and
- *  the caller did not supply it. Never guesses: a wrong answer here silently stales a good clip. */
-export function revealTypeFor(reveal: SketchRevealSetting, context: SceneClipFreshnessContext, sceneId: string): SketchRevealType | null {
+ *  the caller did not supply it. Never guesses: a wrong answer here silently stales a good clip.
+ *  `subjectKind` lets an enabled scene-type rule answer for this scene; `context.sceneKinds` gives
+ *  the whole episode's types when the caller has them. */
+export function revealTypeFor(reveal: SketchRevealSetting, context: SceneClipFreshnessContext, sceneId: string, subjectKind?: string | null): SketchRevealType | null {
   if (sketchRevealNeedsScenes(reveal) && !context.revealScenes) return null
-  const plan = resolveSketchRevealPlan(context.episodeId, context.revealScenes ?? [sceneId], reveal)
-  return plan.get(sceneId) ?? sketchRevealForSingleScene(reveal, sceneId)
+  const kind = subjectKind ?? context.sceneKinds?.[sceneId]
+  const kinds = context.sceneKinds ?? (kind ? { [sceneId]: kind } : undefined)
+  const plan = resolveSketchRevealPlan(context.episodeId, context.revealScenes ?? [sceneId], reveal, kinds)
+  return plan.get(sceneId) ?? sketchRevealForSingleScene(reveal, sceneId, kind)
 }
 
 /** The single freshness rule used by review, approval, completion, status, retry and assembly. */
@@ -541,14 +555,14 @@ export async function sceneClipStaleReason(scene: ScenePlanEntry, context?: Scen
   if (receipt.hold_frames === undefined) {
     if (receipt.helper_version >= 3) return 'stale closing hold'
   } else if (!Number.isSafeInteger(receipt.hold_frames)
-    || receipt.hold_frames !== sketchHoldFramesFor(settings, context.episodeId, scene.id, receipt.frames)) return 'stale closing hold'
+    || receipt.hold_frames !== sketchHoldFramesFor(settings, context.episodeId, scene.id, receipt.frames, scene.subject_kind)) return 'stale closing hold'
 
   // The reveal style is compared as the type THIS scene resolves to, so editing a Mix stales only
   // the scenes whose type actually moved. An episode (and channel) that has never chosen one keeps
   // every clip it has: nothing was asked for, so nothing can be wrong. A clip from before reveal
   // types has no `reveal_type`; it IS a line reveal, so choosing Line (the default) never stales it.
   if (settings.reveal) {
-    const wanted = context.revealType ?? revealTypeFor(settings.reveal, context, scene.id)
+    const wanted = context.revealType ?? revealTypeFor(settings.reveal, context, scene.id, scene.subject_kind)
     if (wanted === null) return REVEAL_NEEDS_EPISODE
     const recorded = receipt.reveal_type ?? 'line'
     if (recorded !== wanted) return `stale reveal style (${recorded} → ${wanted})`

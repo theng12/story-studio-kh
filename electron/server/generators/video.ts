@@ -1551,6 +1551,8 @@ export async function scanEpisodeAssets(
       const scanSketchSettings = planScenes.some((scene: any) => scene.clip_renderer === 'sketch_draw')
         ? await resolveSketchDrawSettings(slug, code).catch(() => undefined)
         : undefined
+      // The same scene types the render resolved against, so a type rule cannot read stale here.
+      const scanSceneKinds = Object.fromEntries(planScenes.map((scene: any) => [scene.id, scene.subject_kind]))
       let usableCount = 0
       for (const scene of planScenes) {
         // v1.0.456/457 — resolve robustly: unified named folder first, then the
@@ -1568,7 +1570,7 @@ export async function scanEpisodeAssets(
         const clipPath = clipFiles.has(`${scene.id}.mp4`) ? canonicalClip
           : scene.clip_path && existsSync(scene.clip_path) ? scene.clip_path : ''
         const clipFreshReason = scene.motion_choice === 'clip' && clipPath
-          ? await sceneClipStaleReason(scene, { slug, episodeId: code, episodeDir, imagePath: hasStill ? plannedPath : null, sketchSettings: scanSketchSettings, revealScenes: plan.scenes.map(item => item.id) })
+          ? await sceneClipStaleReason(scene, { slug, episodeId: code, episodeDir, imagePath: hasStill ? plannedPath : null, sketchSettings: scanSketchSettings, revealScenes: plan.scenes.map(item => item.id), sceneKinds: scanSceneKinds })
           : null
         const useMotion = scene.motion_choice === 'clip'
           && !!clipPath
