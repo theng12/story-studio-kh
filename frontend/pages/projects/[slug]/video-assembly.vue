@@ -837,11 +837,21 @@
                       :background="titleMotionChapterSample.background"
                       :style-color="titleMotion.effects.chapter_titles.style"
                       :pool="titleMotionPool"
+                      :pool-cursor="titleMotionPoolCursor"
                     />
                   </div>
                   <p v-else-if="titleMotionSampleLoading" class="text-muted text-sm mt-2" role="status">
                     Reading this episode's chapter heading…
                   </p>
+                  <div v-else-if="titleMotionChapterError" class="mt-2">
+                    <p class="text-danger text-sm" role="alert" style="margin: 0;">{{ titleMotionChapterError }}</p>
+                    <button
+                      type="button"
+                      class="btn btn-sm btn-secondary mt-1"
+                      :disabled="titleMotionSampleLoading"
+                      @click="retryTitleMotionChapterSample"
+                    >Retry</button>
+                  </div>
                   <p v-else class="text-muted text-sm mt-2">
                     This episode has no saved chapter heading to preview yet. Choose a chapter font
                     only after its Scene Plan supplies one.
@@ -3078,7 +3088,7 @@ import { describeOpeningSync } from '~/utils/opening-sync'
 import { estimateRender, formatEstimateGb, formatEstimateTime } from '~/utils/render-estimate'
 import { LAST_USED_CONFIG_KEY, pickLastUsedSettings, recordLastUsedSettings } from '~/utils/video-assembly-last-used'
 import { applyAssemblyStepDraft, beginAssemblyStepDraft, cancelAssemblyStepDraft, sameAssemblyStepScope, type AssemblyStepDraft, type AssemblyStepScope } from '~/utils/assembly-step-draft'
-import type { StillPostFontPool } from '@shared/still-post-fonts'
+import type { StillPostFontCursor, StillPostFontPool } from '@shared/still-post-fonts'
 import { aspectRatioOptions, canvasFor, parseAspectRatio, DEFAULT_ASPECT_RATIO } from '~/utils/aspect-ratios'
 import { describeSubtitleBurn } from '~/utils/subtitle-episode-selection'
 import { customerSafeJobText } from '~/utils/job-presentation'
@@ -3106,7 +3116,7 @@ useAppTitle('Video Assembly')
 const route = useRoute()
 const slug = computed(() => route.params.slug as string)
 const { get, post, put, patch } = useApi()
-const { success, error: showError, info } = useToast()
+const { success, error: showError, info, humanizeError } = useToast()
 const { videoAssemblyGenerating } = useGenerating()
 // v1.0.514 — no cost/duration confirmation for video assembly (free local render).
 
@@ -4912,6 +4922,8 @@ const titleMotionDraft = ref<AssemblyStepDraft<TitleMotionDraftSettings> | null>
 const titleMotionApplying = ref(false)
 const titleMotionError = ref('')
 const titleMotionPool = ref<StillPostFontPool | null>(null)
+/** Where this channel's pool rotation stands for the heading's script. Null = unassigned. */
+const titleMotionPoolCursor = ref<StillPostFontCursor | null>(null)
 const titleMotionAdoptBaseline = ref<{ titleImage: string; titleCardMedia: string } | null>(null)
 const titleMotionSettingsBaseline = ref<Record<string, any> | null>(null)
 // Captured with the draft: adoption must target the channel it was opened on.
@@ -4926,6 +4938,7 @@ const titleMotion = computed(() => titleMotionDraft.value?.value as TitleMotionD
  * episode is discarded, and nothing derived here is ever persisted.
  */
 const titleMotionChapterText = ref('')
+const titleMotionChapterError = ref('')
 const titleMotionSampleLoading = ref(false)
 let chapterSampleSequence = 0
 const titleMotionChapterSample = computed(() => {
@@ -4951,6 +4964,7 @@ async function loadTitleMotionChapterSample(): Promise<void> {
   const channel = slug.value
   const episode = episodeId.value
   titleMotionChapterText.value = '' // never keep the previous episode's heading (§4)
+  titleMotionChapterError.value = ''
   titleMotionSampleLoading.value = false
   if (!channel || !episode) return
   titleMotionSampleLoading.value = true
@@ -4961,17 +4975,30 @@ async function loadTitleMotionChapterSample(): Promise<void> {
     const heading = (Array.isArray(r?.chapters) ? r.chapters : [])
       .find(chapter => chapter && chapter.present !== false)?.title?.trim() || ''
     titleMotionChapterText.value = heading
-  } catch {
-    if (request === chapterSampleSequence) titleMotionChapterText.value = ''
+  } catch (e: any) {
+    if (request !== chapterSampleSequence) return
+    titleMotionChapterText.value = ''
+    // A failed read is not "no heading": say what failed and offer the retry,
+    // so an empty preview never reads as this episode having no chapter (§6).
+    const raw = e?.data?.detail || e?.message || 'the chapter list could not be read'
+    titleMotionChapterError.value = `Could not read this episode's chapter heading: ${humanizeError(String(raw))}`
   } finally {
     if (request === chapterSampleSequence) titleMotionSampleLoading.value = false
   }
+}
+
+function retryTitleMotionChapterSample(): void {
+  void (async () => {
+    await loadTitleMotionChapterSample()
+    if (titleMotionChapterSample.value.text) await loadTitleMotionPool(titleMotionChapterSample.value.text)
+  })()
 }
 
 // Discard any in-flight chapter read the moment the episode changes (§4).
 watch([slug, episodeId], () => {
   chapterSampleSequence++
   titleMotionChapterText.value = ''
+  titleMotionChapterError.value = ''
   titleMotionSampleLoading.value = false
 }, { flush: 'sync' })
 
@@ -5117,13 +5144,16 @@ const titleMotionSummary = computed(() => {
 /** The channel's own saved lettering pool for this heading's script, or none. */
 async function loadTitleMotionPool(text: string): Promise<void> {
   titleMotionPool.value = null
+  titleMotionPoolCursor.value = null
   const channel = slug.value
   const episode = episodeId.value
   const draft = titleMotionDraft.value
   const stale = () => slug.value !== channel || episodeId.value !== episode || titleMotionDraft.value !== draft
   const script = /[ក-៿]/.test(text) ? 'khmr' : 'latn'
   try {
-    const workspace = await get<any>(`/projects/${channel}/still-posts`)
+    // One read carries the pool AND its standing cursor, so the preview binds
+    // the face the render would rather than starting the pool from its first.
+    const workspace = await get<any>(`/projects/${channel}/still-posts?script=${encodeURIComponent(script)}`)
     if (stale()) return
     const presets = Array.isArray(workspace?.presets) ? workspace.presets : []
     const selected = presets.find((preset: any) => preset.id === workspace?.last_preset_id)
@@ -5131,9 +5161,13 @@ async function loadTitleMotionPool(text: string): Promise<void> {
       ?? presets.map((preset: any) => preset?.data?.font_pools?.[script]).find((entry: any) => entry?.fonts?.length)
     if (stale()) return
     titleMotionPool.value = pool?.fonts?.length ? pool : null
+    titleMotionPoolCursor.value = workspace?.font_pool_cursor ?? null
   } catch {
     // A stale answer (another episode/draft is open now) is dropped, never shown.
-    if (!stale()) titleMotionPool.value = null
+    if (!stale()) {
+      titleMotionPool.value = null
+      titleMotionPoolCursor.value = null
+    }
   }
 }
 

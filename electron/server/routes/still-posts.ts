@@ -41,6 +41,7 @@ import {
   postDir,
   postStateFor,
   presetFontPools,
+  readFontPoolCursor,
   readPost,
   redrawFile,
   resolveLogoPath,
@@ -133,7 +134,15 @@ function scriptLabel(script: string): string {
 router.get('/projects/:slug/still-posts', async (req, res) => {
   try {
     if (!await pm.getProject(req.params.slug)) return res.status(404).json({ detail: 'Project not found' })
-    res.json({ ...(await buildWorkspace(req.params.slug)), publishes: await readStillPostPublishes(req.params.slug) })
+    const script = typeof req.query.script === 'string' ? req.query.script.trim() : ''
+    res.json({
+      ...(await buildWorkspace(req.params.slug)),
+      publishes: await readStillPostPublishes(req.params.slug),
+      // The standing rotation for one writing system, so a preview can show the
+      // face the render would actually bind. Absent script = no cursor asked for;
+      // an unassigned channel answers null, never an invented first face.
+      ...(script ? { font_pool_cursor: await readFontPoolCursor(req.params.slug, script) } : {}),
+    })
   } catch (error: any) {
     respondWithError(res, error, 'Failed to load Still Posts')
   }
