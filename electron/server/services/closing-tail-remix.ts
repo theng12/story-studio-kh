@@ -28,7 +28,7 @@ import {
 import { closingMusicWanted } from '../lib/final-video-check.js'
 import { resolveEpisodeMergedAudioFilename, writeSelectedMergedAudio } from '../lib/merged-audio-selection.js'
 import { MERGED_AUDIO_TOLERANCE_SEC } from '../lib/scene-plan-timeline.js'
-import { describeMergedAudioOpening } from './merged-audio-opening.js'
+import { introLeadInFrom } from '../lib/intro-lead-in.js'
 
 /** A re-mix may not move the speech's start by more than this (the caption clock follows it). */
 const LEAD_IN_TOLERANCE_SEC = 0.1
@@ -77,6 +77,23 @@ async function readIntent(dir: string, code: string): Promise<RemixIntent | null
 }
 
 const readText = (file: string) => fs.readFile(file, 'utf-8').catch(() => null)
+
+/**
+ * What precedes the narration in an existing merge, measured from the file's own recorded duration and
+ * the chapter sidecar. The record supplies the intro's identity; its number can be partial or stale, so
+ * the audio is the authority (AGENTS §6: a measurement that is not there is never read as 0). Null when
+ * neither the measurement nor a complete record can say.
+ */
+async function measuredLeadIn(episodeDir: string, record: any): Promise<number | null> {
+  const chapters = JSON.parse(await readText(path.join(episodeDir, 'audio_chapters.json')) ?? 'null')
+  const sections = Array.isArray(chapters?.sections) ? chapters.sections : []
+  const gap = typeof chapters?.gap_duration_s === 'number' ? chapters.gap_duration_s : 0
+  const duration = Number(record?.duration_sec) - Math.max(0, Number(record?.closing_tail_sec) || 0)
+  const measured = introLeadInFrom(duration, sections, gap)
+  if (measured.status === 'measured') return measured.seconds
+  const recorded = Number(record?.opening?.lead_in_sec)
+  return Number.isFinite(recorded) ? recorded : null
+}
 
 /** Both timings must be real numbers; `{}` or a partial opening is measured, never read as 0 or left to the preset. */
 function recordedOpening(record: any): boolean {
@@ -168,13 +185,12 @@ export async function planClosingTailRemix(opts: {
   if (intent) {
     let base: any = null
     try { base = JSON.parse(intent.base_record_text) } catch { /* torn: recovery rolls it back */ }
-    const lead = base?.opening?.lead_in_sec
     return {
       action: 'recover',
       wantedSec: wanted,
       track: {
         dir, code, filename: intent.base_filename, episodeDir: intent.episode_dir, recordText: intent.base_record_text,
-        durationSec: Number(base?.duration_sec) || 0, leadInSec: Number.isFinite(lead) ? lead : null,
+        durationSec: Number(base?.duration_sec) || 0, leadInSec: await measuredLeadIn(intent.episode_dir, base),
       },
     }
   }
@@ -245,25 +261,24 @@ export async function planClosingTailRemix(opts: {
   const chapters = JSON.parse(await readText(path.join(paths.episode_dir, 'audio_chapters.json')) ?? 'null')
   const conflict = applyRecordedSettings(params, record, chapters, settings)
   if (conflict) return refuse(conflict)
-  let measuredLeadInSec: number | null = null
-  if (!recordedOpening(record)) {
-    const opening = await describeMergedAudioOpening({
-      mergedDir: dir, code, filename, mergedDurationSec: Number(record.duration_sec), episodeDir: paths.episode_dir,
-    })
-    if (opening.source === 'unmeasurable' || opening.lead_in_sec === null) {
-      return refuse(`the original opening timing cannot be measured: ${opening.reason || 'no measured lead-in was returned'}`)
-    }
-    measuredLeadInSec = opening.lead_in_sec
+  // The original FILE is the authority on what precedes the narration (1.4.327: the merged audio is the
+  // truth). The record supplies the intro's identity; its lead-in can be partial or stale, so the head is
+  // measured from the file's duration and the chapter sidecar and that one number is the baseline.
+  const leadInSec = await measuredLeadIn(paths.episode_dir, record)
+  if (leadInSec === null) {
+    return refuse('the original opening timing cannot be measured: neither its record nor the chapter-duration sidecar says what precedes the narration.')
+  }
+  const recordedLead = Number(record.opening?.lead_in_sec)
+  // Keep the recorded intro only when it accounts for the measured head; otherwise the record's identity
+  // does not describe this file, so the measured head becomes the music lead-in and no intro is added.
+  if (!recordedOpening(record) || Math.abs(leadInSec - recordedLead) > LEAD_IN_TOLERANCE_SEC) {
     params.intro = { ...(params.intro || {}), enabled: false }
-    params.music = {
-      ...params.music,
-      lead_in_enabled: measuredLeadInSec > 0,
-      lead_in_seconds: measuredLeadInSec,
-    }
-    settings.push(`intro identity: not recorded; lead-in: ${measuredLeadInSec} s — recovered from the original audio evidence`)
+    params.music = { ...params.music, lead_in_enabled: leadInSec > 0, lead_in_seconds: leadInSec }
+    settings.push(recordedOpening(record)
+      ? `opening timing: the record says ${recordedLead.toFixed(2)} s but the original audio measures ${leadInSec.toFixed(2)} s — the audio is authoritative`
+      : `intro identity: not recorded; lead-in: ${leadInSec} s — measured from the original audio`)
   }
   settings.push('voice level, music balance and fades, loudness target: not recorded, so the current Audio Assembly and Video Assembly presets apply')
-  const lead = record.opening?.lead_in_sec
   return {
     action: 'remix',
     wantedSec: wanted,
@@ -271,13 +286,13 @@ export async function planClosingTailRemix(opts: {
     params: { ...params, episode_id: code, write_mode: 'new', closing_tail_sec_cap: wanted, closing_post_audio: opts.postAudio },
     track: {
       dir, code, filename, episodeDir: paths.episode_dir, recordText,
-      durationSec: Number(record.duration_sec), leadInSec: Number.isFinite(lead) ? lead : measuredLeadInSec,
+      durationSec: Number(record.duration_sec), leadInSec,
     },
   }
 }
 
 /** What is wrong with a re-mixed track's record, in words; empty when it is the same narration with the tail. */
-function remixProblems(record: any, track: MergedTrack, wantedSec: number): string[] {
+export function remixProblems(record: any, track: MergedTrack, wantedSec: number): string[] {
   const seconds = Number(wantedSec.toFixed(1))
   const tail = record.closing_tail_sec
   const duration = record.duration_sec
@@ -286,9 +301,17 @@ function remixProblems(record: any, track: MergedTrack, wantedSec: number): stri
   // A field the record does not carry is missing evidence, never a pass: `NaN` made every comparison below false (AGENTS §6).
   if (!Number.isFinite(tail)) problems.push('its record does not say how long its closing is')
   else if (tail < wantedSec - 0.5) problems.push(`the re-mix carries a ${tail.toFixed(1)} s closing, not ${seconds} s`)
-  if (!Number.isFinite(duration)) problems.push('its record does not say how long its narration is')
-  else if (Math.abs(duration - tail - track.durationSec) > MERGED_AUDIO_TOLERANCE_SEC) {
-    problems.push(`its narration came out ${(duration - tail).toFixed(1)} s instead of ${track.durationSec.toFixed(1)} s`)
+  // `duration_sec` is the whole file: narration + its own lead-in + the closing tail. Compare narration to
+  // narration, subtracting each file's own head exactly once, so a head that moved is reported as a lead-in
+  // move below instead of masquerading as narration drift.
+  const narration = Number.isFinite(duration) && Number.isFinite(tail) && Number.isFinite(lead)
+    ? duration - tail - lead
+    : null
+  if (narration === null) problems.push('its record does not say how long its narration is')
+  else if (track.leadInSec === null) {
+    problems.push('the original record does not say how long its lead-in is, so its narration cannot be compared')
+  } else if (Math.abs(narration - (track.durationSec - track.leadInSec)) > MERGED_AUDIO_TOLERANCE_SEC) {
+    problems.push(`its narration came out ${narration.toFixed(1)} s instead of ${(track.durationSec - track.leadInSec).toFixed(1)} s`)
   }
   if (track.leadInSec !== null) {
     if (!Number.isFinite(lead)) problems.push('its record does not say how long its lead-in is')
