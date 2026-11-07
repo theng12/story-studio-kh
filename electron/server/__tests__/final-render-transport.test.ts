@@ -16,6 +16,7 @@ import { setGenStudioUrl, setPrivateFinalRenderSetting } from '../services/app-s
 import { appSecretsPath } from '../services/app-secrets-store.js'
 import {
   preparePrivateFinalRenderDescriptor,
+  privateFinalRenderBoundsViolation,
 } from '../services/final-render-transport.js'
 import { getOrCreatePrivateRenderIdentity, pinGatewayBinding } from '../services/private-render-identity.js'
 import { installTestSafeStorage, setTestSafeStorageAvailable } from './safe-storage-test-double.js'
@@ -1043,4 +1044,62 @@ test('a v2 canvas range admits the request the v1 pair list refuses, and counts 
     /needs 127M pixel-frames and the paired Gateway allows 126M/)
   assert.match(overBudgetResult.output_lines.join('\n'), /stays on this Mac/)
   assert.equal(overBudgetResult.receipt, undefined)
+})
+
+test('v4 subtitle execution bounds are enforced from the published counters, and absent for base profiles', async () => {
+  const dir = await fs.mkdtemp(path.join(retainedRoot, 'subtitle-bounds-'))
+  const assPath = path.join(dir, 'subtitles-burn.ass')
+  const fontPath = path.join(dir, 'Anton.ttf')
+  await fs.writeFile(assPath, Buffer.alloc(2048))
+  await fs.writeFile(fontPath, Buffer.alloc(4096))
+  const description = {
+    kind: 'exportable',
+    recipe: {
+      canvas: { width: 1920, height: 1080, working_fps: 24 },
+      target_duration_sec: 10,
+      operations: [{ kind: 'subtitle_stage' }],
+    },
+    source_requirements: [
+      { logical_id: 'subtitle_font_0000', role: 'subtitle_font', source_path: fontPath },
+      { logical_id: 'subtitle_ass', role: 'subtitle_ass', source_path: assPath },
+    ],
+    composition: {} as any,
+  } as unknown as Parameters<typeof privateFinalRenderBoundsViolation>[0]
+  const v4: NonNullable<FinalRenderCapabilities['execution_bounds']> = {
+    bounds_version: 2, canvas_range: { max_edge: 3840, max_pixels: 8_294_400 },
+    working_fps: [24], max_duration_sec: 10_800, max_operations: 32, max_assets: 32,
+    max_asset_bytes: 8_589_934_592, max_total_input_bytes: 17_179_869_184,
+    max_pixel_frames: 5_374_771_200_000, scratch_reserve_bytes: 1,
+    output_limit_bytes: 8_589_934_592, process_tree_rss_limit_bytes: 1,
+    cumulative_wall_seconds: 14_400, max_subtitle_ass_bytes: 4_194_304,
+    max_subtitle_font_bytes: 33_554_432, max_subtitle_fonts: 8,
+  }
+
+  // Within every published subtitle ceiling: admitted.
+  assert.equal(await privateFinalRenderBoundsViolation(description, v4), null)
+
+  // One ASS document over its published byte ceiling is refused with the real figure.
+  const tightAss = { ...v4, max_subtitle_ass_bytes: 1024 }
+  assert.match(await privateFinalRenderBoundsViolation(description, tightAss) ?? '',
+    /ASS document is 1 MB .* at most 0 MB per document/)
+
+  // One font over its published per-font ceiling is refused.
+  const tightFont = { ...v4, max_subtitle_font_bytes: 2048 }
+  assert.match(await privateFinalRenderBoundsViolation(description, tightFont) ?? '',
+    /font is 1 MB .* at most 0 MB per font/)
+
+  // A font-count over the published cap is refused.
+  const tightCount = { ...v4, max_subtitle_fonts: 0 }
+  assert.equal((await privateFinalRenderBoundsViolation(description, tightCount))?.includes('subtitle fonts'), true)
+
+  // A base (v1) profile has no subtitle counters, so the branch never runs: the base
+  // byte ceilings still apply and the subtitle keys are simply not consulted.
+  const base: NonNullable<FinalRenderCapabilities['execution_bounds']> = {
+    canvas_pairs: [{ width: 1920, height: 1080 }], working_fps: [24],
+    max_duration_sec: 60, max_operations: 32, max_assets: 32,
+    max_asset_bytes: 8_589_934_592, max_total_input_bytes: 17_179_869_184,
+    max_pixel_frames: 1920 * 1080 * 24 * 60, scratch_reserve_bytes: 1,
+    output_limit_bytes: 1024 * 1024, process_tree_rss_limit_bytes: 1, cumulative_wall_seconds: 60,
+  }
+  assert.equal(await privateFinalRenderBoundsViolation(description, base), null)
 })
