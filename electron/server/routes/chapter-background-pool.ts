@@ -6,6 +6,10 @@ import {
   resolveChapterBackground,
   updateChapterBackgroundPool,
 } from '../services/chapter-background-pool.js'
+import {
+  ChapterBackgroundImportError,
+  importChapterBackgroundBytes,
+} from '../services/chapter-background-import.js'
 import type { ChapterBackgroundItem } from '../contracts/chapter-background-pool.js'
 
 export const router = Router()
@@ -51,5 +55,27 @@ router.post('/projects/:slug/chapter-background-pool/reset-cursor', async (req, 
     res.json(await getChapterBackgroundPoolState(req.params.slug))
   } catch (error: any) {
     res.status(500).json(humanizeBackendError(error, 'Could not reset chapter background rotation'))
+  }
+})
+
+/**
+ * Import ONE chapter-background image's bytes into this channel's own
+ * `backgrounds/` folder. Same base64 body pattern as the channel-profile art
+ * upload, so it rides the existing 10 MB JSON parser and the same strict
+ * decode/format/size/full-decode validation. The caller's filename is display
+ * only. Returns the canonical `${CHANNEL}/backgrounds/<file>` reference the
+ * PATCH above accepts; it writes no config, pool or cursor (the caller PATCHes).
+ */
+router.post('/projects/:slug/chapter-background-pool/import', async (req, res) => {
+  try {
+    const imported = await importChapterBackgroundBytes(req.params.slug, req.body?.data_base64)
+    res.status(201).json(imported)
+  } catch (error: any) {
+    // Both this route's own errors and the reused strict-base64 decoder carry
+    // the status they answer with; anything else is a genuine 500.
+    const status = Number.isInteger(error?.status) && error.status >= 400 && error.status < 500
+      ? error.status
+      : (error instanceof ChapterBackgroundImportError ? error.status : 500)
+    res.status(status).json(humanizeBackendError(error, 'Could not import that chapter background'))
   }
 })
