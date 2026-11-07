@@ -33,7 +33,10 @@
       </div>
 
       <div class="settings-section mt-2">
-        <h4>Channel intro</h4>
+        <div class="flex items-center justify-between">
+          <h4>Channel intro</h4>
+          <span v-if="isBoundFromChannel" class="badge badge-subtle text-xs" data-testid="channel-bound-badge">Channel default</span>
+        </div>
         <p class="text-muted text-sm mt-1 mb-2">
           The intro music used whenever this episode's audio is rebuilt. Nothing is selected by default.
         </p>
@@ -41,8 +44,67 @@
           :model-value="introDraft.channel_intro"
           :episodes-root="String(episodesRoot || '')"
           :slug="slug"
-          @update:model-value="introDraft.channel_intro = $event"
+          @update:model-value="onChannelIntroPickerUpdate"
         />
+
+        <div v-if="introDraft.channel_intro?.file" class="intro-trims-fades mt-2">
+          <div class="grid-2">
+            <div class="form-group">
+              <label>Trim start (s)</label>
+              <input
+                v-model.number="introDraft.channel_intro.trim_start_sec"
+                type="number"
+                min="0"
+                step="0.5"
+                class="form-control"
+                placeholder="0"
+                aria-label="Intro trim start in seconds"
+              />
+              <span class="text-muted text-xs">Start playback this many seconds in</span>
+            </div>
+            <div class="form-group">
+              <label>Duration (s)</label>
+              <input
+                v-model.number="introDraft.channel_intro.duration_sec"
+                type="number"
+                min="0.1"
+                step="0.5"
+                class="form-control"
+                placeholder="Full track"
+                aria-label="Intro play duration in seconds"
+              />
+              <span class="text-muted text-xs">Leave blank to play the full track</span>
+            </div>
+          </div>
+          <div class="grid-2 mt-2">
+            <div class="form-group">
+              <label>Fade in (s)</label>
+              <input
+                v-model.number="introDraft.channel_intro.fade_in_sec"
+                type="number"
+                min="0"
+                step="0.5"
+                class="form-control"
+                placeholder="0"
+                aria-label="Intro fade in duration in seconds"
+              />
+              <span class="text-muted text-xs">Gradual volume rise</span>
+            </div>
+            <div class="form-group">
+              <label>Fade out (s)</label>
+              <input
+                v-model.number="introDraft.channel_intro.fade_out_sec"
+                type="number"
+                min="0"
+                step="0.5"
+                class="form-control"
+                placeholder="0"
+                aria-label="Intro fade out duration in seconds"
+              />
+              <span class="text-muted text-xs">Gradual volume decay</span>
+            </div>
+          </div>
+        </div>
       </div>
     </fieldset>
 
@@ -84,6 +146,10 @@ interface ChannelIntroSelection {
   file: string
   volume: number
   gap_after: number
+  trim_start_sec?: number
+  duration_sec?: number | null
+  fade_in_sec?: number
+  fade_out_sec?: number
 }
 
 interface IntroDraft {
@@ -141,33 +207,53 @@ function normalizeChannelIntro(raw: any): ChannelIntroSelection | null {
   if (!file) return null
   const volume = Number(raw.volume)
   const gap = Number(raw.gap_after)
+  const trimStart = Number(raw.trim_start_sec)
+  const duration = raw.duration_sec != null ? Number(raw.duration_sec) : null
+  const fadeIn = Number(raw.fade_in_sec)
+  const fadeOut = Number(raw.fade_out_sec)
   return {
     file,
     // The picker works in linear gain (0–1). Preserve a value it actually
     // sent; a missing one starts at full volume, never silently re-decided.
     volume: Number.isFinite(volume) ? Math.max(0, Math.min(1, volume)) : 1,
     gap_after: Number.isFinite(gap) ? Math.max(0, gap) : 0,
+    trim_start_sec: Number.isFinite(trimStart) ? Math.max(0, trimStart) : 0,
+    duration_sec: duration !== null && Number.isFinite(duration) && duration > 0 ? duration : null,
+    fade_in_sec: Number.isFinite(fadeIn) ? Math.max(0, fadeIn) : 0,
+    fade_out_sec: Number.isFinite(fadeOut) ? Math.max(0, fadeOut) : 0,
   }
 }
 
-/** `channel_intro` is the new sibling; an older snapshot may nest it inside intro. */
+/** `channel_intro` is the new sibling; an older snapshot may nest it inside intro. Automatic binding resolves channel_intro_music if episode has none. */
 function readChannelIntro(full: any): ChannelIntroSelection | null {
   if (full && Object.prototype.hasOwnProperty.call(full, 'channel_intro')) {
     return normalizeChannelIntro(full.channel_intro)
   }
-  return normalizeChannelIntro(full?.intro?.channel_intro)
+  if (full?.intro && Object.prototype.hasOwnProperty.call(full.intro, 'channel_intro')) {
+    return normalizeChannelIntro(full.intro.channel_intro)
+  }
+  if (full && Object.prototype.hasOwnProperty.call(full, 'channel_intro_music')) {
+    return normalizeChannelIntro(full.channel_intro_music)
+  }
+  return null
 }
 
 function sameChannelIntro(a: ChannelIntroSelection | null, b: ChannelIntroSelection | null): boolean {
   if (!a || !b) return a === b
-  return a.file === b.file && a.volume === b.volume && a.gap_after === b.gap_after
+  return a.file === b.file
+    && a.volume === b.volume
+    && a.gap_after === b.gap_after
+    && (a.trim_start_sec ?? 0) === (b.trim_start_sec ?? 0)
+    && (a.duration_sec ?? null) === (b.duration_sec ?? null)
+    && (a.fade_in_sec ?? 0) === (b.fade_in_sec ?? 0)
+    && (a.fade_out_sec ?? 0) === (b.fade_out_sec ?? 0)
 }
 
 /** Identity of one normalized channel-intro choice; a different choice means a real rebuild. */
 function channelIntroKey(value: ChannelIntroSelection | null): string {
   const normalized = normalizeChannelIntro(value)
   return normalized
-    ? `${normalized.file}\u0000${normalized.volume}\u0000${normalized.gap_after}`
+    ? `${normalized.file}\u0000${normalized.volume}\u0000${normalized.gap_after}\u0000${normalized.trim_start_sec ?? 0}\u0000${normalized.duration_sec ?? 'full'}\u0000${normalized.fade_in_sec ?? 0}\u0000${normalized.fade_out_sec ?? 0}`
     : 'null'
 }
 
@@ -204,6 +290,29 @@ const applyLabel = computed(() => pendingJobId.value
   ? 'Rebuilding audio…'
   : applying.value ? 'Applying…' : 'Apply')
 const introDraft = computed(() => draftState.value?.value || null)
+const isBoundFromChannel = computed(() => {
+  if (!props.fullsettings) return false
+  const hasEpisodeIntro = Object.prototype.hasOwnProperty.call(props.fullsettings, 'channel_intro')
+    || Object.prototype.hasOwnProperty.call(props.fullsettings?.intro || {}, 'channel_intro')
+  return !hasEpisodeIntro && Object.prototype.hasOwnProperty.call(props.fullsettings, 'channel_intro_music')
+})
+
+function onChannelIntroPickerUpdate(picked: any): void {
+  if (!introDraft.value) return
+  if (!picked) {
+    introDraft.value.channel_intro = null
+    return
+  }
+  const current = introDraft.value.channel_intro
+  introDraft.value.channel_intro = {
+    ...picked,
+    trim_start_sec: current?.trim_start_sec ?? 0,
+    duration_sec: current?.duration_sec ?? null,
+    fade_in_sec: current?.fade_in_sec ?? 0,
+    fade_out_sec: current?.fade_out_sec ?? 0,
+  }
+}
+
 const audioChanged = computed(() => {
   const current = draftState.value?.value.channel_intro ?? null
   const completed = completedMerge.value
@@ -418,6 +527,10 @@ async function saveIntroInner(
             file: nextChannelIntro.file,
             volume: nextChannelIntro.volume,
             gap_after: nextChannelIntro.gap_after,
+            trim_start_sec: nextChannelIntro.trim_start_sec ?? 0,
+            duration_sec: nextChannelIntro.duration_sec ?? null,
+            fade_in_sec: nextChannelIntro.fade_in_sec ?? 0,
+            fade_out_sec: nextChannelIntro.fade_out_sec ?? 0,
           }
         : null,
       write_mode: 'new',
@@ -507,5 +620,18 @@ onBeforeUnmount(() => {
 
 .assembly-intro-fields:disabled {
   opacity: 0.72;
+}
+
+.intro-trims-fades {
+  padding-top: 0.25rem;
+  border-top: 1px solid var(--border-color, rgba(255, 255, 255, 0.08));
+}
+
+.badge-subtle {
+  font-size: 0.7rem;
+  padding: 0.15rem 0.45rem;
+  border-radius: 4px;
+  background: var(--bg-surface-elevated, rgba(255, 255, 255, 0.08));
+  color: var(--text-muted, #888);
 }
 </style>

@@ -340,12 +340,17 @@ test('a channel-intro change queues the real merge with the saved preset, then v
   }, 'the raw channel pick is adopted only at Apply, through the captured channel root')
 
   const merge = mounted.calls.find(call => call.path.endsWith('/generate/audio-merge'))
-  assert.deepEqual(merge!.body, {
-    episode_id: 'EP001',
-    reuse_saved_settings: true,
-    channel_intro: { enabled: true, file: ADOPTED_CHANNEL_INTRO, volume: 1, gap_after: 0 },
-    write_mode: 'new',
-  }, 'the saved preset and the explicit channel intro travel; no mixer fields are invented')
+  assert.equal(merge!.body.episode_id, 'EP001')
+  assert.equal(merge!.body.reuse_saved_settings, true)
+  assert.equal(merge!.body.write_mode, 'new')
+  assert.equal(merge!.body.channel_intro.enabled, true)
+  assert.equal(merge!.body.channel_intro.file, ADOPTED_CHANNEL_INTRO)
+  assert.equal(merge!.body.channel_intro.volume, 1)
+  assert.equal(merge!.body.channel_intro.gap_after, 0)
+  assert.equal(merge!.body.channel_intro.trim_start_sec, 0)
+  assert.equal(merge!.body.channel_intro.duration_sec, null)
+  assert.equal(merge!.body.channel_intro.fade_in_sec, 0)
+  assert.equal(merge!.body.channel_intro.fade_out_sec, 0)
   assert.equal(mounted.applied.length, 0, 'nothing is announced before the job is terminal')
   assert.equal(mounted.calls.some(call => call.method === 'PUT' && call.path.endsWith('/settings/config')), false)
   assert.equal(mounted.host.querySelector<HTMLButtonElement>('[data-testid="apply-intro"]')!.disabled, true,
@@ -360,16 +365,24 @@ test('a channel-intro change queues the real merge with the saved preset, then v
     'the completed job names the new output; a previous selection cannot substitute for it')
 
   const save = mounted.calls.find(call => call.method === 'PUT' && call.path.endsWith('/settings/config'))
-  assert.deepEqual(save!.body[LAST_USED].episodes.EP001.settings.channel_intro, {
-    file: ADOPTED_CHANNEL_INTRO,
-    volume: 1,
-    gap_after: 0,
-  })
-  assert.deepEqual(mounted.applied[0], {
-    intro: { enabled: false, video_path: '' },
-    channel_intro: { file: ADOPTED_CHANNEL_INTRO, volume: 1, gap_after: 0 },
-    merged_audio: 'EP001_merged_audio_v2.mp3',
-  })
+  assert.equal(save!.body[LAST_USED].episodes.EP001.settings.channel_intro.file, ADOPTED_CHANNEL_INTRO)
+  assert.equal(save!.body[LAST_USED].episodes.EP001.settings.channel_intro.volume, 1)
+  assert.equal(save!.body[LAST_USED].episodes.EP001.settings.channel_intro.gap_after, 0)
+  assert.equal(save!.body[LAST_USED].episodes.EP001.settings.channel_intro.trim_start_sec, 0)
+  assert.equal(save!.body[LAST_USED].episodes.EP001.settings.channel_intro.duration_sec, null)
+  assert.equal(save!.body[LAST_USED].episodes.EP001.settings.channel_intro.fade_in_sec, 0)
+  assert.equal(save!.body[LAST_USED].episodes.EP001.settings.channel_intro.fade_out_sec, 0)
+
+  assert.equal(mounted.applied[0].intro.enabled, false)
+  assert.equal(mounted.applied[0].intro.video_path, '')
+  assert.equal(mounted.applied[0].channel_intro.file, ADOPTED_CHANNEL_INTRO)
+  assert.equal(mounted.applied[0].channel_intro.volume, 1)
+  assert.equal(mounted.applied[0].channel_intro.gap_after, 0)
+  assert.equal(mounted.applied[0].channel_intro.trim_start_sec, 0)
+  assert.equal(mounted.applied[0].channel_intro.duration_sec, null)
+  assert.equal(mounted.applied[0].channel_intro.fade_in_sec, 0)
+  assert.equal(mounted.applied[0].channel_intro.fade_out_sec, 0)
+  assert.equal(mounted.applied[0].merged_audio, 'EP001_merged_audio_v2.mp3')
   assert.equal(mounted.refreshes, 1)
 })
 
@@ -396,11 +409,11 @@ test('a retry after the save fails finishes the completed merge instead of rebui
     'the retry pins the same completed job output')
   const saves = mounted.calls.filter(call => call.method === 'PUT' && call.path.endsWith('/settings/config'))
   assert.equal(saves.length, 2, 'the failed write is retried')
-  assert.deepEqual(saves[1].body[LAST_USED].episodes.EP001.settings.channel_intro, {
-    file: ADOPTED_CHANNEL_INTRO,
-    volume: 1,
-    gap_after: 0,
-  })
+  assert.equal(saves[1].body[LAST_USED].episodes.EP001.settings.channel_intro.file, ADOPTED_CHANNEL_INTRO)
+  assert.equal(saves[1].body[LAST_USED].episodes.EP001.settings.channel_intro.volume, 1)
+  assert.equal(saves[1].body[LAST_USED].episodes.EP001.settings.channel_intro.gap_after, 0)
+  assert.equal(saves[1].body[LAST_USED].episodes.EP001.settings.channel_intro.trim_start_sec, 0)
+  assert.equal(saves[1].body[LAST_USED].episodes.EP001.settings.channel_intro.fade_out_sec, 0)
   assert.equal(mounted.applied[0].merged_audio, 'EP001_merged_audio_v2.mp3')
   assert.equal(mounted.refreshes, 1)
 })
@@ -525,4 +538,125 @@ test('a late completion is saved for its captured episode, never announced into 
   const save = mounted.calls.find(call => call.method === 'PUT' && call.path.endsWith('/settings/config'))
   assert.deepEqual(Object.keys(save!.body[LAST_USED].episodes), ['EP001'],
     'the late save lands in the captured episode only')
+})
+
+test('editing trims and fades queues a rebuild carrying trim_start_sec, duration_sec, fade_in_sec, fade_out_sec', async () => {
+  const mounted = await open()
+  ;(globalThis as any).__channelIntroPick = CHANNEL_INTRO
+  await mounted.click('.channel-picker-stub button')
+  await mounted.flush()
+
+  const trimStartInput = mounted.host.querySelector<HTMLInputElement>('input[aria-label="Intro trim start in seconds"]')
+  assert.ok(trimStartInput, 'trim start input must be present when a file is selected')
+  trimStartInput!.value = '2.5'
+  trimStartInput!.dispatchEvent(new Event('input'))
+  await mounted.flush()
+
+  const durationInput = mounted.host.querySelector<HTMLInputElement>('input[aria-label="Intro play duration in seconds"]')
+  assert.ok(durationInput, 'duration input must be present')
+  durationInput!.value = '8'
+  durationInput!.dispatchEvent(new Event('input'))
+  await mounted.flush()
+
+  const fadeInInput = mounted.host.querySelector<HTMLInputElement>('input[aria-label="Intro fade in duration in seconds"]')
+  assert.ok(fadeInInput, 'fade in input must be present')
+  fadeInInput!.value = '1.5'
+  fadeInInput!.dispatchEvent(new Event('input'))
+  await mounted.flush()
+
+  const fadeOutInput = mounted.host.querySelector<HTMLInputElement>('input[aria-label="Intro fade out duration in seconds"]')
+  assert.ok(fadeOutInput, 'fade out input must be present')
+  fadeOutInput!.value = '3'
+  fadeOutInput!.dispatchEvent(new Event('input'))
+  await mounted.flush()
+
+  await mounted.click('[data-testid="apply-intro"]')
+  await mounted.settle(() => mounted.calls.some(call => call.path.endsWith('/generate/audio-merge')))
+
+  const merge = mounted.calls.find(call => call.path.endsWith('/generate/audio-merge'))
+  assert.equal(merge!.body.channel_intro.trim_start_sec, 2.5)
+  assert.equal(merge!.body.channel_intro.duration_sec, 8)
+  assert.equal(merge!.body.channel_intro.fade_in_sec, 1.5)
+  assert.equal(merge!.body.channel_intro.fade_out_sec, 3)
+
+  mounted.jobs.value = [{ job_id: 'job-1', type: 'audio_merge', status: 'done', output_lines: ['Output: /episode/EP001_merged_audio_v2.mp3'] }]
+  await mounted.settle(() => mounted.applied.length === 1)
+  assert.equal(mounted.applied[0].channel_intro.trim_start_sec, 2.5)
+  assert.equal(mounted.applied[0].channel_intro.duration_sec, 8)
+})
+
+test('a new channel-level automatic binding is shown, but never overwrites a saved episode choice', async () => {
+  // Episode has explicit saved choice
+  const withSavedEp = await open({
+    fullsettings: {
+      channel_intro: { file: '${CHANNEL}/assets/saved-ep.mp3', volume: 0.9, gap_after: 1 },
+      channel_intro_music: { file: '${CHANNEL}/assets/channel-default.mp3', volume: 0.85 },
+    },
+  })
+  assert.ok(withSavedEp.host.querySelector('.channel-picker-stub')!.getAttribute('data-file')?.includes('saved-ep.mp3'))
+  assert.ok(!withSavedEp.host.querySelector('[data-testid="channel-bound-badge"]'), 'must not show Channel default when episode has its own saved choice')
+  withSavedEp.unmount()
+
+  // Episode has no saved choice but channel has one: automatically bound
+  const autoBound = await open({
+    fullsettings: {
+      // no channel_intro key
+      intro: { enabled: false, video_path: '' },
+      channel_intro_music: {
+        file: '${CHANNEL}/assets/channel-default.mp3',
+        volume: 0.85,
+        trim_start_sec: 1.0,
+        duration_sec: 5.0,
+        fade_out_sec: 1.5,
+      },
+    },
+  })
+  assert.ok(autoBound.host.querySelector('.channel-picker-stub')!.getAttribute('data-file')?.includes('channel-default.mp3'))
+  assert.ok(autoBound.host.querySelector('[data-testid="channel-bound-badge"]'), 'should show Channel default badge')
+  assert.equal(autoBound.host.textContent, '' || autoBound.host.textContent?.includes('Channel default'), true)
+
+  // Rebuilding the audio queues with the channel binding settings
+  ;(globalThis as any).__channelIntroPick = null // simulate user confirming the auto-bound choice
+  await autoBound.click('[data-testid="apply-intro"]')
+  await autoBound.settle(() => autoBound.calls.some(call => call.path.endsWith('/generate/audio-merge')))
+  const merge = autoBound.calls.find(call => call.path.endsWith('/generate/audio-merge'))
+  assert.equal(merge!.body.channel_intro.file, '${CHANNEL}/assets/channel-default.mp3')
+  assert.equal(merge!.body.channel_intro.trim_start_sec, 1.0)
+  assert.equal(merge!.body.channel_intro.duration_sec, 5.0)
+  assert.equal(merge!.body.channel_intro.fade_out_sec, 1.5)
+  autoBound.unmount()
+})
+
+test('editing file preserves existing trim and fade values', async () => {
+  const mounted = await open({
+    fullsettings: {
+      channel_intro: {
+        file: '${CHANNEL}/assets/orig.mp3',
+        volume: 1,
+        gap_after: 0,
+        trim_start_sec: 1.0,
+        duration_sec: 4.0,
+        fade_in_sec: 0.5,
+        fade_out_sec: 1.0,
+      },
+    },
+  })
+
+  ;(globalThis as any).__channelIntroPick = '${CHANNEL}/assets/next.mp3'
+  await mounted.click('.channel-picker-stub button')
+  await mounted.flush()
+
+  const trimStartInput = mounted.host.querySelector<HTMLInputElement>('input[aria-label="Intro trim start in seconds"]')
+  assert.ok(trimStartInput, 'trim start input must be present')
+  // Vue v-model should reflect the preserved 1.0 value
+  assert.equal(Number(trimStartInput!.value), 1.0)
+
+  await mounted.click('[data-testid="apply-intro"]')
+  await mounted.settle(() => mounted.calls.some(call => call.path.endsWith('/generate/audio-merge')))
+  const merge = mounted.calls.find(call => call.path.endsWith('/generate/audio-merge'))
+  assert.equal(merge!.body.channel_intro.file, '${CHANNEL}/assets/next.mp3')
+  assert.equal(merge!.body.channel_intro.trim_start_sec, 1.0)
+  assert.equal(merge!.body.channel_intro.duration_sec, 4.0)
+  assert.equal(merge!.body.channel_intro.fade_in_sec, 0.5)
+  assert.equal(merge!.body.channel_intro.fade_out_sec, 1.0)
 })

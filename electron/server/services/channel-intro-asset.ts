@@ -39,6 +39,10 @@ export interface ChannelIntroSelection {
   bytes?: number
   volume?: number
   gap_after?: number
+  trim_start_sec?: number
+  duration_sec?: number | null
+  fade_in_sec?: number
+  fade_out_sec?: number
 }
 
 /**
