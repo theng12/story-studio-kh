@@ -73,10 +73,31 @@ export interface StoryEntity {
   updated_at: string
 }
 
+/**
+ * Provenance of the last extraction from this episode's completed script.
+ * Server-owned: the save boundary preserves it and never accepts it from a
+ * client payload, so a browser cannot claim a script was read when it was not.
+ */
+export interface StoryEntityExtractionRecord {
+  extracted_at: string
+  /** The live writing model id that read the script (never chosen here). */
+  model: string
+  /** Chapter files the extraction read. */
+  chapters: number
+  /**
+   * Fingerprint of those chapter files. The read route returns the CURRENT
+   * fingerprint beside it, so a changed script is reported honestly instead
+   * of the old inventory silently standing in for the new story.
+   */
+  script_fingerprint: string
+}
+
 export interface StoryEntitiesDoc {
   schema_version: 1
   entities: StoryEntity[]
   updated_at: string
+  /** Absent = never extracted. Never written by a client save. */
+  extraction?: StoryEntityExtractionRecord
 }
 
 /** What `GET /projects/:slug/story-entities/:episodeId` answers. */
@@ -91,6 +112,38 @@ export interface StoryEntitiesRead {
    * (AGENTS.md §6: a zero that means two things is a defect).
    */
   chapters: number | null
+  /** Fingerprint of those same chapter files; `null` = could not be measured. */
+  script_fingerprint: string | null
+}
+
+/**
+ * One entity the extraction proposes. Nothing is added to the inventory until
+ * the customer keeps it; an existing entity carries its stored Keep/Drop
+ * decision so a retry or a re-extraction never reverses a choice.
+ */
+export interface StoryEntityProposal {
+  id: string
+  kind: StoryEntityKind
+  name: string
+  description: string
+  important: boolean
+  /** True when this id is already in the inventory. */
+  existing: boolean
+  /** The stored decision for an existing entity, `keep` for a new proposal. */
+  review: StoryEntityReview
+  /** Existing only: the story facts already stored, when they differ from the script's. */
+  current_description?: string
+}
+
+/** What `POST /projects/:slug/story-entities/:episodeId/extract` answers. */
+export interface StoryEntitiesExtraction {
+  proposals: StoryEntityProposal[]
+  chapters: number
+  model: string
+  script_fingerprint: string
+  extracted_at: string
+  /** Rows the model returned that were unusable and were left out. */
+  skipped_rows: number
 }
 
 export const STORY_ENTITY_ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,63}$/

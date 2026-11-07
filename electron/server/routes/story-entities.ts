@@ -15,6 +15,7 @@
 
 import { Router } from 'express'
 import { respondWithError } from '../lib/humanize-backend-error.js'
+import { extractEpisodeStoryEntities } from '../generators/story-entities.js'
 import {
   StoryEntitiesEpisodeNotFoundError,
   StoryEntitiesValidationError,
@@ -49,5 +50,21 @@ router.put('/projects/:slug/story-entities/:episodeId', async (req, res) => {
       return res.status(e.statusCode).json({ detail: e.message })
     }
     respondWithError(res, e, 'Failed to save story context')
+  }
+})
+
+/**
+ * Read this episode's completed chapters and return PROPOSALS — nothing is
+ * added to the inventory here. The page keeps or drops each one, then the
+ * normal PUT saves the customer's choices.
+ */
+router.post('/projects/:slug/story-entities/:episodeId/extract', async (req, res) => {
+  try {
+    res.json({ ok: true, ...(await extractEpisodeStoryEntities(req.params.slug, req.params.episodeId)) })
+  } catch (e: any) {
+    if (e instanceof StoryEntitiesValidationError || e instanceof StoryEntitiesEpisodeNotFoundError || knownStatus(e)) {
+      return res.status(e.statusCode).json({ detail: e.message })
+    }
+    respondWithError(res, e, 'Failed to extract story context from the completed script')
   }
 })

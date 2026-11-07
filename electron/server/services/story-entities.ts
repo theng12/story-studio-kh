@@ -23,8 +23,9 @@
 
 import fs from 'fs/promises'
 import path from 'path'
+import { createHash } from 'crypto'
 import { withLock } from '../lib/atomic-store.js'
-import { matchChapterFile } from '../lib/episode-artifacts.js'
+import { matchChapterFile, readArtifactRawText } from '../lib/episode-artifacts.js'
 import { listCharacters } from './character-manager.js'
 import { resolveEpisodePathsByCode, resolveEpisodeTitleByCode } from './utils.js'
 import {
@@ -41,6 +42,7 @@ import {
   type StoryEntitiesDoc,
   type StoryEntitiesRead,
   type StoryEntity,
+  type StoryEntityExtractionRecord,
   type StoryEntityKind,
 } from '../contracts/story-entities.js'
 
@@ -86,18 +88,87 @@ function parseStored(raw: string): StoryEntitiesDoc {
   }
 }
 
-/** `null` = the script folder is absent/unreadable; `0` = readable, no chapters. */
-export async function countScriptChapters(slug: string, episodeId: string): Promise<number | null> {
+export interface CompletedChapterFile {
+  number: number
+  filename: string
+  path: string
+}
+
+export interface CompletedChapters {
+  /** `null` = the folder is absent/unreadable; `0` = readable, no chapters. */
+  chapters: number | null
+  /** `null` = the files could not be measured; never flattened to a hash of nothing. */
+  fingerprint: string | null
+  files: CompletedChapterFile[]
+}
+
+/**
+ * List THIS episode's completed chapter files and fingerprint them.
+ *
+ * The fingerprint is over the file names and their size/mtime, not their text:
+ * the read route asks for it on every page load, and re-reading a two-hour
+ * script just to notice it changed would make the page slow. A changed chapter
+ * changes at least one of those three facts.
+ *
+ * `chapters: null` and `fingerprint: null` are separate honest states: a
+ * missing folder and a file that cannot be statted are both "not measurable",
+ * while a readable folder with no chapters is a real `0`.
+ */
+export async function listCompletedChapters(slug: string, episodeId: string): Promise<CompletedChapters> {
+  let entries: string[]
+  let scriptDir: string
   try {
     const paths = await resolveEpisodePathsByCode(slug, episodeId)
-    const entries = await fs.readdir(paths.script_dir)
-    const numbers = new Set(
-      entries.map(name => matchChapterFile(name, episodeId)).filter((n): n is number => n !== null),
-    )
-    return numbers.size
+    scriptDir = paths.script_dir
+    entries = await fs.readdir(scriptDir)
   } catch {
-    return null
+    return { chapters: null, fingerprint: null, files: [] }
   }
+
+  // One file per chapter number, preferring `.md` over legacy `.docx` — the
+  // same order `resolveArtifact` reads them in.
+  const byNumber = new Map<number, string>()
+  for (const name of entries) {
+    const number = matchChapterFile(name, episodeId)
+    if (number === null) continue
+    const current = byNumber.get(number)
+    if (!current || (!/\.md$/i.test(current) && /\.md$/i.test(name))) byNumber.set(number, name)
+  }
+  const files = [...byNumber.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([number, filename]) => ({ number, filename, path: path.join(scriptDir, filename) }))
+
+  let fingerprint: string | null = null
+  try {
+    const parts: string[] = []
+    for (const file of files) {
+      const stat = await fs.stat(file.path)
+      parts.push(`${file.filename}:${stat.size}:${stat.mtimeMs}`)
+    }
+    fingerprint = createHash('sha256').update(parts.join('\n')).digest('hex')
+  } catch {
+    // A chapter we cannot stat means the fingerprint cannot honestly describe
+    // the script. Leave it null rather than hashing a partial list.
+  }
+  return { chapters: files.length, fingerprint, files }
+}
+
+/** Kept for callers that only need the count; same honest null/0 contract. */
+export async function countScriptChapters(slug: string, episodeId: string): Promise<number | null> {
+  return (await listCompletedChapters(slug, episodeId)).chapters
+}
+
+/** The completed chapter texts, in chapter order, for extraction. */
+export async function readCompletedChapterTexts(
+  slug: string,
+  episodeId: string,
+): Promise<{ chapters: number | null; fingerprint: string | null; texts: { number: number; text: string }[] }> {
+  const script = await listCompletedChapters(slug, episodeId)
+  const texts: { number: number; text: string }[] = []
+  for (const file of script.files) {
+    texts.push({ number: file.number, text: await readArtifactRawText(file.path) })
+  }
+  return { chapters: script.chapters, fingerprint: script.fingerprint, texts }
 }
 
 export async function readStoryEntities(slug: string, episodeId: string): Promise<StoryEntitiesRead> {
@@ -113,7 +184,13 @@ export async function readStoryEntities(slug: string, episodeId: string): Promis
     exists = false
     doc = emptyStoryEntities()
   }
-  return { exists, doc, chapters: await countScriptChapters(slug, episodeId) }
+  const script = await listCompletedChapters(slug, episodeId)
+  return {
+    exists,
+    doc,
+    chapters: script.chapters,
+    script_fingerprint: script.fingerprint,
+  }
 }
 
 /**
@@ -339,7 +416,12 @@ async function buildDoc(
     if (e?.code !== 'ENOENT') throw e
   }
   const storedEntities = Array.isArray(stored.entities) ? stored.entities : []
-  stored = { schema_version: 1, entities: storedEntities, updated_at: stored.updated_at ?? '' }
+  stored = {
+    schema_version: 1,
+    entities: storedEntities,
+    updated_at: stored.updated_at ?? '',
+    ...(stored.extraction ? { extraction: stored.extraction } : {}),
+  }
 
   const now = new Date().toISOString()
   const ctx: MergeContext = {
@@ -365,7 +447,45 @@ async function buildDoc(
     if (!ctx.payloadIds.has(entity.id)) entities.push(entity)
   }
 
-  return { schema_version: 1, entities, updated_at: now }
+  return {
+    schema_version: 1,
+    entities,
+    updated_at: now,
+    // Extraction provenance is server-owned: a client save carries it through
+    // untouched instead of being able to claim a script was read.
+    ...(stored.extraction ? { extraction: stored.extraction } : {}),
+  }
+}
+
+/**
+ * Record which script the last successful extraction read. Runs AFTER every
+ * chunk succeeded, inside the sidecar lock, and never touches `entities` — a
+ * failed extraction writes nothing at all (§8).
+ */
+export async function recordStoryExtraction(
+  slug: string,
+  episodeId: string,
+  record: StoryEntityExtractionRecord,
+): Promise<void> {
+  await requireEpisode(slug, episodeId)
+  const paths = await resolveEpisodePathsByCode(slug, episodeId)
+  await fs.mkdir(paths.episode_dir, { recursive: true })
+  const file = path.join(paths.episode_dir, STORY_ENTITIES_FILENAME)
+  await withLock(file, async () => {
+    let stored: StoryEntitiesDoc = emptyStoryEntities()
+    try {
+      stored = parseStored(await fs.readFile(file, 'utf-8'))
+    } catch (e: any) {
+      if (e?.code !== 'ENOENT') throw e
+    }
+    const doc: StoryEntitiesDoc = {
+      schema_version: 1,
+      entities: Array.isArray(stored.entities) ? stored.entities : [],
+      updated_at: stored.updated_at ?? '',
+      extraction: record,
+    }
+    await fs.writeFile(file, JSON.stringify(doc, null, 2), 'utf-8')
+  })
 }
 
 export async function writeStoryEntities(

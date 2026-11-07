@@ -192,6 +192,17 @@
             <h3>Story context</h3>
             <p class="text-muted text-sm">The cast, places, world facts and objects this episode's story actually uses — kept separate from the channel look.</p>
           </div>
+          <div class="cs-story-head-actions">
+            <button
+              type="button"
+              class="btn btn-ghost btn-sm"
+              :disabled="extractDisabled"
+              :title="extractDisabledReason"
+              @click="extractStoryEntities"
+            >
+              {{ extracting ? 'Reading the completed script…' : 'Extract from completed script' }}
+            </button>
+          </div>
         </header>
 
         <WorkspaceNotice v-if="storyLoadError" class="mt-3" tone="warning" title="This episode’s story context could not be read">
@@ -199,10 +210,26 @@
           <button class="btn btn-ghost btn-sm" @click="loadStory">Retry</button>
         </WorkspaceNotice>
 
+        <WorkspaceNotice v-if="extractError" class="mt-3" tone="warning" title="Extraction did not finish">
+          {{ extractError }} The inventory is unchanged.
+        </WorkspaceNotice>
+
+        <WorkspaceNotice v-if="scriptChangedSinceExtraction" class="mt-3" tone="info" title="The completed script changed since this inventory was extracted">
+          This inventory was extracted from {{ extractionRecord?.chapters }} chapter{{ extractionRecord?.chapters === 1 ? '' : 's' }}
+          on {{ extractionDate }}, and the script now has {{ storyChapters }}.
+          Extract again to reconcile — nothing was changed automatically.
+        </WorkspaceNotice>
+
         <p class="text-muted text-xs mt-2">
           {{ storyChapters === null
             ? 'Whole completed script: chapter folder not on disk — nothing measured against it yet'
             : `Whole completed script: ${storyChapters} chapter${storyChapters === 1 ? '' : 's'} on file` }}
+        </p>
+        <p v-if="extractionRecord && !scriptChangedSinceExtraction" class="text-muted text-xs">
+          Last extracted {{ extractionDate }} with {{ extractionRecord.model }}. Review the list below; Keep/Drop is yours.
+        </p>
+        <p v-if="extracting" class="text-muted text-xs">
+          Reading every completed chapter with the Scene Plan preset’s writing model. Nothing is added until you review it.
         </p>
 
         <div class="cs-story-list mt-3">
@@ -265,6 +292,78 @@
           />
           <button type="button" class="btn btn-ghost btn-sm" :disabled="!newEntityName.trim()" @click="addStoryEntity">Add</button>
         </div>
+
+        <!-- Extraction is a REVIEW step: proposals are listed here and only
+             the ones kept are added to the draft. Nothing is written until
+             Save visual setup, and an existing entity keeps its stored
+             Keep/Drop decision across every retry. -->
+        <section v-if="proposals.length" class="cs-story-proposals mt-3" aria-label="Extracted story entities to review">
+          <div class="cs-field-head">
+            <strong>Review extracted entities</strong>
+            <span>{{ proposalAddCount + proposalUpdateCount }} of {{ proposals.length }} selected</span>
+          </div>
+          <p class="text-muted text-xs">
+            Nothing is added until you choose. Existing entities keep their current Keep/Drop decision.
+          </p>
+          <div class="cs-story-list mt-2">
+            <div
+              v-for="proposal in proposals"
+              :key="proposal.id"
+              :class="['cs-story-row', 'cs-proposal-row', { 'is-dropped': proposal.existing && proposal.review === 'drop' }]"
+            >
+              <div class="cs-story-row-head">
+                <span class="cs-proposal-kind">{{ STORY_ENTITY_KIND_LABELS[proposal.kind] }}</span>
+                <strong class="cs-proposal-name">{{ proposal.name }}</strong>
+                <span v-if="proposal.existing" class="cs-proposal-badge">
+                  In inventory · {{ proposal.review === 'drop' ? 'dropped' : 'kept' }}
+                </span>
+                <label v-if="!proposal.existing" class="cs-checkbox">
+                  <input v-model="proposalKeep[proposal.id]" type="checkbox" />
+                  Add
+                </label>
+                <label v-else-if="proposal.current_description" class="cs-checkbox">
+                  <input v-model="proposalUpdateFacts[proposal.id]" type="checkbox" />
+                  Update story facts
+                </label>
+                <span v-if="proposal.existing" class="text-muted text-xs">No change to its Keep/Drop choice.</span>
+              </div>
+              <p class="cs-proposal-description">{{ proposal.description || 'The script gave no story facts for this entity.' }}</p>
+              <p v-if="proposal.existing && proposalUpdateFacts[proposal.id] && proposal.current_description" class="text-muted text-xs">
+                Current facts: {{ proposal.current_description }}
+              </p>
+            </div>
+          </div>
+          <div class="cs-story-add-row mt-2">
+            <button
+              type="button"
+              class="btn btn-primary btn-sm"
+              :disabled="!proposalAddCount && !proposalUpdateCount"
+              @click="addKeptProposals"
+            >
+              Add selected to inventory
+            </button>
+            <button type="button" class="btn btn-ghost btn-sm" @click="discardProposals">Discard</button>
+            <span class="text-muted text-xs">Saves with Save visual setup.</span>
+          </div>
+        </section>
+
+        <!-- Channel-owned, stored OFF by default. It rides the existing
+             per-channel settings route; no extraction runs by itself in this
+             release, and the page says so rather than implying it does. -->
+        <div class="cs-story-automation mt-3">
+          <label class="cs-checkbox">
+            <input
+              v-model="channelAutomation"
+              type="checkbox"
+              :disabled="automationSaving"
+              @change="saveChannelAutomation"
+            />
+            Keep this channel’s story context updated automatically
+          </label>
+          <span class="text-muted text-xs">
+            Off by default. Saved for the automatic pass; automatic extraction is not wired in this release, so each episode extracts when you press the button above.
+          </span>
+        </div>
       </section>
 
       <section class="card mt-3 cs-look-card">
@@ -306,9 +405,11 @@ import {
 } from '../../../../electron/server/contracts/story-entities.js'
 import type {
   StoryEntitiesDoc,
+  StoryEntitiesExtraction,
   StoryEntitiesRead,
   StoryEntity,
   StoryEntityKind,
+  StoryEntityProposal,
 } from '../../../../electron/server/contracts/story-entities.js'
 
 definePageMeta({ layout: 'dashboard' })
@@ -394,8 +495,57 @@ const storyDoc = ref<StoryEntitiesDoc>(emptyStoryEntities())
 const storyLoaded = ref(false)
 const storyLoadError = ref('')
 const storyChapters = ref<number | null>(null)
+/** Current completed-script fingerprint from the server; null = not measurable. */
+const storyFingerprint = ref<string | null>(null)
 const storySnapshot = ref('')
 const storyJson = (doc: StoryEntitiesDoc) => JSON.stringify(doc.entities)
+// Extraction proposals are a review draft: they live only until the customer
+// adds the kept ones (or discards them). Nothing is written before Save.
+const extracting = ref(false)
+const extractError = ref('')
+const proposals = ref<StoryEntityProposal[]>([])
+const proposalKeep = ref<Record<string, boolean>>({})
+const proposalUpdateFacts = ref<Record<string, boolean>>({})
+const extractionRecord = computed(() => storyDoc.value.extraction ?? null)
+const extractionDate = computed(() => {
+  const at = extractionRecord.value?.extracted_at
+  if (!at) return ''
+  const date = new Date(at)
+  return Number.isNaN(date.getTime()) ? at : date.toLocaleString()
+})
+const scriptChangedSinceExtraction = computed(() => {
+  const record = extractionRecord.value
+  return !!record?.script_fingerprint
+    && !!storyFingerprint.value
+    && record.script_fingerprint !== storyFingerprint.value
+})
+const proposalAddCount = computed(() =>
+  proposals.value.filter(proposal => !proposal.existing && proposalKeep.value[proposal.id]).length,
+)
+const proposalUpdateCount = computed(() =>
+  proposals.value.filter(proposal => proposal.existing && proposalUpdateFacts.value[proposal.id]).length,
+)
+const extractDisabled = computed(() =>
+  !episodeId.value
+  || !storyLoaded.value
+  || !!storyLoadError.value
+  || extracting.value
+  || storyChapters.value === null
+  || storyChapters.value === 0,
+)
+const extractDisabledReason = computed(() => {
+  if (!episodeId.value) return 'Pick an episode first.'
+  if (storyLoadError.value) return 'The saved story context could not be read — use Retry above.'
+  if (!storyLoaded.value) return 'Loading this episode’s story context…'
+  if (extracting.value) return 'Reading the completed script…'
+  if (storyChapters.value === null) return 'The completed script folder is not on disk, so there is nothing to extract from.'
+  if (storyChapters.value === 0) return 'No completed chapter files were found for this episode.'
+  return 'Read the completed chapters and propose the story entities they use.'
+})
+// Channel-owned, never episode-owned (§4): it is not blanked when the episode
+// changes. OFF unless the channel's config says otherwise.
+const channelAutomation = ref(false)
+const automationSaving = ref(false)
 // A half-typed new entity is episode-owned draft text as much as the
 // composition prompt (§4): it counts as unsaved so the guard asks before
 // the episode changes under it.
@@ -546,10 +696,13 @@ async function loadStory(): Promise<void> {
         character_id: e.character_id ?? '',
       })),
       updated_at: r?.doc?.updated_at || '',
+      // Server-owned provenance: what script the last extraction read.
+      ...(r?.doc?.extraction ? { extraction: r.doc.extraction } : {}),
     }
     // `chapters` is number|null from the server: null is "not on disk /
     // not measured", never rendered as zero chapters (§6).
     storyChapters.value = typeof r?.chapters === 'number' ? r.chapters : null
+    storyFingerprint.value = typeof r?.script_fingerprint === 'string' ? r.script_fingerprint : null
     storySnapshot.value = storyJson(storyDoc.value)
     storyLoaded.value = true
   } catch (e: any) {
@@ -586,6 +739,131 @@ function toggleStoryReview(entity: StoryEntity): void {
 function characterName(id?: string): string | null {
   if (!id) return null
   return characters.value.find(c => c.id === id)?.name ?? null
+}
+
+// ── Extraction from the completed script ────────────────────────────
+// Proposals are review-only. The customer keeps/drops each one; only then
+// are they added to the draft, and Save visual setup writes the sidecar.
+async function extractStoryEntities(): Promise<void> {
+  if (extractDisabled.value) return
+  const ep = episodeId.value
+  const project = slug.value
+  const scope = characterScopeSequence
+  const current = () => scope === characterScopeSequence && project === slug.value && ep === episodeId.value
+  extracting.value = true
+  extractError.value = ''
+  try {
+    const result = await post<{ ok: true } & StoryEntitiesExtraction>(
+      `/projects/${project}/story-entities/${ep}/extract`,
+      {},
+    )
+    if (!current()) return
+    proposals.value = Array.isArray(result?.proposals) ? result.proposals : []
+    proposalKeep.value = Object.fromEntries(
+      proposals.value.filter(proposal => !proposal.existing).map(proposal => [proposal.id, true]),
+    )
+    proposalUpdateFacts.value = {}
+    storyFingerprint.value = result.script_fingerprint
+    storyChapters.value = result.chapters
+    // The server recorded this extraction; mirror it locally so the freshness
+    // notice is truthful before the next page load without reloading the
+    // draft (which would drop unsaved entity edits).
+    storyDoc.value.extraction = {
+      extracted_at: result.extracted_at,
+      model: result.model,
+      chapters: result.chapters,
+      script_fingerprint: result.script_fingerprint,
+    }
+    const count = proposals.value.length
+    if (!count) {
+      success('The completed script names no story entities yet — nothing to add.')
+    } else {
+      const skipped = result.skipped_rows
+      success(
+        `Found ${count} entit${count === 1 ? 'y' : 'ies'} — review them below.`
+        + (skipped ? ` ${skipped} unreadable row${skipped === 1 ? ' was' : 's were'} left out.` : ''),
+      )
+    }
+  } catch (e: any) {
+    if (current()) extractError.value = e?.data?.detail || e?.message || 'The server did not answer.'
+  } finally {
+    if (current()) extracting.value = false
+  }
+}
+
+/** Add the kept proposals to the draft; existing entities keep their decision. */
+function addKeptProposals(): void {
+  if (!storyLoaded.value) return
+  const now = new Date().toISOString()
+  let changed = 0
+  for (const proposal of proposals.value) {
+    const existing = storyDoc.value.entities.find(entity => entity.id === proposal.id)
+    if (existing) {
+      // A dropped entity stays dropped: only its facts can be refreshed, and
+      // only when the customer ticked that box.
+      if (proposalUpdateFacts.value[proposal.id] && proposal.description) {
+        existing.description = proposal.description
+        existing.updated_at = now
+        changed++
+      }
+      continue
+    }
+    if (!proposalKeep.value[proposal.id]) continue
+    storyDoc.value.entities.push({
+      id: proposal.id,
+      kind: proposal.kind,
+      name: proposal.name,
+      description: proposal.description,
+      important: proposal.important,
+      review: 'keep',
+      reference_images: [],
+      created_at: now,
+      updated_at: now,
+    })
+    changed++
+  }
+  proposals.value = []
+  proposalKeep.value = {}
+  proposalUpdateFacts.value = {}
+  success(
+    changed
+      ? `${changed} ${changed === 1 ? 'entity' : 'entities'} added to the inventory — Save visual setup to keep ${changed === 1 ? 'it' : 'them'}.`
+      : 'Nothing changed.',
+  )
+}
+
+function discardProposals(): void {
+  proposals.value = []
+  proposalKeep.value = {}
+  proposalUpdateFacts.value = {}
+}
+
+// ── Channel automation (stored OFF; the existing settings route) ─────
+async function loadChannelAutomation(): Promise<void> {
+  try {
+    const config = await get<Record<string, unknown>>(`/projects/${slug.value}/settings/config`)
+    channelAutomation.value = config?.story_entity_automation === true
+  } catch {
+    // The switch stays off; the rest of the page still works.
+  }
+}
+
+async function saveChannelAutomation(): Promise<void> {
+  const wanted = channelAutomation.value
+  automationSaving.value = true
+  try {
+    await put(`/projects/${slug.value}/settings/config`, { story_entity_automation: wanted })
+    success(
+      wanted
+        ? 'Saved ON for this channel. Automatic extraction is not wired in this release, so episodes still extract when you press the button.'
+        : 'Automatic story context is off for this channel.',
+    )
+  } catch (e: any) {
+    channelAutomation.value = !wanted
+    showError(e?.data?.detail || 'Failed to save the channel automation setting')
+  } finally {
+    automationSaving.value = false
+  }
 }
 
 /** Anchor ids of deleted/unassigned characters can't be seen or unticked — drop them and say so. */
@@ -849,14 +1127,25 @@ watch([slug, episodeId], () => {
   storyLoaded.value = false
   storyLoadError.value = ''
   storyChapters.value = null
+  storyFingerprint.value = null
   storySnapshot.value = ''
   newEntityName.value = ''
+  // Extraction proposals belong to the episode just left (§4): blank them
+  // synchronously rather than let its cast stand on the new episode's screen.
+  extracting.value = false
+  extractError.value = ''
+  proposals.value = []
+  proposalKeep.value = {}
+  proposalUpdateFacts.value = {}
   void loadCharacters()
   void loadConfig()
   void loadStory()
   void loadRefs()
   void pagePresets.load()
 }, { immediate: true, flush: 'sync' })
+// Channel-owned setting: read once per channel, never blanked by an episode
+// change (it belongs to the channel, not the episode — §4).
+watch(slug, () => void loadChannelAutomation(), { immediate: true })
 // The announcement has done its job once the customer writes a new prompt for
 // the episode now on screen.
 watch(compositionPrompt, (value) => {
@@ -926,6 +1215,15 @@ watch(compositionPrompt, (value) => {
 .cs-story-description { width: 100%; resize: vertical; }
 .cs-story-add-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .cs-story-add-row .cs-story-name { flex: 1 1 180px; }
+.cs-story-head-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.cs-story-proposals { padding-top: 14px; border-top: 1px solid var(--border); }
+.cs-proposal-row.is-dropped { opacity: .72; }
+.cs-proposal-kind { padding: 2px 8px; border-radius: 999px; background: var(--bg-tertiary); color: var(--text-muted); font-size: var(--font-xs); font-weight: 700; }
+.cs-proposal-name { font-size: 13px; }
+.cs-proposal-badge { color: var(--text-muted); font-size: var(--font-xs); }
+.cs-proposal-description { margin: 0; font-size: 13px; line-height: 1.5; }
+.cs-story-automation { display: flex; flex-direction: column; gap: 2px; padding-top: 14px; border-top: 1px solid var(--border); }
+.cs-story-automation .cs-checkbox { margin-top: 0; }
 @media (max-width: 900px) {
   .cs-anchor-layout { grid-template-columns: 1fr; }
   .cs-episode-anchor { padding: 18px 0 0; border-top: 1px solid var(--border); border-left: 0; }
