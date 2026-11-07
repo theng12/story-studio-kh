@@ -134,9 +134,24 @@ export function deepEqual(a: unknown, b: unknown): boolean {
 
 async function readStore(): Promise<SettingsBaselineStoreFile> {
   const target = settingsBaselineStorePath()
-  const store = await readJsonOr<SettingsBaselineStoreFile>(target, defaultStoreFile())
-  if (!store || typeof store !== 'object' || store.format !== SETTINGS_BASELINE_FORMAT) {
-    return defaultStoreFile()
+  let raw: string
+  try {
+    raw = await fs.readFile(target, 'utf-8')
+  } catch (e: any) {
+    if (e?.code === 'ENOENT') return defaultStoreFile()
+    throw new Error(`Settings baseline store is unreadable: ${e?.message || String(e)}`)
+  }
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    // Corrupt bytes are evidence, never a fresh store: a silent default would
+    // let the next write erase whatever the file still held.
+    throw new Error('Settings baseline store is corrupt; refusing to read or overwrite it.')
+  }
+  const store = parsed as SettingsBaselineStoreFile
+  if (!store || typeof store !== 'object' || Array.isArray(store) || store.format !== SETTINGS_BASELINE_FORMAT) {
+    throw new Error('Settings baseline store has an unrecognized format; refusing to read or overwrite it.')
   }
   store.baselines ??= {}
   store.snapshots ??= {}
@@ -150,10 +165,32 @@ async function writeStore(store: SettingsBaselineStoreFile): Promise<void> {
   await writeJsonAtomic(target, store)
 }
 
-function resolveChannelConfigPath(slug: string): string | null {
-  const dir = getProjectDir(slug) || (projectsRoot() ? path.join(projectsRoot(), slug) : null)
+/**
+ * The channel's `config.json`, or null when the slug cannot safely name one.
+ * Slug must be a single path segment, the channel directory must exist under
+ * the real Library root (realpath containment defeats a symlinked channel), and
+ * `project.json` must exist — a deleted or foreign path is never a channel.
+ */
+async function resolveChannelConfigPath(slug: string): Promise<string | null> {
+  if (typeof slug !== 'string' || !slug || slug.includes('\0')) return null
+  if (slug !== path.basename(slug) || slug === '.' || slug === '..') return null
+  const root = projectsRoot()
+  if (!root) return null
+  const dir = getProjectDir(slug)
   if (!dir) return null
-  return path.join(dir, 'config.json')
+  try {
+    const realRoot = await fs.realpath(root)
+    const realDir = await fs.realpath(dir)
+    const rel = path.relative(realRoot, realDir)
+    if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) return null
+    const st = await fs.stat(realDir)
+    if (!st.isDirectory()) return null
+    if (!existsSync(path.join(realDir, 'project.json'))) return null
+    const configPath = path.join(realDir, 'config.json')
+    return existsSync(configPath) ? configPath : null
+  } catch {
+    return null
+  }
 }
 
 // ── Baseline CRUD ─────────────────────────────────────────────────────────────
@@ -224,7 +261,7 @@ export async function snapshotChannelAsBaseline(
   name: string,
   description?: string,
 ): Promise<SettingsBaseline> {
-  const configPath = resolveChannelConfigPath(slug)
+  const configPath = await resolveChannelConfigPath(slug)
   if (!configPath || !existsSync(configPath)) {
     throw new Error(`Channel configuration not found for slug "${slug}".`)
   }
@@ -244,7 +281,7 @@ export async function createChannelSnapshot(
   reason: 'pre_apply' | 'manual_snapshot' | 'restore_point',
   baselineId?: string,
 ): Promise<SettingsSnapshot> {
-  const configPath = resolveChannelConfigPath(slug)
+  const configPath = await resolveChannelConfigPath(slug)
   if (!configPath || !existsSync(configPath)) {
     throw new Error(`Channel configuration not found for slug "${slug}".`)
   }
@@ -297,10 +334,9 @@ export async function previewBaselineApplication(
   const previews: SettingsBaselinePreview[] = []
 
   for (const slug of channelSlugs) {
-    const configPath = resolveChannelConfigPath(slug)
-    const currentConfig = (configPath && existsSync(configPath))
-      ? await readJsonOr<Record<string, unknown>>(configPath, {})
-      : {}
+    const configPath = await resolveChannelConfigPath(slug)
+    if (!configPath) throw new Error(`Channel not found for "${slug}".`)
+    const currentConfig = await readJsonOr<Record<string, unknown>>(configPath, {})
 
     const diffs: SettingsFieldDiff[] = []
     let hasChanges = false
@@ -368,7 +404,7 @@ export async function verifyChannelReadback(
   slug: string,
   expectedPayload: Record<string, unknown>,
 ): Promise<SettingsReadbackVerification> {
-  const configPath = resolveChannelConfigPath(slug)
+  const configPath = await resolveChannelConfigPath(slug)
   const now = new Date().toISOString()
   if (!configPath || !existsSync(configPath)) {
     return {
@@ -455,6 +491,17 @@ export async function applyBaseline(
 
   if (options.dry_run) {
     for (const slug of options.channel_slugs) {
+      const configPath = await resolveChannelConfigPath(slug)
+      if (!configPath) {
+        channelResults[slug] = {
+          channel_slug: slug,
+          status: 'failed',
+          changed_keys: [],
+          error: `Channel not found for "${slug}".`,
+        }
+        failureCount++
+        continue
+      }
       channelResults[slug] = {
         channel_slug: slug,
         status: 'dry_run',
@@ -475,13 +522,13 @@ export async function applyBaseline(
 
   // Live application
   for (const slug of options.channel_slugs) {
-    const configPath = resolveChannelConfigPath(slug)
-    if (!configPath || !existsSync(configPath)) {
+    const configPath = await resolveChannelConfigPath(slug)
+    if (!configPath) {
       channelResults[slug] = {
         channel_slug: slug,
         status: 'failed',
         changed_keys: [],
-        error: `Channel directory or config.json not found for "${slug}".`,
+        error: `Channel not found for "${slug}".`,
       }
       failureCount++
       continue
@@ -495,42 +542,41 @@ export async function applyBaseline(
       await withLock(configPath, async () => {
         const currentConfig = await readJsonOr<Record<string, unknown>>(configPath, {})
 
-        // 1. Create restorable pre-apply snapshot before write
-        if (options.create_restore_point !== false) {
-          const snapshot = await createChannelSnapshot(slug, 'pre_apply', baseline.id)
-          restorePointId = snapshot.id
-        }
-
         // 2. Prepare new config, strictly preserving presets, secrets, and episode pacing
         const updatedConfig = structuredClone(currentConfig)
+        changedKeys = []
         for (const [key, value] of Object.entries(safePayload)) {
           if (isProtectedExcludedKey(key)) continue
-          if (key === 'default_scene_pacing') {
-            updatedConfig.default_scene_pacing = value
-          } else {
-            updatedConfig[key] = value
-          }
+          if (deepEqual(updatedConfig[key], value)) continue
+          updatedConfig[key] = value
           changedKeys.push(key)
         }
 
-        // 3. Write atomically to channel config.json
-        assertWriteIsolatedInTests(configPath, 'channel-config')
-        await writeJsonAtomic(configPath, updatedConfig)
+        // No delta: never touch the file — config mtime is episode-status state (§8).
+        if (changedKeys.length > 0) {
+          // 1. Restorable pre-apply snapshot, only when something will change
+          if (options.create_restore_point !== false) {
+            const snapshot = await createChannelSnapshot(slug, 'pre_apply', baseline.id)
+            restorePointId = snapshot.id
+          }
+          assertWriteIsolatedInTests(configPath, 'channel-config')
+          await writeJsonAtomic(configPath, updatedConfig)
+        }
+
+        // Readback under the same lock, against the bytes just written (or kept).
+        readback = await verifyChannelReadback(slug, safePayload)
       })
 
-      // 4. Read back immediately and verify
-      readback = await verifyChannelReadback(slug, safePayload)
-
-      if (readback.status === 'verified') {
+      if (readback && readback.status === 'verified') {
         channelResults[slug] = {
           channel_slug: slug,
-          status: 'applied',
+          status: changedKeys.length === 0 ? 'skipped' : 'applied',
           restore_point_id: restorePointId,
           changed_keys: changedKeys,
           readback,
         }
         successCount++
-      } else {
+      } else if (readback) {
         channelResults[slug] = {
           channel_slug: slug,
           status: 'failed',
@@ -538,6 +584,15 @@ export async function applyBaseline(
           changed_keys: changedKeys,
           readback,
           error: `Readback mismatch on ${readback.mismatches.length} key(s).`,
+        }
+        failureCount++
+      } else {
+        channelResults[slug] = {
+          channel_slug: slug,
+          status: 'failed',
+          restore_point_id: restorePointId,
+          changed_keys: changedKeys,
+          error: 'Readback did not run.',
         }
         failureCount++
       }
@@ -589,18 +644,37 @@ export async function restoreChannelSnapshot(
     throw new Error('Snapshot integrity failure: stored configuration does not match checksum.')
   }
 
-  const configPath = resolveChannelConfigPath(options.channel_slug)
-  if (!configPath || !existsSync(configPath)) {
+  const configPath = await resolveChannelConfigPath(options.channel_slug)
+  if (!configPath) {
     throw new Error(`Channel configuration not found for "${options.channel_slug}".`)
   }
 
+  let undoRestorePointId: string | undefined
+  let readback: SettingsReadbackVerification | undefined
+
   await withLock(configPath, async () => {
-    assertWriteIsolatedInTests(configPath, 'channel-config')
-    await writeJsonAtomic(configPath, snapshot.config_snapshot)
+    const currentRaw = await fs.readFile(configPath, 'utf-8')
+    let current: Record<string, unknown>
+    try {
+      current = JSON.parse(currentRaw) as Record<string, unknown>
+    } catch {
+      throw new Error('Channel config.json is corrupt; refusing to restore over it.')
+    }
+    // Exact-current hash guard: the restore must match what the caller previewed.
+    if (computePayloadSha256(current) !== options.expected_current_sha256) {
+      throw new Error('Channel config changed since the restore preview; preview again before restoring.')
+    }
+    if (!deepEqual(current, snapshot.config_snapshot)) {
+      // Automatic undo: the config being replaced is snapshotted first.
+      const undo = await createChannelSnapshot(options.channel_slug, 'pre_restore', options.restore_point_id)
+      undoRestorePointId = undo.id
+      assertWriteIsolatedInTests(configPath, 'channel-config')
+      await writeJsonAtomic(configPath, snapshot.config_snapshot)
+    }
+    readback = await verifyChannelReadback(options.channel_slug, snapshot.config_snapshot)
   })
 
-  // Read back and verify restored configuration
-  const readback = await verifyChannelReadback(options.channel_slug, snapshot.config_snapshot)
+  if (!readback) throw new Error('Readback did not run.')
 
   const now = new Date().toISOString()
   if (readback.status === 'verified') {
@@ -622,5 +696,39 @@ export async function restoreChannelSnapshot(
     restored_keys: Object.keys(snapshot.config_snapshot),
     readback,
     error: readback.status !== 'verified' ? 'Restored configuration readback did not match snapshot.' : undefined,
+  }
+}
+
+/** What a restore would change, and the hash the restore must be confirmed against. */
+export async function previewChannelRestore(
+  restorePointId: string,
+  channelSlug: string,
+): Promise<import('../contracts/settings-baseline.js').SettingsRestorePreview> {
+  const snapshot = await getRestorePoint(restorePointId)
+  if (!snapshot) throw new Error(`Restore point not found: ${restorePointId}`)
+  if (snapshot.channel_slug !== channelSlug) {
+    throw new Error(`Restore point channel mismatch: snapshot belongs to "${snapshot.channel_slug}".`)
+  }
+  const configPath = await resolveChannelConfigPath(channelSlug)
+  if (!configPath) throw new Error(`Channel configuration not found for "${channelSlug}".`)
+  const current = JSON.parse(await fs.readFile(configPath, 'utf-8')) as Record<string, unknown>
+  const diffs: SettingsFieldDiff[] = []
+  const keys = new Set([...Object.keys(snapshot.config_snapshot), ...Object.keys(current)])
+  let hasChanges = false
+  for (const key of keys) {
+    const cur = current[key]
+    const snap = snapshot.config_snapshot[key]
+    const status: FieldDiffStatus = deepEqual(cur, snap)
+      ? 'unchanged'
+      : (cur === undefined ? 'added' : 'modified')
+    if (status !== 'unchanged') hasChanges = true
+    diffs.push({ key, current_value: cur, proposed_value: snap, status })
+  }
+  return {
+    restore_point_id: restorePointId,
+    channel_slug: channelSlug,
+    current_sha256: computePayloadSha256(current),
+    diffs,
+    has_changes: hasChanges,
   }
 }

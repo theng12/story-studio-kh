@@ -20,16 +20,20 @@
 export const SETTINGS_BASELINE_FORMAT = 'story-studio-settings-baseline'
 export const SETTINGS_BASELINE_SCHEMA_VERSION = 1
 
-/** Safe configuration keys permitted in a settings baseline */
+/**
+ * Safe configuration keys permitted in a settings baseline.
+ *
+ * ONLY keys a reader actually consumes from channel `config.json`:
+ *   - `audio_quality` — normalized by `getConfig` (project-manager).
+ *   - `default_scene_pacing` — written by `createProject`, read by Scene Plan.
+ *   - `pipeline_last_steps` — `savePipelineLastSteps`.
+ * `default_models` is excluded (AGENTS.md §7: Settings → Default models is
+ * app-level and never written into a channel). Keys with no consumer in this
+ * codebase are not offered, because a baseline would write dead fields.
+ */
 export const SAFE_BASELINE_KEYS = [
   'audio_quality',
   'default_scene_pacing',
-  'music_bed_defaults',
-  'default_models',
-  'aspect_ratio',
-  'intro_settings',
-  'caption_settings',
-  'thumbnail_options',
   'pipeline_last_steps',
 ] as const
 
@@ -117,7 +121,7 @@ export interface SettingsSnapshot {
   id: string
   channel_slug: string
   created_at: string
-  reason: 'pre_apply' | 'manual_snapshot' | 'restore_point'
+  reason: 'pre_apply' | 'manual_snapshot' | 'restore_point' | 'pre_restore'
   baseline_id?: string
   config_snapshot: Record<string, unknown>
   config_sha256: string
@@ -193,6 +197,21 @@ export interface SettingsRestoreOptions {
   restore_point_id: string
   channel_slug: string
   explicit_confirm: boolean
+  /**
+   * The hash of the channel config the caller previewed. Restore refuses when
+   * the file changed after that preview, so an edit made in between is never
+   * silently overwritten.
+   */
+  expected_current_sha256: string
+}
+
+/** What a restore would do, and the hash a restore must be confirmed against. */
+export interface SettingsRestorePreview {
+  restore_point_id: string
+  channel_slug: string
+  current_sha256: string
+  diffs: SettingsFieldDiff[]
+  has_changes: boolean
 }
 
 export interface SettingsRestoreResult {

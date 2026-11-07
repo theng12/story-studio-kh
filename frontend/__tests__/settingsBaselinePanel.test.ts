@@ -177,6 +177,9 @@ async function mountPanel(overrides: Partial<HarnessState> = {}) {
       state.calls.push({ method: 'POST', path, body })
       if (path === '/settings-baselines/preview') return state.previewRes
       if (path === '/settings-baselines/apply') return state.applyRes
+      if (path === '/settings-baselines/restore/preview') {
+        return { restore_point_id: body?.restore_point_id, channel_slug: body?.channel_slug, current_sha256: '{{HASH_preview0001}}', diffs: [{ key: 'audio_quality', current_value: { mode: 'off' }, proposed_value: { mode: 'flag_issues' }, status: 'modified' }], has_changes: true }
+      }
       if (path === '/settings-baselines/restore') return state.restoreRes
       if (path === '/settings-baselines/snapshot-channel') {
         return {

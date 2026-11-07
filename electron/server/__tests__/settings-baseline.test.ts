@@ -58,7 +58,7 @@ test('filterSafeBaselinePayload keeps safe reusable keys and drops secrets, disk
     // Safe reusable standard settings
     audio_quality: { mode: 'flag_issues' },
     default_scene_pacing: { phases: [{ end: 180, min: 5, max: 10 }] },
-    music_bed_defaults: { volume: 0.06, enabled: true },
+    pipeline_last_steps: { volume: 0.06, enabled: true },
     default_models: { writing: 'story-llm', image: 'qwen' },
     aspect_ratio: '16:9',
     // Secrets / API keys (§7)
@@ -84,7 +84,7 @@ test('filterSafeBaselinePayload keeps safe reusable keys and drops secrets, disk
   // Safe keys are kept
   assert.deepEqual(safe.audio_quality, { mode: 'flag_issues' })
   assert.deepEqual(safe.default_scene_pacing, { phases: [{ end: 180, min: 5, max: 10 }] })
-  assert.deepEqual(safe.music_bed_defaults, { volume: 0.06, enabled: true })
+  assert.deepEqual(safe.pipeline_last_steps, { volume: 0.06, enabled: true })
   assert.deepEqual(safe.default_models, { writing: 'story-llm', image: 'qwen' })
   assert.equal(safe.aspect_ratio, '16:9')
 
@@ -143,7 +143,7 @@ test('createBaseline stores a safe baseline with SHA-256 fingerprint', async () 
   const baseline = await settingsBaseline.createBaseline('Owner Standard Baseline', {
     audio_quality: { mode: 'flag_issues' },
     default_scene_pacing: { phases: [{ end: 180, min: 5, max: 10 }] },
-    music_bed_defaults: { volume: 0.06 },
+    pipeline_last_steps: { volume: 0.06 },
     genstudio_api_key: 'should-be-stripped',
   })
 
@@ -231,14 +231,14 @@ test('applyBaseline atomic application, readback verification, and restorable sn
     thumbnail_prompts_presets: [{ id: 'existing_template', name: 'Custom Template' }],
     pacing: { scene_seconds: 12 },
     audio_quality: { mode: 'off' },
-    music_bed_defaults: { volume: 0.15 },
+    pipeline_last_steps: { volume: 0.15 },
   }
   await fs.writeFile(configPath, JSON.stringify(originalConfig, null, 2), 'utf-8')
 
   const baseline = await settingsBaseline.createBaseline('Safe Apply Baseline', {
     audio_quality: { mode: 'flag_issues' },
     default_scene_pacing: { phases: [{ end: 180, min: 5, max: 10 }] },
-    music_bed_defaults: { volume: 0.06 },
+    pipeline_last_steps: { volume: 0.06 },
     thumbnail_prompts_presets: { must: 'never-apply' },
     pacing: { must: 'never-claim-or-overwrite' },
     genstudio_api_key: 'must-never-overwrite-secret',
@@ -263,14 +263,14 @@ test('applyBaseline atomic application, readback verification, and restorable sn
   assert.ok(channelRes.readback)
   assert.equal(channelRes.readback.status, 'verified')
   assert.ok(channelRes.readback.matched_keys.includes('audio_quality'))
-  assert.ok(channelRes.readback.matched_keys.includes('music_bed_defaults'))
+  assert.ok(channelRes.readback.matched_keys.includes('pipeline_last_steps'))
 
   // Inspect actual disk state
   const disk = JSON.parse(await fs.readFile(configPath, 'utf-8'))
 
   // Apply safe standard settings
   assert.deepEqual(disk.audio_quality, { mode: 'flag_issues' })
-  assert.deepEqual(disk.music_bed_defaults, { volume: 0.06 })
+  assert.deepEqual(disk.pipeline_last_steps, { volume: 0.06 })
   assert.deepEqual(disk.default_scene_pacing, { phases: [{ end: 180, min: 5, max: 10 }] })
 
   // Strictly preserve disk presets (§5)
@@ -289,10 +289,14 @@ test('applyBaseline atomic application, readback verification, and restorable sn
   assert.equal(snapshots[0].reason, 'pre_apply')
 
   // Restore back to pre-apply state (rollback)
+  const hashAtRestore = settingsBaseline.computePayloadSha256(
+    JSON.parse(await fs.readFile(configPath, 'utf-8')),
+  )
   const restoreRes = await settingsBaseline.restoreChannelSnapshot({
     restore_point_id: channelRes.restore_point_id!,
     channel_slug: slug,
     explicit_confirm: true,
+    expected_current_sha256: hashAtRestore,
   })
 
   assert.equal(restoreRes.success, true)
@@ -301,7 +305,7 @@ test('applyBaseline atomic application, readback verification, and restorable sn
   // Verify disk is back to exact pre-apply state
   const restoredDisk = JSON.parse(await fs.readFile(configPath, 'utf-8'))
   assert.deepEqual(restoredDisk.audio_quality, { mode: 'off' })
-  assert.deepEqual(restoredDisk.music_bed_defaults, { volume: 0.15 })
+  assert.deepEqual(restoredDisk.pipeline_last_steps, { volume: 0.15 })
   assert.equal('default_scene_pacing' in restoredDisk, false)
   assert.deepEqual(restoredDisk.thumbnail_prompts_presets, [{ id: 'existing_template', name: 'Custom Template' }])
   assert.deepEqual(restoredDisk.pacing, { scene_seconds: 12 })
@@ -323,9 +327,162 @@ test('restoreChannelSnapshot requires explicit user confirmation', async () => {
         restore_point_id: snapshot.id,
         channel_slug: slug,
         explicit_confirm: false,
+        expected_current_sha256: '',
       })
     },
     /Explicit user confirmation is required/,
     'Restore without explicit confirmation must be refused',
   )
+})
+
+// ── Integrity regressions (release-386 item 19 repair) ──────────────────────
+
+test('corrupt store bytes are preserved, never silently replaced', async () => {
+  const target = settingsBaseline.settingsBaselineStorePath()
+  await fs.mkdir(path.dirname(target), { recursive: true })
+  const original = await fs.readFile(target, 'utf-8').catch(() => '')
+  const garbage = '{"format":"story-studio-settings-baseline","baselines":{CORRUPT'
+  await fs.writeFile(target, garbage, 'utf-8')
+  try {
+    await assert.rejects(async () => { await settingsBaseline.listBaselines() }, /corrupt/)
+    assert.equal(await fs.readFile(target, 'utf-8'), garbage, 'corrupt bytes must be preserved')
+  } finally {
+    await fs.writeFile(target, original, 'utf-8')
+  }
+})
+
+test('no-op apply leaves config.json mtime untouched and creates no restore point', async () => {
+  const proj = await pm.createProject({ name: 'Noop Mtime Channel' } as any)
+  const slug = proj.slug
+  const configPath = path.join(tempDir, 'projects', slug, 'config.json')
+  const current = JSON.parse(await fs.readFile(configPath, 'utf-8'))
+  const safeNow: Record<string, unknown> = {}
+  for (const k of ['audio_quality', 'default_scene_pacing', 'pipeline_last_steps'] as const) {
+    if (current[k] !== undefined) safeNow[k] = current[k]
+  }
+  const baseline = await settingsBaseline.createBaseline('Identical Baseline', safeNow)
+  const before = (await fs.stat(configPath)).mtimeMs
+  const res = await settingsBaseline.applyBaseline({
+    baseline_id: baseline.id,
+    channel_slugs: [slug],
+    explicit_confirm: true,
+    create_restore_point: true,
+  })
+  const after = (await fs.stat(configPath)).mtimeMs
+  assert.equal(res.channels[slug].status, 'skipped')
+  assert.equal(res.channels[slug].changed_keys.length, 0)
+  assert.equal(res.channels[slug].restore_point_id, undefined)
+  assert.equal(after, before, 'no-op apply must not touch config.json')
+})
+
+test('foreign slugs, symlinked channels and missing channels fail dry-run too', async () => {
+  const baseline = await settingsBaseline.createBaseline('Refusal Baseline', {
+    audio_quality: { mode: 'flag_issues' },
+  })
+
+  const traversal = await settingsBaseline.applyBaseline({
+    baseline_id: baseline.id,
+    channel_slugs: ['../evil'],
+    explicit_confirm: true,
+  })
+  assert.equal(traversal.channels['../evil'].status, 'failed')
+
+  const dryGhost = await settingsBaseline.applyBaseline({
+    baseline_id: baseline.id,
+    channel_slugs: ['ghost-channel-that-does-not-exist'],
+    dry_run: true,
+    explicit_confirm: true,
+  })
+  assert.equal(dryGhost.channels['ghost-channel-that-does-not-exist'].status, 'failed')
+  assert.equal(dryGhost.failure_count, 1)
+
+  const outside = path.join(tempDir, 'outside-channel')
+  await fs.mkdir(outside, { recursive: true })
+  await fs.writeFile(path.join(outside, 'project.json'), '{}', 'utf-8')
+  const outsideConfig = { audio_quality: { mode: 'untouched' } }
+  await fs.writeFile(path.join(outside, 'config.json'), JSON.stringify(outsideConfig), 'utf-8')
+  const linkDir = path.join(tempDir, 'projects', 'evil-link')
+  await fs.symlink(outside, linkDir).catch(() => {})
+  if (existsSync(linkDir)) {
+    const viaLink = await settingsBaseline.applyBaseline({
+      baseline_id: baseline.id,
+      channel_slugs: ['evil-link'],
+      explicit_confirm: true,
+    })
+    assert.equal(viaLink.channels['evil-link'].status, 'failed')
+    const untouched = JSON.parse(await fs.readFile(path.join(outside, 'config.json'), 'utf-8'))
+    assert.deepEqual(untouched, outsideConfig, 'a symlinked channel outside the Library is never written')
+  }
+})
+
+test('stale preview: restore refuses when config changed after preview', async () => {
+  const proj = await pm.createProject({ name: 'Stale Preview Channel' } as any)
+  const slug = proj.slug
+  const configPath = path.join(tempDir, 'projects', slug, 'config.json')
+  const baseline = await settingsBaseline.createBaseline('Stale Baseline', {
+    audio_quality: { mode: 'flag_issues' },
+  })
+  const applyRes = await settingsBaseline.applyBaseline({
+    baseline_id: baseline.id,
+    channel_slugs: [slug],
+    explicit_confirm: true,
+  })
+  const rpId = applyRes.channels[slug].restore_point_id!
+  const hashAtPreview = settingsBaseline.computePayloadSha256(JSON.parse(await fs.readFile(configPath, 'utf-8')))
+  const current = JSON.parse(await fs.readFile(configPath, 'utf-8'))
+  current.audio_quality = { mode: 'check_and_repair' }
+  await fs.writeFile(configPath, JSON.stringify(current, null, 2), 'utf-8')
+  await assert.rejects(
+    () => settingsBaseline.restoreChannelSnapshot({
+      restore_point_id: rpId,
+      channel_slug: slug,
+      explicit_confirm: true,
+      expected_current_sha256: hashAtPreview,
+    }),
+    /changed since the restore preview/,
+  )
+  const after = JSON.parse(await fs.readFile(configPath, 'utf-8'))
+  assert.deepEqual(after.audio_quality, { mode: 'check_and_repair' }, 'the later edit must survive')
+})
+
+test('restore saves a pre-restore undo snapshot that brings the newer config back', async () => {
+  const proj = await pm.createProject({ name: 'Undo Restore Channel' } as any)
+  const slug = proj.slug
+  const configPath = path.join(tempDir, 'projects', slug, 'config.json')
+  const baseline = await settingsBaseline.createBaseline('Undo Baseline', {
+    audio_quality: { mode: 'flag_issues' },
+  })
+  const applyRes = await settingsBaseline.applyBaseline({
+    baseline_id: baseline.id,
+    channel_slugs: [slug],
+    explicit_confirm: true,
+  })
+  const rpId = applyRes.channels[slug].restore_point_id!
+  const edited = JSON.parse(await fs.readFile(configPath, 'utf-8'))
+  edited.audio_quality = { mode: 'check_and_repair' }
+  await fs.writeFile(configPath, JSON.stringify(edited, null, 2), 'utf-8')
+
+  const hashNow = settingsBaseline.computePayloadSha256(JSON.parse(await fs.readFile(configPath, 'utf-8')))
+  const restoreRes = await settingsBaseline.restoreChannelSnapshot({
+    restore_point_id: rpId,
+    channel_slug: slug,
+    explicit_confirm: true,
+    expected_current_sha256: hashNow,
+  })
+  assert.equal(restoreRes.success, true)
+  const restored = JSON.parse(await fs.readFile(configPath, 'utf-8'))
+  assert.equal('audio_quality' in restored, false)
+
+  const undo = (await settingsBaseline.listRestorePoints(slug)).find(s => s.reason === 'pre_restore')
+  assert.ok(undo, 'pre-restore undo snapshot must exist')
+  const undoHash = settingsBaseline.computePayloadSha256(JSON.parse(await fs.readFile(configPath, 'utf-8')))
+  const undoRes = await settingsBaseline.restoreChannelSnapshot({
+    restore_point_id: undo.id,
+    channel_slug: slug,
+    explicit_confirm: true,
+    expected_current_sha256: undoHash,
+  })
+  assert.equal(undoRes.success, true)
+  const backToEdit = JSON.parse(await fs.readFile(configPath, 'utf-8'))
+  assert.deepEqual(backToEdit.audio_quality, { mode: 'check_and_repair' })
 })

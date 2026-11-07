@@ -590,19 +590,28 @@ async function applyBaselineToChannels(): Promise<void> {
 }
 
 async function restoreSnapshot(snapshot: SettingsSnapshot): Promise<void> {
-  const confirmed = window.confirm(
-    `Are you sure you want to restore "${snapshot.channel_slug}" to snapshot ${snapshot.id}? This will overwrite the channel's current configuration with the snapshotted state.`,
-  )
-  if (!confirmed) return
-
   busy.value = `restore-${snapshot.id}`
   error.value = ''
   successMessage.value = ''
   try {
+    const preview = await post<{ current_sha256: string; diffs: Array<{ key: string; status: string }> }>(
+      '/settings-baselines/restore/preview',
+      { restore_point_id: snapshot.id, channel_slug: snapshot.channel_slug },
+    )
+    const changed = preview.diffs.filter(d => d.status !== 'unchanged').map(d => d.key)
+    const confirmed = window.confirm(
+      `Restore "${snapshot.channel_slug}" to snapshot ${snapshot.id}? ` +
+      (changed.length ? `Changes: ${changed.join(', ')}. ` : 'No differences. ') +
+      `Current config hash ${preview.current_sha256.slice(0, 12)}\u2026. ` +
+      'A pre-restore undo snapshot is saved first.',
+    )
+    if (!confirmed) return
+
     const res = await post<{ success: boolean; readback: { status: string } }>('/settings-baselines/restore', {
       restore_point_id: snapshot.id,
       channel_slug: snapshot.channel_slug,
       explicit_confirm: true,
+      expected_current_sha256: preview.current_sha256,
     })
     if (res.success && res.readback.status === 'verified') {
       successMessage.value = `Channel "${snapshot.channel_slug}" successfully restored to snapshot and verified on disk.`
