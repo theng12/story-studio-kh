@@ -22,6 +22,10 @@ export interface VideoAssemblySettingsSnapshot {
   export?: unknown
 }
 
+/** The five reusable sections a snapshot (and a bundle) carries. */
+export const SNAPSHOT_SECTIONS = ['intro', 'timeline', 'effects', 'subtitles', 'export'] as const
+export type SnapshotSection = (typeof SNAPSHOT_SECTIONS)[number]
+
 interface Entry { episode_id: string; saved_at: string; settings: VideoAssemblySettingsSnapshot }
 
 export interface VideoAssemblyLastUsed {
@@ -65,4 +69,37 @@ export function pickLastUsedSettings(
     return { scope: 'channel', from_episode: channel.episode_id, settings: withoutEpisodeText(channel.settings) }
   }
   return null
+}
+
+/**
+ * A NEW episode has no own snapshot, so the channel's last render is the only
+ * starting point the store offers — but it is a STALE snapshot from a previous
+ * episode, and it must not silently overwrite the bundle / per-section presets
+ * the customer has selected NOW (Production 2026-11-07: a freshly chosen
+ * bundle applied on mount, then the channel last-used ran over it and reverted
+ * the chosen values). The selected presets are the newer, deliberate choice.
+ *
+ * Own-episode picks are returned untouched: they are that episode's own
+ * recorded render and always win (AGENTS.md §4). For a channel pick, a section
+ * already covered by a selected preset is dropped, so that section keeps the
+ * preset's value; a section with no configured preset keeps the channel
+ * starting point. `coveredSections` is the set of sections the page currently
+ * has an applied/selected preset for.
+ */
+export function scopeLastUsedSettings(
+  pick: { scope: 'episode' | 'channel'; from_episode: string; settings: VideoAssemblySettingsSnapshot } | null,
+  coveredSections: Iterable<SnapshotSection>,
+): { scope: 'episode' | 'channel'; from_episode: string; settings: VideoAssemblySettingsSnapshot } | null {
+  if (!pick || pick.scope === 'episode') return pick
+  const covered = new Set(coveredSections)
+  const settings: VideoAssemblySettingsSnapshot = {}
+  let kept = false
+  for (const section of SNAPSHOT_SECTIONS) {
+    if (covered.has(section)) continue
+    const value = pick.settings[section]
+    if (value === undefined) continue
+    ;(settings as Record<string, unknown>)[section] = value
+    kept = true
+  }
+  return kept ? { ...pick, settings } : null
 }

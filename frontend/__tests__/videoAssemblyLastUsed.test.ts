@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
-import { pickLastUsedSettings, recordLastUsedSettings } from '../utils/video-assembly-last-used.js'
+import { pickLastUsedSettings, recordLastUsedSettings, scopeLastUsedSettings } from '../utils/video-assembly-last-used.js'
+
+function sortedKeys(value: object | undefined): string[] {
+  return Object.keys(value ?? {}).sort()
+}
 
 // Dreamlands E2E 2026-10-03: every Video Assembly choice (Pan Right, Gentle Fade
 // subtitles, YouTube — Fast) was forgotten between renders unless saved as a preset.
@@ -57,6 +61,42 @@ test('a stale channel snapshot never outranks the named episode\'s own entry', (
   assert.deepEqual(after.episodes?.EP0002.settings.export, { quality: 'fast' }, 'an unrelated render leaves another episode\'s own entry intact')
 })
 
+test('for a NEW episode a selected preset beats the stale channel snapshot, section by section', () => {
+  // Production 2026-11-07: choosing a bundle/subpreset then opening a new
+  // episode reverted the choice, because the channel last-used ran over it.
+  const channel = {
+    episode_id: 'EP0001', saved_at: '2026-11-01T00:00:00.000Z',
+    settings: { timeline: { transition: { type: 'stale' } }, export: { quality: 'low' }, effects: { title_card: { enabled: false } } },
+  }
+  const store = { channel }
+  const pick = pickLastUsedSettings(store, 'EP0009')
+  assert.equal(pick?.scope, 'channel')
+
+  // The customer selected a bundle whose timeline + export presets applied.
+  const scoped = scopeLastUsedSettings(pick, ['timeline', 'export'])
+  assert.deepEqual(sortedKeys(scoped?.settings), ['effects'], 'covered sections are dropped; the unconfigured one keeps the channel start')
+  assert.deepEqual(scoped?.settings.effects, { title_card: { enabled: false } })
+  assert.equal('timeline' in (scoped?.settings || {}), false, 'the selected timeline preset wins; the stale channel timeline never applies')
+  assert.equal('export' in (scoped?.settings || {}), false, 'the selected export preset wins')
+
+  // No selected preset anywhere → the channel start still seeds every section.
+  const whole = scopeLastUsedSettings(pick, [])
+  assert.deepEqual(sortedKeys(whole?.settings), ['effects', 'export', 'timeline'])
+
+  // Every section covered → nothing to apply, so the caller keeps the presets.
+  assert.equal(scopeLastUsedSettings(pick, ['intro', 'timeline', 'effects', 'subtitles', 'export']), null)
+})
+
+test('a NEW episode\'s own snapshot ignores the covered-set and wins whole', () => {
+  const own = { timeline: { transition: { type: 'mine' } } }
+  const pick = {
+    scope: 'episode' as const, from_episode: 'EP0009',
+    settings: own as any,
+  }
+  // Even with the section marked covered, the own snapshot is returned intact.
+  assert.deepEqual(scopeLastUsedSettings(pick, ['timeline'])?.settings, own)
+})
+
 test('Video Assembly records on a queued render and restores after presets load and on episode change', () => {
   const page = readFileSync(new URL('../pages/projects/[slug]/video-assembly.vue', import.meta.url), 'utf8')
   assert.match(page, /if \(await runGenerateVideo\(\{ post, videoAssemblyGenerating \}\)\) void rememberLastUsedSettings\(\)/)
@@ -64,4 +104,10 @@ test('Video Assembly records on a queued render and restores after presets load 
   const restore = page.indexOf('await restoreLastUsedSettings()', bundleLoad)
   assert.ok(bundleLoad > 0 && restore > bundleLoad, 'restore must run after the bundle preset auto-applies')
   assert.match(page, /watch\(episodeId, \(\) => \{ if \(lastUsedReady\) void restoreLastUsedSettings\(\) \}\)/)
+  // The restore must scope the channel pick by the selected per-section presets,
+  // not blindly apply it — that is the precedence fix.
+  assert.match(page, /scopeLastUsedSettings\(pickLastUsedSettings\(/, 'the mount/episode-switch restore scopes the channel pick by selected presets')
+  for (const ref of ['introPresets', 'timelinePresets', 'effectsPresets', 'subtitlesPresets', 'exportPresets']) {
+    assert.match(page, new RegExp(`if \\(${ref}\\.activeId\\.value\\) covered\\.push\\(`), `${ref} contributes its selected section to the covered set`)
+  }
 })

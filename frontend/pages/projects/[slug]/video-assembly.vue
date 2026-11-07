@@ -3080,7 +3080,7 @@ import { DEFAULT_EXCLUDE_KEYS } from '~/composables/usePresets'
 import { describeMergedAudioOpening } from '~/utils/merged-audio-opening'
 import { describeOpeningSync } from '~/utils/opening-sync'
 import { estimateRender, formatEstimateGb, formatEstimateTime } from '~/utils/render-estimate'
-import { LAST_USED_CONFIG_KEY, pickLastUsedSettings, recordLastUsedSettings } from '~/utils/video-assembly-last-used'
+import { LAST_USED_CONFIG_KEY, pickLastUsedSettings, recordLastUsedSettings, scopeLastUsedSettings, type SnapshotSection } from '~/utils/video-assembly-last-used'
 import { applyAssemblyStepDraft, beginAssemblyStepDraft, cancelAssemblyStepDraft, sameAssemblyStepScope, type AssemblyStepDraft, type AssemblyStepScope } from '~/utils/assembly-step-draft'
 import type { StillPostFontCursor, StillPostFontPool } from '@shared/still-post-fonts'
 import { aspectRatioOptions, canvasFor, parseAspectRatio, DEFAULT_ASPECT_RATIO } from '~/utils/aspect-ratios'
@@ -6550,7 +6550,18 @@ async function restoreLastUsedSettings(): Promise<void> {
   try {
     const config = await get<any>(`/projects/${project}/settings/config`)
     if (episode !== episodeId.value || project !== slug.value) return
-    const pick = pickLastUsedSettings(config?.[LAST_USED_CONFIG_KEY], episode)
+    // Sections the customer has a selected preset for already hold that
+    // preset's values (loaded and auto-applied just above). A NEW episode's
+    // channel last-used snapshot is stale and must not run over them; only
+    // unconfigured sections may still start from the channel's last render.
+    // The episode's OWN snapshot, when it exists, ignores this and wins whole.
+    const covered: SnapshotSection[] = []
+    if (introPresets.activeId.value) covered.push('intro')
+    if (timelinePresets.activeId.value) covered.push('timeline')
+    if (effectsPresets.activeId.value) covered.push('effects')
+    if (subtitlesPresets.activeId.value) covered.push('subtitles')
+    if (exportPresets.activeId.value) covered.push('export')
+    const pick = scopeLastUsedSettings(pickLastUsedSettings(config?.[LAST_USED_CONFIG_KEY], episode), covered)
     if (!pick) { lastUsedNotice.value = ''; channelIntro.value = null; return }
     applyIntroData(pick.settings.intro)
     channelIntro.value = pick.scope === 'episode'
@@ -6563,7 +6574,7 @@ async function restoreLastUsedSettings(): Promise<void> {
     if (pick.scope === 'channel' && selectedEpisode.value?.title) titleCard.text = selectedEpisode.value.title
     lastUsedNotice.value = pick.scope === 'episode'
       ? `Settings restored from ${episode}'s last render. Change anything below, or apply a preset.`
-      : `Settings start from this channel's last render (${pick.from_episode}). Change anything below, or apply a preset.`
+      : `Settings start from this channel's last render (${pick.from_episode}) for sections with no preset. Change anything below, or apply a preset.`
   } catch { /* keep the form as it is */ }
 }
 async function rememberLastUsedSettings(): Promise<void> {
@@ -7881,8 +7892,10 @@ onMounted(async () => {
     exportPresets.load(),
   ])
   await videoBundlePresets.load()
-  // The last render's choices (this episode's, else the channel's) win over
-  // the remembered preset: they are the newer, deliberate choice.
+  // This episode's own last render wins whole. With no own snapshot, the
+  // channel's last render only fills sections that have no selected preset —
+  // a freshly chosen bundle/subpreset is the newer, deliberate choice and is
+  // never reverted by the stale channel starting point.
   await restoreLastUsedSettings()
   lastUsedReady = true
   await normalizeVideoAssemblyPathsInState()
