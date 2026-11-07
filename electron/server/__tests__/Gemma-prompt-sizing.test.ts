@@ -16,7 +16,6 @@
  */
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
-import path from 'node:path'
 import { describe, test } from 'node:test'
 import {
   SCENE_PROMPT_MEASURED_TOKENS_PER_UNIT,
@@ -32,8 +31,10 @@ describe('Gemma prompt sizing: measured per-unit rates', () => {
   test('thumbnail rates are the G0 measured figures, by language', () => {
     assert.deepEqual(resolveSceneUnitTokenRates('thumbnail', 'en'), { perUnit: 2_350, singleUnit: 2_350 })
     assert.deepEqual(resolveSceneUnitTokenRates('thumbnail', 'km'), { perUnit: 1_750, singleUnit: 1_750 })
-    // Khmer channel writing English image prose still resolves by the
-    // OUTPUT language the request asks for — 'km' here means Khmer output.
+    // Rates are chosen by the REQUEST's channel language (Brief G), never
+    // relabelled as the output language: a Khmer channel is sized by the 'km'
+    // rate even though its image prose comes back in English. No language on
+    // the request falls back to the en measured rate.
     assert.deepEqual(resolveSceneUnitTokenRates('thumbnail', null), { perUnit: 2_350, singleUnit: 2_350 })
   })
 
@@ -69,23 +70,25 @@ describe('Gemma prompt sizing: request + answer, not answer alone', () => {
   })
 
   test('a long prompt near 23,000 refuses by the REQUEST limit before any call', () => {
-    // 91,996 ASCII chars ≈ 22,999 tokens — fits the request ceiling…
+    // The input side is an ESTIMATE — ASCII ÷ 4 plus one token per non-ASCII
+    // character; no tokenizer or count endpoint exists (output-token-budget.ts).
+    // 91,996 ASCII chars ≈ 22,999 estimated tokens — fits the request ceiling…
     const near = sceneRequestFits({
       promptCharacters: 91_996,
       answerTokens: 1_550,
       limits: GEMMA,
     })
     assert.equal(near.fits, true)
-    // …one more token of prompt crosses it. This is the shape that failed
-    // on Gemma when only the answer side was sized.
+    // …one more estimated token of prompt crosses it (92,004 ÷ 4 = 23,001).
+    // This is the shape that failed on Gemma when only the answer side was sized.
     const over = sceneRequestFits({
-      promptCharacters: 92_000,
+      promptCharacters: 92_004,
       answerTokens: 1_550,
       limits: GEMMA,
     })
     assert.equal(over.fits, false)
     assert.equal(over.refusedBy, 'request')
-    assert.equal(over.promptTokens, 23_000)
+    assert.equal(over.promptTokens, 23_001)
   })
 
   test('an unpublished limit is unknown and enforces nothing', () => {
@@ -145,7 +148,7 @@ describe('Gemma prompt sizing: request + answer, not answer alone', () => {
 })
 
 describe('Gemma prompt sizing: the maximum callers are wired', () => {
-  const read = (relative: string) => fs.readFileSync(path.join(__dirname, relative), 'utf8')
+  const read = (relative: string) => fs.readFileSync(new URL(relative, import.meta.url), 'utf8')
 
   test('scene-planner sizes each window against the assembled prompt', () => {
     const planner = read('../services/scene-planner.ts')
@@ -159,7 +162,12 @@ describe('Gemma prompt sizing: the maximum callers are wired', () => {
     const generator = read('../generators/image-prompts.ts')
     assert.match(generator, /resolveSceneUnitTokenRates\('thumbnail'/)
     assert.match(generator, /sceneRequestFits\(\{/)
+    // The catalogue read uses the file's own key resolution and is NOT
+    // swallowed: a transport failure must stop the run before any provider
+    // request, not turn a known model's limits into an unbounded {}.
+    assert.match(generator, /getApiKey\('genstudio'\)/)
     assert.match(generator, /listChatModels\(apiKey\)/)
+    assert.doesNotMatch(generator, /listChatModels\(apiKey\)\.catch/)
     assert.match(generator, /describeSceneRequestLimits\(writingLimits\)/)
     // No fixed token-to-character ratio appears in the sizing path.
     assert.doesNotMatch(generator, /tokensPerScene\s*[:=]\s*\d/)

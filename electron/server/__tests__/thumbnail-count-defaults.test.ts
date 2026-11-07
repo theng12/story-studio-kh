@@ -21,6 +21,10 @@
  *     (3/3), partial (2/3 → the job FAILS naming Thumbnail 3, the two prompts
  *     are kept), retry (only the missing one is requested), empty, malformed and
  *     provider-failure outcomes.
+ *   - The mock chat model publishes a 4,096-token answer ceiling and a thumbnail
+ *     prompt is measured at 2,350 tokens, so three prompts are THREE single-
+ *     prompt requests. Every scenario below is queued per request, and the call
+ *     count is asserted rather than assumed.
  *   - Completion is the episode's OWN count from the completion manifest, so an
  *     episode complete under its own count of 1 is not reopened by today's 3,
  *     and a preset that explicitly says 1 keeps saying 1.
@@ -91,11 +95,31 @@ function thumbnailReply(count: number): string {
   })
 }
 
-/** Every chat request the mock actually received, in order. */
+/**
+ * Every chat request the mock actually performed, in order. Replays of a
+ * settled job are excluded: a retry moves its identity after a settled
+ * failure, so a replay is not another provider request.
+ */
 function chatPrompts(): string[] {
   return service.submissions
-    .filter(submission => submission.operation === 'chat')
+    .filter(submission => submission.operation === 'chat' && !submission.replay)
     .map(submission => JSON.stringify(submission.parsedBody ?? {}))
+}
+
+/**
+ * Queue one chat answer per single-prompt request.
+ *
+ * The mock model's 4,096-token answer ceiling cannot hold three 2,350-token
+ * thumbnail prompts, so the generator asks for them one at a time. `answers`
+ * is one entry per request, in order.
+ */
+function queuePromptRequests(answers: Array<{ state?: 'succeeded' | 'failed', outputText?: string }>): void {
+  for (const answer of answers) {
+    service.queueScenario('chat', {
+      states: [answer.state ?? 'succeeded'],
+      ...(answer.outputText === undefined ? {} : { outputText: answer.outputText }),
+    })
+  }
 }
 
 /** A project with one accepted episode, ready for thumbnail prompts. */
@@ -206,12 +230,14 @@ describe('the prompt generator makes the default three, and reports what it coul
   test('complete: no count named → 3 prompts written, all three verified', async () => {
     const { slug, episodeId } = await episodeProject('Generator Complete')
     const { generateImagePrompts } = await import('../generators/image-prompts.js')
-    service.queueScenario('chat', { states: ['succeeded'], outputText: thumbnailReply(DEFAULT_THUMBNAIL_COUNT) })
+    queuePromptRequests([{ outputText: thumbnailReply(1) }, { outputText: thumbnailReply(1) }, { outputText: thumbnailReply(1) }])
+    const callsBefore = chatPrompts().length
 
     // thumb_count is deliberately ABSENT: this is the default path.
     const job = directJob(slug, episodeId)
     await generateImagePrompts(job)
 
+    assert.equal(chatPrompts().length - callsBefore, 3, 'the published answer ceiling split three prompts into three requests')
     assert.match(job.output_lines.join('\n'), /Target: 3 thumbnail prompt\(s\) — 3 options to choose from/)
     const content = await fs.readFile(await promptFilePath(slug, episodeId), 'utf-8')
     assert.equal((content.match(/^## Thumbnail \d+:/gm) || []).length, 3, 'three prompts on disk')
@@ -223,7 +249,12 @@ describe('the prompt generator makes the default three, and reports what it coul
   test('partial: a 2-of-3 answer FAILS loudly naming Thumbnail 3, and keeps the two', async () => {
     const { slug, episodeId } = await episodeProject('Generator Partial')
     const { generateImagePrompts } = await import('../generators/image-prompts.js')
-    service.queueScenario('chat', { states: ['succeeded'], outputText: thumbnailReply(2) })
+    // Two requests answer with a prompt; the third returns an empty set.
+    queuePromptRequests([
+      { outputText: thumbnailReply(1) },
+      { outputText: thumbnailReply(1) },
+      { outputText: JSON.stringify({ thumbnails: [] }) },
+    ])
 
     const job = directJob(slug, episodeId)
     await assert.rejects(() => generateImagePrompts(job), (error: any) => {
@@ -242,13 +273,19 @@ describe('the prompt generator makes the default three, and reports what it coul
   test('retry: fill_gaps asks for ONLY the missing prompt and completes the set', async () => {
     const { slug, episodeId } = await episodeProject('Generator Retry')
     const { generateImagePrompts } = await import('../generators/image-prompts.js')
-    service.queueScenario('chat', { states: ['succeeded'], outputText: thumbnailReply(2) })
+    queuePromptRequests([
+      { outputText: thumbnailReply(1) },
+      { outputText: thumbnailReply(1) },
+      { state: 'failed' },
+    ])
     const first = directJob(slug, episodeId)
+    const callsBeforeFirst = chatPrompts().length
     await assert.rejects(() => generateImagePrompts(first))
     const promptsAfterFirst = chatPrompts().length
+    assert.equal(promptsAfterFirst - callsBeforeFirst, 3, 'the first run made one request per prompt')
 
     // Retry: the same request, as the job queue re-runs it.
-    service.queueScenario('chat', { states: ['succeeded'], outputText: thumbnailReply(1) })
+    queuePromptRequests([{ outputText: thumbnailReply(1) }])
     const retry = directJob(slug, episodeId, { fill_gaps: true })
     await generateImagePrompts(retry)
 
@@ -265,7 +302,11 @@ describe('the prompt generator makes the default three, and reports what it coul
   test('empty: a reply with no usable prompt is refused loudly, and nothing is claimed complete', async () => {
     const { slug, episodeId } = await episodeProject('Generator Empty')
     const { generateImagePrompts } = await import('../generators/image-prompts.js')
-    service.queueScenario('chat', { states: ['succeeded'], outputText: JSON.stringify({ thumbnails: [] }) })
+    queuePromptRequests([
+      { outputText: JSON.stringify({ thumbnails: [] }) },
+      { outputText: JSON.stringify({ thumbnails: [] }) },
+      { outputText: JSON.stringify({ thumbnails: [] }) },
+    ])
 
     const job = directJob(slug, episodeId)
     await assert.rejects(() => generateImagePrompts(job), (error: any) => {
@@ -280,12 +321,33 @@ describe('the prompt generator makes the default three, and reports what it coul
   test('provider failure: the job fails and no prompt file is claimed', async () => {
     const { slug, episodeId } = await episodeProject('Generator Failure')
     const { generateImagePrompts } = await import('../generators/image-prompts.js')
-    service.queueScenario('chat', { states: ['failed'] })
+    queuePromptRequests([{ state: 'failed' }, { state: 'failed' }, { state: 'failed' }])
 
     const job = directJob(slug, episodeId)
     await assert.rejects(() => generateImagePrompts(job))
     const audit = await inspectPromptCompletion(path.dirname(await promptFilePath(slug, episodeId)), episodeId, 'thumbnail').catch(() => null)
     assert.notEqual(audit?.complete, true, 'a provider failure is never complete')
+  })
+
+  test('malformed: an answer that is not a thumbnail object is refused, never claimed complete', async () => {
+    const { slug, episodeId } = await episodeProject('Generator Malformed')
+    const { generateImagePrompts } = await import('../generators/image-prompts.js')
+    queuePromptRequests([
+      { outputText: '{ not json' },
+      { outputText: JSON.stringify({ variations: [] }) },
+      { outputText: JSON.stringify(['bare array']) },
+    ])
+
+    const job = directJob(slug, episodeId)
+    await assert.rejects(() => generateImagePrompts(job), (error: any) => {
+      assert.match(String(error?.message), /Thumbnail 1, Thumbnail 2, Thumbnail 3/,
+        'every rejected item is named')
+      return true
+    })
+    const audit = await inspectPromptCompletion(path.dirname(await promptFilePath(slug, episodeId)), episodeId, 'thumbnail')
+    assert.equal(audit.authoritative, true)
+    assert.equal(audit.complete, false, 'a malformed answer is never complete')
+    assert.deepEqual(audit.missing, [1, 2, 3])
   })
 })
 
