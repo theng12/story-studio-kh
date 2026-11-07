@@ -9,9 +9,9 @@
  *
  * So this builds the real sources into signed archives, installs them through
  * the real installer, and follows the style all the way to the string the image
- * generator actually sends. It also pins the contrast that motivated the work:
- * the legacy `builtin-*` route silently drops the negative prompt, and the
- * signed route keeps it.
+ * generator actually sends. It also pins how a stored `builtin-*` id resolves
+ * now: an aliased id reads the signed pack that owns the look (negatives
+ * included), and an id with no copy behind it announces the format default.
  *
  * IMPORTANT — module-load ordering: STORY_STUDIO_DATA_DIR must be set (via
  * useTempDataDir) before project-manager is imported, so PROJECTS_ROOT points
@@ -164,11 +164,11 @@ describe('the six Production Looks reach the image generator as signed styles', 
     assert.ok(art!.negatives.includes('photorealism'))
   })
 
-  test('the legacy builtin route keeps the look but throws the negatives away', async () => {
-    // This is the state a project is in today, before these packs exist: the
-    // The retired Settings picker copied the style_bible into a project-local
-    // preset and copies nothing else. It is why productising these six is a
-    // fix and not just a repackaging.
+  test('a stored builtin preset id reads the signed look that owns it, negatives included', async () => {
+    // `builtin-anime-cel` is a STYLE_ALIASES id (item: the 17 aliases), so the
+    // resolver reads the installed signed pack before the materialised preset.
+    // The old "legacy route drops the negatives" assertion is superseded: the
+    // alias path carries the pack's negative_prompt into generation.
     const source = await sourceStyle('anime-cel')
     const project = await pm.createProject({ name: 'Legacy Anime Cel' })
     await pm.updateConfig(project.slug, {
@@ -182,9 +182,14 @@ describe('the six Production Looks reach the image generator as signed styles', 
     } as never)
 
     const art = (await resolver.resolveProjectArtStyle(project.slug, options)).style
-    assert.ok(art, 'the materialised preset still resolves — old projects do not break')
+    assert.ok(art, 'the stored preset still resolves — old projects do not break')
     assert.equal(art!.description, source.style_bible.trim())
-    assert.deepEqual(art!.negatives, [], 'the legacy copy carries no negatives')
+    assert.deepEqual(
+      art!.negatives,
+      source.negative_prompt.split(',').map((value: string) => value.trim()).filter(Boolean),
+      'the aliased signed pack supplies the negative prompt',
+    )
+    assert.ok(art!.negatives.includes('photorealism'))
   })
 
   test('a style saved with no copy behind it falls back to the format default AND says so', async () => {
@@ -192,15 +197,17 @@ describe('the six Production Looks reach the image generator as signed styles', 
     // fail; image-prompts.ts substitutes the format default. What changed on
     // 2026-10-28: the resolver now reports that substitution instead of
     // returning a bare null the caller could not tell from "no style chosen".
-    const project = await pm.createProject({ name: 'Dangling Anime Cel' })
-    await pm.updateConfig(project.slug, { active_style_preset_id: 'builtin-anime-cel' } as never)
+    // `builtin-gone-style` is deliberately unaliased: `builtin-anime-cel`
+    // resolves through STYLE_ALIASES now, so it is no longer a dangling id.
+    const project = await pm.createProject({ name: 'Dangling Gone Style' })
+    await pm.updateConfig(project.slug, { active_style_preset_id: 'builtin-gone-style' } as never)
     const resolution = await resolver.resolveProjectArtStyle(project.slug, options)
     assert.equal(resolution.style, null)
     assert.ok(resolution.fallback, 'a named style that could not be used is announced')
-    assert.equal(resolution.fallback!.requestedId, 'builtin-anime-cel')
+    assert.equal(resolution.fallback!.requestedId, 'builtin-gone-style')
     assert.equal(resolution.fallback!.used, 'format_default')
     assert.equal(resolution.fallback!.reason, 'style_not_found')
-    assert.match(resolution.fallback!.message, /builtin-anime-cel/)
+    assert.match(resolution.fallback!.message, /builtin-gone-style/)
     assert.match(resolution.fallback!.message, /format default style/i)
   })
 

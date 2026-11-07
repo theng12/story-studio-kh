@@ -2475,8 +2475,11 @@
       "disposition": "retained-free-builtin",
       "source": "electron/server/contracts/subtitle-presets.ts",
       "target": {
-        "kind": "runtime-subtitle",
-        "id": "bold-impact"
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.subtitle-style.bold-impact",
+        "version": "1.0.0",
+        "status": "authored",
+        "source_path": "content-packs/builtin-conversion/subtitle-style/bold-impact"
       },
       "closure_group": "intentional-free-baseline"
     },
@@ -2485,8 +2488,11 @@
       "disposition": "retained-free-builtin",
       "source": "electron/server/contracts/subtitle-presets.ts",
       "target": {
-        "kind": "runtime-subtitle",
-        "id": "boxed-caption"
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.subtitle-style.boxed-caption",
+        "version": "1.0.0",
+        "status": "authored",
+        "source_path": "content-packs/builtin-conversion/subtitle-style/boxed-caption"
       },
       "closure_group": "intentional-free-baseline"
     },
@@ -2495,8 +2501,11 @@
       "disposition": "retained-free-builtin",
       "source": "electron/server/contracts/subtitle-presets.ts",
       "target": {
-        "kind": "runtime-subtitle",
-        "id": "clean-broadcast"
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.subtitle-style.clean-broadcast",
+        "version": "1.0.0",
+        "status": "authored",
+        "source_path": "content-packs/builtin-conversion/subtitle-style/clean-broadcast"
       },
       "closure_group": "intentional-free-baseline"
     },
@@ -2505,8 +2514,11 @@
       "disposition": "retained-free-builtin",
       "source": "electron/server/contracts/subtitle-presets.ts",
       "target": {
-        "kind": "runtime-subtitle",
-        "id": "documentary-serif"
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.subtitle-style.documentary-serif",
+        "version": "1.0.0",
+        "status": "authored",
+        "source_path": "content-packs/builtin-conversion/subtitle-style/documentary-serif"
       },
       "closure_group": "intentional-free-baseline"
     },
@@ -2515,8 +2527,11 @@
       "disposition": "retained-free-builtin",
       "source": "electron/server/contracts/subtitle-presets.ts",
       "target": {
-        "kind": "runtime-subtitle",
-        "id": "explainer-accent"
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.subtitle-style.explainer-accent",
+        "version": "1.0.0",
+        "status": "authored",
+        "source_path": "content-packs/builtin-conversion/subtitle-style/explainer-accent"
       },
       "closure_group": "intentional-free-baseline"
     },
@@ -2525,8 +2540,11 @@
       "disposition": "retained-free-builtin",
       "source": "electron/server/contracts/subtitle-presets.ts",
       "target": {
-        "kind": "runtime-subtitle",
-        "id": "gentle-fade"
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.subtitle-style.gentle-fade",
+        "version": "1.0.0",
+        "status": "authored",
+        "source_path": "content-packs/builtin-conversion/subtitle-style/gentle-fade"
       },
       "closure_group": "intentional-free-baseline"
     },
@@ -2535,8 +2553,11 @@
       "disposition": "retained-free-builtin",
       "source": "electron/server/contracts/subtitle-presets.ts",
       "target": {
-        "kind": "runtime-subtitle",
-        "id": "karaoke-highlight"
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.subtitle-style.karaoke-highlight",
+        "version": "1.0.0",
+        "status": "authored",
+        "source_path": "content-packs/builtin-conversion/subtitle-style/karaoke-highlight"
       },
       "closure_group": "intentional-free-baseline"
     },
@@ -2545,8 +2566,11 @@
       "disposition": "retained-free-builtin",
       "source": "electron/server/contracts/subtitle-presets.ts",
       "target": {
-        "kind": "runtime-subtitle",
-        "id": "karaoke-pop"
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.subtitle-style.karaoke-pop",
+        "version": "1.0.0",
+        "status": "authored",
+        "source_path": "content-packs/builtin-conversion/subtitle-style/karaoke-pop"
       },
       "closure_group": "intentional-free-baseline"
     },
@@ -2555,8 +2579,11 @@
       "disposition": "retained-free-builtin",
       "source": "electron/server/contracts/subtitle-presets.ts",
       "target": {
-        "kind": "runtime-subtitle",
-        "id": "minimal-lower-third"
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.subtitle-style.minimal-lower-third",
+        "version": "1.0.0",
+        "status": "authored",
+        "source_path": "content-packs/builtin-conversion/subtitle-style/minimal-lower-third"
       },
       "closure_group": "intentional-free-baseline"
     },
@@ -2565,8 +2592,11 @@
       "disposition": "retained-free-builtin",
       "source": "electron/server/contracts/subtitle-presets.ts",
       "target": {
-        "kind": "runtime-subtitle",
-        "id": "neon-glow"
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.subtitle-style.neon-glow",
+        "version": "1.0.0",
+        "status": "authored",
+        "source_path": "content-packs/builtin-conversion/subtitle-style/neon-glow"
       },
       "closure_group": "intentional-free-baseline"
     },
@@ -2575,8 +2605,11 @@
       "disposition": "retained-free-builtin",
       "source": "electron/server/contracts/subtitle-presets.ts",
       "target": {
-        "kind": "runtime-subtitle",
-        "id": "single-word-focus"
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.subtitle-style.single-word-focus",
+        "version": "1.0.0",
+        "status": "authored",
+        "source_path": "content-packs/builtin-conversion/subtitle-style/single-word-focus"
       },
       "closure_group": "intentional-free-baseline"
     },
@@ -2585,8 +2618,11 @@
       "disposition": "retained-free-builtin",
       "source": "electron/server/contracts/subtitle-presets.ts",
       "target": {
-        "kind": "runtime-subtitle",
-        "id": "sleep-soft"
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.subtitle-style.sleep-soft",
+        "version": "1.0.0",
+        "status": "authored",
+        "source_path": "content-packs/builtin-conversion/subtitle-style/sleep-soft"
       },
       "closure_group": "intentional-free-baseline"
     },
@@ -2595,8 +2631,11 @@
       "disposition": "retained-free-builtin",
       "source": "electron/server/contracts/subtitle-presets.ts",
       "target": {
-        "kind": "runtime-subtitle",
-        "id": "slide-up"
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.subtitle-style.slide-up",
+        "version": "1.0.0",
+        "status": "authored",
+        "source_path": "content-packs/builtin-conversion/subtitle-style/slide-up"
       },
       "closure_group": "intentional-free-baseline"
     },
@@ -2605,8 +2644,11 @@
       "disposition": "retained-free-builtin",
       "source": "electron/server/contracts/subtitle-presets.ts",
       "target": {
-        "kind": "runtime-subtitle",
-        "id": "typewriter"
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.subtitle-style.typewriter",
+        "version": "1.0.0",
+        "status": "authored",
+        "source_path": "content-packs/builtin-conversion/subtitle-style/typewriter"
       },
       "closure_group": "intentional-free-baseline"
     },
@@ -2615,8 +2657,11 @@
       "disposition": "retained-free-builtin",
       "source": "electron/server/contracts/subtitle-presets.ts",
       "target": {
-        "kind": "runtime-subtitle",
-        "id": "word-reveal"
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.subtitle-style.word-reveal",
+        "version": "1.0.0",
+        "status": "authored",
+        "source_path": "content-packs/builtin-conversion/subtitle-style/word-reveal"
       },
       "closure_group": "intentional-free-baseline"
     },
@@ -2625,8 +2670,11 @@
       "disposition": "retained-free-builtin",
       "source": "electron/server/contracts/subtitle-presets.ts",
       "target": {
-        "kind": "runtime-subtitle",
-        "id": "yellow-highlighter"
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.subtitle-style.yellow-highlighter",
+        "version": "1.0.0",
+        "status": "authored",
+        "source_path": "content-packs/builtin-conversion/subtitle-style/yellow-highlighter"
       },
       "closure_group": "intentional-free-baseline"
     },
@@ -2635,8 +2683,11 @@
       "disposition": "retained-free-builtin",
       "source": "electron/server/contracts/subtitle-presets.ts",
       "target": {
-        "kind": "runtime-subtitle",
-        "id": "shorts-vertical"
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.subtitle-style.shorts-vertical",
+        "version": "1.0.0",
+        "status": "authored",
+        "source_path": "content-packs/builtin-conversion/subtitle-style/shorts-vertical"
       },
       "closure_group": "intentional-free-baseline"
     },
@@ -2645,8 +2696,11 @@
       "disposition": "retained-free-builtin",
       "source": "electron/server/contracts/subtitle-presets.ts",
       "target": {
-        "kind": "runtime-subtitle",
-        "id": "shorts-vertical-battambang"
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.subtitle-style.shorts-vertical-battambang",
+        "version": "1.0.0",
+        "status": "authored",
+        "source_path": "content-packs/builtin-conversion/subtitle-style/shorts-vertical-battambang"
       },
       "closure_group": "intentional-free-baseline"
     },
@@ -2655,8 +2709,11 @@
       "disposition": "retained-free-builtin",
       "source": "electron/server/contracts/subtitle-presets.ts",
       "target": {
-        "kind": "runtime-subtitle",
-        "id": "shorts-vertical-bounce"
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.subtitle-style.shorts-vertical-bounce",
+        "version": "1.0.0",
+        "status": "authored",
+        "source_path": "content-packs/builtin-conversion/subtitle-style/shorts-vertical-bounce"
       },
       "closure_group": "intentional-free-baseline"
     },
@@ -2665,8 +2722,11 @@
       "disposition": "retained-free-builtin",
       "source": "electron/server/contracts/subtitle-presets.ts",
       "target": {
-        "kind": "runtime-subtitle",
-        "id": "shorts-vertical-electric"
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.subtitle-style.shorts-vertical-electric",
+        "version": "1.0.0",
+        "status": "authored",
+        "source_path": "content-packs/builtin-conversion/subtitle-style/shorts-vertical-electric"
       },
       "closure_group": "intentional-free-baseline"
     },
@@ -2675,8 +2735,11 @@
       "disposition": "retained-free-builtin",
       "source": "electron/server/contracts/subtitle-presets.ts",
       "target": {
-        "kind": "runtime-subtitle",
-        "id": "shorts-vertical-hand-lettered"
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.subtitle-style.shorts-vertical-hand-lettered",
+        "version": "1.0.0",
+        "status": "authored",
+        "source_path": "content-packs/builtin-conversion/subtitle-style/shorts-vertical-hand-lettered"
       },
       "closure_group": "intentional-free-baseline"
     },
@@ -2685,8 +2748,11 @@
       "disposition": "retained-free-builtin",
       "source": "electron/server/contracts/subtitle-presets.ts",
       "target": {
-        "kind": "runtime-subtitle",
-        "id": "shorts-vertical-hand-lettered-highlight"
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.subtitle-style.shorts-vertical-hand-lettered-highlight",
+        "version": "1.0.0",
+        "status": "authored",
+        "source_path": "content-packs/builtin-conversion/subtitle-style/shorts-vertical-hand-lettered-highlight"
       },
       "closure_group": "intentional-free-baseline"
     },
@@ -2695,8 +2761,11 @@
       "disposition": "retained-free-builtin",
       "source": "electron/server/contracts/subtitle-presets.ts",
       "target": {
-        "kind": "runtime-subtitle",
-        "id": "shorts-vertical-moul"
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.subtitle-style.shorts-vertical-moul",
+        "version": "1.0.0",
+        "status": "authored",
+        "source_path": "content-packs/builtin-conversion/subtitle-style/shorts-vertical-moul"
       },
       "closure_group": "intentional-free-baseline"
     },
@@ -2705,8 +2774,11 @@
       "disposition": "retained-free-builtin",
       "source": "electron/server/contracts/subtitle-presets.ts",
       "target": {
-        "kind": "runtime-subtitle",
-        "id": "shorts-vertical-word-pop"
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.subtitle-style.shorts-vertical-word-pop",
+        "version": "1.0.0",
+        "status": "authored",
+        "source_path": "content-packs/builtin-conversion/subtitle-style/shorts-vertical-word-pop"
       },
       "closure_group": "intentional-free-baseline"
     },
