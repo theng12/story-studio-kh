@@ -35,7 +35,7 @@ async function within<T>(work: Promise<T>, ms: number, message: string): Promise
   return Promise.race([work, limit]).finally(() => clearTimeout(timer))
 }
 
-function measurementClock(t: TestContext) {
+function measurementClock(t: Pick<TestContext, 'mock'>) {
   const setTimeout = globalThis.setTimeout
   const clearTimeout = globalThis.clearTimeout
   const deadlines = new Map<ReturnType<typeof setTimeout>, () => void>()
