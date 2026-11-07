@@ -81,6 +81,15 @@ import {
 import { buildYouTubeMetadataPackage, resanitizeStoredSnippet, resolveYouTubeUploadSettings } from '../services/youtube-metadata-package.js'
 import { youTubePublishDateRefusal } from '../services/youtube-publish-guard.js'
 import { enqueueOrRun, getJobs, isDuplicate } from '../services/job-queue.js'
+import { normalizeCaptionUploadSettings } from '../contracts/youtube-caption-upload.js'
+import { validateUploadPacingPolicy, type UploadPacingPolicy } from '../services/upload-pacing.js'
+import {
+  evaluateJobPacing,
+  jobWaitingReason,
+  pacingContextForChannel,
+  publishAtOf,
+  uploadOnOf,
+} from '../services/upload-pacing-queue.js'
 import type { Job } from '../models/types.js'
 import { listUploadThumbnails, resolveUploadMetadata, snippetFromMeta, YT_TITLE_MAX } from '../lib/upload-metadata.js'
 import { findMetadataJunk } from '../lib/metadata-scaffold.js'
@@ -121,7 +130,7 @@ import { UPLOAD_STORE_UNREADABLE, latestEpisodeUploadJob, localUploadProjection 
 import { invalidatePublishingOverviewCache } from '../services/publishing-overview.js'
 import { movableLocalClaims } from '../services/episode-autoschedule.js'
 import * as im from '../services/idea-manager.js'
-import { getProjectDir } from '../services/project-manager.js'
+import { getConfig, getProjectDir } from '../services/project-manager.js'
 import { COMPARED_FIELDS, compareYouTubeVideo } from '../services/youtube-metadata-comparison.js'
 import {
   assertSafeToUploadAgain,
@@ -443,6 +452,14 @@ function publicationProjection(
   }
 }
 
+/** The channel's saved upload pacing policy, or null when none was chosen or it is invalid. */
+async function readUploadPacingPolicy(slug: string): Promise<UploadPacingPolicy | null> {
+  const raw = ((await getConfig(slug)) as any)?.upload_pacing
+  if (!raw) return null
+  const validated = validateUploadPacingPolicy(raw)
+  return validated.ok ? validated.policy : null
+}
+
 router.get('/projects/:slug/youtube/overview', async (req, res) => {
   try {
     const slug = req.params.slug
@@ -487,6 +504,64 @@ router.get('/projects/:slug/youtube/overview', async (req, res) => {
       }).coverage
       : null
 
+    // The persistent upload queue, projected from the SAME jobs the dispatcher
+    // runs. No second scheduler and no invented quota: each row's wait reason
+    // and next eligible instant come from the pacing service the queue pump
+    // uses, read live so a changed policy is visible on the next page load.
+    const allUploadJobs = await getJobs(slug, { type: 'youtube_upload' })
+    const uploadJobs = allUploadJobs.filter(job => ['queued', 'running', 'paused'].includes(job.status))
+    const uploadPolicy = await readUploadPacingPolicy(slug).catch(() => null)
+    let uploadQueue: any[]
+    if (!uploadPolicy) {
+      uploadQueue = uploadJobs.map((job, index) => ({
+        episode_code: job.episode_id,
+        ...(job.title ? { title: job.title } : {}),
+        upload_at: uploadOnOf(job),
+        publish_at: publishAtOf(job),
+        wait_reason: 'unconfigured_pacing',
+        wait_detail: 'This channel has no upload window hours yet. Choose them before uploads can start.',
+        next_eligible_at: null,
+        is_paused: job.status === 'paused',
+        position: index + 1,
+        job_id: job.job_id,
+        can_remove: job.status !== 'running',
+        can_reorder: job.status === 'queued',
+      }))
+    } else {
+      const context = pacingContextForChannel({
+        jobs: allUploadJobs,
+        policy: uploadPolicy,
+        channelId: assignment?.channel_id ?? null,
+        quota: quota
+          ? {
+            resets_at: quota.resets_at,
+            video_uploads: { used: quota.buckets.video_uploads.used, limit: quota.buckets.video_uploads.limit },
+          }
+          : null,
+      })
+      const inputs = { channelContext: () => context }
+      uploadQueue = uploadJobs.map((job, index) => {
+        const hold = job.status === 'running' ? null : jobWaitingReason(job, inputs)
+        const verdict = job.status === 'running' || hold ? null : evaluateJobPacing(job, inputs)
+        return {
+          episode_code: job.episode_id,
+          ...(job.title ? { title: job.title } : {}),
+          upload_at: uploadOnOf(job),
+          publish_at: publishAtOf(job),
+          wait_reason: job.status === 'running' ? 'ready' : hold?.reason ?? verdict?.reason ?? 'ready',
+          wait_detail: job.status === 'running' ? 'Uploading now.' : hold?.detail ?? verdict?.detail,
+          next_eligible_at: job.status === 'running'
+            ? null
+            : hold ? hold.wake_at : verdict?.eligible ? verdict.earliest_start : null,
+          is_paused: job.status === 'paused',
+          position: index + 1,
+          job_id: job.job_id,
+          can_remove: job.status !== 'running',
+          can_reorder: job.status === 'queued',
+        }
+      })
+    }
+
     res.json({
       assigned_channel: channel,
       // What YouTube last said this channel may do: long videos, custom
@@ -515,6 +590,9 @@ router.get('/projects/:slug/youtube/overview', async (req, res) => {
       // And what happened the last time we TRIED. A failed attempt must not
       // make stale data look fresh, so the two are reported separately.
       last_sync_attempt: publishing?.remote_sync ?? null,
+      // The persistent upload queue. An empty array is a real "nothing
+      // waiting"; an absent field is not, which is why this is always sent.
+      upload_queue: uploadQueue,
     })
   } catch (error) {
     fail(res, error, 'Failed to read the YouTube Upload Center overview.')
@@ -3717,6 +3795,30 @@ export async function admitYouTubeUpload(
       })
       return
     }
+    // "Upload on" (the earliest allowed transfer start) is checked HERE, for
+    // the same reason as the publish date: a date the queue can never parse
+    // would hold the job forever with no one watching. The Publish page sends
+    // `earliest_upload_on`; older callers send `upload_on`. Both land in the
+    // one job param the pacing pump already reads.
+    const requestedUploadOnRaw = typeof body?.earliest_upload_on === 'string' && body.earliest_upload_on.trim()
+      ? body.earliest_upload_on.trim()
+      : typeof body?.upload_on === 'string' && body.upload_on.trim() ? body.upload_on.trim() : ''
+    const requestedUploadOnMs = requestedUploadOnRaw ? Date.parse(requestedUploadOnRaw) : NaN
+    if (requestedUploadOnRaw && !Number.isFinite(requestedUploadOnMs)) {
+      res.status(400).json({
+        code: 'YOUTUBE_UPLOAD_ON_REFUSED',
+        detail: `The upload date "${requestedUploadOnRaw}" is not a valid date. Choose a real date and time.`,
+        upload_on: requestedUploadOnRaw,
+      })
+      return
+    }
+    const uploadOn = Number.isFinite(requestedUploadOnMs) ? new Date(requestedUploadOnMs).toISOString() : null
+    // Closed captions are optional and OFF unless the request carried a choice.
+    // Normalising here means the queue stores exactly what the owner picked and
+    // a missing `enabled` can never become an accidental caption upload.
+    const captions = body?.params && typeof body.params === 'object' && body.params.captions !== undefined
+      ? normalizeCaptionUploadSettings(body.params.captions)
+      : null
     // The channel this will publish to, and the credential that signs in to it.
     const { accountId, channelId } = await accountForCurrentChannel(slug)
     if (automatic && (await getJobs(slug, { type: 'youtube_upload' })).some(job =>
@@ -4068,7 +4170,8 @@ export async function admitYouTubeUpload(
           // "Upload on" (Story 386 Item 1): the earliest allowed transfer start.
           // Persisted so a restart re-reads the instant rather than a relative
           // delay, and so the queue's pacing pump can hold it fairly.
-          ...(typeof body?.upload_on === 'string' && body.upload_on.trim() ? { upload_on: body.upload_on.trim() } : {}),
+          ...(uploadOn ? { upload_on: uploadOn } : {}),
+          ...(captions ? { captions } : {}),
           expected_package_revision: built.package_revision,
           // The revision the owner actually reviewed. The generator compares it
           // with the hash of the open handle it uploads from and runs the
