@@ -14,7 +14,7 @@
  */
 
 import { autoApproveOn } from '../services/preset-authority.js'
-import { sceneImageStaleReason } from '../services/scene-plan-staleness.js'
+import { sceneImageStaleReason, scenePromptOf } from '../services/scene-plan-staleness.js'
 import { queueEpisodeAnalysisSoon } from '../services/scene-analysis.js'
 import express, { Router } from 'express'
 import fs from 'fs/promises'
@@ -28,7 +28,7 @@ import { withLock, writeJsonAtomic } from '../lib/atomic-store.js'
 import { freshActionMatch, readOperationId, stampFreshGenerationAction } from '../lib/fresh-generation-action.js'
 
 import { resolveEpisodePathsByCodeWithSidecar, resolveScenePlanPath } from '../services/utils.js'
-import { readSceneStoryContext, writeSceneStoryContext } from '../services/scene-reference-characters.js'
+import { readSceneStoryContext, sceneStoryStateSuffix, writeSceneStoryContext } from '../services/scene-reference-characters.js'
 import type { SceneStoryContextEntry } from '../contracts/scene-story-context.js'
 import { resolveEpisodeMergedAudioChoice } from '../lib/merged-audio-selection.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
@@ -901,7 +901,8 @@ router.get('/projects/:slug/scene-review/:episodeId', async (req, res) => {
         // current visual_prompt. Unknown rendered_prompt (pre-feature renders)
         // → not stale, so old episodes don't all light up red. v1.4.374 — one
         // rule for this, shared with completion, the image batch and assembly.
-        stale: imageExists && sceneImageStaleReason(s) !== null,
+        stale: imageExists && (!story || sceneImageStaleReason(s,
+          `${scenePromptOf(s)}${sceneStoryStateSuffix(s.id, story).suffix}`) !== null),
         image_check: (s as any).image_check || undefined,
         // v1.4.365 — the stronger check's own record, shown beside (never instead of) the free one.
         vision_check: (s as any).vision_check || undefined,

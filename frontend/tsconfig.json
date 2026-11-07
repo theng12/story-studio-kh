@@ -30,6 +30,7 @@
       "@shared/genstudio-image-defaults": ["../electron/server/contracts/genstudio-image-defaults.ts"],
       "@shared/still-post-fonts": ["../electron/server/contracts/still-post-fonts.ts"],
       "@shared/still-posts": ["../electron/server/contracts/still-posts.ts"],
+      "@shared/chapter-background-pool": ["../electron/server/contracts/chapter-background-pool.ts"],
       "@shared/scene-image-check": ["../electron/server/contracts/scene-image-check.ts"]
     },
     "noUncheckedIndexedAccess": false,

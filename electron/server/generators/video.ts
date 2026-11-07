@@ -15,7 +15,8 @@ import os from 'os'
 import path from 'path'
 import { spawn } from 'child_process'
 import * as pm from '../services/project-manager.js'
-import { sceneImageStaleReason } from '../services/scene-plan-staleness.js'
+import { sceneImageStaleReason, scenePromptOf } from '../services/scene-plan-staleness.js'
+import { readSceneStoryContext, sceneStoryStateSuffix } from '../services/scene-reference-characters.js'
 import { checkpointJobProgress, checkpointJobState, isCancelled, trackChild } from '../services/job-queue.js'
 import { withFinalVideoPathLock } from '../services/final-video-lock.js'
 import { publishOverPreviousFinal } from '../services/final-video-retention.js'
@@ -1534,11 +1535,16 @@ export async function scanEpisodeAssets(
     : ''
   const legacySceneDir = path.join(episodeDir, TIMESTAMP_SCENE_IMAGES_SUBFOLDER)
   let scannedPlan: ScenePlan | null = null
+  const storyPrompts = new Map<string, string>()
   if (visualSource === 'scene_plan' && existsSync(planPath)) {
     try {
       const plan = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
       scannedPlan = plan
       const planScenes = Array.isArray(plan.scenes) ? plan.scenes : []
+      const story = await readSceneStoryContext(slug, code)
+      for (const scene of planScenes) {
+        storyPrompts.set(scene.id, `${scenePromptOf(scene)}${sceneStoryStateSuffix(scene.id, story).suffix}`)
+      }
       const missingPlannedScenes: Array<{ id: string; scene_index: number }> = []
       const unapprovedPlannedScenes: Array<{ id: string; scene_index: number }> = []
       const stalePlannedScenes: Array<{ id: string; scene_index: number }> = []
@@ -1583,7 +1589,7 @@ export async function scanEpisodeAssets(
           missingPlannedScenes.push({ id: scene.id, scene_index: scene.scene_index })
           continue
         }
-        const stale = sceneImageStaleReason(scene) !== null
+        const stale = sceneImageStaleReason(scene, storyPrompts.get(scene.id)) !== null
         if (stale) stalePlannedScenes.push({ id: scene.id, scene_index: scene.scene_index })
         // A T2V scene's approval is its OWN Motion Review decision (owner, 2026-10-26). An
         // unapproved T2V clip falls back to its backup still and says why — the same shape as a
@@ -1936,7 +1942,7 @@ export async function scanEpisodeAssets(
         && integrity.complete,
       scenes: scannedPlan.scenes.map(scene => {
         const scanned = byId.get(scene.id)
-        const stale = sceneImageStaleReason(scene) !== null
+        const stale = sceneImageStaleReason(scene, storyPrompts.get(scene.id)) !== null
         return {
           id: scene.id,
           scene_index: scene.scene_index,

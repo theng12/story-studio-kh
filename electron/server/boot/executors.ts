@@ -238,7 +238,7 @@ export async function auditStoryEntityExtraction(
   if (!current) return 'repair-required'
   if (current.doc.extraction?.script_fingerprint === expected) return 'complete'
   const config = await getConfig(job.project_slug).catch(() => null)
-  return config?.story_entity_automation === true ? 'repair-required' : 'complete'
+  return !config || config.story_entity_automation === true ? 'repair-required' : 'complete'
 }
 
 function registerCancellationAuditors(): void {
@@ -480,7 +480,7 @@ export async function enqueueStoryEntitiesAfterScript(
     const audit = await inspectExpandedScriptCompletion(
       paths.script_dir,
       job.episode_id,
-      requestedChapterSelection(job.params),
+      undefined, // Extraction reads the whole script, including chapters outside a partial retry.
       await scriptLanguageForChannel(job.project_slug),
     )
     if (!audit.complete) return { outcome: 'incomplete' }

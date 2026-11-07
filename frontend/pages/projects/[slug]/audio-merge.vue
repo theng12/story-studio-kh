@@ -610,7 +610,7 @@
     <div class="audio-mix-section audio-mix-section--ambience-master">
       <div class="flex gap-2 items-center">
         <label class="checkbox-label" @click.stop>
-          <input type="checkbox" v-model="ambience.enabled" />
+          <input type="checkbox" v-model="ambience.enabled" aria-label="Enable ambience" />
         </label>
         <h3>Ambience</h3>
         <span class="text-muted text-xs">Master switch — picks stay when off</span>
@@ -820,7 +820,7 @@
     <div class="audio-mix-section audio-mix-section--effects">
       <div class="flex gap-2 items-center">
         <label class="checkbox-label" @click.stop>
-          <input type="checkbox" v-model="effects.enabled" />
+          <input type="checkbox" v-model="effects.enabled" aria-label="Enable effects" />
         </label>
         <h3>Effects</h3>
         <span class="text-muted text-xs">{{ effectsTracks.length }} chosen · starts off</span>
@@ -858,7 +858,7 @@
     <div class="audio-mix-section audio-mix-section--background-voice">
       <div class="flex gap-2 items-center">
         <label class="checkbox-label" @click.stop>
-          <input type="checkbox" v-model="backgroundVoice.enabled" />
+          <input type="checkbox" v-model="backgroundVoice.enabled" aria-label="Enable background voice" />
         </label>
         <h3>Background voice</h3>
         <span class="text-muted text-xs">{{ backgroundVoiceTracks.length }} chosen · starts off</span>

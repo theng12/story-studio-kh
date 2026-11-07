@@ -154,6 +154,33 @@ test('a state-only edit stales the I2V clip and the T2V clip through the same ru
   assert.equal(await sceneClipStaleReason(t2v, afterEdit), 'stale video prompt')
 })
 
+test('Scene Review and both Assembly stale lists follow a state-only edit', async () => {
+  const { project, episodeId, paths, planPath } = await seed('Story state assembly freshness')
+  await setOutfit(project.slug, episodeId, 'red coat')
+  const suffix = sceneStoryStateSuffix('scene-001', await readSceneStoryContext(project.slug, episodeId)).suffix
+  const imagesDir = path.join(paths.episode_dir, 'scene_images')
+  await fs.mkdir(imagesDir, { recursive: true })
+  const imagePath = path.join(imagesDir, 'scene-001.png')
+  await fs.writeFile(imagePath, await sharp({ create: { width: 8, height: 8, channels: 3, background: { r: 10, g: 20, b: 30 } } }).png().toBuffer())
+  await checkpointSceneImage(planPath, 'scene-001', imagePath, `A lighthouse.${suffix}`, false)
+  const { scanEpisodeAssets } = await import('../generators/video.js')
+  const matching = await scanEpisodeAssets(project.slug, episodeId)
+  assert.deepEqual(matching.scene_plan_coverage?.stale, [])
+  assert.equal(matching.scene_plan_timing?.scenes.find(scene => scene.id === 'scene-001')?.stale, false)
+
+  await setOutfit(project.slug, episodeId, 'blue coat')
+  const changed = await scanEpisodeAssets(project.slug, episodeId)
+  assert.deepEqual(changed.scene_plan_coverage?.stale, [{ id: 'scene-001', scene_index: 1 }])
+  assert.equal(changed.scene_plan_timing?.scenes.find(scene => scene.id === 'scene-001')?.stale, true)
+
+  process.env.STORY_STUDIO_DISABLE_LISTEN = '1'
+  const { app } = await import('../app.js')
+  const { default: request } = await import('supertest')
+  const response = await request(app).get(`/api/projects/${project.slug}/scene-review/${episodeId}`)
+  assert.equal(response.status, 200)
+  assert.equal(response.body.scenes.find((scene: ScenePlanEntry) => scene.id === 'scene-001')?.stale, true)
+})
+
 test('the completion audit agrees with the batch when it is given the state', async () => {
   const { project, episodeId, paths, planPath } = await seed('Story state completion audit')
   await setOutfit(project.slug, episodeId, 'red coat')

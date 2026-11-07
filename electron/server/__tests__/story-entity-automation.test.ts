@@ -106,6 +106,24 @@ describe('story entity review draft', () => {
     assert.deepEqual(calls, [], 'nothing may be queued for a script that is not complete')
   })
 
+  test('a completed selected chapter does not extract an unfinished full script', async () => {
+    const { resolveEpisodePathsByCode } = await import('../services/utils.js')
+    const { writeImportedOutline } = await import('../lib/chunked-narration.js')
+    const paths = await resolveEpisodePathsByCode(slug, episodeId)
+    await fs.mkdir(paths.script_dir, { recursive: true })
+    await writeImportedOutline(paths.script_dir, episodeId, [{ title: 'One' }, { title: 'Two' }])
+    const chapter = '# Chapter one\n\nA guide walks the harbour at dawn.'
+    await fs.writeFile(path.join(paths.script_dir, `${episodeId}_Chapter_01.md`), chapter)
+    await fs.writeFile(path.join(paths.script_dir, `${episodeId}_Script_Narration.md`), chapter)
+    let calls = 0
+    const result = await enqueueStoryEntitiesAfterScript(
+      { project_slug: slug, episode_id: episodeId, params: { chapters_to_expand: [1] } },
+      async () => { calls++; return 'enqueued' },
+    )
+    assert.equal(result.outcome, 'incomplete')
+    assert.equal(calls, 0)
+  })
+
   test('a complete expansion queues extraction once, through the existing enqueue seam', async () => {
     const { resolveEpisodePathsByCode } = await import('../services/utils.js')
     const paths = await resolveEpisodePathsByCode(slug, episodeId)
@@ -115,6 +133,10 @@ describe('story entity review draft', () => {
       '# Chapter one\n\nA guide walks the harbour at dawn.',
       'utf-8',
     )
+    await fs.writeFile(path.join(paths.script_dir, `${episodeId}_Chapter_02.md`),
+      '# Chapter two\n\nThe guide returns home after the walk.')
+    await fs.writeFile(path.join(paths.script_dir, `${episodeId}_Script_Narration.md`),
+      '# Chapter one\n\nA guide walks the harbour at dawn.\n\n# Chapter two\n\nThe guide returns home after the walk.')
 
     const calls: string[] = []
     const result = await enqueueStoryEntitiesAfterScript(
