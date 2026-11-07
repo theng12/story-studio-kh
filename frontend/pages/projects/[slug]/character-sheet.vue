@@ -35,6 +35,9 @@
     <WorkspaceNotice v-if="droppedAnchorNotice" class="mt-3" tone="info" title="Removed characters that are no longer in this project">
       {{ droppedAnchorNotice }} Save visual setup to keep the change.
     </WorkspaceNotice>
+    <WorkspaceNotice v-if="compositionPromptNotice" class="mt-3" tone="info" title="Composition prompt cleared">
+      {{ compositionPromptNotice }}
+    </WorkspaceNotice>
 
     <!-- Channel roster: shared Channel Characters for this channel. Lives
          OUTSIDE the episode gate so it works with no episode selected, and
@@ -295,6 +298,9 @@ const saveStatus = computed(() => {
   return dirty.value ? 'Unsaved changes' : ''
 })
 const droppedAnchorNotice = ref('')
+// AGENTS.md §4 — set when an episode change clears written composition-prompt
+// text, so the clear is announced rather than silent.
+const compositionPromptNotice = ref('')
 
 // ── Episode sheet (master img2img reference) ─────────────────────────
 const masterExists = ref<boolean | null>(null)
@@ -605,11 +611,27 @@ watch([slug, episodeId], () => {
   configLoadError.value = ''
   charactersLoaded.value = false
   droppedAnchorNotice.value = ''
+  // Every remaining episode-owned draft field is blanked on the change too
+  // (AGENTS.md §4): the roster resolves from this episode's own files, the
+  // composition prompt was written for the episode just left, and the generate
+  // flag belongs to a request that may never land here. Text the customer
+  // typed is announced, not silently dropped.
+  compositionPromptNotice.value = compositionPrompt.value.trim()
+    ? 'Composition prompt was cleared because the episode changed. Saved templates are untouched.'
+    : ''
+  compositionPrompt.value = ''
+  generatingComposition.value = false
+  characters.value = []
   void loadCharacters()
   void loadConfig()
   void loadRefs()
   void pagePresets.load()
 }, { immediate: true, flush: 'sync' })
+// The announcement has done its job once the customer writes a new prompt for
+// the episode now on screen.
+watch(compositionPrompt, (value) => {
+  if (value.trim()) compositionPromptNotice.value = ''
+})
 </script>
 
 <style scoped>
