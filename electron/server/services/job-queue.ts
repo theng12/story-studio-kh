@@ -23,7 +23,20 @@ import type { ChildProcess } from 'child_process'
 import { createHash, randomUUID } from 'node:crypto'
 import { isDeepStrictEqual } from 'node:util'
 import { mergeGenerationReplacementAttempts } from './generation-paid-replacement.js'
-import { projectsRoot, getProjectDir, getUserDataDir } from './project-manager.js'
+import { projectsRoot, getConfig, getProjectDir, getUserDataDir } from './project-manager.js'
+import { readYouTubeConnectionRegistry } from './youtube-connection-store.js'
+import { readYouTubeQuota } from './youtube-quota-ledger.js'
+import { validateUploadPacingPolicy } from './upload-pacing.js'
+import {
+  channelOf,
+  pacingContextForChannel,
+  pacingHoldReason,
+  uploadPacingBootReevaluates,
+  PACING_RETRY_PARAM,
+  PUBLISH_DEADLINE_HOLD_PARAM,
+  type PacingChannelContext,
+  type PacingHold,
+} from './upload-pacing-queue.js'
 import { reapRecordedChildren, recordChildProcess } from './orphan-reaper.js'
 import { trackGeneration } from './session-tracker.js'
 import { writeJsonAtomic, withCrossProcessLock, withLock } from '../lib/atomic-store.js'
@@ -1749,7 +1762,9 @@ async function releaseQuotaWaitIfDue(jobId: string): Promise<void> {
   delete job.params.quota_retry_at
   job.error = null
   job.finished_at = null
-  job.output_lines.push('Writing-model recheck is due — returning this saved job to its queue lane.')
+  job.output_lines.push(job.type === 'youtube_upload'
+    ? 'Upload pacing check is due — returning this saved upload to its queue lane.'
+    : 'Writing-model recheck is due — returning this saved job to its queue lane.')
   try {
     await persistJob(job)
   } catch (error) {
@@ -1807,6 +1822,191 @@ function parkForQuota(job: Job, retryAt: string): void {
 
 function isQueuedQuotaWait(job: Job): boolean {
   return job.status === 'queued' && typeof job.params?.quota_retry_at === 'string'
+}
+
+/**
+ * Hold a QUEUED job until a future instant, using the same durable marker the
+ * queue's own quota wait uses — so the ONE existing timer wakes it and a restart
+ * re-reads the instant (Story 386 Item 1). Used by the upload lane when a
+ * channel's pacing window, daily limit or quota reset is not open yet, and by
+ * the upload generator when a publication date has passed while it waited.
+ *
+ * Never starts provider work and never moves the instant to a guess: a null
+ * `wakeAt` leaves the row queued with the reason recorded and no timer, so a
+ * later pass re-decides rather than waking on an invented clock (§6).
+ */
+export async function holdJobUntil(jobId: string, wakeAt: string | null, reason: string): Promise<Job | null> {
+  const job = jobs.get(jobId)
+  if (!job || job.status !== 'queued' || cancelled.has(jobId)) return null
+  const valid = typeof wakeAt === 'string' && Number.isFinite(Date.parse(wakeAt)) && Date.parse(wakeAt) > Date.now()
+  job.output_lines.push(reason)
+  if (!valid) {
+    delete job.params.quota_retry_at
+    job.error = reason
+    clearQuotaWaitTimer(jobId)
+    await persistJob(job)
+    emitUpdate(job)
+    return serializeJob(job)
+  }
+  parkForQuota(job, wakeAt as string)
+  job.error = reason
+  job.output_lines[job.output_lines.length - 1] = reason
+  await persistJob(job)
+  emitUpdate(job)
+  scheduleQuotaWait(job)
+  return serializeJob(job)
+}
+
+// ── Upload pacing admission (Story 386 Item 1) ──────────────────────────────
+//
+// Every producer — manual, bulk, Pipeline, the auto final-check hand-off,
+// Retry and a restart — reaches the YouTube lane through this one pump, so the
+// pacing gate belongs here and not in each producer. A row that is not open
+// yet is parked on the queue's OWN durable `quota_retry_at` marker: the
+// existing timer wakes it, and boot re-decides from live inputs rather than
+// trusting an instant written by a previous process. Only `youtube_upload` is
+// affected; every other lane keeps its previous admission untouched.
+
+let uploadPacingContextForTesting:
+  | ((job: Job) => PacingChannelContext | null | Promise<PacingChannelContext | null>)
+  | null = null
+
+/** Test-only replacement for the live config/quota/ledger read. */
+export function _setUploadPacingContextForTesting(
+  loader: ((job: Job) => PacingChannelContext | null | Promise<PacingChannelContext | null>) | null,
+): void {
+  uploadPacingContextForTesting = loader
+}
+
+/** Resolve this job's channel context from live data, or null when unconfigured. */
+async function liveUploadPacingContext(job: Job): Promise<PacingChannelContext | null> {
+  if (uploadPacingContextForTesting) return uploadPacingContextForTesting(job)
+  const config = await getConfig(job.project_slug) as { upload_pacing?: unknown } | null
+  const raw = config?.upload_pacing
+  if (!raw) return null
+  const validated = validateUploadPacingPolicy(raw)
+  if (!validated.ok) return null
+  const registry = await readYouTubeConnectionRegistry()
+  const quota = registry.application
+    ? await readYouTubeQuota(registry.application.application_id).catch(() => null)
+    : null
+  const projectJobs = [...jobs.values()].filter(candidate =>
+    candidate.project_slug === job.project_slug && candidate.type === 'youtube_upload')
+  return pacingContextForChannel({
+    jobs: projectJobs,
+    policy: validated.policy,
+    channelId: channelOf(job),
+    quota: quota
+      ? {
+        resets_at: quota.resets_at,
+        video_uploads: { used: quota.buckets.video_uploads.used, limit: quota.buckets.video_uploads.limit },
+      }
+      : null,
+  })
+}
+
+let uploadAdmissionInFlight = false
+
+function removePendingUpload(jobId: string): void {
+  const pending = queues.youtube_upload.pending
+  const index = pending.findIndex(candidate => candidate.job_id === jobId)
+  if (index >= 0) pending.splice(index, 1)
+}
+
+/**
+ * One fair pass over the upload lane: hold every row whose channel is not
+ * open, then start the FIRST row that is — so one held channel never blocks
+ * another and a wake never turns into a catch-up burst (the lane stays serial
+ * and the next rows are re-checked after it finishes).
+ *
+ * A known wake instant parks the row outside the lane (the timer re-admits it).
+ * A hold with no honest instant stays IN the lane, unwritten after the first
+ * pass, so any later pump re-decides without inventing a clock.
+ *
+ * Returns whether this pass changed the lane's pending list.
+ */
+async function admitNextPacedUpload(): Promise<boolean> {
+  const q = queues.youtube_upload
+  let progressed = false
+  for (const job of [...q.pending]) {
+    if (queuePaused) break
+    if (job.status !== 'queued' || cancelled.has(job.job_id)) {
+      removePendingUpload(job.job_id)
+      progressed = true
+      continue
+    }
+    if (persistenceFenced(job.project_slug)) continue
+    let hold: PacingHold | null
+    try {
+      const context = await liveUploadPacingContext(job)
+      hold = context ? pacingHoldReason(job, { channelContext: () => context }) : null
+    } catch (error) {
+      // A read failure must not strand the lane. Fall back to the previous
+      // admission; the generator's own quota check still refuses a spent call.
+      console.warn('[job-queue] upload pacing inputs unreadable; admitting without a pacing hold', {
+        job_id: job.job_id,
+        error: error instanceof Error ? error.message : String(error),
+      })
+      hold = null
+    }
+    if (!hold) {
+      removePendingUpload(job.job_id)
+      delete job.params[PACING_RETRY_PARAM]
+      delete job.params[PUBLISH_DEADLINE_HOLD_PARAM]
+      clearQuotaWaitTimer(job.job_id)
+      runJob('youtube_upload', job).catch(e => console.error('[job-queue] Error processing youtube_upload:', e))
+      return true
+    }
+    if (hold.reason === 'publish_deadline_conflict') job.params[PUBLISH_DEADLINE_HOLD_PARAM] = true
+    if (hold.wake_at) {
+      removePendingUpload(job.job_id)
+      await holdJobUntil(job.job_id, hold.wake_at, hold.detail)
+      progressed = true
+      continue
+    }
+    // No honest wake instant: keep the row queued and in the lane, but write
+    // the reason once rather than on every pump.
+    delete job.params[PACING_RETRY_PARAM]
+    clearQuotaWaitTimer(job.job_id)
+    if (job.error !== hold.detail) {
+      job.error = hold.detail
+      job.output_lines.push(hold.detail)
+      await persistJob(job)
+      emitUpdate(job)
+    }
+  }
+  q.running = false
+  return progressed
+}
+
+/** Claim the single upload slot before any await, then decide from live pacing. */
+function pumpUploadLane(): void {
+  const q = queues.youtube_upload
+  if (queuePaused || q.running || q.pending.length === 0 || uploadAdmissionInFlight) return
+  const startPending = q.pending.length
+  q.running = true
+  uploadAdmissionInFlight = true
+  void (async () => {
+    let again = false
+    try {
+      const progressed = await admitNextPacedUpload()
+      // Work enqueued while this pass was deciding has no other pump to start
+      // it. A pass that changed nothing cannot make progress, so it stops here
+      // instead of spinning on rows held with no known wake instant.
+      again = !q.running && (progressed || q.pending.length > startPending)
+    } catch (error) {
+      q.running = false
+      console.error('[job-queue] upload pacing admission failed:', error)
+    } finally {
+      uploadAdmissionInFlight = false
+    }
+    if (again) queueMicrotask(() => pumpUploadLane())
+  })()
+}
+
+/** Ask the upload lane to re-decide from live pacing (a corrected date or policy). */
+export function reevaluateUploadQueue(): void {
+  pump('youtube_upload')
 }
 
 // ── Concurrency groups ──────────────────────────────────────────────────────
@@ -5030,8 +5230,18 @@ async function readPersistedJobs(projectSlug: string): Promise<Job[]> {
                 : null
               const queuedRetryAtMs = validRetryAtMs(queuedRetryAt)
               if (queuedRetryAt && queuedRetryAtMs !== null && queuedRetryAtMs > Date.now()) {
-                j.finished_at = null
-                quotaWaitJobs.push(j)
+                // A paced upload re-decides from live policy/quota/window at
+                // boot; the stored instant is a hint, not an instruction.
+                if (uploadPacingBootReevaluates(j) && queues.youtube_upload.executor) {
+                  j.started_at = null
+                  j.finished_at = null
+                  queues.youtube_upload.pending.push(j)
+                  resumedTypes.add('youtube_upload')
+                  mutated = true
+                } else {
+                  j.finished_at = null
+                  quotaWaitJobs.push(j)
+                }
               } else {
                 // A stale wait is ready immediately after boot.
                 if (queuedRetryAt) delete j.params.quota_retry_at
@@ -5480,6 +5690,12 @@ function pump(type: JobType): void {
   // A retired job type can still sit in a project's history (owner rule: stored data is read
   // safely and never rewritten). Its lane no longer exists, so there is nothing to pump.
   if (!q) return
+  // The upload lane is admitted through the pacing gate (Story 386 Item 1);
+  // every producer and every restart reaches it through this one pump.
+  if (type === 'youtube_upload') {
+    pumpUploadLane()
+    return
+  }
   const next = q.pending[0]
   const group = groupOf(type, next)
   if (group === IMAGE_EPISODE_GROUP) {

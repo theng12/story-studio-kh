@@ -28,6 +28,7 @@ import {
   type RecordedTransfer,
   type UploadPacingPolicy,
 } from './upload-pacing.js'
+import { pacingInputsForPolicy } from './youtube-pacing-inputs.js'
 
 /** The durable job param that carries "earliest allowed transfer start" (ISO 8601). */
 export const UPLOAD_ON_PARAM = 'upload_on'
@@ -76,6 +77,50 @@ export interface PacingHoldInputs {
 function quotaResetInstant(context: PacingChannelContext): string | null {
   const reset = context.quota_reset_at
   return typeof reset === 'string' && Number.isFinite(Date.parse(reset)) ? reset : null
+}
+
+/**
+ * Build one channel's dispatch context from the project's own upload rows and
+ * the app quota ledger. Rows that name a DIFFERENT channel are left out, so a
+ * hold on one channel cannot consume or block another channel's allowance; a
+ * row that records no channel is kept because the project is that channel.
+ */
+export function pacingContextForChannel(input: {
+  jobs: readonly Job[]
+  policy: UploadPacingPolicy
+  channelId: string | null
+  quota: {
+    resets_at: string
+    video_uploads: { used: number, limit: number | null }
+  } | null
+}): PacingChannelContext {
+  const scoped = input.channelId
+    ? input.jobs.filter(job => {
+      const id = channelOf(job)
+      return id === null || id === input.channelId
+    })
+    : input.jobs
+  const live = pacingInputsForPolicy({ jobs: scoped, policy: input.policy, quota: input.quota })
+  return {
+    policy: input.policy,
+    recorded_transfers: live.recorded_transfers,
+    quota_exhausted: live.quota_exhausted,
+    quota_reset_at: live.quota_reset_at,
+  }
+}
+
+/**
+ * Whether a queued upload carrying a future pacing instant must be re-decided
+ * by the boot scan instead of sleeping until that stored instant. The instant
+ * is a hint from the process that wrote it; policy, quota and the channel's
+ * window may all have changed while the app was closed (§1, §6).
+ */
+export function uploadPacingBootReevaluates(job: Job, nowMs = Date.now()): boolean {
+  if (job.type !== 'youtube_upload' || job.status !== 'queued') return false
+  const retryAt = job.params?.[PACING_RETRY_PARAM]
+  if (typeof retryAt !== 'string') return false
+  const retryAtMs = Date.parse(retryAt)
+  return Number.isFinite(retryAtMs) && retryAtMs > nowMs
 }
 
 /**
