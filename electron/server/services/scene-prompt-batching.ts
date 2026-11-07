@@ -450,7 +450,7 @@ export function sceneRequestFits(opts: {
  * measured. Single-scene visual English is measured separately because one
  * scene pays the pack's whole fixed overhead.
  */
-export type ScenePromptUnitKind = 'visual' | 'motion' | 'planner-window'
+export type ScenePromptUnitKind = 'visual' | 'motion' | 'planner-window' | 'thumbnail'
 export type ScenePromptOutputLanguage = 'en' | 'km'
 
 export interface SceneUnitTokenRates {
@@ -474,6 +474,13 @@ export const SCENE_PROMPT_MEASURED_TOKENS_PER_UNIT: Readonly<
   'planner-window': Object.freeze({ // unmeasured
     en: Object.freeze({ perUnit: 300, singleUnit: 300 }),
     km: Object.freeze({ perUnit: 300, singleUnit: 300 }),
+  }),
+  // G0 measured (2,458 calls, 2026-09-23 … 2026-11-01): p95 + 25% per
+  // thumbnail prompt. A thumbnail pack request carries the same fixed
+  // instruction overhead as a single one, so singleUnit equals perUnit.
+  thumbnail: Object.freeze({
+    en: Object.freeze({ perUnit: 2_350, singleUnit: 2_350 }),
+    km: Object.freeze({ perUnit: 1_750, singleUnit: 1_750 }),
   }),
 })
 

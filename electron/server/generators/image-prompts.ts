@@ -12,6 +12,14 @@ import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
 import * as cm from '../services/character-manager.js'
 import { callAi, callAiWithModelPolicy, parseStructuredJson } from '../lib/ai-client.js'
+import { listChatModels } from '../lib/genstudio-client.js'
+import {
+  describeSceneRequestLimits,
+  resolveSceneUnitTokenRates,
+  sceneRequestFits,
+  type SceneRequestLimits,
+} from '../services/scene-prompt-batching.js'
+import { nonAsciiCharacterCount } from '../services/output-token-budget.js'
 import { resolveEpisodePaths, resolveEpisodeTitleByCode, resolveSubfolderNames } from '../services/utils.js'
 import { buildImagePromptsDocx } from '../lib/docx-builder.js'
 import { resolveSubfolder, resolveEpisodeDir } from '../lib/folder-resolver.js'
@@ -825,90 +833,145 @@ export async function generateImagePrompts(job: Job): Promise<void> {
       )
     }
 
-    let prompt = buildThumbnailPrompt({
-      episodeId,
-      title,
-      storyContext,
-      castBlock,
-      count: targetNumbers.length,
-      styleTag,
-      aspectRatio: req.aspect_ratio || '16:9',
-      thumbnailDirective,
-      targetNumbers,
-      headlineMode,
-      // The ceiling for the BODY, not the published ceiling: the assembly
-      // adds its own characters on top, and those count against the same
-      // published limit.
-      promptCharCap: bodyCeiling,
-      promptCharCapTotal: publishedCap,
-      promptCharReservedCharacters: assemblyOverhead.characters,
-    })
-    if (artStyle?.negatives.length) {
-      prompt += `\n\nAvoid in all thumbnail artwork: ${artStyle.negatives.join(', ')}`
+    const buildThumbnailPromptFor = async (numbers: number[]): Promise<string> => {
+      let built = buildThumbnailPrompt({
+        episodeId,
+        title,
+        storyContext,
+        castBlock,
+        count: numbers.length,
+        styleTag,
+        aspectRatio: req.aspect_ratio || '16:9',
+        thumbnailDirective,
+        targetNumbers: numbers,
+        headlineMode,
+        // The ceiling for the BODY, not the published ceiling: the assembly
+        // adds its own characters on top, and those count against the same
+        // published limit.
+        promptCharCap: bodyCeiling,
+        promptCharCapTotal: publishedCap,
+        promptCharReservedCharacters: assemblyOverhead.characters,
+      })
+      if (artStyle?.negatives.length) {
+        built += `\n\nAvoid in all thumbnail artwork: ${artStyle.negatives.join(', ')}`
+      }
+      try {
+        const { prependAvoidanceToPrompt } = await import('../services/recency-tracker.js')
+        built = await prependAvoidanceToPrompt(projectSlug, 'image_prompts', built, episodeId)
+      } catch {
+        // Recency enrichment cannot block generation.
+      }
+      if (khmer) built += '\n\nKhmer channel: every image must be completely text-free. Do not describe or draw words, letters, numbers, captions, logos, or typography. This overrides any conflicting recipe or reference guidance.'
+      return built
     }
-    try {
-      const { prependAvoidanceToPrompt } = await import('../services/recency-tracker.js')
-      prompt = await prependAvoidanceToPrompt(projectSlug, 'image_prompts', prompt, episodeId)
-    } catch {
-      // Recency enrichment cannot block generation.
-    }
-
-    if (khmer) prompt += '\n\nKhmer channel: every image must be completely text-free. Do not describe or draw words, letters, numbers, captions, logos, or typography. This overrides any conflicting recipe or reference guidance.'
     const controller = new AbortController()
     const cancelWatcher = setInterval(() => {
       if (jq.isCancelled(job.job_id)) controller.abort()
     }, 500)
     try {
-      job.output_lines.push(`Calling ${model} for ${targetNumbers.length} thumbnail prompt(s)…`)
       const promptPolicy = pipelinePolicyForJob(job.params, 'image_prompts')
       const promptCheckpoint = pipelinePolicyCheckpointStore(job.params, () => jq.checkpointJobState(job))
-      const promptRequestIdentity = freshGenerationRequestIdentity(job, `thumbnail-prompts-${targetNumbers.join('-')}`)
-        ?? `${projectSlug}:${episodeId}:thumbnail-prompts-${targetNumbers.join('-')}`
-      const raw = promptPolicy
-        ? await callAiWithModelPolicy(promptPolicy, '', prompt, aiCreds(config), false, {
-            slug: projectSlug,
-            jobId: job.job_id,
-            signal: controller.signal,
-            requestIdentity: promptRequestIdentity,
-            pipelinePolicyCheckpoint: promptCheckpoint,
-            pipelinePolicyCheckpointKey: promptRequestIdentity,
-            onModelSelected: selected => {
-              job.output_lines.push(`[pipeline] image prompts using Gateway product "${selected}".`)
-            },
-            outputContract: thumbnailPromptsOutputContract(targetNumbers.length),
-            // As much as this request can fit: a thumbnail pack is several long
-            // prompts (measured ~2,350 tokens each in English), so a fixed
-            // quarter of the ceiling can be too small on a reading model. The
-            // submission boundary sizes it against the live output, request and
-            // context figures — never a number of ours.
-            outputBudget: 'maximum',
-            disableReasoning: true,
-            temperature: 0.35,
-          })
-        : await callAi(model, '', prompt, aiCreds(config), false, {
-        slug: projectSlug,
-        jobId: job.job_id,
-        signal: controller.signal,
-        requestIdentity: promptRequestIdentity,
-        outputContract: thumbnailPromptsOutputContract(targetNumbers.length),
-        // As much as this request can fit — see the policy branch above.
-        outputBudget: 'maximum',
-        disableReasoning: true,
-        temperature: 0.35,
-      })
-      const generated = normalizeGeneratedPromptItems(
-        parseThumbnailPromptsJson(raw),
-        targetNumbers.length,
-      // Episode-title recipes preserve the real episode title. Curiosity-hook
-      // recipes intentionally keep the LLM's short, per-variation hook as the
-      // editable thumbnail headline while YouTube metadata keeps its full
-      // factual episode title elsewhere.
-      ).map((item, index) => ({
-        ...item,
-        title: headlineInvents(headlineMode) ? String(item.title || '').trim() || title : title,
-        number: targetNumbers[index],
-      }))
-      for (const item of generated) existingByNumber.set(Number(item.number), item)
+      // G2: size the WRITING request against the selected model's LIVE limits
+      // using the measured thumbnail answer rate (G0 p95 + 25%: 2,350 en /
+      // 1,750 km tokens per prompt) plus the real assembled prompt — never a
+      // fixed ratio and never a number inferred from a model's name. The image
+      // model's published character cap governs each prompt BODY via
+      // bodyCeiling above; this governs how many prompts one request may ask
+      // for. An absent limit is unknown and enforces nothing.
+      const thumbnailRates = resolveSceneUnitTokenRates('thumbnail', khmer ? 'km' : 'en')
+      const catalogue = await listChatModels(apiKey).catch(() => null)
+      const product = catalogue?.find(item => item.id === model) ?? null
+      const writingLimits: SceneRequestLimits = product
+        ? {
+            maxRequestTokens: product.max_request_tokens || null,
+            contextWindowTokens: product.context_window_tokens || null,
+            maxOutputTokens: product.max_output_tokens || null,
+          }
+        : {}
+      const measureFit = async (numbers: number[]) => {
+        const text = await buildThumbnailPromptFor(numbers)
+        return sceneRequestFits({
+          promptCharacters: text.length,
+          promptNonAsciiCharacters: nonAsciiCharacterCount(text),
+          answerTokens: numbers.length === 1
+            ? thumbnailRates.singleUnit
+            : numbers.length * thumbnailRates.perUnit,
+          limits: writingLimits,
+        })
+      }
+      let perRequest = targetNumbers.length
+      let fit = await measureFit(targetNumbers)
+      while (!fit.fits && perRequest > 1) {
+        perRequest -= 1
+        fit = await measureFit(targetNumbers.slice(0, perRequest))
+      }
+      if (!fit.fits) {
+        throw new Error(
+          `One thumbnail prompt cannot be requested from ${model}: its assembled prompt is about `
+          + `${fit.promptTokens.toLocaleString()} tokens and needs about `
+          + `${thumbnailRates.singleUnit.toLocaleString()} answer tokens, but the published limits are `
+          + `${describeSceneRequestLimits(writingLimits)}. Nothing was requested. `
+          + 'Shorten the Style Bible/creative direction, or choose a model with a larger limit.',
+        )
+      }
+      job.output_lines.push(
+        `${perRequest} thumbnail prompt(s) per request — sized for ${model} `
+        + `(${describeSceneRequestLimits(writingLimits)}, ${thumbnailRates.perUnit} answer tokens per prompt).`,
+      )
+      const batches: number[][] = []
+      for (let index = 0; index < targetNumbers.length; index += perRequest) {
+        batches.push(targetNumbers.slice(index, index + perRequest))
+      }
+      for (const [batchIndex, batch] of batches.entries()) {
+        const prompt = await buildThumbnailPromptFor(batch)
+        job.output_lines.push(
+          `Calling ${model} for ${batch.length} thumbnail prompt(s)`
+          + `${batches.length > 1 ? ` (request ${batchIndex + 1}/${batches.length})` : ''}…`,
+        )
+        const promptRequestIdentity = freshGenerationRequestIdentity(job, `thumbnail-prompts-${batch.join('-')}`)
+          ?? `${projectSlug}:${episodeId}:thumbnail-prompts-${batch.join('-')}`
+        const raw = promptPolicy
+          ? await callAiWithModelPolicy(promptPolicy, '', prompt, aiCreds(config), false, {
+              slug: projectSlug,
+              jobId: job.job_id,
+              signal: controller.signal,
+              requestIdentity: promptRequestIdentity,
+              pipelinePolicyCheckpoint: promptCheckpoint,
+              pipelinePolicyCheckpointKey: promptRequestIdentity,
+              onModelSelected: selected => {
+                job.output_lines.push(`[pipeline] image prompts using Gateway product "${selected}".`)
+              },
+              outputContract: thumbnailPromptsOutputContract(batch.length),
+              // As much as this request can fit — see the sizing above.
+              outputBudget: 'maximum',
+              disableReasoning: true,
+              temperature: 0.35,
+            })
+          : await callAi(model, '', prompt, aiCreds(config), false, {
+              slug: projectSlug,
+              jobId: job.job_id,
+              signal: controller.signal,
+              requestIdentity: promptRequestIdentity,
+              outputContract: thumbnailPromptsOutputContract(batch.length),
+              // As much as this request can fit — see the sizing above.
+              outputBudget: 'maximum',
+              disableReasoning: true,
+              temperature: 0.35,
+            })
+        const generated = normalizeGeneratedPromptItems(
+          parseThumbnailPromptsJson(raw),
+          batch.length,
+        // Episode-title recipes preserve the real episode title. Curiosity-hook
+        // recipes intentionally keep the LLM's short, per-variation hook as the
+        // editable thumbnail headline while YouTube metadata keeps its full
+        // factual episode title elsewhere.
+        ).map((item, index) => ({
+          ...item,
+          title: headlineInvents(headlineMode) ? String(item.title || '').trim() || title : title,
+          number: batch[index],
+        }))
+        for (const item of generated) existingByNumber.set(Number(item.number), item)
+      }
       thumbnails = [...existingByNumber.values()].sort((a, b) => Number(a.number) - Number(b.number))
     } finally {
       clearInterval(cancelWatcher)
