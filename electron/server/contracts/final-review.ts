@@ -60,6 +60,11 @@ export interface FinalReviewItem {
   /** Whether review is enabled for this item's channel at list time. */
   review_enabled: boolean
   review: FinalReviewState
+  /**
+   * Set when auto-pass could not save its mark for this final. The item stays
+   * `not_reviewed` — never a fake auto-pass — and says plainly why.
+   */
+  auto_pass_error?: string
 }
 
 export interface FinalReviewChannel {

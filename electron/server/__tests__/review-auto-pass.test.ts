@@ -2,10 +2,14 @@
  * Final-video review marks — auto-pass and manual decision interactions.
  *
  * Tests for:
- *   - clearing a mark to not_reviewed;
+ *   - clearing a mark to not_reviewed, and a clear STAYING cleared across the
+ *     next list GETs (auto-pass must not re-apply it to the same bytes);
  *   - auto-passing new finals when the per-channel switch is ON;
  *   - never back-filling older finals before the auto-pass switch was enabled;
  *   - letting the owner Pass, Needs changes or clear an auto-passed final;
+ *   - stale-identity clear refusals, the clear moving the mark to Story's Trash,
+ *     races between a clear and an in-flight auto-pass, and a persist failure
+ *     that says so instead of pretending;
  *   - ensuring auto-pass writes a note-only sidecar and performs no upload/schedule/publish.
  */
 
@@ -28,6 +32,7 @@ const {
   finalReviewEnabled,
   finalAutoPassEnabled,
   finalReviewSidecarPath,
+  finalReviewClearedPath,
   listFinalReviews,
   readFinalReview,
   writeFinalReview,
@@ -121,7 +126,7 @@ describe('Review finals — clearing a mark', () => {
       identity: (await readFinalReview(channel.finalPath) as any).identity,
     })
 
-    const result = await deleteFinalReview(channel.finalPath)
+    const result = await deleteFinalReview(channel.finalPath, { slug: channel.slug })
     assert.deepEqual(result, { state: 'not_reviewed' })
     assert.deepEqual(await readFinalReview(channel.finalPath), { state: 'not_reviewed' })
 
@@ -130,7 +135,7 @@ describe('Review finals — clearing a mark', () => {
 
   test('deleteFinalReview is idempotent on a final that has no mark', async () => {
     const channel = await makeChannel('No Mark Channel', { review: true })
-    const result = await deleteFinalReview(channel.finalPath)
+    const result = await deleteFinalReview(channel.finalPath, { slug: channel.slug })
     assert.deepEqual(result, { state: 'not_reviewed' })
   })
 
@@ -144,7 +149,12 @@ describe('Review finals — clearing a mark', () => {
 
     const res = await request(app)
       .post(`/api/review/finals/${channel.slug}/${channel.code}`)
-      .send({ decision: 'clear' })
+      .send({
+        decision: 'clear',
+        expected_size: stat.size,
+        expected_mtime_ms: stat.mtimeMs,
+        expected_ino: stat.ino,
+      })
       .expect(200)
     assert.equal(res.body.review.state, 'not_reviewed')
     assert.deepEqual(await readFinalReview(channel.finalPath), { state: 'not_reviewed' })
@@ -162,6 +172,118 @@ describe('Review finals — clearing a mark', () => {
       .expect(200)
     assert.equal(res.body.review.state, 'not_reviewed')
     assert.deepEqual(await readFinalReview(channel.finalPath), { state: 'not_reviewed' })
+  })
+})
+
+describe('Review finals — a deliberate clear is durable', () => {
+  test('clear → list → list: auto-pass never re-applies to the same bytes', async () => {
+    const channel = await makeChannel('Clear Stays Channel', { autoPassSinceMs: 10_000 })
+    let listed = await listFinalReviews({ slug: channel.slug })
+    assert.equal(decisionOf(listed.finals[0].review), 'auto_passed')
+
+    await deleteFinalReview(channel.finalPath, { slug: channel.slug })
+
+    listed = await listFinalReviews({ slug: channel.slug })
+    assert.equal(listed.finals[0].review.state, 'not_reviewed')
+    assert.equal(listed.channels[0].auto_pass_count, 0)
+
+    listed = await listFinalReviews({ slug: channel.slug })
+    assert.equal(listed.finals[0].review.state, 'not_reviewed')
+    assert.equal(listed.channels[0].auto_pass_count, 0)
+
+    // The clear lives on disk beside the final, so a restart keeps it too.
+    const cleared = JSON.parse(await fs.readFile(finalReviewClearedPath(channel.finalPath), 'utf8'))
+    assert.equal(cleared.schema_version, 1)
+    assert.equal(cleared.identity.path, channel.finalPath)
+    assert.equal(cleared.identity.size, (await fs.stat(channel.finalPath)).size)
+  })
+
+  test('a re-rendered final is eligible for auto-pass again', async () => {
+    const channel = await makeChannel('Rerender After Clear Channel', { autoPassSinceMs: 10_000 })
+    await listFinalReviews({ slug: channel.slug })
+    await deleteFinalReview(channel.finalPath, { slug: channel.slug })
+    // New bytes at the same path: different size and modified time, so the
+    // clear no longer names this file and auto-pass may apply once more.
+    await fs.writeFile(channel.finalPath, Buffer.alloc(128, 9))
+    const listed = await listFinalReviews({ slug: channel.slug })
+    assert.equal(decisionOf(listed.finals[0].review), 'auto_passed')
+  })
+
+  test('clearing with the identity of a replaced final is refused', async () => {
+    const channel = await makeChannel('Stale Clear Channel', { review: true })
+    const app = express()
+    app.use(express.json())
+    app.use('/api', reviewRouter)
+    await writeFinalReview(channel.finalPath, 'approved')
+    const before = await fs.stat(channel.finalPath)
+    await fs.writeFile(channel.finalPath, Buffer.alloc(96, 5)) // replaced under the reviewer
+
+    await request(app)
+      .post(`/api/review/finals/${channel.slug}/${channel.code}`)
+      .send({
+        decision: 'clear',
+        expected_size: before.size,
+        expected_mtime_ms: before.mtimeMs,
+        expected_ino: before.ino,
+      })
+      .expect(409)
+    // Nothing was removed: the mark on file is still there.
+    await fs.access(finalReviewSidecarPath(channel.finalPath))
+
+    const now = await fs.stat(channel.finalPath)
+    const res = await request(app)
+      .post(`/api/review/finals/${channel.slug}/${channel.code}`)
+      .send({
+        decision: 'clear',
+        expected_size: now.size,
+        expected_mtime_ms: now.mtimeMs,
+        expected_ino: now.ino,
+      })
+      .expect(200)
+    assert.equal(res.body.review.state, 'not_reviewed')
+  })
+
+  test('clearing moves the mark to Story\'s Trash instead of deleting it', async () => {
+    const channel = await makeChannel('Trash Mark Channel', { review: true })
+    await writeFinalReview(channel.finalPath, 'approved')
+    await deleteFinalReview(channel.finalPath, { slug: channel.slug })
+
+    await assert.rejects(() => fs.access(finalReviewSidecarPath(channel.finalPath)))
+    const projectDir = pm.getProjectDir(channel.slug)!
+    const trashed = path.join(
+      path.dirname(projectDir), '_trash', channel.slug, 'review-marks',
+      path.basename(finalReviewSidecarPath(channel.finalPath)),
+    )
+    const moved = await fs.readFile(trashed, 'utf8').catch(() => '')
+    assert.match(moved, /"decision":"approved"/, 'the cleared mark must be recoverable from Trash')
+  })
+
+  test('an auto-pass write racing a clear is refused, not re-applied', async () => {
+    const channel = await makeChannel('Race Clear Channel', { autoPassSinceMs: 10_000 })
+    await listFinalReviews({ slug: channel.slug }) // auto-passed these bytes
+    await deleteFinalReview(channel.finalPath, { slug: channel.slug })
+    const now = await fs.stat(channel.finalPath)
+    // An auto-pass from a list that started before the clear lands after it.
+    await assert.rejects(
+      () => writeFinalReview(channel.finalPath, 'auto_passed', { size: now.size, mtime_ms: now.mtimeMs, ino: now.ino }),
+      (error: any) => error?.statusCode === 409,
+    )
+    const listed = await listFinalReviews({ slug: channel.slug })
+    assert.equal(listed.finals[0].review.state, 'not_reviewed')
+  })
+
+  test('an auto-pass that cannot save its mark says so instead of pretending', async () => {
+    const channel = await makeChannel('AutoPass Fail Channel', { autoPassSinceMs: 10_000 })
+    // Unreadable bytes: the identity hash cannot be taken, so the write fails.
+    await fs.chmod(channel.finalPath, 0o000)
+    try {
+      const listed = await listFinalReviews({ slug: channel.slug })
+      assert.equal(listed.finals[0].review.state, 'not_reviewed')
+      assert.equal(listed.channels[0].auto_pass_count, 0)
+      assert.match(listed.finals[0].auto_pass_error || '', /Could not save the auto-pass/)
+    } finally {
+      await fs.chmod(channel.finalPath, 0o644)
+    }
   })
 })
 
@@ -249,7 +371,7 @@ describe('Review finals — auto-pass behavior', () => {
     let listed = await listFinalReviews({ slug: channel.slug })
     assert.equal(decisionOf(listed.finals[0].review), 'auto_passed')
 
-    await deleteFinalReview(channel.finalPath)
+    await deleteFinalReview(channel.finalPath, { slug: channel.slug })
     listed = await listFinalReviews({ slug: channel.slug })
     assert.equal(listed.finals[0].review.state, 'not_reviewed')
   })

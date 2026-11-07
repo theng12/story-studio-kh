@@ -128,6 +128,7 @@
       <p v-if="item.review.state === 'stale'" class="rv-mark rv-mark-stale">
         This file changed since it was marked {{ item.review.decision === 'approved' ? 'passed' : item.review.decision === 'auto_passed' ? 'auto-passed' : 'as needing changes' }}. Watch it again, then mark it.
       </p>
+      <p v-if="item.auto_pass_error" class="rv-alert" role="alert">{{ item.auto_pass_error }}</p>
       <p v-if="saveError[itemKey(item)]" class="rv-alert" role="alert">{{ saveError[itemKey(item)] }}</p>
 
       <div class="rv-row-actions">
@@ -293,6 +294,7 @@ async function decide(item: FinalReviewItem, decision: FinalReviewDecision): Pro
       { decision, expected_size: item.size, expected_mtime_ms: item.mtime_ms, expected_ino: item.ino },
     )
     item.review = result.review
+    item.auto_pass_error = undefined
   } catch (e: any) {
     saveError.value = { ...saveError.value, [key]: e?.data?.detail || 'Could not save that mark.' }
     if (e?.status === 409 || e?.response?.status === 409) await load(true)
@@ -311,11 +313,14 @@ async function clearDecision(item: FinalReviewItem): Promise<void> {
   delete cleared[key]
   saveError.value = cleared
   try {
+    // Same identity check as a mark: a final that changed under the reviewer
+    // gets a 409 instead of a clear landing on bytes they never watched.
     const result = await post<{ review: FinalReviewState }>(
       `/review/finals/${encodeURIComponent(item.channel_slug)}/${encodeURIComponent(item.episode_code)}`,
-      { decision: 'clear' },
+      { decision: 'clear', expected_size: item.size, expected_mtime_ms: item.mtime_ms, expected_ino: item.ino },
     )
     item.review = result.review
+    item.auto_pass_error = undefined
   } catch (e: any) {
     saveError.value = { ...saveError.value, [key]: e?.data?.detail || 'Could not clear that mark.' }
     if (e?.status === 409 || e?.response?.status === 409) await load(true)

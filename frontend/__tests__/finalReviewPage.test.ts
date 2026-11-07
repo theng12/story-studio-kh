@@ -226,6 +226,27 @@ test('Needs changes sends the other decision', async () => {
   } finally { app.unmount() }
 })
 
+test('Clear auto-pass sends the file identity like Pass does', async () => {
+  const { host, app, calls } = await mount(
+    listWithFinal({
+      state: 'current',
+      decision: 'auto_passed',
+      decided_at: '2026-10-29T01:00:00.000Z',
+      identity: IDENTITY,
+    }),
+    { review: { state: 'not_reviewed' } },
+  )
+  try {
+    host.querySelector<HTMLButtonElement>('.rv-btn-clear')!.click()
+    await flush()
+    assert.deepEqual(calls.posts, [{
+      url: '/review/finals/demo/EP0001',
+      body: { decision: 'clear', expected_size: 64, expected_mtime_ms: 1_760_000_000_000, expected_ino: 42 },
+    }])
+    assert.match(host.textContent || '', /Not reviewed/)
+  } finally { app.unmount() }
+})
+
 test('a mark that no longer matches the file says the file changed', async () => {
   const { host, app } = await mount(listWithFinal({
     state: 'stale',

@@ -42,9 +42,9 @@ router.get('/review/finals', async (req, res) => {
 // POST /api/review/finals/:slug/:code
 //   { decision: 'approved' | 'needs_changes' | 'auto_passed' | 'clear', expected_size, expected_mtime_ms, expected_ino }
 //
-// `expected_*` is the file the reviewer was looking at. When the final on disk
-// no longer matches it, the mark is refused rather than stamped onto bytes
-// nobody watched.
+// `expected_*` is the file the reviewer was looking at — for clear as much as
+// for a mark: when the final on disk no longer matches it, the request is
+// refused rather than clearing a mark about bytes nobody watched.
 router.post('/review/finals/:slug/:code', async (req, res) => {
   try {
     const { slug, code } = req.params
@@ -63,25 +63,28 @@ router.post('/review/finals/:slug/:code', async (req, res) => {
     const finalPath = await findYouTubeSourceVideoPath(paths, slug, code, title)
     if (!finalPath) return res.status(404).json({ detail: `${code} has no finished final video to review.` })
 
-    if (decision === 'clear') {
-      res.json({ ok: true, review: await deleteFinalReview(finalPath) })
-      return
-    }
-
     const expectedSize = req.body?.expected_size
     const expectedMtime = req.body?.expected_mtime_ms
     const expectedIno = req.body?.expected_ino
     if (typeof expectedSize !== 'number' || typeof expectedMtime !== 'number' || typeof expectedIno !== 'number') {
       return res.status(400).json({ detail: 'expected_size, expected_mtime_ms and expected_ino are required so a mark names the exact file that was reviewed.' })
     }
+    const expected = { size: expectedSize, mtime_ms: expectedMtime, ino: expectedIno }
 
-    res.json({ ok: true, review: await writeFinalReview(finalPath, decision, { size: expectedSize, mtime_ms: expectedMtime, ino: expectedIno }) })
+    if (decision === 'clear') {
+      res.json({ ok: true, review: await deleteFinalReview(finalPath, { slug, expected }) })
+      return
+    }
+
+    res.json({ ok: true, review: await writeFinalReview(finalPath, decision, expected) })
   } catch (e: any) {
     respondWithError(res, e, 'Could not save the review mark')
   }
 })
 
 // DELETE /api/review/finals/:slug/:code — clear any mark on a final video.
+// No body: existing callers send none, so it clears against the file as it is
+// now (the POST route is the one that takes the reviewer's expected identity).
 router.delete('/review/finals/:slug/:code', async (req, res) => {
   try {
     const { slug, code } = req.params
@@ -92,7 +95,7 @@ router.delete('/review/finals/:slug/:code', async (req, res) => {
     const paths = await resolveEpisodePaths(slug, code, title)
     const finalPath = await findYouTubeSourceVideoPath(paths, slug, code, title)
     if (!finalPath) return res.status(404).json({ detail: `${code} has no finished final video.` })
-    res.json({ ok: true, review: await deleteFinalReview(finalPath) })
+    res.json({ ok: true, review: await deleteFinalReview(finalPath, { slug }) })
   } catch (e: any) {
     respondWithError(res, e, 'Could not clear the review mark')
   }
