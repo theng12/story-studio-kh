@@ -150,10 +150,9 @@ test('Video Assembly records on a queued render and restores after presets load 
   const restore = page.indexOf('await restoreLastUsedSettings()', bundleLoad)
   assert.ok(bundleLoad > 0 && restore > bundleLoad, 'restore must run after the bundle preset auto-applies')
   assert.match(page, /watch\(episodeId, \(\) => \{ if \(lastUsedReady\) void restoreLastUsedSettings\(\) \}\)/)
-  // The restore must scope the channel pick by the selected per-section presets and bundle fallback.
-  assert.match(page, /scopeLastUsedSettings\(pickLastUsedSettings\(/, 'the mount/episode-switch restore scopes the channel pick by selected presets')
-  assert.match(page, /coveredSectionsFromActivePresets\(\{/, 'covered is derived from active presets and bundle fallback')
-  assert.match(page, /bundleFallback/, 'bundle fallback is included in covered derivation')
+  // The same resolver reapplies selected settings on mount and episode changes.
+  assert.match(page, /const resolved = resolveEpisodeRestoreSettings\(\{/, 'the restore uses the sequence-tested resolver')
+  assert.match(page, /bundleFallback/, 'bundle fallback is included in restore')
   for (const ref of ['introPresets', 'timelinePresets', 'effectsPresets', 'subtitlesPresets', 'exportPresets']) {
     assert.match(page, new RegExp(`${ref}\\.activeId\\.value`), `${ref} contributes its activeId`)
   }
