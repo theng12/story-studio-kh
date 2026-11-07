@@ -1,5 +1,5 @@
 <!--
-  Review finals (owner, 2026-10-29; redesigned 2026-11-01; compact rows 2026-11-02).
+  Review finals (owner, 2026-10-29; redesigned 2026-11-01; compact rows 2026-11-02; Pass + auto-pass 2026-11-07).
 
   One private, mobile-friendly page over the app's existing Tailscale path: the
   finished videos of every channel, newest unreviewed first.
@@ -37,7 +37,10 @@
         @click="selectedChannel = ''"
       >
         <span class="rv-chip-name">All channels</span>
-        <span class="rv-chip-count">{{ unreviewedCount }} / {{ totalFinals }}</span>
+        <span class="rv-chip-count">
+          {{ unreviewedCount }} / {{ totalFinals }}
+          <template v-if="totalAutoPassed > 0"> · {{ totalAutoPassed }} auto-passed</template>
+        </span>
       </button>
       <button
         v-for="channel in sortedChannels"
@@ -48,20 +51,34 @@
         @click="selectedChannel = channel.slug"
       >
         <span class="rv-chip-name">{{ channel.name }}</span>
-        <span class="rv-chip-count">{{ unreviewedByChannel(channel.slug) }} / {{ channel.final_count }}</span>
+        <span class="rv-chip-count">
+          {{ unreviewedByChannel(channel.slug) }} / {{ channel.final_count }}
+          <template v-if="autoPassedByChannel(channel.slug) > 0"> · {{ autoPassedByChannel(channel.slug) }} auto-passed</template>
+        </span>
       </button>
     </nav>
 
     <div v-if="selectedChannel" class="rv-channel-settings">
-      <label class="rv-toggle">
-        <input
-          type="checkbox"
-          :checked="selectedChannelData?.review_enabled ?? false"
-          :disabled="toggling.has(selectedChannel)"
-          @change="onToggleSelected($event)"
-        >
-        <span>Review on for {{ selectedChannelData?.name }}</span>
-      </label>
+      <div class="rv-channel-switches">
+        <label class="rv-toggle">
+          <input
+            type="checkbox"
+            :checked="selectedChannelData?.review_enabled ?? false"
+            :disabled="toggling.has(selectedChannel)"
+            @change="onToggleSelected($event)"
+          >
+          <span>Review on for {{ selectedChannelData?.name }}</span>
+        </label>
+        <label class="rv-toggle" :class="{ 'rv-toggle-disabled': !selectedChannelData?.review_enabled }">
+          <input
+            type="checkbox"
+            :checked="selectedChannelData?.auto_pass_enabled ?? false"
+            :disabled="!selectedChannelData?.review_enabled || toggling.has(selectedChannel)"
+            @change="onToggleAutoPassSelected($event)"
+          >
+          <span>Auto-pass finished videos</span>
+        </label>
+      </div>
       <p v-if="selectedChannelData?.error" class="rv-alert rv-alert-sm" role="alert">{{ selectedChannelData.error }}</p>
     </div>
 
@@ -106,7 +123,7 @@
 
       <p v-if="item.review.state === 'unreadable'" class="rv-alert" role="alert">{{ item.review.error }}</p>
       <p v-if="item.review.state === 'stale'" class="rv-mark rv-mark-stale">
-        This file changed since it was marked {{ item.review.decision === 'approved' ? 'approved' : 'as needing changes' }}. Watch it again, then mark it.
+        This file changed since it was marked {{ item.review.decision === 'approved' ? 'passed' : item.review.decision === 'auto_passed' ? 'auto-passed' : 'as needing changes' }}. Watch it again, then mark it.
       </p>
       <p v-if="saveError[itemKey(item)]" class="rv-alert" role="alert">{{ saveError[itemKey(item)] }}</p>
 
@@ -118,13 +135,17 @@
           :aria-label="`${openRow === itemKey(item) ? 'Close' : 'Play'} ${item.episode_code} ${item.title}`"
           @click="toggleRow(itemKey(item))"
         >{{ openRow === itemKey(item) ? 'Close' : 'Play' }}</button>
+        <NuxtLink
+          :to="`/projects/${item.channel_slug}/video-assembly?episode_id=${item.episode_code}`"
+          class="rv-btn rv-btn-view"
+        >View episode</NuxtLink>
         <button
           type="button"
           class="rv-btn rv-btn-ok"
           :class="{ chosen: currentDecision(item.review) === 'approved' }"
           :disabled="saving.has(itemKey(item))"
           @click="decide(item, 'approved')"
-        >{{ saving.has(itemKey(item)) ? 'Saving…' : 'Approve' }}</button>
+        >{{ saving.has(itemKey(item)) ? 'Saving…' : 'Pass' }}</button>
         <button
           type="button"
           class="rv-btn rv-btn-changes"
@@ -132,10 +153,13 @@
           :disabled="saving.has(itemKey(item))"
           @click="decide(item, 'needs_changes')"
         >{{ saving.has(itemKey(item)) ? 'Saving…' : 'Needs changes' }}</button>
-        <NuxtLink
-          :to="`/projects/${item.channel_slug}/video-assembly?episode_id=${item.episode_code}`"
-          class="rv-btn rv-btn-primary"
-        >View episode</NuxtLink>
+        <button
+          v-if="currentDecision(item.review) === 'auto_passed'"
+          type="button"
+          class="rv-btn rv-btn-clear"
+          :disabled="saving.has(itemKey(item))"
+          @click="clearDecision(item)"
+        >{{ saving.has(itemKey(item)) ? 'Saving…' : 'Clear auto-pass' }}</button>
       </div>
     </article>
 
@@ -178,6 +202,10 @@ const unreviewedCount = computed(() => {
   return finals.value.filter(item => item.review.state === 'not_reviewed').length
 })
 
+const totalAutoPassed = computed(() => {
+  return finals.value.filter(item => item.review.state === 'current' && item.review.decision === 'auto_passed').length
+})
+
 const filteredFinals = computed(() => {
   const list = selectedChannel.value
     ? finals.value.filter(item => item.channel_slug === selectedChannel.value)
@@ -211,6 +239,10 @@ const selectedChannelData = computed(() => {
 
 function unreviewedByChannel(slug: string): number {
   return finals.value.filter(item => item.channel_slug === slug && item.review.state === 'not_reviewed').length
+}
+
+function autoPassedByChannel(slug: string): number {
+  return finals.value.filter(item => item.channel_slug === slug && item.review.state === 'current' && item.review.decision === 'auto_passed').length
 }
 
 /** One key per final: two channels can share an episode code (§4). */
@@ -262,12 +294,40 @@ async function decide(item: FinalReviewItem, decision: FinalReviewDecision): Pro
   }
 }
 
-function onToggleSelected(event: Event): void {
-  const channel = selectedChannelData.value
-  if (channel) void toggleChannel(channel, (event.target as HTMLInputElement).checked)
+async function clearDecision(item: FinalReviewItem): Promise<void> {
+  const key = itemKey(item)
+  if (saving.value.has(key)) return
+  saving.value = new Set(saving.value).add(key)
+  const cleared = { ...saveError.value }
+  delete cleared[key]
+  saveError.value = cleared
+  try {
+    const result = await post<{ review: FinalReviewState }>(
+      `/review/finals/${encodeURIComponent(item.channel_slug)}/${encodeURIComponent(item.episode_code)}`,
+      { decision: 'clear' },
+    )
+    item.review = result.review
+  } catch (e: any) {
+    saveError.value = { ...saveError.value, [key]: e?.data?.detail || 'Could not clear that mark.' }
+    if (e?.status === 409 || e?.response?.status === 409) await load(true)
+  } finally {
+    const next = new Set(saving.value)
+    next.delete(key)
+    saving.value = next
+  }
 }
 
-async function toggleChannel(channel: FinalReviewChannel, enabled: boolean): Promise<void> {
+function onToggleSelected(event: Event): void {
+  const channel = selectedChannelData.value
+  if (channel) void toggleChannelReview(channel, (event.target as HTMLInputElement).checked)
+}
+
+function onToggleAutoPassSelected(event: Event): void {
+  const channel = selectedChannelData.value
+  if (channel) void toggleChannelAutoPass(channel, (event.target as HTMLInputElement).checked)
+}
+
+async function toggleChannelReview(channel: FinalReviewChannel, enabled: boolean): Promise<void> {
   if (toggling.value.has(channel.slug)) return
   toggling.value = new Set(toggling.value).add(channel.slug)
   try {
@@ -275,6 +335,21 @@ async function toggleChannel(channel: FinalReviewChannel, enabled: boolean): Pro
     await load(true)
   } catch (e: any) {
     loadError.value = e?.data?.detail || 'Could not change that channel\'s review setting.'
+  } finally {
+    const next = new Set(toggling.value)
+    next.delete(channel.slug)
+    toggling.value = next
+  }
+}
+
+async function toggleChannelAutoPass(channel: FinalReviewChannel, auto_pass: boolean): Promise<void> {
+  if (toggling.value.has(channel.slug)) return
+  toggling.value = new Set(toggling.value).add(channel.slug)
+  try {
+    await put(`/review/channels/${encodeURIComponent(channel.slug)}`, { auto_pass })
+    await load(true)
+  } catch (e: any) {
+    loadError.value = e?.data?.detail || 'Could not change that channel\'s auto-pass setting.'
   } finally {
     const next = new Set(toggling.value)
     next.delete(channel.slug)
@@ -299,7 +374,9 @@ function stateShort(review: FinalReviewState): string {
   if (review.state === 'not_reviewed') return 'Not reviewed'
   if (review.state === 'unreadable') return 'Could not be read'
   if (review.state === 'stale') return 'File changed'
-  return review.decision === 'approved' ? 'Approved' : 'Needs changes'
+  if (review.decision === 'approved') return 'Passed'
+  if (review.decision === 'auto_passed') return 'Auto-passed'
+  return 'Needs changes'
 }
 
 function finishedAt(ms: number): string {
@@ -402,6 +479,13 @@ onUnmounted(() => poller.stop())
   background: var(--bg-secondary);
 }
 
+.rv-channel-switches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  align-items: center;
+}
+
 .rv-toggle {
   display: flex;
   align-items: center;
@@ -410,6 +494,10 @@ onUnmounted(() => poller.stop())
   cursor: pointer;
 }
 .rv-toggle input { width: 20px; height: 20px; }
+.rv-toggle-disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
 
 .rv-empty { color: var(--text-secondary); text-align: center; padding: 24px 8px; margin: 0; }
 
@@ -431,8 +519,9 @@ onUnmounted(() => poller.stop())
   gap: 6px;
 }
 .rv-row + .rv-row { margin-top: 8px; }
-.rv-row-reviewed { opacity: 0.65; }
+.rv-row-reviewed { opacity: 0.75; }
 .rv-row-reviewed .rv-row-state[data-state='approved'] { color: var(--success); }
+.rv-row-reviewed .rv-row-state[data-state='auto_passed'] { color: var(--accent, #2563eb); }
 .rv-row-reviewed .rv-row-state[data-state='needs_changes'] { color: var(--error); }
 
 .rv-row-head {
@@ -452,11 +541,12 @@ onUnmounted(() => poller.stop())
 }
 .rv-row-state {
   font-size: var(--font-xs);
-  font-weight: 500;
+  font-weight: 600;
   color: var(--text-secondary);
   white-space: nowrap;
 }
 .rv-row-state[data-state='approved'] { color: var(--success); }
+.rv-row-state[data-state='auto_passed'] { color: var(--accent, #2563eb); }
 .rv-row-state[data-state='needs_changes'] { color: var(--error); }
 .rv-row-state[data-state='stale'] { color: var(--warning); }
 .rv-row-state[data-state='unreadable'] { color: var(--error); }
@@ -477,7 +567,7 @@ onUnmounted(() => poller.stop())
   flex: 1 1 auto;
   min-height: 36px;
   min-width: 0;
-  padding: 6px 10px;
+  padding: 6px 12px;
   border-radius: 8px;
   border: 1px solid var(--border);
   background: var(--bg-primary);
@@ -487,25 +577,62 @@ onUnmounted(() => poller.stop())
   cursor: pointer;
   text-align: center;
   white-space: nowrap;
+  transition: opacity 0.15s, background 0.15s, border-color 0.15s;
 }
 .rv-btn:disabled { opacity: 0.6; cursor: default; }
-.rv-btn-primary {
+
+/* Play is the emphasised primary button */
+.rv-btn-play {
+  background: var(--accent, #2563eb);
+  border-color: var(--accent, #2563eb);
+  color: #fff;
+  font-weight: 650;
+}
+.rv-btn-play:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.rv-btn-view {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   text-decoration: none;
-  background: var(--accent, #2563eb);
-  border-color: var(--accent, #2563eb);
-  color: #fff;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
 }
-.rv-btn-primary:hover { opacity: 0.9; }
-.rv-btn-play { font-weight: 600; }
+.rv-btn-view:hover {
+  background: var(--bg-secondary);
+}
+
 .rv-btn-ok.chosen { border-color: #1d7a46; background: #1d7a46; color: #fff; }
 .rv-btn-changes.chosen { border-color: var(--danger, #c0392b); background: var(--danger, #c0392b); color: #fff; }
+
+.rv-btn-clear {
+  border-color: var(--border);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+}
+.rv-btn-clear:hover:not(:disabled) {
+  color: var(--text-primary);
+  border-color: var(--text-secondary);
+}
+
 .rv-foot { margin: 0; color: var(--text-secondary); font-size: var(--font-xs); line-height: 1.45; }
 
+/* 2x2 grid on mobile viewports (≤480px and specifically 375px) */
 @media (max-width: 480px) {
-  .rv-row-actions { flex-direction: column; }
-  .rv-btn { flex: 1 1 100%; }
+  .rv-row-actions {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 6px;
+  }
+  .rv-btn {
+    width: 100%;
+    flex: none;
+  }
+  .rv-btn-clear {
+    grid-column: 1 / -1;
+  }
 }
 </style>

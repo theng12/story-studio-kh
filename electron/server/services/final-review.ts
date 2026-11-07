@@ -40,6 +40,11 @@ export function finalReviewEnabled(config: ProjectConfig | null | undefined): bo
   return config?.final_review?.enabled === true
 }
 
+/** Absent or false = off. Only true when both review and auto_pass are turned on. */
+export function finalAutoPassEnabled(config: ProjectConfig | null | undefined): boolean {
+  return config?.final_review?.enabled === true && config?.final_review?.auto_pass === true
+}
+
 /** The mark lives beside the final it is about, so it travels with the file. */
 export function finalReviewSidecarPath(finalPath: string): string {
   return `${finalPath}.review.json`
@@ -60,7 +65,7 @@ async function statFinal(finalPath: string): Promise<FinalReviewFileNow | null> 
 }
 
 function isDecision(value: unknown): value is FinalReviewDecision {
-  return value === 'approved' || value === 'needs_changes'
+  return value === 'approved' || value === 'needs_changes' || value === 'auto_passed'
 }
 
 function isIdentity(value: any): value is FinalReviewFileIdentity {
@@ -156,6 +161,19 @@ export async function writeFinalReview(
   return { state: 'current', decision: record.decision, decided_at: record.decided_at, identity: record.identity }
 }
 
+/**
+ * Remove a final review mark. Reverts the final to not_reviewed.
+ */
+export async function deleteFinalReview(finalPath: string): Promise<FinalReviewState> {
+  const sidecar = finalReviewSidecarPath(finalPath)
+  try {
+    await fsp.unlink(sidecar)
+  } catch (error: any) {
+    if (error?.code !== 'ENOENT') throw error
+  }
+  return { state: 'not_reviewed' }
+}
+
 /** The authenticated range-streaming route the page plays (revision query busts a re-render's cache). */
 function finalStreamUrl(slug: string, episodeCode: string, now: FinalReviewFileNow): string {
   return `/api/projects/${encodeURIComponent(slug)}/video-editor/final-video/${encodeURIComponent(episodeCode)}`
@@ -188,11 +206,17 @@ export async function listFinalReviews(options: { slug?: string } = {}): Promise
       configError = `Could not read this channel's review setting: ${error?.message || error}`
     }
     const enabled = finalReviewEnabled(config)
+    const autoPassEnabled = finalAutoPassEnabled(config)
+    const autoPassSince = config?.final_review?.auto_pass_enabled_at
+      ? new Date(config.final_review.auto_pass_enabled_at).getTime()
+      : null
     const channel: FinalReviewChannel = {
       slug: project.slug,
       name: project.name,
       review_enabled: enabled,
+      auto_pass_enabled: autoPassEnabled,
       final_count: 0,
+      auto_pass_count: 0,
     }
     if (configError) channel.error = configError
     channels.push(channel)
@@ -216,6 +240,23 @@ export async function listFinalReviews(options: { slug?: string } = {}): Promise
         if (!finalPath) return null
         const now = await statFinal(finalPath)
         if (!now) return null
+        let review = await readFinalReview(finalPath, now)
+        // Brief H: When auto-pass is enabled for this channel, a final that appears
+        // after the switch was turned on is marked auto_passed with its time. Existing
+        // finals before that switch was turned on are not back-filled.
+        if (enabled && autoPassEnabled && autoPassSince !== null && review.state === 'not_reviewed') {
+          if (now.mtime_ms >= autoPassSince) {
+            try {
+              review = await writeFinalReview(finalPath, 'auto_passed', {
+                size: now.size,
+                mtime_ms: now.mtime_ms,
+                ino: now.ino,
+              })
+            } catch {
+              // Write race or file altered; leave current read state
+            }
+          }
+        }
         return {
           channel_slug: project.slug,
           channel_name: project.name,
@@ -226,7 +267,7 @@ export async function listFinalReviews(options: { slug?: string } = {}): Promise
           mtime_ms: now.mtime_ms,
           ino: now.ino,
           review_enabled: enabled,
-          review: await readFinalReview(finalPath, now),
+          review,
         }
       } catch {
         failed += 1
@@ -234,8 +275,10 @@ export async function listFinalReviews(options: { slug?: string } = {}): Promise
       }
     }))
 
-    for (const row of rows) if (row) finals.push(row)
-    channel.final_count = rows.filter(Boolean).length
+    const validRows = rows.filter((r): r is FinalReviewItem => r !== null)
+    for (const row of validRows) finals.push(row)
+    channel.final_count = validRows.length
+    channel.auto_pass_count = validRows.filter(r => r.review.state === 'current' && r.review.decision === 'auto_passed').length
     if (failed) channel.error = `${failed} episode${failed === 1 ? '' : 's'} could not be read.`
   }))
 

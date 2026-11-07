@@ -10,7 +10,7 @@
  * different values here (AGENTS.md §6).
  */
 
-export type FinalReviewDecision = 'approved' | 'needs_changes'
+export type FinalReviewDecision = 'approved' | 'needs_changes' | 'auto_passed'
 
 /**
  * What the mark was made against. `version` is the identity's own version: if
@@ -67,8 +67,12 @@ export interface FinalReviewChannel {
   name: string
   /** Off unless the channel turned review on. Off writes and shows nothing. */
   review_enabled: boolean
+  /** Off unless the channel turned auto-pass on. Off auto-marks nothing. */
+  auto_pass_enabled: boolean
   /** Finals listed for this channel (0 when review is off). */
   final_count: number
+  /** Number of finals that have been auto-passed. */
+  auto_pass_count?: number
   /** Present only when part of this channel could not be read. */
   error?: string
 }
