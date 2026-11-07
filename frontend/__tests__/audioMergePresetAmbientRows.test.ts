@@ -136,14 +136,26 @@ describe('the estimate counts what it can and names what it cannot', () => {
     fileURLToPath(new URL('../pages/projects/[slug]/audio-merge.vue', import.meta.url)),
     'utf8'
   )
+  const contract = readFileSync(
+    fileURLToPath(new URL('../../electron/server/contracts/audio-assembly.ts', import.meta.url)),
+    'utf8'
+  )
 
   test('lead-in and intro gap join the sum; unmeasurable parts say "not counted"', () => {
-    assert.match(page, /\+ musicLeadInSeconds\.value \+ introGapSeconds\.value/,
-      'the enabled lead-in and intro gap are part of the merged duration')
+    assert.match(page, /intro_gap_sec: introGapSeconds\.value/,
+      'the intro gap joins the narration the mixer runs over')
+    assert.match(page, /music_lead_in_sec: musicLeadInSeconds\.value/,
+      'the enabled lead-in joins the assembled file')
+    assert.match(page, /assembledNarrationDuration\(\{[\s\S]*intro_gap_sec/,
+      'the narration sum comes from the shared contract, not a second local rule')
+    assert.match(page, /expectedAudioAssemblyDuration\(\{[\s\S]*music_lead_in_sec/,
+      'the file sum comes from the shared contract')
+    assert.match(page, /\.\.\.assembledNarration\.value\.unmeasured, \.\.\.expectedDuration\.value\.unmeasured/,
+      'both contract results name the parts they could not measure')
     assert.match(page, /not counted: \{\{ estimatedUncounted\.join/,
       'the summary line names what the number excludes (§6: never a silent zero)')
-    assert.match(page, /parts\.push\('intro clip length'\)/, 'the intro clip needs a probe this page never runs')
-    assert.match(page, /parts\.push\('closing tail'\)/, 'the tail is resolved server-side with no route here')
+    assert.match(contract, /unmeasured\.push\('intro clip length'\)/, 'the intro clip needs a probe this page never runs')
+    assert.match(contract, /unmeasured\.push\('closing tail'\)/, 'the tail is resolved server-side with no route here')
   })
 
   test('preset apply no longer replaces the ambient rows', () => {

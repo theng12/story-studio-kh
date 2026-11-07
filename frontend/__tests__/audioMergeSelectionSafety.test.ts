@@ -29,6 +29,9 @@ async function loadReads() {
 }
 
 async function loadSubmit() {
+  // The merge builds its request through the page's one payload builder, so the
+  // harness executes both — the preview and Generate can never drift apart.
+  const payloadBuilder = page.slice(page.indexOf('function buildAudioAssemblyPayload'), page.indexOf('\nconst previewMixLoading'))
   const submit = page.slice(page.indexOf("async function generateMergedAudio(writeMode"), page.indexOf('\n/**', page.indexOf("async function generateMergedAudio(writeMode")))
   const state = {
     episodeId: ref('EP0001'), slug: ref('project'), generating: ref(false), scanning: ref(false),
@@ -36,14 +39,17 @@ async function loadSubmit() {
     intro: reactive({ enabled: false, file: '', volume: 100, gap_after: 2 }),
     music: reactive({ enabled: false, source: 'manual', volume: 10, post_narration_volume: 10, fade_in: 0, fade_out: 0, lead_in_enabled: false, lead_in_seconds: 0 }),
     selectedMusicFiles: ref<string[]>([]), poolPickedTrack: ref(''), poolPickedPath: ref(''),
-    backgroundNoise: reactive({ enabled: false, mode: 'preset', preset: '', custom_file: '', volume: 0, fade_in: 0, fade_out: 0 }),
-    ambientTracks: reactive<any[]>([]), audioMergeGenerating: ref(false), ffmpegStatus: ref({ installed: true }),
+    ambience: reactive({ enabled: false }), backgroundNoise: reactive({ enabled: false, mode: 'preset', preset: '', custom_file: '', volume: 0, fade_in: 0, fade_out: 0 }),
+    ambientTracks: reactive<any[]>([]),
+    effects: reactive({ enabled: false }), effectsTracks: reactive<any[]>([]),
+    backgroundVoice: reactive({ enabled: false }), backgroundVoiceTracks: reactive<any[]>([]),
+    audioMergeGenerating: ref(false), ffmpegStatus: ref({ installed: true }),
     normalizeAudioMergePathsInState: async () => undefined, success: () => undefined, showError: () => undefined,
     musicNotChosen: ref(false),
   }
   const posts: Array<ReturnType<typeof deferred<any>>> = []
   const post = () => { const request = deferred<any>(); posts.push(request); return request.promise }
-  const code = await transform(`let audioScopeSequence = 0; let mergeSubmitSequence = 0; ${submit}`, { loader: 'ts', format: 'esm' })
+  const code = await transform(`let audioScopeSequence = 0; let mergeSubmitSequence = 0; ${payloadBuilder}\n${submit}`, { loader: 'ts', format: 'esm' })
   const functions = new Function(...Object.keys(state), 'post', `${code.code}; return { generateMergedAudio, invalidate: () => { audioScopeSequence++ } }`)(...Object.values(state), post)
   return { state, posts, ...functions }
 }

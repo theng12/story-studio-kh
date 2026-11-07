@@ -126,6 +126,8 @@ const ChannelPickerStub = defineComponent({
 
 interface HarnessOptions {
   fullsettings?: Record<string, any>
+  /** Omit `channel_intro` entirely — the episode has never saved a choice. */
+  omitChannelIntro?: boolean
   status?: Record<string, any>
   mergeError?: any
   failConfigSaveCount?: number
@@ -200,10 +202,14 @@ async function mountEditor(options: HarnessOptions = {}) {
     episodesRoot: harness.episodesRoot,
     draft: draftUtil,
   }
+  const fullsettings = baseline(options.fullsettings)
+  // `baseline` always states `channel_intro: null`; an episode that has never
+  // saved a choice has no key at all, which is what auto-binding keys on.
+  if (options.omitChannelIntro) delete fullsettings.channel_intro
   const state = reactive({
     slug: 'chan',
     episodeId: 'EP001',
-    fullsettings: baseline(options.fullsettings),
+    fullsettings,
   })
   const applied: any[] = []
   let refreshes = 0
@@ -599,8 +605,8 @@ test('a new channel-level automatic binding is shown, but never overwrites a sav
 
   // Episode has no saved choice but channel has one: automatically bound
   const autoBound = await open({
+    omitChannelIntro: true,
     fullsettings: {
-      // no channel_intro key
       intro: { enabled: false, video_path: '' },
       channel_intro_music: {
         file: '${CHANNEL}/assets/channel-default.mp3',
@@ -613,7 +619,7 @@ test('a new channel-level automatic binding is shown, but never overwrites a sav
   })
   assert.ok(autoBound.host.querySelector('.channel-picker-stub')!.getAttribute('data-file')?.includes('channel-default.mp3'))
   assert.ok(autoBound.host.querySelector('[data-testid="channel-bound-badge"]'), 'should show Channel default badge')
-  assert.equal(autoBound.host.textContent, '' || autoBound.host.textContent?.includes('Channel default'), true)
+  assert.match(autoBound.host.textContent || '', /Channel default/, 'the automatic binding is said out loud')
 
   // Rebuilding the audio queues with the channel binding settings
   ;(globalThis as any).__channelIntroPick = null // simulate user confirming the auto-bound choice

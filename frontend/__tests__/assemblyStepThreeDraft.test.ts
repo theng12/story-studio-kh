@@ -179,8 +179,15 @@ describe('step 3 popup wiring', () => {
 
   test('the chapter font samples the episode\'s own heading and background', () => {
     const sample = section('const titleMotionChapterSample', 'async function loadTitleMotionPool')
-    assert.match(sample, /scenes\.value\.find\(entry => entry\.title\?\.trim\(\)\)/, 'the sample is a real scene heading')
-    assert.match(sample, /getImagePreviewUrl\(scene\.image_path\)/, 'the background is the selected scene image')
+    assert.match(sample, /\/projects\/\$\{channel\}\/episodes\/\$\{episode\}\/chapter-list/,
+      'the heading is read from this episode\'s own chapter list')
+    assert.match(sample, /chapter\.present !== false\)\?\.title\?\.trim\(\)/,
+      'the sample is this episode\'s first real chapter heading')
+    assert.match(sample, /scenes[\s\S]*?sort\(\(a, b\) => a\.start_sec - b\.start_sec\)/,
+      'the background is the Scene Plan scene that opens the chapter')
+    assert.match(sample, /String\(scene\.still_path \|\| scene\.path \|\| ''\)/,
+      'the background comes from that scene\'s own image')
+    assert.match(sample, /getImagePreviewUrl\(file\)/, 'the image is previewed, never invented')
     assert.match(page, /:sample-text="titleMotionChapterSample\.text"/, 'the editor receives the real heading')
     assert.match(page, /:background="titleMotionChapterSample\.background"/, 'the editor receives the real background')
     assert.match(page, /This episode has no saved chapter heading to preview yet/, 'no heading reads as no data, not an invented sample')
@@ -214,7 +221,8 @@ describe('step 3 popup wiring', () => {
     const pool = section('async function loadTitleMotionPool', 'function openTitleMotionEditor')
     assert.match(pool, /const stale = \(\) => slug\.value !== channel \|\| episodeId\.value !== episode \|\| titleMotionDraft\.value !== draft/)
     assert.match(pool, /if \(stale\(\)\) return[\s\S]*if \(stale\(\)\) return/, 'both the success path and its assignment are fenced')
-    assert.match(pool, /if \(!stale\(\)\) titleMotionPool\.value = null/, 'a stale failure cannot clear the current popup\'s pool')
+    assert.match(pool, /if \(!stale\(\)\) \{[\s\S]*?titleMotionPool\.value = null[\s\S]*?titleMotionPoolCursor\.value = null/,
+      'a stale failure cannot clear the current popup\'s pool or its standing cursor')
   })
 
   test('a first per-episode Apply keeps every untouched slot from the channel fallback', () => {
