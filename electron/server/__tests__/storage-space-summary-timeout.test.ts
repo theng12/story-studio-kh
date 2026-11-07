@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import fs from 'node:fs/promises'
 import path from 'node:path'
-import { after, before, describe, test } from 'node:test'
+import { after, before, beforeEach, describe, test, type TestContext } from 'node:test'
 
 import { useTempDataDir, type RetainedTempDataDir } from './_helpers.js'
 import { installTestSafeStorage, setTestSafeStorageAvailable } from './safe-storage-test-double.js'
@@ -33,6 +33,33 @@ async function within<T>(work: Promise<T>, ms: number, message: string): Promise
     timer = setTimeout(() => reject(new Error(message)), ms)
   })
   return Promise.race([work, limit]).finally(() => clearTimeout(timer))
+}
+
+function measurementClock(t: TestContext) {
+  const setTimeout = globalThis.setTimeout
+  const clearTimeout = globalThis.clearTimeout
+  const deadlines = new Map<ReturnType<typeof setTimeout>, () => void>()
+  // Advance measurement time only after unrelated real filesystem work settles.
+  t.mock.method(globalThis, 'setTimeout', (callback: (...args: unknown[]) => void, ms?: number, ...args: unknown[]) => {
+    if (ms !== 30) return setTimeout(callback, ms, ...args)
+    const timer = {} as ReturnType<typeof setTimeout>
+    deadlines.set(timer, () => callback(...args))
+    return timer
+  })
+  t.mock.method(globalThis, 'clearTimeout', (timer: Parameters<typeof clearTimeout>[0]) => {
+    if (!deadlines.delete(timer as ReturnType<typeof setTimeout>)) clearTimeout(timer)
+  })
+  return async (blockedPhases: number): Promise<void> => {
+    const until = Date.now() + 400
+    while (deadlines.size !== blockedPhases) {
+      assert.ok(Date.now() < until, 'unblocked measurements must settle before advancing their siblings deadline')
+      await new Promise<void>(resolve => setImmediate(resolve))
+    }
+    for (const [timer, expire] of deadlines) {
+      deadlines.delete(timer)
+      expire()
+    }
+  }
 }
 
 const savedTimeout = process.env.STORY_STORAGE_SUMMARY_TIMEOUT_MS
@@ -81,6 +108,9 @@ async function observeBeforeRelease<T>(work: Promise<T>, label: string): Promise
 }
 
 describe('storage space summary timeout boundaries', () => {
+  let expireMeasurements: ReturnType<typeof measurementClock>
+  beforeEach(t => { expireMeasurements = measurementClock(t) })
+
   before(async () => {
     // The fixture is a RETAINED one: it must survive the run and must never be
     // tidied by automation. The retained helper puts it inside the harness
@@ -128,6 +158,12 @@ describe('storage space summary timeout boundaries', () => {
     const release = deferred()
     const lateCallSettled = deferred()
     const originalStatfs = fs.statfs.bind(fs)
+    const originalStat = fs.stat.bind(fs)
+    // Real fixture reads deliberately outlast the former 30ms filesystem race.
+    t.mock.method(fs, 'stat', async (...args: Parameters<typeof fs.stat>) => {
+      await new Promise<void>(resolve => setTimeout(resolve, 35))
+      return originalStat(...args)
+    })
     t.mock.method(fs, 'statfs', async (...args: Parameters<typeof fs.statfs>) => {
       if (path.resolve(String(args[0])) !== path.resolve(projectDir)) return originalStatfs(...args)
       entered.resolve()
@@ -145,6 +181,7 @@ describe('storage space summary timeout boundaries', () => {
     try {
       await within(entered.promise, 400, 'the real free-space measurement seam was not exercised')
       seamEntered = true
+      await expireMeasurements(1)
       observed = await observeBeforeRelease(pending, 'free_bytes past 400ms')
     } finally {
       release.resolve()
@@ -193,6 +230,7 @@ describe('storage space summary timeout boundaries', () => {
     try {
       await within(entered.promise, 400, 'the real Library Trash traversal seam was not exercised')
       seamEntered = true
+      await expireMeasurements(1)
       observed = await observeBeforeRelease(pending, 'library_trash_bytes past 400ms')
     } finally {
       release.resolve()
@@ -237,6 +275,7 @@ describe('storage space summary timeout boundaries', () => {
     try {
       await within(entered.promise, 400, 'the project measurement did not enter the barrier')
       seamEntered = true
+      await expireMeasurements(1)
       first = await within(firstPending, 400, 'the first caller did not receive its bounded partial result')
       second = await within(storageSpaceSummary(slug), 400, 'the repeated caller did not reuse the bounded project result')
       assert.equal(freeAttempts, 1, 'a caller deadline must not start a second raw project measurement')
@@ -288,6 +327,7 @@ describe('storage space summary timeout boundaries', () => {
     try {
       await within(entered.promise, 400, 'the shared Library Trash traversal did not enter the barrier')
       seamEntered = true
+      await expireMeasurements(1)
       first = await within(firstPending, 400, 'the first project did not receive its partial result')
       second = await within(storageSpaceSummary(secondSlug), 400, 'the second project did not reuse the shared result')
       assert.equal(libraryAttempts, 1, 'different slugs must share the same still-running whole-Library traversal')
@@ -308,6 +348,7 @@ describe('storage space summary timeout boundaries', () => {
   test('retains coalescing until every started root walk settles after a sibling errors', async t => {
     const release = deferred()
     const bothBlockedWalksSettled = deferred()
+    const bothBlockedWalksEntered = deferred()
     const originalReaddir = fs.readdir.bind(fs)
     const originalStatfs = fs.statfs.bind(fs)
     const projectLibraryTrash = path.join(libraryTrash, slug)
@@ -326,6 +367,7 @@ describe('storage space summary timeout boundaries', () => {
       }
       if (!blocking || target !== path.resolve(projectLibraryTrash)) return originalReaddir(...args)
       blockedWalks++
+      if (blockedWalks === 2) bothBlockedWalksEntered.resolve()
       try {
         await release.promise
         return await originalReaddir(...args)
@@ -339,6 +381,8 @@ describe('storage space summary timeout boundaries', () => {
     let first: PartialSpaceSummary | undefined
     let second: PartialSpaceSummary | undefined
     try {
+      await within(bothBlockedWalksEntered.promise, 400, 'both root walks must enter before advancing their deadlines')
+      await expireMeasurements(2)
       first = await within(firstPending, 400, 'the mixed error/pending summary did not return its bounded result')
       second = await within(storageSpaceSummary(slug), 400, 'the repeated mixed-root summary did not reuse in-flight work')
       assert.equal(blockedWalks, 2, 'project and shared Library phases each start one walk, then remain coalesced')
