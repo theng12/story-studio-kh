@@ -162,6 +162,12 @@ const CLASSIFIED: Record<string, Record<string, Classification>> = {
     'entity.description': { verdict: 'episode', reason: 'THIS episode\'s story facts for the entity — story context kept separate from the channel look the preset carries (§5)' },
     newEntityKind: { verdict: 'transient', reason: 'the add-row type picker: scratch until Add is pressed; the entity itself lands in the story-entities sidecar' },
     newEntityName: { verdict: 'transient', reason: 'the add-row name box: scratch text until Add is pressed; unsaved-guarded and blanked on episode change' },
+    // v1.4.386 — the review-panel checkboxes choose what THIS review run adds;
+    // the chosen entities land in the story-entities sidecar, and both maps are
+    // cleared after Add/Discard. Nothing here is a reusable setting.
+    'proposalKeep[proposal.id]': { verdict: 'transient', reason: 'the per-proposal Add tick in the extraction review panel — scratch until Add is pressed, cleared after Add or Discard' },
+    'proposalUpdateFacts[proposal.id]': { verdict: 'transient', reason: 'the per-proposal facts-update tick in the extraction review panel — scratch until Add is pressed, cleared after Add or Discard' },
+    channelAutomation: { verdict: 'saved-elsewhere', reason: 'the channel\'s story-entity automation switch in config.json `story_entity_automation`, written through /settings/config and outliving every preset' },
   },
   // v1.4.365 — ONE page, TWO preset types. The proposal setup (`form`) is the
   // Contextual Cues preset and the mix (`settings`) is the Sound Design preset;
@@ -295,6 +301,16 @@ const CLASSIFIED: Record<string, Record<string, Classification>> = {
     openingSeconds: { verdict: 'episode', reason: 'the length of THIS episode\'s opening motion window' },
     sharePercent: { verdict: 'episode', reason: 'THIS episode\'s video share, saved with its motion scope (channel default fills an unsaved episode)' },
     shareFormula: { verdict: 'episode', reason: 'how THIS episode\'s video share is filled, saved with its motion scope' },
+    // v1.4.386 — the optional scene-type rules are drafts until Apply, and the
+    // applied rules ride the reveal look the preset already stores: the snapshot
+    // spreads `revealForPreset`, which carries `scene_types`, and `apply` restores
+    // them through `applyRevealPreset`. `overrides` (this episode's pins) stay excluded.
+    sceneTypesEnabled: { verdict: 'saved-by-preset', reason: 'the scene-type mode is part of the reveal look — `revealForPreset` stores `reveal.scene_types.enabled` and `applyRevealPreset` restores it', via: 'reveal' },
+    'sceneTypeDrafts[row.id].reveal': { verdict: 'saved-by-preset', reason: 'the reveal rule for one scene type, built into `reveal.scene_types.rules` by `sceneTypeRulesFromDrafts` and stored in the preset\'s reveal look', via: 'reveal' },
+    'sceneTypeDrafts[row.id].hold': { verdict: 'saved-by-preset', reason: 'the closing-hold rule for one scene type, built into `reveal.scene_types.rules` and stored in the preset\'s reveal look', via: 'reveal' },
+    'sceneTypeDrafts[row.id].holdDrafts.fixed': { verdict: 'saved-by-preset', reason: 'the fixed hold seconds draft for one scene type, built into `reveal.scene_types.rules` and stored in the preset\'s reveal look', via: 'reveal' },
+    'sceneTypeDrafts[row.id].holdDrafts.min': { verdict: 'saved-by-preset', reason: 'the shortest hold seconds draft for one scene type, built into `reveal.scene_types.rules` and stored in the preset\'s reveal look', via: 'reveal' },
+    'sceneTypeDrafts[row.id].holdDrafts.max': { verdict: 'saved-by-preset', reason: 'the longest hold seconds draft for one scene type, built into `reveal.scene_types.rules` and stored in the preset\'s reveal look', via: 'reveal' },
   },
   'research.vue': {
     autoApproveClaims: { verdict: 'saved-elsewhere', reason: 'a project setting in config.research_auto_approve_claims, not a preset value' },
@@ -321,6 +337,9 @@ const CLASSIFIED: Record<string, Record<string, Classification>> = {
     // and is never restored by a preset. It is also cleared on every episode
     // change (§4), so it cannot travel with one either.
     sceneImageMode: { verdict: 'run-only', reason: 'the Gateway-published image mode picked for THIS scene render — a per-run selection, never restored by a preset' },
+    // v1.4.386 — a scene's story links and their per-field state belong to this
+    // episode's scenes; they are saved per scene at /scene-review/{episode}/story-context.
+    'link.state[field]': { verdict: 'episode', reason: 'one story entity\'s state (time, place, …) for ONE scene of THIS episode, saved per scene at /scene-review/{episode}/story-context (§4)' },
   },
   'scripts.vue': {
     byoMode: { verdict: 'transient', reason: 'the bring-your-own dialog\'s mode' },
@@ -348,6 +367,9 @@ const CLASSIFIED: Record<string, Record<string, Classification>> = {
   },
   'video-assembly.vue': {
     visualSource: { verdict: 'saved-elsewhere', reason: 'saved per episode at /visual-source, not in a preset' },
+    // v1.4.386 — the chapter background pool is the CHANNEL's own asset pool,
+    // read and written at /projects/{channel}/chapter-background-pool.
+    chapterBgPool: { verdict: 'saved-elsewhere', reason: 'the channel\'s chapter background pool, saved at /projects/{channel}/chapter-background-pool — an asset list that outlives every assembly preset' },
     // Detached popup aliases write the episode's own settings on Apply; the
     // existing preset snapshots continue to carry the applied reusable look.
     ...Object.fromEntries([
