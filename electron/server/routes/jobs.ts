@@ -903,6 +903,24 @@ router.post('/projects/:slug/jobs/settle-completed', async (req, res) => {
   res.json({ ok: true, resolved: await settleCompletedFailures(req.params.slug) })
 })
 
+// One-time, evidence-only repair for a final render that an earlier boot reopened after a later
+// accepted render replaced its destination. It reads the saved row and its retained terminal,
+// starts no work, and never touches the accepted final or the work folder.
+router.post('/projects/:slug/jobs/:jobId/reconcile-final-render-terminal', async (req, res) => {
+  if (!await pm.getProject(req.params.slug)) return res.status(404).json({ detail: 'Project not found' })
+  if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body) || Object.keys(req.body).length > 0) {
+    return res.status(400).json({ detail: 'Request body must be an empty object. The saved row and its retained terminal are the only evidence.' })
+  }
+  try {
+    const result = await jq.reconcileReopenedFinalRenderTerminal(String(req.params.slug), String(req.params.jobId))
+    const job = jq.getPublicJob(result.job.job_id)
+    if (!job) return res.status(409).json({ detail: 'This job changed after reconciling. Refresh Jobs to check its current status.' })
+    return res.json({ ok: true, changed: result.changed, job })
+  } catch (error: any) {
+    return res.status(Number(error?.status) || 409).json({ detail: error?.message || 'Could not reconcile this final render.' })
+  }
+})
+
 router.get('/projects/:slug/jobs/:jobId', (req, res) => {
   const job = jq.getPublicJob(req.params.jobId)
   if (!job || job.project_slug !== req.params.slug) {

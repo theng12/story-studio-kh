@@ -196,6 +196,12 @@ export interface FinalCheckExpectation {
   tail: { sec: number; from_end_sec: number }
   /** True when the episode's config asks for closing music over that tail. */
   closing_music: boolean
+  /**
+   * Where the closing MUSIC runs when that is not the held tail — the bed baked under an appended
+   * outro. Its end sits `from_end_sec` before the file's end (0 = the true end). Absent = the music
+   * runs over `tail`, as before.
+   */
+  closing_music_window?: { sec: number; from_end_sec: number }
   width: number
   height: number
   /** The subtitle file the episode expects burned in, or null when it asks for none. */
@@ -328,7 +334,7 @@ export interface FinalCheckResult {
     audio_sec: number | null
     width: number
     height: number
-    /** The closing tail's integrated loudness; null when the tail is digital silence. */
+    /** The closing MUSIC's integrated loudness — the held tail, or the outro span when the bed was baked under it. Null when that window is digital silence. */
     tail_lufs: number | null
     black: Array<{ start_sec: number; end_sec: number }>
     silence: Array<{ start_sec: number; end_sec: number }>
@@ -707,11 +713,16 @@ export function finalCheckIssues(
       : unplannedDurationIssue(actual.duration_sec, episodeSec, endingSilenceSec(actual))
   if (duration) issues.push({ check: 'duration', verdict: `the finished video ${duration}` })
 
-  if (window && expected.closing_music) {
+  // The music may run under an appended outro, past the held tail. Measure THAT window when the
+  // render recorded one, so "music reaches the true end" is what the verdict actually tests.
+  const musicWindow = expected.closing_music_window
+    ? tailWindow(actual.duration_sec, expected.closing_music_window)
+    : window
+  if (musicWindow && expected.closing_music) {
     if (actual.tail_lufs === null || actual.tail_lufs <= o.tail_silent_lufs) {
       issues.push({
         check: 'closing_tail',
-        verdict: `the closing tail (${clock(window.start_sec)} to ${clock(window.end_sec)}) is silent, `
+        verdict: `the closing music (${clock(musicWindow.start_sec)} to ${clock(musicWindow.end_sec)}) is silent, `
           + `but this episode asks for closing music over it`,
       })
     }
@@ -945,11 +956,14 @@ export async function runFinalCheck(
   ], { timeoutMs: o.timeout_ms })
 
   const window = tailWindow(info.durationSec, expected.tail)
+  const musicWindow = expected.closing_music_window
+    ? tailWindow(info.durationSec, expected.closing_music_window)
+    : window
   let tailLufs: number | null = null
-  if (window && expected.closing_music) {
+  if (musicWindow && expected.closing_music) {
     const tailStderr = await runFfmpeg([
       '-hide_banner', '-nostdin',
-      '-ss', window.start_sec.toFixed(3), '-t', (window.end_sec - window.start_sec).toFixed(3),
+      '-ss', musicWindow.start_sec.toFixed(3), '-t', (musicWindow.end_sec - musicWindow.start_sec).toFixed(3),
       '-i', videoPath, '-vn', '-af', EBUR128_FILTER, '-f', 'null', '-',
     ], { timeoutMs: o.timeout_ms })
     tailLufs = parseEbur128Summary(tailStderr).lufs

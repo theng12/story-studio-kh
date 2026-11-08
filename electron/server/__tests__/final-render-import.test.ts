@@ -1910,6 +1910,87 @@ test('cold-load boot retains consumed acknowledged and cancelled terminals and d
   assert.equal(gateway.callsFor(acknowledged.key).length, 0)
 })
 
+test('boot restore keeps a consumed terminal done when a later accepted render replaced its destination', async t => {
+  installHooks(t)
+  const prepared = await prepareOutputReady('superseded-destination')
+  await requireImporter().recoverFinalRenderImport(prepared.job.project_slug, prepared.job.job_id)
+  const finished = await queue.loadAuthoritativeJob(prepared.job.project_slug, prepared.job.job_id)
+  assert.ok(finished)
+  assert.equal(finished.status, 'done')
+  assert.equal(finished.local_execution_complete, true)
+  assert.equal(typeof finished.result?.final_render_terminal_sha256, 'string')
+  // A later accepted render of the same episode publishes over the same final name. The retained
+  // terminal is still this row's own proof, so boot must not reopen it (1.4.388 Production).
+  const newerBytes = Buffer.concat([OUTPUT_BYTES, Buffer.from('newer accepted render\n')])
+  await fs.writeFile(prepared.destination, newerBytes, { mode: 0o600 })
+  gateway.resetCalls()
+  queue._restartProjectForTesting(prepared.job.project_slug)
+  const [loaded] = await queue.getJobs(prepared.job.project_slug)
+  assert.equal(loaded?.status, 'done')
+  assert.equal(loaded?.local_execution_complete, true)
+  assert.equal(loaded?.finished_at, finished.finished_at)
+  assert.deepEqual(loaded?.result, finished.result)
+  const disk = await queue.loadAuthoritativeJob(prepared.job.project_slug, prepared.job.job_id)
+  assert.equal(disk?.status, 'done')
+  assert.deepEqual(await fs.readFile(prepared.destination), newerBytes, 'the newer accepted final is untouched')
+  assert.equal(gateway.calls.length, 0, 'a boot restore makes no provider call')
+})
+
+test('boot restore still parks a genuinely pending remote render', async t => {
+  installHooks(t)
+  const pending = await prepareOutputReady('still-pending')
+  gateway.resetCalls()
+  queue._restartProjectForTesting(pending.job.project_slug)
+  const [loaded] = await queue.getJobs(pending.job.project_slug)
+  assert.equal(loaded?.status, 'running')
+  assert.equal(loaded?.local_execution_complete, false)
+  assert.equal(loaded?.final_render_wait?.state, 'output_ready')
+  assert.equal(gateway.calls.length, 0, 'a parked remote render makes no provider call')
+})
+
+test('the supported reconcile restores only a reopened consumed terminal', async t => {
+  installHooks(t)
+  const prepared = await prepareOutputReady('reconcile-reopened')
+  await requireImporter().recoverFinalRenderImport(prepared.job.project_slug, prepared.job.job_id)
+  const finished = await queue.loadAuthoritativeJob(prepared.job.project_slug, prepared.job.job_id)
+  assert.ok(finished)
+  const jobsFile = path.join(
+    pm.getProjectDir(prepared.job.project_slug) ?? path.join(retainedRoot, 'projects', prepared.job.project_slug),
+    'jobs.json',
+  )
+  await queue._waitForJobPersistenceForTesting()
+  const saved = JSON.parse(await fs.readFile(jobsFile, 'utf8')) as { jobs: Job[] }
+  const row = saved.jobs.find(job => job.job_id === prepared.job.job_id)!
+  // The exact 1.4.388 shape: a finished row a boot reopened, with its result evidence intact.
+  row.status = 'running'
+  row.finished_at = null
+  row.local_execution_complete = false
+  row.output_lines.push('Remote video render is parked pending reconciliation.')
+  await fs.writeFile(jobsFile, JSON.stringify(saved))
+  queue._forgetProjectPersistenceForTesting(prepared.job.project_slug)
+
+  const newerBytes = Buffer.concat([OUTPUT_BYTES, Buffer.from('newer accepted outro render\n')])
+  await fs.writeFile(prepared.destination, newerBytes)
+  const result = await queue.reconcileReopenedFinalRenderTerminal(prepared.job.project_slug, prepared.job.job_id)
+  assert.equal(result.changed, true)
+  assert.equal(result.job.status, 'done')
+  assert.equal(result.job.local_execution_complete, true)
+  assert.equal(result.job.finished_at, null, 'a transport event is not substituted for a lost completion time')
+  assert.ok(result.job.output_lines.some(line => line.includes('original completion time was not retained')))
+  assert.deepEqual(result.job.params, finished.params)
+  assert.deepEqual(result.job.result, finished.result)
+  assert.deepEqual(await fs.readFile(prepared.destination), newerBytes, 'the newer accepted final is untouched')
+  const replay = await queue.reconcileReopenedFinalRenderTerminal(prepared.job.project_slug, prepared.job.job_id)
+  assert.equal(replay.changed, false, 'a replay is a no-op')
+
+  const unrelated = await prepareOutputReady('reconcile-refused')
+  await assert.rejects(
+    queue.reconcileReopenedFinalRenderTerminal(unrelated.job.project_slug, unrelated.job.job_id),
+    /no retained final render terminal/,
+    'an unfinished remote render is never terminalized',
+  )
+})
+
 test('ordinary queue persistence cannot forge a verified final-render terminal', async () => {
   const prepared = await prepareOutputReady('terminal-forgery')
   const forged = await queue.loadAuthoritativeJob(prepared.job.project_slug, prepared.job.job_id)

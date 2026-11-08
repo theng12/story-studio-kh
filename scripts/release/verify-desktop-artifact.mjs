@@ -9,6 +9,7 @@ import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { packagedDependencyFailures } from './verify-packaged-dependencies.mjs'
 import { smokeLaunch } from './smoke-launch-artifact.mjs'
+import { persistentHelperBundles, signatureErrors } from './local-signing.mjs'
 import { readSelectedStoryRenderProvenance, verifyStoryRenderProvenanceArtifacts } from './render-build-provenance.mjs'
 import {
   expandArtifactName,
@@ -46,6 +47,9 @@ const artifactName = expandArtifactName(contract.artifactName, {
 })
 const appPath = path.resolve(root, argValue('--app') || path.join(outputDir, `mac-${arch}`, `${contract.productName}.app`))
 const dmgPath = path.resolve(root, argValue('--dmg') || path.join(outputDir, artifactName))
+// Legacy smoke artifacts stay ad-hoc (no flag); the normal release passes the
+// shared local identity and must prove a strict certificate signature.
+const requiredIdentity = argValue('--require-identity') || null
 
 const fail = (message) => failures.push(message)
 
@@ -108,6 +112,29 @@ if (fs.existsSync(appPath) && dmgMounted) {
   signatureKind = signature.ok ? (/Signature=adhoc/i.test(signature.output) ? 'ad-hoc' : 'signed') : 'unsigned'
   if (/Authority=Developer ID|TeamIdentifier=(?!not set)/i.test(signature.output)) {
     fail('smoke artifact unexpectedly has a Developer ID/team signature')
+  }
+
+  if (requiredIdentity) {
+    const strictVerify = capture('codesign', ['--verify', '--deep', '--strict', '--verbose=2', appPath], { allowFailure: true })
+    if (!strictVerify.ok) fail(`app signature does not verify strictly: ${strictVerify.output}`)
+    for (const error of signatureErrors({
+      details: capture('codesign', ['-dv', '--verbose=4', appPath], { allowFailure: true }).output,
+      requirement: capture('codesign', ['-d', '-r-', appPath], { allowFailure: true }).output,
+      identity: requiredIdentity,
+    })) fail(error)
+
+    const helpers = persistentHelperBundles(appPath)
+    if (!helpers.length) fail('no persistent helper bundles found under Contents/Frameworks')
+    for (const helper of helpers) {
+      const relative = path.relative(appPath, helper)
+      const helperVerify = capture('codesign', ['--verify', '--strict', '--verbose=2', helper], { allowFailure: true })
+      if (!helperVerify.ok) fail(`persistent helper signature does not verify: ${relative}: ${helperVerify.output}`)
+      for (const error of signatureErrors({
+        details: capture('codesign', ['-dv', '--verbose=4', helper], { allowFailure: true }).output,
+        requirement: capture('codesign', ['-d', '-r-', helper], { allowFailure: true }).output,
+        identity: requiredIdentity,
+      })) fail(`${relative}: ${error}`)
+    }
   }
 
   const resources = path.join(appPath, 'Contents', 'Resources')
@@ -226,7 +253,7 @@ const digest = await sha256(dmgPath)
 const size = fs.statSync(dmgPath).size
 console.log(`Desktop artifact verified: ${dmgPath}`)
 console.log(`  app: ${contract.appId} v${pkg.version} (${contract.architectures.join(', ')})`)
-console.log(`  signature: ${signatureKind} (no Developer ID)`)
+console.log(`  signature: ${signatureKind}${requiredIdentity ? ` (certificate: ${requiredIdentity})` : ' (no Developer ID)'}`)
 console.log(`  DMG mounted read-only: ${dmgMounted ? 'yes' : 'no'}`)
 console.log(`  runtime dependency closure inside app.asar: ${packagedDependencyCount} packages`)
 console.log(

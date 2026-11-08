@@ -4,6 +4,12 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.389 — 2026-11-08
+
+- Local release packaging uses the same signing identity across updates and reports a missing identity instead of silently producing an ad-hoc release.
+- Closing music continues through the outro and uses the saved fade at the end of the video. Final checks inspect that ending.
+- Completed remote renders stay completed after a restart when a newer accepted render has replaced their final video. An evidence-only repair restores affected job records without rendering or replacing the accepted final.
+
 ## v1.4.388 — 2026-11-08
 
 - Sleep titles follow the Formula's declared sleep presentation rather than scene pacing. Installed owner Formulas remain available when their store replacement is missing.

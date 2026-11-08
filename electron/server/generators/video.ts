@@ -171,7 +171,7 @@ import {
 import { scenePlanLeadInShiftSec, shiftScenesForLeadIn, computeStoryStartSec } from '../lib/intro-lead-in.js'
 import { isSleepNiche, resolveSleepTitlePlacement, sleepTitleOpeningPlan, sleepTitleOverlayWindow, type SleepTitlePlacementResult, type SleepVideoContext } from '../lib/sleep-title-placement.js'
 import { getEffectiveNiche } from '../services/niche-loader.js'
-import { mergedBackgroundMusic, narrationSecFromMaster, postRollSeconds, preventBlackTail } from '../lib/closing-tail.js'
+import { mergedBackgroundMusic, mergedClosingOutroSec, narrationSecFromMaster, postRollSeconds, preventBlackTail } from '../lib/closing-tail.js'
 import { resolveEpisodeMergedAudioChoice } from '../lib/merged-audio-selection.js'
 import { compareMergedAudio, MIN_RENDERABLE_SCENE_SEC, unrenderableSceneProblem } from '../lib/scene-plan-timeline.js'
 import {
@@ -876,6 +876,10 @@ export function finalCheckExpectation(
      */
     backgroundMusic: boolean | null
     tailFromEndSec: number
+    /** Seconds of the same bed that play under the appended outro (0 when none was baked). */
+    outroMusicSec?: number
+    /** Seconds of picture after that outro (`after_outro` clips), which the music does not cover. */
+    afterOutroSec?: number
     width: number
     height: number
     speechEndSec?: number
@@ -892,6 +896,12 @@ export function finalCheckExpectation(
     // known to have no bed (music off on purpose). A silent ending is never accepted for lack of a record.
     closing_music: closingMusicWanted(req.post_audio)
       && (opts.bakedTailSec > 0 || (opts.tailSec > 0 && opts.backgroundMusic !== false)),
+    // When the bed was baked under the outro, the music check must measure THERE — the true end of the
+    // picture — not the held tail before it. The window ends where the music ends; `after_outro` clips
+    // sit beyond it and are not claimed as covered.
+    ...(Number(opts.outroMusicSec) > 0
+      ? { closing_music_window: { sec: Number(opts.outroMusicSec), from_end_sec: Math.max(0, Number(opts.afterOutroSec) || 0) } }
+      : {}),
     width: opts.width,
     height: opts.height,
     subtitles_path: req.subtitles?.enabled ? ((req.subtitles.srt_path || '').trim() || null) : null,
@@ -938,7 +948,7 @@ async function finalCheckFinalVideo(
     await storeFinalCheck(outputPath, result)
     job.output_lines.push(`Final check: ${finalCheckSummary({ result, stale: false })}`)
     for (const issue of result.issues) job.output_lines.push(`Final check: ${issue.verdict}`)
-    job.result = { ...(job.result || {}), final_check_error: false, final_check: { passed: result.passed, issues: result.issues } }
+    job.result = { ...(job.result || {}), final_check_error: false, final_check: { ...(job.result?.final_check || {}), passed: result.passed, issues: result.issues } }
     return result
   } catch (error: any) {
     job.result = { ...(job.result || {}), final_check_error: true }
@@ -2336,6 +2346,103 @@ export async function resolveSoundDesignCuesForRender(
   return approvedSoundDesignMixCues(req.sound_design.cues as SoundDesignCue[])
 }
 
+/** One prepared clip's duration on the CFR frame grid the encoder writes (`-r fps -fps_mode cfr`). */
+export function frameGridSeconds(sec: number, fps: number): number {
+  return Math.round(sec * fps) / fps
+}
+
+/**
+ * Seconds of closing music the tail picture needs: the appended outro plus every timeline clip that
+ * plays after the held tail. Null when a requested piece cannot be measured — the caller refuses
+ * rather than guessing a span (AGENTS §6).
+ */
+export function expectedClosingTailMusicSec(opts: {
+  outroSec: number | null
+  tailClipSecs: Array<number | null>
+  fps: number
+}): number | null {
+  let total = 0
+  for (const sec of [opts.outroSec, ...opts.tailClipSecs]) {
+    if (sec === null || !Number.isFinite(sec) || sec < 0) return null
+    total += frameGridSeconds(sec, opts.fps)
+  }
+  return total
+}
+
+/** Why a prepared tail cannot carry the music that was mixed for it, or null when it can. */
+export function closingTailMusicMismatch(expectedSec: number, preparedSec: number): string | null {
+  if (!(expectedSec > 0) || Math.abs(expectedSec - preparedSec) <= 0.5) return null
+  return `The closing music in this episode's merged audio was mixed for ${expectedSec.toFixed(1)}s under `
+    + `the tail this render draws, but the prepared tail is ${preparedSec.toFixed(1)}s. `
+    + (preparedSec < expectedSec
+      ? 'The picture would end before the music does.'
+      : 'The music would end before the picture does.')
+    + ' The render stopped before encoding: re-run Audio Assembly (or render again) so the music is re-mixed '
+    + 'for the tail this render draws.'
+}
+
+/** The expectation recorded before an interrupted final encode, when it belongs to these stage inputs. */
+export function recordedFinalCheckExpectation(
+  result: { final_check?: { inputs?: string; expected?: FinalCheckExpectation } } | null | undefined,
+  inputsFingerprint: string | null | undefined,
+): FinalCheckExpectation | null {
+  const record = result?.final_check
+  if (!record?.expected || !inputsFingerprint || record.inputs !== inputsFingerprint) return null
+  return record.expected
+}
+
+/**
+ * Seconds of closing music the tail picture needs, measured from this render's own outro and the
+ * timeline clips that play after the held tail. Unknown is refused loudly: a guessed 0 would bake a
+ * tail the music does not cover, and the old `|| 0` did exactly that (AGENTS §6).
+ */
+async function closingMusicOutroSec(slug: string, req: GenerateVideoRequest): Promise<number> {
+  // Compilation mode draws no outro (v1), so there is no picture for the bed to run under.
+  if (req.video_layout === 'compilation') return 0
+  if (!closingMusicWanted(req.post_audio)) return 0
+  const fps = Number(req.fps) > 0 ? Number(req.fps) : 30
+  const measure = async (sourcePath: string, label: string): Promise<number> => {
+    let resolved = sourcePath
+    if (isPortablePath(resolved)) {
+      try {
+        resolved = resolveAssetPath(resolved, (await pm.getProjectOutputRoot(slug)) || undefined)
+      } catch (error: any) {
+        throw nonRetryable(new Error(`Closing music: ${label} could not be resolved, so its length is unknown. ${error?.message || error}`))
+      }
+    }
+    if (!existsSync(resolved)) {
+      throw nonRetryable(new Error(`Closing music: ${label} is missing, so its length is unknown.`))
+    }
+    const sec = Number(await getAudioDuration(resolved).catch(() => 0)) || 0
+    if (!(sec > 0)) {
+      throw nonRetryable(new Error(`Closing music: ${label}'s length could not be measured, so the music cannot be extended to the true end.`))
+    }
+    return sec
+  }
+  const outroSec = req.outro?.enabled && req.outro.video_path ? await measure(req.outro.video_path, 'the outro video') : 0
+  const tailClipSecs: number[] = []
+  for (const clip of req.timeline_clips || []) {
+    if (!clip.enabled || (clip.anchor !== 'after_scenes' && clip.anchor !== 'after_outro')) continue
+    if (clip.kind === 'static') {
+      if (!(Number(clip.duration_sec) > 0)) {
+        throw nonRetryable(new Error(`Closing music: the ${clip.anchor} static timeline clip has no valid duration, so the music span is unknown.`))
+      }
+      tailClipSecs.push(Number(clip.duration_sec))
+    } else if (clip.video_path) {
+      tailClipSecs.push(await measure(clip.video_path, `the ${clip.anchor} timeline clip`))
+    }
+  }
+  // The outro card is drawn into `after_outro` with the same frame grid as a timeline clip.
+  if (req.outro_card?.enabled && req.outro_card.text?.trim()) {
+    tailClipSecs.push(Number(req.outro_card.duration) > 0 ? Number(req.outro_card.duration) : 4)
+  }
+  const expected = expectedClosingTailMusicSec({ outroSec, tailClipSecs, fps })
+  if (expected === null) {
+    throw nonRetryable(new Error('Closing music: the tail picture could not be measured, so the music span is unknown.'))
+  }
+  return expected
+}
+
 /**
  * A merged track mixed without the closing music this render asks for would draw a silent, padded tail
  * (Night Atlas History EP0012–14). With a job, re-mix the audio with the tail first and render the new
@@ -2354,12 +2461,27 @@ export async function guardClosingTail(
   const { planClosingTailRemix, remixForClosingTail, recoverPendingRemix } = await import('../services/closing-tail-remix.js')
   const { claimClosingTailRemix } = await import('../services/closing-tail-remix-admission.js')
   const code = episodeId.toUpperCase()
+  // The held tail already baked into the master is the truth (1.4.327). A request whose post_audio
+  // now names different seconds must not re-decide it behind the customer: the re-mix only extends
+  // the same bed over this render's tail picture, keeping the held span exactly as it is.
+  const bakedTailSec = Math.max(0, Number(merged.closing_tail_sec) || 0)
+  const bakedOutroSec = bakedTailSec > 0 ? Math.min(bakedTailSec, await mergedClosingOutroSec(merged.path, code)) : 0
+  const bakedHeldSec = Math.max(0, bakedTailSec - bakedOutroSec)
+  const postAudioForPlan = bakedHeldSec > 0 && req.post_audio
+    ? { ...req.post_audio, behavior: 'hold-last-scene' as const, tail_seconds: bakedHeldSec }
+    : req.post_audio
+  // The outro sits AFTER the post-audio tail, so the same bed must cover its seconds too and fade at
+  // the real end. Measured once from this render's own outro and the clips that follow it — and only
+  // when a tail is actually going to be baked, so a hard cut is never refused over an unread outro.
+  const outroSec = postRollSeconds(postAudioForPlan) > 0 && closingMusicWanted(postAudioForPlan)
+    ? await closingMusicOutroSec(slug, req)
+    : 0
   // One re-mix of an episode at a time: a second render asking for the same tail waits, then finds the
   // first one's pinned track and uses it. Admission (no job) only reads and never waits for a re-mix.
   const decide = async (): Promise<ScannedAssets> => {
     // `req.merged_audio_path` can still name the track this job was accepted with, from before its own
     // (or another render's) re-mix; the plan resolves it to the re-mixed track instead of refusing.
-    const plan = () => planClosingTailRemix({ slug, code, postAudio: req.post_audio, preferredFilename: merged.filename })
+    const plan = () => planClosingTailRemix({ slug, code, postAudio: postAudioForPlan, preferredFilename: merged.filename, outroSec })
     let verdict = await plan()
     if (verdict.action === 'refuse') throw nonRetryable(new Error(verdict.reason))
     // Admission mutates nothing: a stopped re-mix is finished by the render, which preflight announces.
@@ -3176,6 +3298,13 @@ export async function generateVideo(job: Job): Promise<VideoAssemblyDisposition>
   // (coverage, captions, Image Pool, the plan's clock) must look — while
   // `targetDuration` stays the master's own length.
   const mergedClosingTailSec = useMergedAudio ? (authoritativeAssets.merged_audio[0]?.closing_tail_sec || 0) : 0
+  // How much of that tail the merge baked under the appended outro. The picture still holds the last
+  // scene for the rest of the tail and then plays the outro, so the video's length is unchanged while
+  // the music reaches the true end.
+  const mergedOutroMusicSecRaw = useMergedAudio && authoritativeAssets.merged_audio[0]
+    ? await mergedClosingOutroSec(authoritativeAssets.merged_audio[0].path, code)
+    : 0
+  const mergedOutroMusicSec = Math.min(mergedClosingTailSec, mergedOutroMusicSecRaw)
   // Whether that master was recorded with a music bed — the final check's answer to a silent tail.
   const mergedBackgroundMusicRecord = useMergedAudio && authoritativeAssets.merged_audio[0]
     ? await mergedBackgroundMusic(authoritativeAssets.merged_audio[0].path, code)
@@ -3183,6 +3312,7 @@ export async function generateVideo(job: Job): Promise<VideoAssemblyDisposition>
   const lengths = resolveVideoLengths({
     sourceDurationSec: narrationDuration,
     bakedClosingTailSec: mergedClosingTailSec,
+    bakedOutroMusicSec: mergedOutroMusicSec,
     postAudio: req.post_audio,
   })
   narrationDuration = lengths.narrationDurationSec
@@ -3190,10 +3320,14 @@ export async function generateVideo(job: Job): Promise<VideoAssemblyDisposition>
   if (mergedClosingTailSec > 0) {
     job.output_lines.push(
       `Closing tail: ${mergedClosingTailSec.toFixed(1)}s of music after the narration are already in `
-      + `${path.basename(req.merged_audio_path!)}, so the video ends with the audio at `
-      + `${lengths.targetDurationSec.toFixed(1)}s (speech ends at ${narrationDuration.toFixed(1)}s) — no second tail is added.`,
+      + `${path.basename(req.merged_audio_path!)}`
+      + (mergedOutroMusicSec > 0
+        ? ` (${postRoll.toFixed(1)}s held, then ${mergedOutroMusicSec.toFixed(1)}s under the outro, fading at the true end)`
+        : '')
+      + `, so the video ends with the audio at ${lengths.targetDurationSec.toFixed(1)}s `
+      + `(speech ends at ${narrationDuration.toFixed(1)}s) — no second tail is added.`,
     )
-    if (postRollSeconds(req.post_audio) !== mergedClosingTailSec) {
+    if (postRollSeconds(req.post_audio) !== postRoll) {
       job.output_lines.push(
         `  Video Assembly's post-audio tail now says ${postRollSeconds(req.post_audio).toFixed(1)}s. `
         + 'The merged audio that exists is the truth; re-merge the audio to change the tail.',
@@ -3356,33 +3490,35 @@ export async function generateVideo(job: Job): Promise<VideoAssemblyDisposition>
 
   try {
     if (carriedFinalStage && videoAssemblyCheckpoint) {
-      // The final render was already running: finish it with its own command. Everything before it
-      // (scene clips, the timeline, the audio mix) is already in the saved work files.
-      job.output_lines.push(`Recovery: the final render was under way; finishing it with its saved command`
-        + ` (${carriedFinalSegments?.segments.length || 0} finished segment(s) moved into a fresh work folder).`)
-      try {
-        const outputFile = await resumeSavedFinalRender(job, carriedFinalStage, finalSegmentation()!, format)
-        await finishFinalVideo({
-          job, project_slug, code, titleHint: titleHint || '', videoDir, format, tempDir,
-          outputFile, totalRenderDuration: carriedFinalStage.total_render_sec,
-          visualSource: authoritativeAssets.visual_source || 'scene_plan', imagePool: authoritativeAssets.image_pool, loudness,
-          narrationOffsetSec: carriedFinalStage.narration_offset_sec,
-          // A resumed final render knows its own length and canvas but not what followed the tail;
-          // the tail is still measured where it is, and nothing sits after it that this run knows of.
-          // Old checkpoints did not record the narration's lead-in, so their speech end remains unknown.
-          // Never infer it from the current request.
-          expected: finalCheckExpectation(req, {
-            plannedSec: carriedFinalStage.total_render_sec, tailSec: postRoll, bakedTailSec: mergedClosingTailSec, backgroundMusic: mergedBackgroundMusicRecord,
-            tailFromEndSec: 0, width: w, height: h,
-          }),
-        })
-        succeeded = true
-        return
-      } catch (e) {
-        // Next time it renders from the start, the way it always did.
+      // The check expectation was fixed before the interrupted encode began. A saved stage with no
+      // recorded expectation (an older checkpoint) cannot be judged honestly, so it renders again.
+      const recordedExpected = recordedFinalCheckExpectation(job.result, inputsFingerprint)
+      if (!recordedExpected) {
         delete videoAssemblyCheckpoint.final_stage
         delete videoAssemblyCheckpoint.final_segments
-        throw e
+        job.output_lines.push('Recovery: the saved final render has no recorded check expectation for these inputs, so this run renders it again from the start.')
+      } else {
+        // The final render was already running: finish it with its own command. Everything before it
+        // (scene clips, the timeline, the audio mix) is already in the saved work files.
+        job.output_lines.push(`Recovery: the final render was under way; finishing it with its saved command`
+          + ` (${carriedFinalSegments?.segments.length || 0} finished segment(s) moved into a fresh work folder).`)
+        try {
+          const outputFile = await resumeSavedFinalRender(job, carriedFinalStage, finalSegmentation()!, format)
+          await finishFinalVideo({
+            job, project_slug, code, titleHint: titleHint || '', videoDir, format, tempDir,
+            outputFile, totalRenderDuration: carriedFinalStage.total_render_sec,
+            visualSource: authoritativeAssets.visual_source || 'scene_plan', imagePool: authoritativeAssets.image_pool, loudness,
+            narrationOffsetSec: carriedFinalStage.narration_offset_sec,
+            expected: recordedExpected,
+          })
+          succeeded = true
+          return
+        } catch (e) {
+          // Next time it renders from the start, the way it always did.
+          delete videoAssemblyCheckpoint.final_stage
+          delete videoAssemblyCheckpoint.final_segments
+          throw e
+        }
       }
     }
 
@@ -4494,25 +4630,28 @@ export async function generateVideo(job: Job): Promise<VideoAssemblyDisposition>
     }
 
     // Two duration scales — keep them separate:
-    //   `targetDuration`        (= narration+30) governs the concat list's
-    //                           post-audio fill math (postDuration =
-    //                           targetDuration - sceneEndTime). Inflating
-    //                           it would stretch the black/fade/hold tail.
-    //   `totalRenderDuration`   (= targetDuration + outroDuration) governs
-    //                           the premix audio length and the final
-    //                           encode's `-t` flag, so the outro segment
-    //                           that sits after the post-audio tail isn't
-    //                           clipped by the encoder.
+    //   `targetDuration`        (= the merged master) is the AUDIO's length. It may already include the
+    //                           music that plays under the outro (`mergedOutroMusicSec`), so the picture
+    //                           clock below removes that span before the outro is appended.
+    //   `totalRenderDuration`   (= picture through the outro) governs the premix audio length and the
+    //                           final encode's `-t` flag, so the outro segment that sits after the
+    //                           post-audio tail isn't clipped by the encoder.
     // Tail duration includes outro plus user timeline clips that live
     // after_scenes (before post-audio) and after_outro (very end). Both
     // extend the encoder's `-t` so nothing gets clipped, and both
     // contribute to the premix audio length in identical fashion.
     const tailClipsDuration = afterScenesDur + afterOutroDur
     // The narration lead-in pushes the narration (and its post-audio tail) later by the same amount.
-    const sceneTrackTargetDuration = targetDuration + narrationLeadInSec
+    // The outro music is already inside `targetDuration`, so it is not picture before the outro.
+    const sceneTrackTargetDuration = targetDuration - mergedOutroMusicSec + narrationLeadInSec
     const totalRenderDuration = sceneTrackTargetDuration + outroDuration + tailClipsDuration
+    // The music was mixed for the tail this render was measured to draw. A prepared tail that differs
+    // meaningfully means the music would end early or run past the picture, so the render stops before
+    // encoding instead of claiming a music bed that does not reach the true end.
+    const tailMusicMismatch = closingTailMusicMismatch(mergedOutroMusicSec, outroDuration + tailClipsDuration)
+    if (tailMusicMismatch) throw nonRetryable(new Error(tailMusicMismatch))
     if (outroDuration > 0 || tailClipsDuration > 0) {
-      const parts = [`target ${targetDuration.toFixed(1)}s`]
+      const parts = [`picture ${sceneTrackTargetDuration.toFixed(1)}s`]
       if (outroDuration > 0) parts.push(`outro ${outroDuration.toFixed(1)}s`)
       if (afterScenesDur > 0) parts.push(`after_scenes ${afterScenesDur.toFixed(1)}s`)
       if (afterOutroDur > 0) parts.push(`after_outro ${afterOutroDur.toFixed(1)}s`)
@@ -4575,12 +4714,13 @@ export async function generateVideo(job: Job): Promise<VideoAssemblyDisposition>
         + 'Your saved settings were not changed — set the ending to Hold Last Scene (or Hard Cut) to match what will be drawn.',
       )
     }
-    // The tail that exists is the one in the merged audio. When it baked one and
+    // The tail that exists is the one in the merged audio. When it baked a held tail and
     // the preset since changed to a behavior that draws no tail at all
     // ('hard-cut' / legacy 'continue-cycling'), the picture would stop while the
-    // tail's music kept playing — so the last scene is held across it instead.
-    const tailAudio = mergedClosingTailSec > 0 && postRollSeconds(postAudio) === 0
-      ? { ...postAudio, behavior: 'hold-last-scene' as const, tail_seconds: mergedClosingTailSec }
+    // tail's music kept playing — so the last scene is held across it instead. Only the
+    // held part counts: music baked under the outro needs no hold.
+    const tailAudio = postRoll > 0 && postRollSeconds(postAudio) === 0
+      ? { ...postAudio, behavior: 'hold-last-scene' as const, tail_seconds: postRoll }
       : postAudio
 
     // 10. Build concat list — scenes match narration duration, post-audio fills the rest
@@ -4666,6 +4806,9 @@ export async function generateVideo(job: Job): Promise<VideoAssemblyDisposition>
     const finalCheckExpected = finalCheckExpectation(req, {
       plannedSec: totalRenderDuration, tailSec: postRoll, bakedTailSec: mergedClosingTailSec, backgroundMusic: mergedBackgroundMusicRecord,
       tailFromEndSec: outroDuration + afterOutroDur,
+      // The music spans the outro and every tail clip (verified above), so its window reaches the
+      // real end rather than stopping before `after_outro`.
+      outroMusicSec: mergedOutroMusicSec, afterOutroSec: 0,
       width: resW, height: resH,
       // `narrationDuration` is the speech end (see the merged-closing-tail note above), and the
       // narration plays from `narrationLeadInSec` in the file, so this is where the words stop.
@@ -4678,6 +4821,10 @@ export async function generateVideo(job: Job): Promise<VideoAssemblyDisposition>
     finalCheckExpected.scene_blank_starts = await sketchSceneBlankStartsForEpisode(
       project_slug, code, episodeDir, finalCheckExpected.speech_end_sec,
     )
+    // The check that will judge this encode is fixed here, before it starts, so a restart finishes
+    // with the same expectation (the music window included) instead of rebuilding a weaker one.
+    job.result = { ...(job.result || {}), final_check: { inputs: inputsFingerprint, expected: finalCheckExpected } }
+    await checkpointJobState(job)
     // Sleep title (item 15): ONE window on the composed clock, after the
     // intro, drawn over picture that already exists — never a head clip, so
     // the render's total duration and every other clock stay untouched.
@@ -8303,13 +8450,24 @@ export function resolveVideoLengths(opts: {
   sourceDurationSec: number
   /** Seconds of closing music already inside that source. 0 when there is none. */
   bakedClosingTailSec: number
+  /**
+   * How much of `bakedClosingTailSec` plays under an appended outro rather than the held post-audio
+   * tail (0 for every merge without outro music). The picture holds only the rest of the tail before
+   * the outro, so the video's own length does not move.
+   */
+  bakedOutroMusicSec?: number
   postAudio: VideoPostAudio | undefined
 }): { narrationDurationSec: number; postRollSec: number; targetDurationSec: number } {
   const source = Number(opts.sourceDurationSec) || 0
   const baked = Math.max(0, Number(opts.bakedClosingTailSec) || 0)
   if (baked > 0) {
+    const outroMusicSec = Math.min(baked, Math.max(0, Number(opts.bakedOutroMusicSec) || 0))
     const narrationDurationSec = narrationSecFromMaster(source, baked)
-    return { narrationDurationSec, postRollSec: baked, targetDurationSec: narrationDurationSec + baked }
+    return {
+      narrationDurationSec,
+      postRollSec: baked - outroMusicSec,
+      targetDurationSec: narrationDurationSec + baked,
+    }
   }
   const postRollSec = postRollSeconds(opts.postAudio)
   return { narrationDurationSec: source, postRollSec, targetDurationSec: source + postRollSec }

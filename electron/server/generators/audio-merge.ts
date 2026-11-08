@@ -1271,11 +1271,23 @@ export async function generateAudioMerge(job: Job): Promise<void> {
     const requestedClosingTail = tailCap > 0 && savedClosingTail.seconds > tailCap
       ? { ...savedClosingTail, seconds: tailCap }
       : savedClosingTail
-    const closingTail: ClosingTailRequest = musicEnabled ? requestedClosingTail : { seconds: 0 }
+    // A render may append an outro AFTER the post-audio tail. The bed must run under that picture too
+    // and fade at the real end, so the merge bakes the outro's seconds onto the same closing tail. Only
+    // a closing tail that exists can be extended: a hard cut stays a hard cut.
+    const bakedTail = closingTailWithOutro(
+      musicEnabled ? requestedClosingTail.seconds : 0,
+      musicEnabled ? Number(req.closing_outro_sec) || 0 : 0,
+    )
+    const outroMusicSec = bakedTail.outroSec
+    const closingTail: ClosingTailRequest = musicEnabled
+      ? { ...requestedClosingTail, seconds: bakedTail.seconds }
+      : { seconds: 0 }
     if (closingTail.seconds > 0) {
       job.output_lines.push(
-        `Closing tail: the background music continues for ${closingTail.seconds}s after the narration, `
-        + 'then fades out (Video Assembly\'s post-audio tail).',
+        `Closing tail: the background music continues for ${closingTail.seconds}s after the narration`
+        + (outroMusicSec > 0
+          ? ` (${requestedClosingTail.seconds}s held + ${outroMusicSec}s under the outro), then fades out at the video's true end.`
+          : ', then fades out (Video Assembly\'s post-audio tail).'),
       )
     } else if (requestedClosingTail.seconds > 0) {
       job.output_lines.push(
@@ -1414,6 +1426,13 @@ export async function generateAudioMerge(job: Job): Promise<void> {
          */
         closing_tail_sec: closingTail.seconds,
         /**
+         * How much of `closing_tail_sec` plays under the appended outro rather than under the held
+         * post-audio tail (0 for every merge that baked no outro music). The renderer draws the
+         * hold/black picture for `closing_tail_sec - closing_outro_sec` and appends the outro for the
+         * rest, so the picture keeps its length while the music reaches the true end.
+         */
+        closing_outro_sec: outroMusicSec,
+        /**
          * Whether the mix carries a background music bed (1.4.352). `closing_tail_sec` 0 cannot say:
          * it is 0 both for a merge with no bed and for a bed mixed before a closing was saved. A record
          * without this field (older merges) says nothing — `mergedBackgroundMusic` reads that as
@@ -1421,6 +1440,25 @@ export async function generateAudioMerge(job: Job): Promise<void> {
          */
         background_music: !!musicEnabled,
         opening,
+        /**
+         * The mix this file actually carries (1.4.389), so a later closing-tail re-mix for an
+         * appended outro copies the ORIGINAL bed, levels and narration settings instead of
+         * today's preset. Local paths and levels only — no provider or secret. `producer_job_id`
+         * lets a merge made before this snapshot be proven by its own completed job.
+         */
+        original_mix: {
+          intro: req.intro,
+          music: req.music,
+          background_noise: req.background_noise,
+          ambient_tracks: req.ambient_tracks,
+          effects_tracks: (req as any).effects_tracks,
+          background_voice_tracks: (req as any).background_voice_tracks,
+          narration_volume: req.narration_volume,
+          normalize_volume: req.normalize_volume,
+          gap_duration: req.gap_duration,
+          chunk_silence_sec: req.chunk_silence_sec,
+        },
+        producer_job_id: job.job_id,
       }, null, 2),
       'utf-8',
     )
@@ -1533,6 +1571,17 @@ interface MixOptions {
   outputPath: string
   tempDir: string
   job: Job
+}
+
+/**
+ * The closing tail actually baked: the render's post-audio tail, plus the same bed under an appended
+ * outro. A hard cut (no post-audio tail) stays a hard cut — outro music is never added to a silent
+ * ending nobody asked music for.
+ */
+export function closingTailWithOutro(requestedSec: number, outroSec: number): { seconds: number; outroSec: number } {
+  const requested = Math.max(0, Number(requestedSec) || 0)
+  const outro = requested > 0 ? Math.max(0, Number(outroSec) || 0) : 0
+  return { seconds: requested + outro, outroSec: outro }
 }
 
 /**

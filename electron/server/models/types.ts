@@ -4540,13 +4540,19 @@ export interface AudioMergeRequest {
   /** LINEAR GAIN, not a percentage (1 = the recorded level). A preset's percent is converted before this request is built. */
   narration_volume?: number    // linear gain, default 1.0
   write_mode?: 'overwrite' | 'new'  // how to handle an existing merged output; default 'overwrite'
-  /** Server-only: bake at most this long a closing tail, whatever the saved Video Assembly preset asks for (a re-mix for one render). */
+  /** Server-only: bake at most this long a closing tail, whatever the saved Video Assembly preset asks for (a re-mix for one render). `closing_outro_sec` is added on top of this cap. */
   closing_tail_sec_cap?: number
   /**
    * Server-only: the `post_audio` block of the render this merge is for (a Pipeline run's Video Assembly preset, or the
    * render a re-mix serves). Outranks anything saved, so the tail baked is the tail that render draws.
    */
   closing_post_audio?: VideoPostAudio
+  /**
+   * Server-only: seconds of the SAME bed to keep playing under an appended outro, added to the closing
+   * tail so the music fades at the video's true end rather than at the end of the held tail. Only
+   * meaningful when the request also bakes a closing tail; a hard cut stays silent.
+   */
+  closing_outro_sec?: number
   /** The Music Pool track this merge uses (the page's pick, or the merge's own for a Pipeline run); recorded after a good merge. */
   music_pool_track?: string
   /**
