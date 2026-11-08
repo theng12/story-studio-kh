@@ -11,6 +11,7 @@ import {
   parseContentPackManifest,
 } from '../content-packs/schemas.js'
 import { METADATA_SECTION_IDS } from '../lib/metadata-sections.js'
+import { contentPackDocumentToNiche } from '../content-packs/legacy-adapters.js'
 
 const SHA256 = 'a'.repeat(64)
 
@@ -739,6 +740,24 @@ describe('Content Pack v1 contracts', () => {
     assert.throws(() => ContentPackDocumentSchema.parse({
       ...documents['series-formula'], visual_style_id: 'formula-selected-style',
     }), /unrecognized key/i)
+  })
+
+  test('accepts optional is_sleep on Series Formula and preserves true and false', () => {
+    const withSleepTrue = ContentPackDocumentSchema.parse({
+      ...documents['series-formula'],
+      is_sleep: true,
+    })
+    if (withSleepTrue.kind !== 'series-formula') assert.fail('expected Formula document')
+    assert.equal(withSleepTrue.is_sleep, true)
+    assert.equal(contentPackDocumentToNiche(withSleepTrue).is_sleep, true)
+
+    const withSleepFalse = ContentPackDocumentSchema.parse({
+      ...documents['series-formula'],
+      is_sleep: false,
+    })
+    if (withSleepFalse.kind !== 'series-formula') assert.fail('expected Formula document')
+    assert.equal(withSleepFalse.is_sleep, false)
+    assert.equal(contentPackDocumentToNiche(withSleepFalse).is_sleep, false)
   })
 
   test('rejects range dependencies and item paths that are not declared files', () => {

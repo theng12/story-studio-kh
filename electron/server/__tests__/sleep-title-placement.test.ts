@@ -79,24 +79,20 @@ describe('isSleepVideo', () => {
     assert.equal(isSleepVideo({ formula_id: 'com.storystudio.formula.sleep-story' } as any), false)
   })
 
-  test('the same pack Formula is sleep once its document facts are passed', () => {
+  test('pacing alone (snake_case or camelCase) does NOT infer sleep title', () => {
     assert.equal(isSleepVideo({
       niche_id: 'com.storystudio.formula.sleep-history-compilation',
       formulaFamily: 'Calm documentary',
       starting_scene_pacing: { tiers: [] },
-    }), true, 'starting_scene_pacing is the sleep-family pack field (AGENTS §5)')
+    } as any), false, 'starting_scene_pacing alone must not decide title')
     assert.equal(isSleepVideo({
       id: 'com.storystudio.formula.calm-science-for-sleep',
-      starting_scene_pacing: { tiers: [] },
-    }), true)
-    assert.equal(isSleepVideo({
-      id: 'com.storystudio.formula.sleep-history-compilation-v2',
       formulaFamily: 'Calm documentary',
       startingScenePacing: { mode: 'variable' },
-    }), true, 'startingScenePacing camelCase on Niche object is recognized')
+    } as any), false, 'startingScenePacing alone must not decide title')
   })
 
-  test('identifies sleep by formula openingProfile metadata fact', () => {
+  test('identifies sleep by formula openingProfile metadata fact without pacing', () => {
     assert.equal(isSleepVideo({
       niche_id: 'com.storystudio.formula.mythology-for-sleep',
       formulaFamily: 'Calm documentary',
@@ -105,13 +101,20 @@ describe('isSleepVideo', () => {
     assert.equal(isSleepVideo({
       id: 'kh.owner.formula.illustrated-history-for-sleep',
       formulaFamily: 'Calm documentary',
-      opening_profile: { id: 'sleep-landing', label: 'Sleep landing', description: 'gentle welcome' },
-    }), true, 'opening_profile.id === sleep-landing in snake_case identifies sleep formulas')
+      openingProfile: { id: 'sleep-landing', label: 'Sleep landing', description: 'gentle welcome' },
+    }), true, 'openingProfile.id === sleep-landing identifies sleep formulas')
     assert.equal(isSleepVideo({
       id: 'com.storystudio.formula.khmer-folk-horror',
       formulaFamily: 'Folk horror',
       openingProfile: { id: 'folk-welcome', label: 'Folk welcome', description: 'greeting' },
     }), false, 'non-sleep openingProfile does not match')
+  })
+
+  test('explicit is_sleep false overrides openingProfile sleep-landing', () => {
+    assert.equal(isSleepVideo({
+      is_sleep: false,
+      openingProfile: { id: 'sleep-landing' },
+    }), false, 'explicit is_sleep: false wins over openingProfile metadata')
   })
 
   test('identifies sleep by declared formula family', () => {

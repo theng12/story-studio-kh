@@ -3464,7 +3464,7 @@ export async function generateVideo(job: Job): Promise<VideoAssemblyDisposition>
     // today's title clip would have occupied, so the opening clock is
     // unchanged; the title itself is drawn later by `sleepTitle` in the final
     // composition. Sleep detection reads the project's effective Formula
-    // document (family / starting_scene_pacing / id) — never a name match.
+    // document (metadata facts: is_sleep / openingProfile / id) — never a name match.
     let sleepPlacement: SleepTitlePlacementResult | null = null
     let sleepOpeningKeepSec = 0
     try {
@@ -3474,9 +3474,6 @@ export async function generateVideo(job: Job): Promise<VideoAssemblyDisposition>
         formulaFamily: sleepNiche.formulaFamily,
         is_sleep: sleepNiche.is_sleep,
         openingProfile: sleepNiche.openingProfile,
-        opening_profile: sleepNiche.openingProfile,
-        starting_scene_pacing: sleepNiche.startingScenePacing ?? (sleepNiche as any).starting_scene_pacing,
-        startingScenePacing: sleepNiche.startingScenePacing,
       } : null
       if (isSleepNiche(sleepFacts)) {
         // The spoken Introduction's end — the SAME clock Scene Plan's intro

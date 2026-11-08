@@ -29,11 +29,7 @@ export interface SleepVideoContext {
   niche_id?: string
   /** The Formula document's declared family (`formula_family` / catalog family). */
   formulaFamily?: string
-  /** Sleep-family packs declare `starting_scene_pacing` (AGENTS §5). */
-  starting_scene_pacing?: unknown
-  startingScenePacing?: unknown
   /** Formula-declared opening profile (e.g. `sleep-landing`). */
-  opening_profile?: { id?: string; label?: string; description?: string } | string | null
   openingProfile?: { id?: string; label?: string; description?: string } | string | null
 }
 
@@ -61,14 +57,11 @@ export function isSleepVideo(ctx: SleepVideoContext | null | undefined): boolean
   if (family === 'calm stories') return true
 
   // Authoritative opening profile metadata: `sleep-landing` is published on every sleep Formula.
-  const opening = ctx.opening_profile ?? ctx.openingProfile
+  const opening = ctx.openingProfile
   const openingId = typeof opening === 'string'
     ? opening.trim()
     : String(opening?.id || '').trim()
   if (openingId === 'sleep-landing') return true
-
-  // The sleep-family starting pacing (AGENTS §5).
-  if (ctx.starting_scene_pacing != null || ctx.startingScenePacing != null) return true
 
   return false
 }

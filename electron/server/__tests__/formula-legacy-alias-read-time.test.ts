@@ -185,16 +185,28 @@ test('aliased qualified owner formula falls back to resolved installed pack when
   await fs.mkdir(recoveryRoot, { recursive: true })
   const options = { paths, policy, recoveryRoot, appVersion: '1.4.388' }
   const ownerFormulaId = 'kh.owner.formula.illustrated-history-for-sleep'
+  const storeTargetId = 'com.storystudio.formula.a-world-before-us'
   const ownerPackId = 'com.storystudio.pack.awbu-test'
   await installContentPack({
     archiveBytes: await archiveOf([formula(ownerFormulaId, 'Illustrated History for Sleep')], ownerPackId),
     source: 'local-import',
   }, options)
 
-  assert.equal(niches.resolveFormulaAlias(ownerFormulaId), 'com.storystudio.formula.a-world-before-us')
+  assert.equal(niches.resolveFormulaAlias(ownerFormulaId), storeTargetId)
+  // Without canonical store pack installed, fallback resolves the installed legacy qualified pack
   const loaded = await niches.loadNiche(ownerFormulaId, options)
   assert.equal(loaded?.id, ownerFormulaId, 'falls back to installed pack formula when store pack is absent')
   assert.equal(loaded?.name, 'Illustrated History for Sleep')
+
+  // When canonical store pack is also installed, canonical store formula wins
+  const storePackId = 'com.storystudio.pack.store-awbu-test'
+  await installContentPack({
+    archiveBytes: await archiveOf([formula(storeTargetId, 'Store World Before Us Formula')], storePackId),
+    source: 'local-import',
+  }, options)
+  const loadedCanonical = await niches.loadNiche(ownerFormulaId, options)
+  assert.equal(loadedCanonical?.id, storeTargetId, 'canonical store pack formula wins over legacy pack when present')
+  assert.equal(loadedCanonical?.name, 'Store World Before Us Formula')
 })
 
 /**
