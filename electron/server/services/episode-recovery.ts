@@ -29,6 +29,17 @@ export type EpisodeRecoveryStep = typeof EPISODE_RECOVERY_ORDER[number]
 type RecoveryJob = { job_id: string; type: JobType; title: string; params: Job['params']; source_job_id?: string; dispatched?: boolean; manual_image_finish_withheld?: true; stale_redispatched?: true; redispatched?: true }
 type RecoveryContinuation = { type: JobType; title?: string; params?: Job['params']; manual_image_finish_withheld?: true }
 type NarrationRefreshAcknowledgement = { source_job_id: string; section: string; job_id: string; created_at: string; source_saved_at: string }
+export type RecoveryAdmissionSource = 'boot' | 'completion' | 'timer' | 'owner'
+export type RecoveryAdmissionAction = 'enqueue' | 'adopt' | 'resume'
+/** Append-only evidence of when and why a recovery edge was admitted. */
+export interface RecoveryAdmissionEvent {
+  step: EpisodeRecoveryStep | 'continuation'
+  action: RecoveryAdmissionAction
+  at: string
+  source: RecoveryAdmissionSource
+  job_id?: string
+  source_job_ids?: string[]
+}
 export interface EpisodeRecoveryPlan {
   version: 1
   id: string
@@ -49,6 +60,8 @@ export interface EpisodeRecoveryPlan {
   narration_refresh_checks?: NarrationRefreshAcknowledgement[]
   /** Last time the owner asked for this recovery (Retry / Recover); automatic passes never set it. */
   owner_requested_at?: string
+  /** Append-only admission receipts; never rewritten, and automatic receipts never become authority. */
+  admission_events?: RecoveryAdmissionEvent[]
 }
 
 function savedNarrationStamp(check: Job): string | null {
@@ -90,21 +103,60 @@ export function subtitleStatesMessage(sections: Record<string, { message?: strin
   return [...bySentence].map(([message, names]) => `${names.join(', ')}: ${message}`).join(' ')
 }
 
-async function continueFailedSubtitleCheck(plan: EpisodeRecoveryPlan, job: Job, explicit: boolean): Promise<void> {
-  if (job.status !== 'error') return
-  if (explicit) { await jq.resumeEpisodeRecoveryJob(job.job_id, true); return }
+function recoveryAdmissionEvent(
+  step: EpisodeRecoveryStep | 'continuation',
+  action: RecoveryAdmissionAction,
+  source: RecoveryAdmissionSource,
+  jobId?: string,
+  sourceJobIds: string[] = [],
+): RecoveryAdmissionEvent {
+  return {
+    step,
+    action,
+    at: new Date().toISOString(),
+    source,
+    ...(jobId ? { job_id: jobId } : {}),
+    ...(sourceJobIds.length ? { source_job_ids: [...new Set(sourceJobIds)] } : {}),
+  }
+}
+
+function recordRecoveryAdmission(
+  plan: EpisodeRecoveryPlan,
+  step: EpisodeRecoveryStep | 'continuation',
+  action: RecoveryAdmissionAction,
+  source: RecoveryAdmissionSource,
+  jobId?: string,
+  sourceJobIds: string[] = [],
+): void {
+  const events = plan.admission_events ||= []
+  const last = events.at(-1)
+  // Rechecking the same edge is not a new admission; preserve the original receipt.
+  if (action === 'adopt' && source !== 'owner' && last?.step === step && last.action === action && last.source === source && last.job_id === jobId) return
+  events.push(recoveryAdmissionEvent(step, action, source, jobId, sourceJobIds))
+}
+
+async function continueFailedSubtitleCheck(plan: EpisodeRecoveryPlan, job: Job, explicit: boolean, source: RecoveryAdmissionSource): Promise<boolean> {
+  if (job.status !== 'error') return false
+  if (explicit) {
+    await jq.resumeEpisodeRecoveryJob(job.job_id, true)
+    recordRecoveryAdmission(plan, 'subtitle_sections', 'resume', 'owner', job.job_id)
+    return true
+  }
   const states = Object.values(job.params?.subtitle_recovery?.sections || {}) as Array<{ state?: string }>
-  if (!states.some(state => state.state === 'waiting_settlement' || state.state === 'free_recovery')) return
+  if (!states.some(state => state.state === 'waiting_settlement' || state.state === 'free_recovery')) return false
   const due = Date.parse(plan.next_free_check_at || '')
   plan.next_free_check_at ||= new Date(Date.now() + 30_000).toISOString()
   if (Number.isFinite(due) && due <= Date.now()) {
     plan.next_free_check_at = new Date(Date.now() + 30_000).toISOString()
     await jq.resumeEpisodeRecoveryJob(job.job_id)
+    recordRecoveryAdmission(plan, 'subtitle_sections', 'resume', source, job.job_id)
+    return true
   }
+  return false
 }
 
 /** The existing episode lock coalesces the currently known chapter repair batch. */
-async function waitForNarrationRefreshChecks(plan: EpisodeRecoveryPlan, jobs: Job[], sourceJobIds: string[]): Promise<boolean> {
+async function waitForNarrationRefreshChecks(plan: EpisodeRecoveryPlan, jobs: Job[], sourceJobIds: string[], source: RecoveryAdmissionSource): Promise<boolean> {
   if (!plan.narration_refresh_job_ids?.length) return false
   const owned = jobs.filter(job => job.project_slug === plan.project_slug && job.episode_id === plan.episode_id)
   const stamped = narrationRefreshChecks(owned).filter(job => plan.narration_refresh_job_ids!.includes(job.params.narration_refresh_job_id))
@@ -172,7 +224,7 @@ async function waitForNarrationRefreshChecks(plan: EpisodeRecoveryPlan, jobs: Jo
     return true
   }
   if (!absent.length && !failed.size) return false
-  for (const job of failed) await continueFailedSubtitleCheck(plan, job, sourceJobIds.includes(job.job_id))
+  for (const job of failed) await continueFailedSubtitleCheck(plan, job, sourceJobIds.includes(job.job_id), source)
   plan.message = `Audio Assembly waiting for chapter subtitle checks. ${[...failed].map(job => job.error || job.title).join(' ')}${absent.length ? ' The saved narration refresh has no verified chapter check; open Subtitles to check the repaired chapters.' : ''}`
   return true
 }
@@ -420,6 +472,64 @@ function matchesSavedParams(job: Job, expected: Job['params']): boolean {
   return Object.entries(expected || {}).every(([key, value]) => isDeepStrictEqual(job.params?.[key], value))
 }
 
+function recoveryJobTime(job: Job): number {
+  const time = Date.parse(job.finished_at || job.started_at || job.created_at || '')
+  return Number.isFinite(time) ? time : Number.NaN
+}
+
+/** An explicit audio-only run: forced, and its saved chain deliberately names no later step. */
+function explicitAudioOnlyReuse(plan: EpisodeRecoveryPlan, job: Job): boolean {
+  const merge = plan.steps.audio_merge
+  // The audit also stamps unrelated completed rows with this plan id; only the saved edge proves ownership.
+  if (merge?.job_id === job.job_id || merge?.source_job_id === job.job_id) return false
+  return job.type === 'audio_merge' && job.status === 'done' && !job.force_abandoned
+    && job.params?.force === true
+    && Array.isArray(job.params?.pipeline_chain) && job.params.pipeline_chain.length === 0
+    && job.episode_id?.toUpperCase() === plan.episode_id.toUpperCase()
+}
+
+/**
+ * The saved Scene Plan edge's own authority: its source row's creation time, else its earliest
+ * non-adopt admission. Automatic adoption receipts are never authority, so a recent audit cannot
+ * launder an older edge. Null when legacy data carries no such evidence.
+ */
+function scenePlanAuthorityTime(plan: EpisodeRecoveryPlan, jobs: Job[]): number | null {
+  const sourceId = plan.steps.scene_plan_run?.source_job_id
+  const source = sourceId ? jobs.find(job => job.job_id === sourceId) : undefined
+  const created = Date.parse(source?.created_at || '')
+  if (Number.isFinite(created)) return created
+  const admitted = (plan.admission_events || [])
+    .filter(event => event.step === 'scene_plan_run' && event.action !== 'adopt')
+    .map(event => Date.parse(event.at))
+    .filter(time => Number.isFinite(time))
+  return admitted.length ? Math.min(...admitted) : null
+}
+
+/**
+ * A newer forced Audio Assembly with an empty saved chain means the owner reused the episode as-is
+ * and did not ask for a new Scene Plan. A saved Scene Plan edge older than it is superseded, and an
+ * edge whose legacy admission evidence is missing fails closed rather than guessing (AGENTS.md §4/§6).
+ * Explicit owner Retry and a Scene Plan with its own newer source stay valid.
+ */
+function supersedingAudioOnlyReuse(plan: EpisodeRecoveryPlan, jobs: Job[], automatic: boolean): Job | null {
+  if (!automatic || !plan.steps.scene_plan_run) return null
+  const reuse = jobs.filter(job => explicitAudioOnlyReuse(plan, job))
+    .sort((a, b) => (recoveryJobTime(b) || 0) - (recoveryJobTime(a) || 0))[0]
+  if (!reuse) return null
+  const reuseAt = recoveryJobTime(reuse)
+  const ownerAt = Date.parse(plan.owner_requested_at || '')
+  if (Number.isFinite(ownerAt) && (!Number.isFinite(reuseAt) || ownerAt > reuseAt)) return null
+  const authority = scenePlanAuthorityTime(plan, jobs)
+  return !Number.isFinite(reuseAt) || authority === null || authority < reuseAt ? reuse : null
+}
+
+function supersededScenePlanMessage(reuse: Job): string {
+  const when = reuse.finished_at || reuse.started_at || reuse.created_at || 'later'
+  return `Scene Plan was not re-queued: Audio Assembly ${reuse.job_id} finished later (${when}) and ran Audio Assembly only, `
+    + 'without a new Scene Plan, so this saved step may be out of date. '
+    + 'Open Jobs and use Retry on Scene Plan if you want it run again.'
+}
+
 /** Re-audit the prefix, never trust old completion after inputs changed. */
 export function nextEpisodeRecoveryStep(plan: EpisodeRecoveryPlan, verified: Record<EpisodeRecoveryStep, boolean>): EpisodeRecoveryStep | null {
   plan.completed = []
@@ -650,6 +760,8 @@ export async function dispatchEpisodeRecoveryStep(
   facts: { verified: Record<EpisodeRecoveryStep, boolean>; message: string; missing?: string[] },
   jobs: Job[],
   sourceJobIds: string[] = [],
+  admissionSource: RecoveryAdmissionSource = 'completion',
+  observedJobIds: string[] = [],
 ): Promise<void> {
   // Older persisted plans may predate the withheld marker. Scrub their copied
   // nonce before considering any resume or enqueue path, and retain the marker
@@ -689,13 +801,22 @@ export async function dispatchEpisodeRecoveryStep(
     if (plan.continuation) plan.continuation = plan.continuation.filter(node => node.type !== optionalStep)
     verified[optionalStep] = true
   }
-  if (!verified.audio_merge && await waitForNarrationRefreshChecks(plan, jobs, sourceJobIds)) {
+  if (!verified.audio_merge && await waitForNarrationRefreshChecks(plan, jobs, sourceJobIds, admissionSource)) {
     plan.completed = []
     plan.first_unresolved = 'audio_merge'
     return
   }
   const step = nextEpisodeRecoveryStep(plan, verified)
   plan.message = step ? `${facts.message}. Waiting for ${labels[step]}.` : 'Episode recovery complete.'
+  if (step && EPISODE_RECOVERY_ORDER.indexOf(step) >= EPISODE_RECOVERY_ORDER.indexOf('scene_plan_run')) {
+    const reuse = supersedingAudioOnlyReuse(plan, jobs, admissionSource !== 'owner' && sourceJobIds.length === 0)
+    if (reuse) {
+      plan.completed = plan.completed.filter(item => EPISODE_RECOVERY_ORDER.indexOf(item) < EPISODE_RECOVERY_ORDER.indexOf('scene_plan_run'))
+      plan.first_unresolved = 'scene_plan_run'
+      plan.message = supersededScenePlanMessage(reuse)
+      return
+    }
+  }
   if (!step) {
     if (plan.continuation_job_id && jobs.some(job => jq.subtitleFinalizerJobId(job) === plan.continuation_job_id
       && job.params.subtitle_finalizer_dispatched === true)) plan.continuation_dispatched = true
@@ -721,6 +842,7 @@ export async function dispatchEpisodeRecoveryStep(
       if (compatible) {
         plan.continuation_job_id = compatible.job_id
         plan.continuation_dispatched = true
+        recordRecoveryAdmission(plan, 'continuation', 'adopt', admissionSource, compatible.job_id, sourceJobIds)
         return
       }
       if (activeTail.length) {
@@ -739,6 +861,7 @@ export async function dispatchEpisodeRecoveryStep(
         params: enqueueParams,
       })
       plan.continuation_dispatched = true
+      recordRecoveryAdmission(plan, 'continuation', 'enqueue', admissionSource, continuationJobId, sourceJobIds)
     }
     return
   }
@@ -753,6 +876,7 @@ export async function dispatchEpisodeRecoveryStep(
     return
   }
   const node = plan.steps[step]
+  const admissionSourceIds = [...new Set([...sourceJobIds, ...observedJobIds, ...(node?.source_job_id ? [node.source_job_id] : [])])]
   const type = step === 'subtitle_sections' ? 'subtitles_transcribe' : step
   const activeSameStep = jobs.filter(job => job.type === type && ['queued', 'running', 'paused'].includes(job.status))
   const ownedActive = node?.dispatched ? activeSameStep.find(job => job.job_id === node.job_id) : undefined
@@ -773,7 +897,11 @@ export async function dispatchEpisodeRecoveryStep(
     node.stale_redispatched = true
   }
   const existing = active || (node && jobs.find(job => job.job_id === node.job_id))
-  if (active && node) { node.job_id = active.job_id; node.dispatched = true }
+  if (active && node) {
+    node.job_id = active.job_id
+    node.dispatched = true
+    recordRecoveryAdmission(plan, step, 'adopt', admissionSource, active.job_id, admissionSourceIds)
+  }
   if (node && withholdManualImageFinish(node)) {
     plan.message = MANUAL_IMAGE_FINISH_GUIDANCE
     return
@@ -800,7 +928,8 @@ export async function dispatchEpisodeRecoveryStep(
         }))
       }
       await jq.resumeEpisodeRecoveryJob(existing.job_id, true)
-    } else if (step === 'subtitle_sections') await continueFailedSubtitleCheck(plan, existing, false)
+      recordRecoveryAdmission(plan, step, 'resume', 'owner', existing.job_id, admissionSourceIds)
+    } else if (step === 'subtitle_sections') await continueFailedSubtitleCheck(plan, existing, false, admissionSource)
     return
   }
   if (!node) { plan.message += ` Open ${labels[step]} to complete or configure this prerequisite.`; return }
@@ -839,6 +968,7 @@ export async function dispatchEpisodeRecoveryStep(
     type: node.type, title: node.title, params: previous ? withSavedPromptCollection(params, previous) : params,
     ...(previous?.rejected_idempotency_keys?.length ? { rejected_idempotency_keys: previous.rejected_idempotency_keys } : {}) })
   node.dispatched = true
+  recordRecoveryAdmission(plan, step, 'enqueue', admissionSource, node.job_id, admissionSourceIds)
   plan.message = step === 'subtitle_sections' ? `${facts.message}. Recovering existing subtitle task (free).`
     : node.redispatched ? `${labels[step]} re-queued once: the job this edge was dispatched as is no longer in the queue history.`
     : `${labels[step]} queued after verified prerequisites.`
@@ -901,6 +1031,7 @@ export async function readEpisodeRecoveryPlans(projectSlug: string, episodeId: s
     owner_requested_at: plan.owner_requested_at ?? null,
     pipeline_batch_id: plan.pipeline_batch_id ?? null,
     retry_source_job_ids: (plan.retry_source_job_ids || []).slice(-20),
+    admission_events: plan.admission_events ?? [],
     steps: EPISODE_RECOVERY_ORDER.filter(step => plan.steps[step]).map(step => {
       const node = plan.steps[step]!
       return {
@@ -917,9 +1048,10 @@ export async function readEpisodeRecoveryPlans(projectSlug: string, episodeId: s
 }
 
 /** Serialize an episode's decisions; share the file lock only while saving records. */
-export async function recoverEpisode(projectSlug: string, episodeId: string, create = true, sourceJobIds: string[] = [], observedJobs: Job[] = [], ownerRequest = false): Promise<(EpisodeRecoveryPlan & { dispatch_status: 'queued' | 'running' | 'paused' | 'blocked' | 'complete'; dispatch_job_id?: string }) | null> {
+export async function recoverEpisode(projectSlug: string, episodeId: string, create = true, sourceJobIds: string[] = [], observedJobs: Job[] = [], ownerRequest = false, origin?: RecoveryAdmissionSource): Promise<(EpisodeRecoveryPlan & { dispatch_status: 'queued' | 'running' | 'paused' | 'blocked' | 'complete'; dispatch_job_id?: string }) | null> {
   const projectDir = getProjectDir(projectSlug)
   if (!projectDir) throw new Error('Project not found.')
+  const admissionSource: RecoveryAdmissionSource = ownerRequest ? 'owner' : origin || 'completion'
   await jq.findJobs(projectSlug, () => false) // hydrate only
   const file = path.join(projectDir, 'episode-recovery-plans.json')
   return withLock(`${file}:${episodeId}`, async () => {
@@ -1052,7 +1184,7 @@ export async function recoverEpisode(projectSlug: string, episodeId: string, cre
     if (!leftAlone) try {
       const facts = await inspectRecovery(plan, jobs)
       jobs = await currentJobs()
-      await dispatchEpisodeRecoveryStep(plan, facts, jobs, sourceJobIds)
+      await dispatchEpisodeRecoveryStep(plan, facts, jobs, sourceJobIds, admissionSource, observedJobs.map(job => job.job_id))
     } catch (error) {
       auditFailed = true
       plan.message = error instanceof Error ? error.message : String(error)
@@ -1100,16 +1232,16 @@ let started = false
 export async function startEpisodeRecovery(): Promise<void> {
   if (started) return
   started = true
-  const pending = new Map<string, Job[]>()
+  const pending = new Map<string, { jobs: Job[]; origin: RecoveryAdmissionSource }>()
   const running = new Set<string>()
   const watching = new Map<string, { project: string; episode: string }>()
   // S12: a blocked plan is re-audited by the timer only when its episode's files changed (or every
   // BLOCKED_RECHECK_MS as a backstop); job completions still advance it at once through `schedule`.
   const blocked = new Map<string, { stamp: string; at: number }>()
-  const advance = async (project: string, episode: string, create: boolean, observedJobs: Job[] = []) => {
+  const advance = async (project: string, episode: string, create: boolean, observedJobs: Job[] = [], origin: RecoveryAdmissionSource = 'completion') => {
     const key = `${project}:${episode}`
     blocked.delete(key)
-    const plan = await recoverEpisode(project, episode, create, [], observedJobs)
+    const plan = await recoverEpisode(project, episode, create, [], observedJobs, false, origin)
     if (plan?.first_unresolved) watching.set(key, { project, episode })
     else watching.delete(key)
     return plan
@@ -1124,10 +1256,11 @@ export async function startEpisodeRecovery(): Promise<void> {
     return !(!episodeRecoveryStep(job.type) || (!job.params?.episode_recovery_id && !automaticSubtitle && !completedFreshSubtitle)
       || !['done', 'error'].includes(job.status) || job.force_abandoned)
   }
-  const schedule = (job: Job) => {
+  const schedule = (job: Job, origin: RecoveryAdmissionSource = 'completion') => {
     if (!schedules(job)) return
     const key = `${job.project_slug}:${job.episode_id}`
-    pending.set(key, [...(pending.get(key) || []).filter(row => row.job_id !== job.job_id), job])
+    const queued = pending.get(key)
+    pending.set(key, { jobs: [...(queued?.jobs || []).filter(row => row.job_id !== job.job_id), job], origin })
     if (running.has(key)) return
     running.add(key)
     setImmediate(() => {
@@ -1135,11 +1268,11 @@ export async function startEpisodeRecovery(): Promise<void> {
         // Completion can arrive during an asynchronous artifact audit or queue
         // insertion. Retain it for another pass instead of dropping that edge.
         while (pending.has(key)) {
-          const observed = pending.get(key)!
+          const pass = pending.get(key)!
           pending.delete(key)
-          const latest = observed.at(-1)!
-          await advance(latest.project_slug, latest.episode_id, observed.some(job => job.type === 'subtitles_transcribe'
-            && (job.status === 'error' || typeof job.params?.narration_refresh_job_id === 'string')), observed)
+          const latest = pass.jobs.at(-1)!
+          await advance(latest.project_slug, latest.episode_id, pass.jobs.some(job => job.type === 'subtitles_transcribe'
+            && (job.status === 'error' || typeof job.params?.narration_refresh_job_id === 'string')), pass.jobs, pass.origin)
         }
       })()
         .catch(error => console.warn('[episode-recovery]', error.message))
@@ -1150,8 +1283,8 @@ export async function startEpisodeRecovery(): Promise<void> {
   for (const project of await listProjects()) {
     const file = path.join(getProjectDir(project.slug)!, 'episode-recovery-plans.json')
     try {
-      for (const episodeId of Object.keys((await readPlans(file)).plans)) await advance(project.slug, episodeId, false)
-      for (const job of await jq.findJobs(project.slug, schedules)) schedule(job)
+      for (const episodeId of Object.keys((await readPlans(file)).plans)) await advance(project.slug, episodeId, false, [], 'boot')
+      for (const job of await jq.findJobs(project.slug, schedules)) schedule(job, 'boot')
     } catch (error) { console.warn('[episode-recovery] boot:', error) }
   }
   // Also observes local stitch/cue review changes, which do not emit queue
@@ -1165,7 +1298,7 @@ export async function startEpisodeRecovery(): Promise<void> {
         const stamp = await episodeInputStamp(scope.project, scope.episode)
         const last = blocked.get(key)
         if (last && stamp !== null && last.stamp === stamp && Date.now() - last.at < BLOCKED_RECHECK_MS) return
-        const plan = await advance(scope.project, scope.episode, false)
+        const plan = await advance(scope.project, scope.episode, false, [], 'timer')
         if (plan?.dispatch_status === 'blocked' && stamp !== null) blocked.set(key, { stamp, at: Date.now() })
       })()
         .catch(error => console.warn('[episode-recovery] recheck:', error.message))
