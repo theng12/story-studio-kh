@@ -415,7 +415,7 @@ test('a movable Gateway origin re-pairs itself, moves the old pairing to Story\'
   })
 })
 
-test('an available safeStorage decrypt failure preserves the old envelope, permits a recoverable key write, and never re-pairs the pinned binding', async () => {
+test('an available safeStorage decrypt failure preserves the active envelope, refuses replacement, and never re-pairs the pinned binding', async () => {
   const identity = await import('../services/private-render-identity.js')
   const settings = await import('../services/app-settings.js')
   const secrets = await import('../services/app-secrets-store.js')
@@ -449,21 +449,20 @@ test('an available safeStorage decrypt failure preserves the old envelope, permi
     }
 
     assert.ok(providerWrite && accessRead)
-    assert.equal(providerWrite.status, 'fulfilled', 'the recoverable bucket write is the current contract')
+    assert.equal(providerWrite.status, 'rejected', 'an unreadable encrypted store refuses replacement')
     assert.equal(accessRead.status, 'rejected', 'an unreadable active store cannot serve private render access')
     const accessMessage = String((accessRead as PromiseRejectedResult).reason)
-    assert.match(accessMessage, /API key/i)
+    assert.match(accessMessage, /Credentials unavailable/i)
     assert.ok(!accessMessage.includes(BEARER), 'the rejection must not leak the prior bearer')
     assert.ok(!accessMessage.includes(replacementKey), 'the rejection must not leak the replacement key')
 
-    // The undecryptable envelope is sidecar-preserved byte-for-byte before recovery replaces the active store.
+    // Refusal leaves the canonical ciphertext exactly where recovery expects it.
     const secretsDir = path.dirname(secretsPath)
     const backups = (await fs.readdir(secretsDir))
       .filter(name => name.startsWith(`${path.basename(secretsPath)}.bak.`))
-    assert.equal(backups.length, 1, 'exactly the preserved original envelope is retained')
-    assert.deepEqual(await fs.readFile(path.join(secretsDir, backups[0]!)), originalEnvelope)
+    assert.equal(backups.length, 0, 'a refused write creates no replacement or backup')
     const activeEnvelope = await fs.readFile(secretsPath)
-    assert.notDeepEqual(activeEnvelope, originalEnvelope, 'the recoverable write becomes the active store')
+    assert.deepEqual(activeEnvelope, originalEnvelope)
     assert.ok(!activeEnvelope.includes(Buffer.from(BEARER)), 'active bytes never hold the old key in plaintext')
     assert.ok(!activeEnvelope.includes(Buffer.from(replacementKey)), 'active bytes never hold the replacement key in plaintext')
 
@@ -479,11 +478,11 @@ test('an available safeStorage decrypt failure preserves the old envelope, permi
     assert.equal(status.gateway_instance_id, GATEWAY_ID)
     assert.ok(!JSON.stringify(status).includes(replacementKey))
 
-    // Once the OS keychain is readable again the recovered key serves the same pinned binding.
-    assert.equal(await secrets.getApiKey('genstudio'), replacementKey)
+    // Restored Keychain access recovers the original key and the same pinned binding.
+    assert.equal(await secrets.getApiKey('genstudio'), BEARER)
     const access = await identity.readPrivateRenderAccess()
     assert.deepEqual(access, {
-      origin: ORIGIN, bearer: replacementKey, story_instance_id: access.story_instance_id,
+      origin: ORIGIN, bearer: BEARER, story_instance_id: access.story_instance_id,
       owner_scope: OWNER_SCOPE, gateway_instance_id: GATEWAY_ID,
     })
     assert.deepEqual(await fs.readFile(bindingPath), bindingBefore)

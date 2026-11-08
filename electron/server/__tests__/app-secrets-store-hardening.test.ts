@@ -16,9 +16,11 @@ import {
   readContentStoreKeyAnchor,
   recordContentStoreKeyAnchor,
   readAppSecrets,
+  writeAppSecrets,
   setApiKey,
 } from '../services/app-secrets-store.js'
 import { readYouTubeConnectionRegistry } from '../services/youtube-connection-store.js'
+import { readSecretsV2, writeSecretsV2 } from '../services/secrets-store.js'
 import { useTempDataDir } from './_helpers.js'
 import { waitFor } from './_timing.js'
 import { setTestSafeStorageAvailable } from './safe-storage-test-double.js'
@@ -190,55 +192,72 @@ describe('app-secret mutation input classification', () => {
     assert.deepEqual(await fs.readFile(appSecretsPath()), original)
   })
 
-  test('an undecryptable envelope is never replaced when preservation fails', async () => {
+  test('an undecryptable envelope never reads as an empty credential store', async () => {
     await isolate()
     const original = Buffer.from(JSON.stringify({ __encrypted: true, version: 1, ciphertext: 'not-decryptable' }))
     await fs.writeFile(appSecretsPath(), original)
-    const rename = fs.rename.bind(fs)
-    const failure = Object.assign(new Error('synthetic backup failure'), { code: 'ENOSPC' })
-    ;(fs as any).rename = async (from: string, to: string) => {
-      if (from === appSecretsPath() && to.startsWith(`${appSecretsPath()}.bak.`)) throw failure
-      return rename(from, to)
-    }
-    try {
-      await assert.rejects(setApiKey('genstudio', 'gsk_test_provider'), (error: unknown) => error === failure)
-    } finally {
-      ;(fs as any).rename = rename
-    }
+    await assert.rejects(readAppSecrets(), /Credentials unavailable/)
     assert.deepEqual(await fs.readFile(appSecretsPath()), original)
   })
 
-  test('a deliberate recovery save durably sidecars an undecryptable envelope before replacing it', async () => {
+  test('saving or clearing cannot rename or replace an undecryptable envelope', async () => {
     await isolate()
     const original = Buffer.from(JSON.stringify({ __encrypted: true, version: 1, ciphertext: 'not-decryptable' }))
     await fs.writeFile(appSecretsPath(), original)
-
-    await setApiKey('genstudio', 'gsk_test_provider')
-
-    assert.equal(await getApiKey('genstudio'), 'gsk_test_provider')
-    const backup = (await fs.readdir(path.dirname(appSecretsPath()))).find(name => name.startsWith('app-secrets.json.bak.'))
-    assert.ok(backup)
-    assert.deepEqual(await fs.readFile(path.join(path.dirname(appSecretsPath()), backup)), original)
+    await assert.rejects(setApiKey('genstudio', 'gsk_replacement'), /Credentials unavailable/)
+    await assert.rejects(clearApiKey('genstudio'), /Credentials unavailable/)
+    assert.deepEqual(await fs.readFile(appSecretsPath()), original)
+    assert.equal((await fs.readdir(path.dirname(appSecretsPath()))).some(name => name.startsWith('app-secrets.json.bak.')), false)
   })
 
-  test('backup retention cannot delete the just-preserved undecryptable canonical file', async () => {
+  test('temporarily unavailable encryption preserves credentials for the next readable session', async () => {
     await isolate()
-    const original = Buffer.from(JSON.stringify({ __encrypted: true, version: 1, ciphertext: 'not-decryptable' }))
-    await fs.writeFile(appSecretsPath(), original)
-    const old = new Date('2020-01-01T00:00:00Z')
-    await fs.utimes(appSecretsPath(), old, old)
-    for (let index = 0; index < 3; index += 1) {
-      await fs.writeFile(`${appSecretsPath()}.bak.newer-${index}`, `newer-${index}`)
-    }
-
-    await setApiKey('genstudio', 'gsk_test_provider')
-
-    const backups = await fs.readdir(path.dirname(appSecretsPath()))
-    const preserved = backups.filter(name => name.startsWith('app-secrets.json.bak.'))
-      .filter(name => !name.includes('.bak.newer-'))
-    assert.equal(preserved.length, 1)
-    assert.deepEqual(await fs.readFile(path.join(path.dirname(appSecretsPath()), preserved[0]!)), original)
+    await setApiKey('genstudio', 'gsk_original')
+    const original = await fs.readFile(appSecretsPath())
+    setTestSafeStorageAvailable(false)
+    await assert.rejects(readAppSecrets(), /Credentials unavailable/)
+    await assert.rejects(setApiKey('genstudio', 'gsk_replacement'), /Credentials unavailable/)
+    assert.deepEqual(await fs.readFile(appSecretsPath()), original)
+    setTestSafeStorageAvailable(true)
+    assert.equal(await getApiKey('genstudio'), 'gsk_original')
   })
+})
+
+test('loss of encryption during mutation never downgrades app credentials to plaintext', async () => {
+  await isolate()
+  await setApiKey('genstudio', 'gsk_original')
+  const original = await fs.readFile(appSecretsPath())
+  await assert.rejects(writeAppSecrets(value => {
+    value.providers.genstudio = { apiKey: 'gsk_replacement' }
+    setTestSafeStorageAvailable(false)
+  }), /Credentials unavailable/)
+  assert.deepEqual(await fs.readFile(appSecretsPath()), original)
+})
+
+test('loss of encryption during a project clear preserves the encrypted file', async () => {
+  const dir = await isolate()
+  const project = path.join(dir, 'projects', 'credential-clear')
+  await fs.mkdir(project, { recursive: true })
+  const file = path.join(project, 'secrets.json')
+  const original = Buffer.from(JSON.stringify(envelope({ upload: { token: 'synthetic' } })))
+  await fs.writeFile(file, original)
+  await assert.rejects(writeSecretsV2('credential-clear', value => {
+    Reflect.deleteProperty(value, 'upload')
+    setTestSafeStorageAvailable(false)
+  }), /Failed to decrypt secrets/)
+  assert.deepEqual(await fs.readFile(file), original)
+})
+
+test('unreadable project OAuth credentials refuse reads and mutation without clearing the file', async () => {
+  const dir = await isolate()
+  const project = path.join(dir, 'projects', 'credential-guard')
+  await fs.mkdir(project, { recursive: true })
+  const file = path.join(project, 'secrets.json')
+  const original = Buffer.from(JSON.stringify({ __encrypted: true, version: 1, ciphertext: 'not-decryptable' }))
+  await fs.writeFile(file, original)
+  await assert.rejects(readSecretsV2('credential-guard'), /Failed to decrypt secrets/)
+  await assert.rejects(writeSecretsV2('credential-guard', () => assert.fail('must not mutate unreadable credentials')), /Failed to decrypt secrets/)
+  assert.deepEqual(await fs.readFile(file), original)
 })
 
 describe('dedicated Content Store anchor persistence', () => {

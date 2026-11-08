@@ -31,6 +31,7 @@ import { router as authRouter } from './routes/auth.js'
 import { errorBoundary } from './lib/error-boundary.js'
 import { resolveStoryStudioVersion } from './lib/app-version.js'
 import { getApiKey } from './services/app-secrets-store.js'
+import { getCredentialsStatus } from './lib/safe-storage.js'
 import {
   refreshGenStudioAdmission,
   describeGenStudioChatTransport,
@@ -126,6 +127,7 @@ app.get('/api/health', async (_req, res) => {
     status: 'ok',
     version: await resolveStoryStudioVersion(),
     boot_complete: isBootComplete(),
+    credentials: getCredentialsStatus(),
   })
 })
 

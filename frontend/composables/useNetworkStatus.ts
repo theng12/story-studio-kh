@@ -34,12 +34,18 @@ export type GatewayReachability = 'unknown' | 'reachable' | 'unreachable'
 const online = ref(true)
 const gateway = ref<GatewayReachability>('unknown')
 const gatewayUrl = ref('')
+const credentialsMessage = ref('')
 const lastChecked = ref<number>(Date.now())
 let started = false
 
 async function probe(): Promise<boolean> {
   try {
     const res = await fetch('/api/health', { method: 'GET', cache: 'no-store' })
+    if (res.ok) {
+      const body = await res.json() as { credentials?: { state?: unknown; message?: unknown } }
+      credentialsMessage.value = body.credentials?.state === 'unavailable' && typeof body.credentials.message === 'string'
+        ? body.credentials.message : ''
+    }
     return res.ok
   } catch {
     return false
@@ -82,6 +88,7 @@ export function useNetworkStatus() {
     online: readonly(online),
     gateway: readonly(gateway),
     gatewayUrl: readonly(gatewayUrl),
+    credentialsMessage: readonly(credentialsMessage),
     lastChecked: readonly(lastChecked),
     refresh,
   }

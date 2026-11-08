@@ -1,37 +1,7 @@
-/**
- * Electron safeStorage wrapper with a plaintext fallback.
- *
- * Threat it addresses: §5.7 of the security audit — `secrets.json` is stored
- * plaintext on disk at 0600. Time Machine / iCloud / OneDrive back it up
- * (often to off-machine storage). A restore onto a different machine — or a
- * leaked backup — exposes every provider API key in clear text.
- *
- * safeStorage encrypts with a key derived from the user's login session (on
- * macOS: Keychain; on Windows: DPAPI; on Linux: libsecret / gnome-keyring).
- * The ciphertext is tied to the machine + user, so a backup that lands
- * anywhere else is useless even if the file itself is intact.
- *
- * Fallback: in non-Electron environments (tests run under tsx, CI without
- * a graphical session) `safeStorage` may be absent or report
- * `isEncryptionAvailable() === false`. In those cases we return the payload
- * unchanged — callers must continue to rely on the 0600 file mode for
- * protection. This keeps the test suite working without a mock Electron
- * runtime, and keeps the production path encrypted.
- *
- * safeStorage is enabled by default. Customer builds must not store a usable
- * GenStudio key in plaintext merely because the app is ad-hoc signed.
- * `STORY_STUDIO_DISABLE_KEYCHAIN=1` is a deliberate development/recovery
- * escape hatch; the owner-only 0600 fallback remains available when the
- * operating system reports that encryption is unavailable.
- *
- * If a previously-encrypted file becomes undecryptable on this machine
- * (eg the keychain identity changed after an app rebuild), the readers
- * treat the store as empty rather than throwing. The user re-enters
- * keys at app-level Settings and the next write replaces the unreadable
- * blob. No banner, no Clear-and-reset workflow.
- */
-
+/** OS-protected credentials; unavailable encrypted stores must never become empty stores. */
 import { createRequire } from 'module'
+import { CREDENTIALS_UNAVAILABLE, CredentialsUnavailableError, KeychainAccess } from './keychain-access.js'
+import type { CredentialsStatus, KeychainGuard } from './keychain-access.js'
 
 interface ElectronSafeStorage {
   isEncryptionAvailable(): boolean
@@ -39,79 +9,76 @@ interface ElectronSafeStorage {
   decryptString(encrypted: Buffer): string
 }
 
-function loadSafeStorage(): ElectronSafeStorage | null {
-  try {
-    const require = createRequire(import.meta.url)
-    const electron = require('electron') as { safeStorage?: ElectronSafeStorage }
-    return electron?.safeStorage ?? null
-  } catch {
-    return null
-  }
-}
-
-// Cache the module handle but re-check availability each call — availability
-// depends on `app.whenReady()` having fired and on the OS-level keychain
-// being reachable, which is a runtime state, not a module-load state.
+const require = createRequire(import.meta.url)
 let cached: ElectronSafeStorage | null | undefined
+let keychainAccess: KeychainAccess | undefined
+let moduleUnavailable = false
 
 function getSafeStorage(): ElectronSafeStorage | null {
-  if (cached === undefined) cached = loadSafeStorage()
+  if (cached === undefined) {
+    try {
+      const electron = require('electron') as { safeStorage?: ElectronSafeStorage; app?: { getName(): string } }
+      cached = electron?.safeStorage ?? null
+      if (process.platform === 'darwin' && process.versions.electron && cached) {
+        keychainAccess = new KeychainAccess(
+          () => require('../../keychain-guard.node') as KeychainGuard,
+          electron.app!.getName(),
+        )
+      }
+    } catch { cached = null }
+    moduleUnavailable = process.platform === 'darwin' && !!process.versions.electron && !cached
+  }
+  if (moduleUnavailable) throw new CredentialsUnavailableError()
   return cached
 }
 
-/**
- * Development/recovery opt-out: when this returns false, every safeStorage probe
- * short-circuits to "unavailable" — no `isEncryptionAvailable()` call is
- * made on the underlying API, so macOS never receives a keychain query
- * and never prompts the user. New writes go through the plaintext-with-
- * 0600 fallback (still provenance-stamped). See file header for rationale.
- */
+/** Explicit development opt-out; existing ciphertext still refuses reads and mutations. */
 export function shouldUseKeychain(): boolean {
   if (process.env.STORY_STUDIO_FORCE_KEYCHAIN === '1') return true
   if (process.env.STORY_STUDIO_DISABLE_KEYCHAIN === '1') return false
   return true
 }
 
+export function getCredentialsStatus(): CredentialsStatus {
+  if (moduleUnavailable) return { state: 'unavailable', message: CREDENTIALS_UNAVAILABLE }
+  return keychainAccess?.getStatus() ?? { state: 'not-checked', message: '' }
+}
+
+function availableStorage(): ElectronSafeStorage {
+  const ss = getSafeStorage()
+  if (!ss) throw new Error('safeStorage not available (not running in Electron?)')
+  if (!ss.isEncryptionAvailable()) throw new CredentialsUnavailableError()
+  return ss
+}
+
 export function isEncryptionAvailable(): boolean {
   if (!shouldUseKeychain()) return false
   const ss = getSafeStorage()
   if (!ss) return false
-  try {
-    return ss.isEncryptionAvailable()
-  } catch {
-    return false
-  }
+  // On macOS, refuse before Chromium can cache a denied initialization or show a modal.
+  if (keychainAccess) return keychainAccess.run(() => !!availableStorage())
+  try { return ss.isEncryptionAvailable() } catch { return false }
 }
 
-/**
- * Encrypt a string using Electron's safeStorage. Returns base64. Throws if
- * encryption is not available — callers that want a plaintext fallback must
- * check `isEncryptionAvailable()` first.
- *
- * Honours the personal-use opt-out: when keychain is disabled, throws
- * without ever calling into safeStorage so macOS doesn't get a
- * keychain-access request.
- */
+function withEncryption<T>(operation: (ss: ElectronSafeStorage) => T): T {
+  if (!shouldUseKeychain()) throw new Error('safeStorage disabled (personal-use opt-out)')
+  getSafeStorage()
+  const run = () => operation(availableStorage())
+  return keychainAccess ? keychainAccess.run(run) : run()
+}
+
 export function encryptToBase64(plaintext: string): string {
-  if (!shouldUseKeychain()) throw new Error('safeStorage disabled (personal-use opt-out)')
-  const ss = getSafeStorage()
-  if (!ss) throw new Error('safeStorage not available (not running in Electron?)')
-  if (!ss.isEncryptionAvailable()) throw new Error('safeStorage reports encryption unavailable')
-  return ss.encryptString(plaintext).toString('base64')
+  return withEncryption(ss => ss.encryptString(plaintext).toString('base64'))
 }
 
-/**
- * Decrypt a base64-encoded ciphertext produced by `encryptToBase64`.
- * Throws if safeStorage is unavailable or the ciphertext is corrupt.
- *
- * Honours the personal-use opt-out: when keychain is disabled, throws
- * without ever calling into safeStorage. Existing encrypted files surface
- * via the "Secrets were stamped on a different machine — reset" banner.
- */
 export function decryptFromBase64(b64: string): string {
-  if (!shouldUseKeychain()) throw new Error('safeStorage disabled (personal-use opt-out)')
-  const ss = getSafeStorage()
-  if (!ss) throw new Error('safeStorage not available (not running in Electron?)')
-  if (!ss.isEncryptionAvailable()) throw new Error('safeStorage reports encryption unavailable')
-  return ss.decryptString(Buffer.from(b64, 'base64'))
+  return withEncryption(ss => ss.decryptString(Buffer.from(b64, 'base64')))
+}
+
+/** Native menu only: a person at the Mac explicitly requests the Keychain dialog. */
+export function unlockCredentials(): void {
+  if (!shouldUseKeychain()) throw new Error('Keychain access is disabled for this launch')
+  getSafeStorage()
+  if (!keychainAccess) throw new Error('Attended Keychain unlock is available only in the Mac app')
+  keychainAccess.unlock(() => { availableStorage() })
 }

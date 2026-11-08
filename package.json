@@ -9,11 +9,12 @@
   "main": "electron/dist/main.js",
   "type": "module",
   "scripts": {
+    "predev": "node scripts/build-keychain-guard.mjs",
     "dev": "concurrently -n front,ts,electron -c cyan,yellow,magenta \"cd frontend && npx nuxt dev --port 3000\" \"cd electron && npx tsc --watch --preserveWatchOutput\" \"wait-on http://localhost:3000 electron/dist/main.js && electron .\"",
     "dev:frontend": "cd frontend && npx nuxt dev --port 3000",
     "dev:electron": "cd electron && npx tsc --watch --preserveWatchOutput",
     "build:frontend": "npm --prefix frontend run generate",
-    "build:electron": "node -e \"require('fs').rmSync('electron/dist',{recursive:true,force:true})\" && tsc -p electron/tsconfig.build.json",
+    "build:electron": "node -e \"require('fs').rmSync('electron/dist',{recursive:true,force:true})\" && tsc -p electron/tsconfig.build.json && node scripts/build-keychain-guard.mjs",
     "check:changelog": "node scripts/check-changelog.mjs",
     "check:typography": "node scripts/check-typography.mjs",
     "check:security": "node scripts/check-production-security.mjs",
