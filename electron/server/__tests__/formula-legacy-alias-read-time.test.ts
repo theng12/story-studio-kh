@@ -28,15 +28,14 @@ import * as projects from '../services/project-manager.js'
 import { useTempDataDir } from './_helpers.js'
 
 const publisherId = 'com.storystudio'
-const keyId = 'com.storystudio.key.formula-alias-test'
 const packId = 'com.storystudio.pack.formula-alias-test'
 const storeSleepId = 'com.storystudio.formula.sleep-story'
 const keys = generateKeyPairSync('ed25519')
-const policy = createContentPackKeyring([{
-  keyId,
-  publisherId,
+const policy = createContentPackKeyring([publisherId, 'kh.owner'].map(id => ({
+  keyId: `${id}.key.formula-alias-test`,
+  publisherId: id,
   publicKeyPem: keys.publicKey.export({ type: 'spki', format: 'pem' }).toString(),
-}])
+})))
 
 const digest = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex')
 
@@ -69,7 +68,7 @@ function formula(id: string, name: string, overrides: Record<string, unknown> = 
   return { ...base, ...overrides } as ContentPackDocument
 }
 
-async function archiveOf(documents: ContentPackDocument[], id: string): Promise<Uint8Array> {
+async function archiveOf(documents: ContentPackDocument[], id: string, archivePublisher = publisherId): Promise<Uint8Array> {
   const items = documents.map((document, index) => {
     const bytes = Buffer.from(JSON.stringify(document))
     return { document, bytes, path: `content/item-${index}.json` }
@@ -77,8 +76,8 @@ async function archiveOf(documents: ContentPackDocument[], id: string): Promise<
   const manifest = Buffer.from(JSON.stringify({
     pack_format: 1,
     pack_id: id,
-    publisher_id: publisherId,
-    key_id: keyId,
+    publisher_id: archivePublisher,
+    key_id: `${archivePublisher}.key.formula-alias-test`,
     version: '1.0.0',
     min_app_version: '1.0.0',
     lifecycle: 'active',
@@ -186,9 +185,9 @@ test('aliased qualified owner formula falls back to resolved installed pack when
   const options = { paths, policy, recoveryRoot, appVersion: '1.4.388' }
   const ownerFormulaId = 'kh.owner.formula.illustrated-history-for-sleep'
   const storeTargetId = 'com.storystudio.formula.a-world-before-us'
-  const ownerPackId = 'com.storystudio.pack.awbu-test'
+  const ownerPackId = 'kh.owner.pack.awbu-test'
   await installContentPack({
-    archiveBytes: await archiveOf([formula(ownerFormulaId, 'Illustrated History for Sleep')], ownerPackId),
+    archiveBytes: await archiveOf([formula(ownerFormulaId, 'Illustrated History for Sleep')], ownerPackId, 'kh.owner'),
     source: 'local-import',
   }, options)
 
