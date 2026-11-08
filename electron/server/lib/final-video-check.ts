@@ -720,9 +720,10 @@ export function finalCheckIssues(
     : window
   if (musicWindow && expected.closing_music) {
     if (actual.tail_lufs === null || actual.tail_lufs <= o.tail_silent_lufs) {
+      const label = expected.closing_music_window ? 'closing music' : 'closing tail'
       issues.push({
         check: 'closing_tail',
-        verdict: `the closing music (${clock(musicWindow.start_sec)} to ${clock(musicWindow.end_sec)}) is silent, `
+        verdict: `the ${label} (${clock(musicWindow.start_sec)} to ${clock(musicWindow.end_sec)}) is silent, `
           + `but this episode asks for closing music over it`,
       })
     }

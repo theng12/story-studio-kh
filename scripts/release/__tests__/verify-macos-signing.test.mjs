@@ -2,7 +2,7 @@ import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import path from 'node:path'
-import { fileURLToPath } from 'node:url'
+import os from 'node:os'
 import { compareBuilds, designatedRequirement, launchdStart } from '../verify-macos-signing.mjs'
 
 // Pure receipt logic only: no signing, no launchd job, no app, no network.
@@ -57,15 +57,9 @@ describe('two-version receipt comparison', () => {
 
 describe('launchd cleanup contract', () => {
   for (const cleanupStatus of [1, 2]) {
-    test(`process cleanup status ${cleanupStatus} ${cleanupStatus === 1 ? 'passes' : 'fails loudly'}`, async (t) => {
-      const root = fileURLToPath(new URL('../../../.test-work/', import.meta.url))
-      fs.mkdirSync(root, { recursive: true })
-      const work = fs.mkdtempSync(path.join(root, 'signing-launchd-'))
-      t.after(() => {
-        const retired = fileURLToPath(new URL('../../../_trash/test-fixtures/', import.meta.url))
-        fs.mkdirSync(retired, { recursive: true })
-        fs.renameSync(work, path.join(retired, path.basename(work)))
-      })
+    test(`process cleanup status ${cleanupStatus} ${cleanupStatus === 1 ? 'passes' : 'fails loudly'}`, async () => {
+      // The lane owns and retains its TMPDIR after all child tests finish.
+      const work = fs.mkdtempSync(path.join(os.tmpdir(), 'signing-launchd-'))
       const calls = []
       let bootedOut = false
       const exec = (command, args) => {
