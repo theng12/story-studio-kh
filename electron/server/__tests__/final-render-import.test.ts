@@ -1991,6 +1991,68 @@ test('the supported reconcile restores only a reopened consumed terminal', async
   )
 })
 
+test('a reopened acknowledged terminal never counts running and boot settles it done', async t => {
+  installHooks(t)
+  const prepared = await prepareOutputReady('acknowledged-stats')
+  await requireImporter().recoverFinalRenderImport(prepared.job.project_slug, prepared.job.job_id)
+  const finished = await queue.loadAuthoritativeJob(prepared.job.project_slug, prepared.job.job_id)
+  assert.ok(finished)
+  const jobsFile = path.join(
+    pm.getProjectDir(prepared.job.project_slug) ?? path.join(retainedRoot, 'projects', prepared.job.project_slug),
+    'jobs.json',
+  )
+  await queue._waitForJobPersistenceForTesting()
+  const saved = JSON.parse(await fs.readFile(jobsFile, 'utf8')) as { jobs: Job[] }
+  const row = saved.jobs.find(job => job.job_id === prepared.job.job_id)!
+  // The exact 1.4.388 shape: a finished, acknowledged row a boot reopened.
+  row.status = 'running'
+  row.finished_at = null
+  row.local_execution_complete = false
+  row.output_lines.push('Remote video render is parked pending reconciliation.')
+  await fs.writeFile(jobsFile, JSON.stringify(saved))
+  queue._restartProjectForTesting(prepared.job.project_slug)
+  gateway.resetCalls()
+
+  const newerBytes = Buffer.concat([OUTPUT_BYTES, Buffer.from('newer accepted stats render\n')])
+  await fs.writeFile(prepared.destination, newerBytes)
+  const [loaded] = await queue.getJobs(prepared.job.project_slug)
+  assert.equal(loaded?.status, 'done', 'boot restores the acknowledged terminal from its retained evidence')
+  assert.equal(loaded?.local_execution_complete, true)
+  assert.equal(loaded?.final_render_wait?.state, 'acknowledged')
+  assert.deepEqual(await fs.readFile(prepared.destination), newerBytes, 'the accepted final is untouched')
+  assert.equal(gateway.calls.length, 0, 'settling a consumed terminal makes no provider call')
+
+  // The pre-settlement row still exists in the same process before boot restores it; a running
+  // acknowledged row must never add to the running badge (the quiet checks read this same count).
+  assert.equal(queue._setJobRecordForTesting(prepared.job.job_id, {
+    status: 'running', finished_at: null, local_execution_complete: false,
+  }), true)
+  assert.equal(queue.getQueueStats(prepared.job.project_slug).running, 0)
+  assert.equal((await queue.countJobs(prepared.job.project_slug)).running, 0)
+  assert.equal(queue.getQueueStats(prepared.job.project_slug).total, 1, 'it is still on the list')
+
+  // A genuinely active remote render keeps its truthful running count.
+  const active = await prepareOutputReady('acknowledged-active')
+  await queue.getJobs(active.job.project_slug)
+  assert.equal(queue.getQueueStats(active.job.project_slug).running, 1)
+  assert.equal((await queue.countJobs(active.job.project_slug)).running, 1)
+  const activeRaw = await queue.loadAuthoritativeJob(active.job.project_slug, active.job.job_id)
+  assert.ok(activeRaw?.final_render_remote_wait)
+  // An unknown remote hold is still active work; only a durable hold with no remote job is parked.
+  queue._setJobRecordForTesting(active.job.job_id, {
+    final_render_remote_wait: {
+      ...activeRaw.final_render_remote_wait, phase: 'recovery_hold',
+    } as FinalRenderTransportReceiptV3,
+  })
+  assert.equal(queue.getQueueStats(active.job.project_slug).running, 1, 'unknown remote work is never quiet')
+  queue._setJobRecordForTesting(active.job.job_id, {
+    final_render_remote_wait: {
+      ...activeRaw.final_render_remote_wait, phase: 'recovery_hold', gateway_job_id: null,
+    } as FinalRenderTransportReceiptV3,
+  })
+  assert.equal(queue.getQueueStats(active.job.project_slug).running, 0, 'a durable parked hold has no work running')
+})
+
 test('ordinary queue persistence cannot forge a verified final-render terminal', async () => {
   const prepared = await prepareOutputReady('terminal-forgery')
   const forged = await queue.loadAuthoritativeJob(prepared.job.project_slug, prepared.job.job_id)

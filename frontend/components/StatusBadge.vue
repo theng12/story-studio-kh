@@ -22,6 +22,9 @@ const label = computed(() => {
     skipped: 'Skipped',
     error: 'Needs attention',
     cancelled: 'Cancelled',
+    // A final render that is acknowledged or durably parked: no work is running, and it is not
+    // finished until its retained evidence proves it (AGENTS.md §8).
+    parked: 'Needs recovery',
   }
   return labels[props.status] || props.status
 })

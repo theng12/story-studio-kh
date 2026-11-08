@@ -576,3 +576,11 @@ test('Jobs opens filtered by ?status= and names job types like the pages do (own
   assert.match(jobs, /\{ type: 'audio_merge',\s+label: 'Audio Assembly' \}/)
   assert.doesNotMatch(jobs, /label: 'Metadata'|label: 'Audio Merge'/)
 })
+
+test('Running badges, chips and filters never count a row the server says is not executing', () => {
+  // `jobDisplayStatus` reads the server's `counts_as_running`; the page must not re-derive
+  // "running" from the raw status anywhere it counts or filters.
+  assert.match(jobs, /running: scoped\.filter\(job => jobDisplayStatus\(job\) === 'running'\)\.length/)
+  assert.match(jobs, /\['running', 'queued', 'paused'\]\.includes\(jobDisplayStatus\(j\)\)/)
+  assert.match(jobs, /job\.status === 'running' && job\.counts_as_running !== false/)
+})

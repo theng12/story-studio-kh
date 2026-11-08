@@ -33,6 +33,8 @@ export interface HistoryRowJob {
   resolved?: unknown
   /** Set by the backend when this step did not run because the channel's own settings switch it off. */
   skipped?: unknown
+  /** Server-computed; false on a running row that is doing no work (see `jobDisplayStatus`). */
+  counts_as_running?: boolean
   params?: Record<string, unknown> | null
   output_lines?: readonly string[] | null
   output_dir?: string | null
@@ -92,6 +94,9 @@ export function isSkippedJob(job: HistoryRowJob): boolean {
 /** The status the page shows. A recovered failure is history that reads `recovered`, not `error`. */
 export function jobDisplayStatus(job: HistoryRowJob): string {
   if (isSkippedJob(job)) return 'skipped'
+  // A running row the server says is doing no work (an acknowledged or durably parked final
+  // render) is not "running" here either: the badge, chips and status filter all read this.
+  if (job.status === 'running' && job.counts_as_running === false) return 'parked'
   return isRecoveredFailure(job) ? 'recovered' : String(job.status || '')
 }
 

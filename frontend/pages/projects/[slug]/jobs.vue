@@ -619,7 +619,7 @@
           {{ paidImageReplacementAttemptText(job) }}
         </p>
 
-        <div v-if="job.status === 'running'" class="job-live-output">
+        <div v-if="job.status === 'running' && job.counts_as_running !== false" class="job-live-output">
           <div class="progress-row">
             <ProgressBar
               :indeterminate="jobProgress(job) == null"
@@ -1923,7 +1923,7 @@ const checkAction = computed(() => checkRunningJobsAction({
   unsettled: providerCheckJobs.value.length,
   repairable: repairableFailedJobs.value.filter(needsRepairCheck).length,
   episodes: recoverableEpisodes.value.filter(job => !episodesLookedAt.value.has(episodeRecoveryKey(job))).length,
-  running: projectScopedJobs.value.filter(job => job.status === 'running').length,
+  running: projectScopedJobs.value.filter(job => jobDisplayStatus(job) === 'running').length,
 }, { self: checkingAll.value, other: bulkActionBusy.value && !checkingAll.value }))
 const redoHolds = computed(() => {
   const reasons: HoldReason[] = [
@@ -2217,7 +2217,7 @@ const stats = computed(() => {
   const skipped = scoped.filter(job => jobDisplayStatus(job) === 'skipped').length
   return {
     ...queueStats.value,
-    running: scoped.filter(job => job.status === 'running').length,
+    running: scoped.filter(job => jobDisplayStatus(job) === 'running').length,
     queued: scoped.filter(job => job.status === 'queued').length,
     paused: scoped.filter(job => job.status === 'paused').length,
     done: scoped.filter(job => job.status === 'done').length,
@@ -2337,8 +2337,8 @@ const filterTabs = computed(() => {
   return types.map(t => ({
     ...t,
     count: t.type === 'all'
-      ? projectScopedJobs.value.filter(j => ['running', 'queued', 'paused'].includes(j.status)).length
-      : projectScopedJobs.value.filter(j => j.type === t.type && ['running', 'queued', 'paused'].includes(j.status)).length,
+      ? projectScopedJobs.value.filter(j => ['running', 'queued', 'paused'].includes(jobDisplayStatus(j))).length
+      : projectScopedJobs.value.filter(j => j.type === t.type && ['running', 'queued', 'paused'].includes(jobDisplayStatus(j))).length,
   }))
 })
 

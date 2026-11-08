@@ -100,7 +100,7 @@ function resetJobsState() {
 function recomputeStats(): JobStats {
   const s = { ...EMPTY_STATS }
   for (const j of jobs.value) {
-    if (j.status === 'running') s.running++
+    if (j.status === 'running' && j.counts_as_running !== false) s.running++
     else if (j.status === 'queued') s.queued++
     else if (j.status === 'paused') s.paused++
     else if (j.status === 'done') s.done++
@@ -250,7 +250,7 @@ function reconcileInitialSnapshot(snapshot: JobListResponse): JobListResponse {
   }
   const nextStats = { ...EMPTY_STATS }
   for (const job of next) {
-    if (job.status === 'running') nextStats.running++
+    if (job.status === 'running' && job.counts_as_running !== false) nextStats.running++
     else if (job.status === 'queued') nextStats.queued++
     else if (job.status === 'paused') nextStats.paused++
     else if (job.status === 'done') nextStats.done++

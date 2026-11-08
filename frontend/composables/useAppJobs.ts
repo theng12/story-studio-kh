@@ -18,6 +18,8 @@ interface Job {
   episode_id?: string
   title?: string
   status: 'queued' | 'running' | 'paused' | 'done' | 'error' | 'cancelled'
+  /** Server-computed: false on a running row that is doing no work. */
+  counts_as_running?: boolean
   pause_requested?: boolean
   pause_origin?: 'manual' | 'queue'
   params?: any
@@ -44,7 +46,7 @@ const previousStatuses = new Map<string, Job['status']>()
 
 function recomputeStats() {
   return {
-    running: jobs.value.filter(j => j.status === 'running').length,
+    running: jobs.value.filter(j => j.status === 'running' && j.counts_as_running !== false).length,
     queued: jobs.value.filter(j => j.status === 'queued').length,
     done: jobs.value.filter(j => j.status === 'done').length,
     error: jobs.value.filter(j => j.status === 'error').length,
