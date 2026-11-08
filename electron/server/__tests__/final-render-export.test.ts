@@ -426,6 +426,7 @@ test('pure exporter has no runtime filesystem, service, process, or network depe
   const source = ts.createSourceFile(sourcePath, readFileSync(sourcePath, 'utf8'), ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
   assert.deepEqual(runtimeSpecifiers(source).sort(), [
     './final-render-compiler.js',
+    './final-render-core.js',
     './final-render-recipe.js',
     './render-hash-v1.js',
   ])

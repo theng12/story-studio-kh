@@ -179,6 +179,50 @@ export function buildFinalArchiveFilters(io: GraphInput, archiveFilm: VideoAgedA
   }
 }
 
+export interface FinalLogoBounds {
+  startSec: number
+  endSec: number
+}
+
+/**
+ * Resolves the numeric [start, end] window for the corner logo.
+ *
+ * Precedence:
+ * 1. An explicit global start (from `excludeIntroFromEffects`) wins.
+ * 2. Otherwise, if `hide_during_intro` is on: use the measured opening
+ *    clock (`preSceneDuration`) when positive and finite, or fall back to
+ *    the legacy 10s default when the opening clock is absent/invalid.
+ * 3. When `hide_during_intro` is off: start is 0.
+ *
+ * Closing upper bound: preserves the global end bound (`globalEndSec` / post-audio start).
+ */
+export function resolveFinalLogoBounds(opts: {
+  globalStartSec?: number | null
+  globalEndSec?: number | null
+  hideDuringIntro?: boolean | null
+  preSceneDuration?: number | null
+}): FinalLogoBounds {
+  const globalStart = (typeof opts.globalStartSec === 'number' && Number.isFinite(opts.globalStartSec) && opts.globalStartSec > 0)
+    ? opts.globalStartSec
+    : 0
+  const endSec = (typeof opts.globalEndSec === 'number' && Number.isFinite(opts.globalEndSec) && opts.globalEndSec > 0)
+    ? opts.globalEndSec
+    : 0
+
+  let startSec = 0
+  if (globalStart > 0) {
+    startSec = globalStart
+  } else if (opts.hideDuringIntro) {
+    if (typeof opts.preSceneDuration === 'number' && Number.isFinite(opts.preSceneDuration) && opts.preSceneDuration > 0) {
+      startSec = opts.preSceneDuration
+    } else {
+      startSec = 10
+    }
+  }
+
+  return { startSec, endSec }
+}
+
 export function buildFinalLogoFilters(
   io: GraphInput,
   logo: VideoLogoConfig,

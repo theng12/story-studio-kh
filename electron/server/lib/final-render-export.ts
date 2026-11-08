@@ -1,4 +1,5 @@
 import { compileFinalRenderPacket } from './final-render-compiler.js'
+import { resolveFinalLogoBounds } from './final-render-core.js'
 import { validateFinalRenderEncode, validateRenderPacketSyntax, type RenderPacketSyntax } from './final-render-recipe.js'
 import { renderHash } from './render-hash-v1.js'
 
@@ -437,13 +438,33 @@ export function describeFinalRenderExport(
       ? logoAsset && source('logo', 'logo', logoAsset.path)
       : original
     if (!requirement) return local('logo_shape')
+    // The frozen recipe names one of three gates; the logo's own resolved
+    // window must be exactly one of them. A window the enum cannot express
+    // (e.g. a measured intro start that differs from the global effects gate)
+    // stays local rather than burning the logo over the intro.
+    const effStart = startSec ?? 0
+    const effEnd = endSec ?? 0
+    const logoBounds = resolveFinalLogoBounds({
+      globalStartSec: effStart, globalEndSec: effEnd,
+      hideDuringIntro: logo.hide_during_intro, preSceneDuration: opts.preSceneDuration,
+    })
+    let gate: 'effects_gate' | 'after_10_seconds' | 'always'
+    if (effStart === 0 && effEnd === 0 && logoBounds.startSec === 0 && logoBounds.endSec === 0) {
+      gate = 'always'
+    } else if (logoBounds.startSec === effStart && logoBounds.endSec === effEnd) {
+      gate = 'effects_gate'
+    } else if (logoBounds.startSec === 10 && logoBounds.endSec === 0) {
+      gate = 'after_10_seconds'
+    } else if (logoBounds.startSec === 0 && logoBounds.endSec === 0) {
+      gate = 'always'
+    } else {
+      return local('logo_intro_gate')
+    }
     sources.push(requirement)
     operations.push({
       kind: 'logo', asset: { type: 'asset_ref', logical_id: 'logo' }, opacity: logo.opacity ?? 1,
       scale: logo.scale || 0.1, anchor: logo.position, margin_px: logo.margin || 20,
-      gate: startSec !== null || endSec !== null
-        ? 'effects_gate'
-        : logo.hide_during_intro ? 'after_10_seconds' : 'always',
+      gate,
     })
   }
 

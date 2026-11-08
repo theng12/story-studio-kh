@@ -144,6 +144,7 @@ import {
   buildFinalOverlayFilters,
   buildFinalVignetteFilters,
   describeFinalBurnIns,
+  resolveFinalLogoBounds,
   type EncodeTier,
 } from '../lib/final-render-core.js'
 import { isStaticImagePath as isFinalRenderStaticImagePath } from '../lib/final-render-export.js'
@@ -8095,7 +8096,15 @@ async function runFinalComposition(
   // the legacy 10s hardcode for back-compat with projects that pre-date
   // the exclude-intro feature.
   if (hasLogo && logo) {
-    const part = buildFinalLogoFilters({ input: vLabel, allocLabel: vn }, logo, logoInputIdx, w, h, gateEnable)
+    // The logo's own window: an explicit intro/title start wins, otherwise
+    // `hide_during_intro` hides it for the measured opening clock (legacy 10s
+    // only when no clock was measured), and the closing bound is preserved.
+    const logoBounds = resolveFinalLogoBounds({
+      globalStartSec: startSec, globalEndSec: endSec,
+      hideDuringIntro: logo.hide_during_intro, preSceneDuration,
+    })
+    const logoGate = buildGateEnable(logoBounds.startSec, logoBounds.endSec)
+    const part = buildFinalLogoFilters({ input: vLabel, allocLabel: vn }, logo, logoInputIdx, w, h, logoGate)
     filterParts.push(...part.filters)
     vLabel = part.output
   }
