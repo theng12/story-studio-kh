@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.387 — 2026-11-08
+
+- Added checks that protect long thumbnail styles and preserve narration timing when adding closing music.
+
 ## v1.4.386 — 2026-11-07
 
 - New video endings keep the last scene visible during closing music, or end with a hard cut. Older black and fade endings become a hold of the same duration; finished videos stay unchanged.
