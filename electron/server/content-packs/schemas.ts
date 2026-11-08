@@ -329,6 +329,8 @@ const SeriesFormulaDocumentSchema = z.object({
   formula_family: safeText(80).optional(),
   tagline: safeText(200).optional(),
   perspective_policy: safeText(1200).optional(),
+  /** Explicit sleep indicator for sleep formulas and calm sleep-landing presentation. */
+  is_sleep: z.boolean().optional(),
   narrative_quality_contract: z.object({
     opening_policy: safeText(1200),
     forbidden_patterns: textList(30),

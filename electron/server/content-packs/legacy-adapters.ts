@@ -145,6 +145,7 @@ export function contentPackDocumentToNiche(document: FormulaDocument): Niche {
     schemaVersion: 1,
     kind: 'series-formula',
     formulaFamily: document.formula_family,
+    is_sleep: document.is_sleep,
     catalogStatus: 'active',
     catalogName: document.name,
     perspectivePolicy: document.perspective_policy,

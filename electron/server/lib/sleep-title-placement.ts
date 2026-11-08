@@ -29,10 +29,12 @@ export interface SleepVideoContext {
   niche_id?: string
   /** The Formula document's declared family (`formula_family` / catalog family). */
   formulaFamily?: string
-  /** Sleep-family packs declare `starting_scene_pacing` (AGENTS §5) — the marker
-   *  that covers the four "…for sleep" pack formulas whose family is
-   *  "Calm documentary". Absent on every non-sleep Formula. */
+  /** Sleep-family packs declare `starting_scene_pacing` (AGENTS §5). */
   starting_scene_pacing?: unknown
+  startingScenePacing?: unknown
+  /** Formula-declared opening profile (e.g. `sleep-landing`). */
+  opening_profile?: { id?: string; label?: string; description?: string } | string | null
+  openingProfile?: { id?: string; label?: string; description?: string } | string | null
 }
 
 /**
@@ -54,14 +56,19 @@ export function isSleepVideo(ctx: SleepVideoContext | null | undefined): boolean
   const id = String(ctx.id || ctx.niche_id || '').trim()
   if (id === 'sleep') return true
 
-  // Declared family: only "Calm stories" is sleep's own (the catalog's entry
-  // for `sleep`); "Calm documentary" alone is NOT — those packs are caught by
-  // `starting_scene_pacing` below rather than by widening this string test.
+  // Declared family: only "Calm stories" is sleep's own (the catalog's entry for `sleep`).
   const family = String(ctx.formulaFamily || '').trim().toLowerCase()
   if (family === 'calm stories') return true
 
-  // The sleep-family pack field every "…for sleep" Formula publishes.
-  if (ctx.starting_scene_pacing != null) return true
+  // Authoritative opening profile metadata: `sleep-landing` is published on every sleep Formula.
+  const opening = ctx.opening_profile ?? ctx.openingProfile
+  const openingId = typeof opening === 'string'
+    ? opening.trim()
+    : String(opening?.id || '').trim()
+  if (openingId === 'sleep-landing') return true
+
+  // The sleep-family starting pacing (AGENTS §5).
+  if (ctx.starting_scene_pacing != null || ctx.startingScenePacing != null) return true
 
   return false
 }

@@ -89,6 +89,29 @@ describe('isSleepVideo', () => {
       id: 'com.storystudio.formula.calm-science-for-sleep',
       starting_scene_pacing: { tiers: [] },
     }), true)
+    assert.equal(isSleepVideo({
+      id: 'com.storystudio.formula.sleep-history-compilation-v2',
+      formulaFamily: 'Calm documentary',
+      startingScenePacing: { mode: 'variable' },
+    }), true, 'startingScenePacing camelCase on Niche object is recognized')
+  })
+
+  test('identifies sleep by formula openingProfile metadata fact', () => {
+    assert.equal(isSleepVideo({
+      niche_id: 'com.storystudio.formula.mythology-for-sleep',
+      formulaFamily: 'Calm documentary',
+      openingProfile: { id: 'sleep-landing', label: 'Sleep landing', description: 'gentle welcome' },
+    }), true, 'openingProfile.id === sleep-landing identifies sleep documentary formulas without pacing')
+    assert.equal(isSleepVideo({
+      id: 'kh.owner.formula.illustrated-history-for-sleep',
+      formulaFamily: 'Calm documentary',
+      opening_profile: { id: 'sleep-landing', label: 'Sleep landing', description: 'gentle welcome' },
+    }), true, 'opening_profile.id === sleep-landing in snake_case identifies sleep formulas')
+    assert.equal(isSleepVideo({
+      id: 'com.storystudio.formula.khmer-folk-horror',
+      formulaFamily: 'Folk horror',
+      openingProfile: { id: 'folk-welcome', label: 'Folk welcome', description: 'greeting' },
+    }), false, 'non-sleep openingProfile does not match')
   })
 
   test('identifies sleep by declared formula family', () => {

@@ -941,6 +941,8 @@ export interface Niche {
   schemaVersion: 1
   /** Every legacy niche is treated as a Series Formula when this is absent. */
   kind?: 'series-formula'
+  /** Explicit sleep indicator for sleep formulas and calm sleep-landing presentation. */
+  is_sleep?: boolean
   /** Library-only grouping. It improves discovery without becoming a third
    * project setting alongside Series Formula and Topic Packs. */
   formulaFamily?: string

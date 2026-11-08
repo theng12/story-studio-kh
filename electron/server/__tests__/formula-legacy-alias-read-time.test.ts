@@ -177,6 +177,26 @@ test('without the store Formula the legacy file still answers, so a channel keep
   assert.ok(loaded?.scriptSystemPromptRole)
 })
 
+test('aliased qualified owner formula falls back to resolved installed pack when store alias target is absent', async t => {
+  const temporary = await useTempDataDir()
+  t.after(temporary.cleanup)
+  const paths = getContentPackRuntimePaths()
+  const recoveryRoot = path.join(temporary.dir, 'recovery')
+  await fs.mkdir(recoveryRoot, { recursive: true })
+  const options = { paths, policy, recoveryRoot, appVersion: '1.4.388' }
+  const ownerFormulaId = 'kh.owner.formula.illustrated-history-for-sleep'
+  const ownerPackId = 'com.storystudio.pack.awbu-test'
+  await installContentPack({
+    archiveBytes: await archiveOf([formula(ownerFormulaId, 'Illustrated History for Sleep')], ownerPackId),
+    source: 'local-import',
+  }, options)
+
+  assert.equal(niches.resolveFormulaAlias(ownerFormulaId), 'com.storystudio.formula.a-world-before-us')
+  const loaded = await niches.loadNiche(ownerFormulaId, options)
+  assert.equal(loaded?.id, ownerFormulaId, 'falls back to installed pack formula when store pack is absent')
+  assert.equal(loaded?.name, 'Illustrated History for Sleep')
+})
+
 /**
  * Owner, 2026-10-29: "no custom, no built in, all from packs." Quote Shorts and
  * Still Posts were built-ins; they are packs now, and a channel that stored the

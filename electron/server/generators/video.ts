@@ -3472,7 +3472,11 @@ export async function generateVideo(job: Job): Promise<VideoAssemblyDisposition>
       const sleepFacts: SleepVideoContext | null = sleepNiche ? {
         id: sleepNiche.id,
         formulaFamily: sleepNiche.formulaFamily,
-        starting_scene_pacing: (sleepNiche as SleepVideoContext & { starting_scene_pacing?: unknown }).starting_scene_pacing,
+        is_sleep: sleepNiche.is_sleep,
+        openingProfile: sleepNiche.openingProfile,
+        opening_profile: sleepNiche.openingProfile,
+        starting_scene_pacing: sleepNiche.startingScenePacing ?? (sleepNiche as any).starting_scene_pacing,
+        startingScenePacing: sleepNiche.startingScenePacing,
       } : null
       if (isSleepNiche(sleepFacts)) {
         // The spoken Introduction's end — the SAME clock Scene Plan's intro

@@ -328,7 +328,7 @@ async function loadAliasedFormula(
     `[niche-loader] '${legacyId}' reads as '${targetId}', which is not available on this machine; `
     + 'falling back to the legacy Formula so generation keeps working',
   )
-  return loadLegacyNiche(legacyId).then(result => result?.document ?? null)
+  return loadResolvedNiche(legacyId, registryOptions)
 }
 
 async function loadResolvedNiche(id: string, registryOptions: ContentPackRegistryOptions): Promise<Niche | null> {
