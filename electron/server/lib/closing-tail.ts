@@ -143,6 +143,23 @@ export async function mergedClosingTailSec(mergedAudioPath: string, code: string
 }
 
 /**
+ * How much of `mergedClosingTailSec` the merge baked under an appended outro (0 when the record does
+ * not say, when it describes a different file, or when no outro music was baked). The renderer keeps
+ * `closing_tail_sec - closing_outro_sec` as the held post-audio tail and appends the outro for the rest,
+ * so the picture's length is unchanged while the music reaches the true end.
+ */
+export async function mergedClosingOutroSec(mergedAudioPath: string, code: string): Promise<number> {
+  try {
+    const record = JSON.parse(await fs.readFile(mergedAudioCompletionPath(mergedAudioPath, code), 'utf-8'))
+    if (record?.output_filename !== path.basename(mergedAudioPath)) return 0
+    const sec = Number(record?.closing_outro_sec)
+    return Number.isFinite(sec) && sec > 0 ? sec : 0
+  } catch {
+    return 0
+  }
+}
+
+/**
  * Whether the merge recorded a background music bed in this file: true / false as written, null when
  * the record does not say (no record, a record for a different file, or one written before 1.4.352).
  * Null is "could not tell", which the caller must not read as "no bed" (AGENTS.md §6).

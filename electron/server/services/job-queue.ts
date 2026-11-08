@@ -3888,6 +3888,9 @@ export async function consumeFinalRenderTerminal(
   publish?: () => Promise<void>,
   // Runs once, on the acknowledged row before it is persisted done: its edits land with completion.
   finish?: (job: Job) => Promise<void>,
+  // A restore reads a terminal that was already consumed; a later accepted render may since have
+  // replaced the destination at the same name, so only the retained terminal is authoritative then.
+  verifyDestination = true,
 ): Promise<Job> {
   const terminal = parseFinalRenderTerminalArtifact(value, projectSlug, jobId, expected)
   const terminalSha256 = createHash('sha256').update(JSON.stringify(terminal)).digest('hex')
@@ -3906,7 +3909,7 @@ export async function consumeFinalRenderTerminal(
         throw new Error('Final render terminal is not bound to its durable private import evidence.')
       }
       await publish?.()
-      if (terminal.destination) await verifyFinalRenderTerminalDestination(terminal.destination)
+      if (verifyDestination && terminal.destination) await verifyFinalRenderTerminalDestination(terminal.destination)
       if (TERMINAL_JOB_STATUSES.has(disk.status)) {
         if (disk.result?.final_render_terminal_sha256 !== terminalSha256
           || (terminal.outcome === 'acknowledged' && disk.status !== 'done')
@@ -3962,28 +3965,106 @@ export async function consumeFinalRenderTerminal(
   return structuredClone(result)
 }
 
-async function restoreConsumedFinalRenderTerminal(job: Job): Promise<boolean> {
+/** The retained terminal a consumed final-render row points at, or null when any proof is missing. */
+async function readRetainedFinalRenderTerminal(job: Job): Promise<{
+  receipt: FinalRenderTransportReceiptV3
+  terminal: FinalRenderTerminalArtifact
+} | null> {
   const parsed = parseFinalRenderRemoteWaitReceipt(job.final_render_remote_wait, job.job_id)
   if (!parsed.ok || parsed.receipt.version !== 3
-    || (job.status !== 'done' && job.status !== 'cancelled')
-    || job.local_execution_complete !== (job.status === 'done')
-    || typeof job.result?.final_render_terminal_sha256 !== 'string') return false
+    || typeof job.result?.final_render_terminal_sha256 !== 'string') return null
   try {
     const bytes = await readStablePrivateFile(path.join(
       getUserDataDir(), 'private-render', 'intents', parsed.receipt.intent_id, 'final-render-terminal.json',
     ), 1024 * 1024)
     if (!bytes || createHash('sha256').update(bytes).digest('hex') !== job.result.final_render_terminal_sha256) {
-      return false
+      return null
     }
     const terminal = parseFinalRenderTerminalArtifact(
       JSON.parse(bytes.toString('utf8')), job.project_slug, job.job_id, parsed.receipt,
     )
-    const restored = await consumeFinalRenderTerminal(job.project_slug, job.job_id, parsed.receipt, terminal)
+    return { receipt: parsed.receipt, terminal }
+  } catch {
+    return null
+  }
+}
+
+async function restoreConsumedFinalRenderTerminal(job: Job): Promise<boolean> {
+  if ((job.status !== 'done' && job.status !== 'cancelled')
+    || job.local_execution_complete !== (job.status === 'done')) return false
+  const retained = await readRetainedFinalRenderTerminal(job)
+  if (!retained) return false
+  try {
+    // A later accepted render may have replaced the destination at the same name since this row
+    // finished; the retained terminal is still the proof of this row's own completion (1.4.389).
+    const restored = await consumeFinalRenderTerminal(
+      job.project_slug, job.job_id, retained.receipt, retained.terminal, undefined, undefined, false,
+    )
     Object.assign(job, restored)
     return true
   } catch {
     return false
   }
+}
+
+/**
+ * One-time, evidence-only repair for a final render that an earlier boot reopened (1.4.347–1.4.388).
+ * It restores the terminal projection only when the row still carries its own consumed terminal
+ * digest and the retained terminal artifact matches it. It never touches the destination, starts no
+ * work, and never runs at boot — a running row without that proof is refused.
+ */
+export async function reconcileReopenedFinalRenderTerminal(
+  projectSlug: string,
+  jobId: string,
+): Promise<{ job: Job; changed: boolean }> {
+  const disk = await loadAuthoritativeJob(projectSlug, jobId)
+  if (!disk || disk.type !== 'video_assembly') throw new Error('Final render job was not found.')
+  const retained = await readRetainedFinalRenderTerminal(disk)
+  if (!retained) throw new Error('This row has no retained final render terminal to restore.')
+  const targetStatus = retained.terminal.outcome === 'acknowledged' ? 'done' : 'cancelled'
+  if (disk.status === targetStatus && disk.local_execution_complete === (targetStatus === 'done')) {
+    return { job: disk, changed: false }
+  }
+  if (disk.status !== 'running' || disk.local_execution_complete === true || activeRunJobIds.has(jobId)) {
+    throw new Error('Only a row reopened by boot can be reconciled from its retained terminal.')
+  }
+  const finishedAt = Number.isFinite(Date.parse(String(disk.finished_at)))
+    ? String(disk.finished_at)
+    : null
+  const line = '↻ Story Studio restored this finished final render from its retained terminal record'
+    + `${finishedAt ? ` (completed ${finishedAt})` : ' (its original completion time was not retained)'}; `
+    + 'the accepted final and the work on disk were not touched.'
+  await persistProjectMutation(projectSlug, {
+    kind: 'transform', jobId,
+    transform: current => {
+      if (!current || current.project_slug !== projectSlug || current.job_id !== jobId
+        || current.type !== 'video_assembly' || current.status !== 'running'
+        || current.local_execution_complete === true) {
+        throw new Error('The final render row changed before it could be reconciled.')
+      }
+      if (current.result?.final_render_terminal_sha256 !== disk.result?.final_render_terminal_sha256) {
+        throw new Error('The final render terminal evidence changed before it could be reconciled.')
+      }
+      current.status = targetStatus
+      current.local_execution_complete = targetStatus === 'done'
+      if (finishedAt) current.finished_at = finishedAt
+      current.error = null
+      current.pause_requested = false
+      current.resume_after_pause = false
+      current.output_lines = Array.isArray(current.output_lines) ? current.output_lines : []
+      current.output_lines.push(line)
+      return current
+    },
+  })
+  const readback = await loadAuthoritativeJob(projectSlug, jobId)
+  if (!readback || readback.status !== targetStatus) {
+    throw new Error('Final render reconciliation failed durable readback.')
+  }
+  finalRenderRecoveryHolds.delete(finalRenderStateKey(projectSlug, jobId))
+  finalRenderMonitorTransientHolds.delete(finalRenderStateKey(projectSlug, jobId))
+  jobs.set(jobId, structuredClone(readback))
+  emitUpdate(jobs.get(jobId)!)
+  return { job: readback, changed: true }
 }
 
 /** Run only after the importer's long output owner has been released. */

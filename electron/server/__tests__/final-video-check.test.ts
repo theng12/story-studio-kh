@@ -148,6 +148,15 @@ describe("the owner's incidents", () => {
     assert.match(result.issues[0]!.verdict, /asks for closing music/)
   })
 
+  test('an explicit closing music window names its own silent seconds', async () => {
+    const result = await runFinalCheck(silentTailFile, expect({
+      tail: { sec: 3, from_end_sec: 0 }, closing_music: true,
+      closing_music_window: { sec: 2, from_end_sec: 0 },
+    }))
+    assert.deepEqual(result.issues.map(issue => issue.check), ['closing_tail'])
+    assert.match(result.issues[0]!.verdict, /closing music \(0:06 to 0:08\) is silent/)
+  })
+
   test('the same file passes the tail check once real music is over it', async () => {
     const result = await runFinalCheck(goodFile, expect({
       tail: { sec: 3, from_end_sec: 0 }, closing_music: true,
