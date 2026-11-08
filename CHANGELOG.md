@@ -4,6 +4,11 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.388 — 2026-11-08
+
+- Sleep titles follow the Formula's declared sleep presentation rather than scene pacing. Installed owner Formulas remain available when their store replacement is missing.
+- Corner logos respect the measured intro when hiding is enabled, including videos with closing music. Final renders use the local path when the remote renderer cannot preserve that exact logo window.
+
 ## v1.4.387 — 2026-11-08
 
 - Added checks that protect long thumbnail styles and preserve narration timing when adding closing music.

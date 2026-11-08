@@ -239,10 +239,8 @@ export function buildFinalLogoFilters(
   const output = io.allocLabel()
   const filters = [`[${inputIndex}:v]scale=${logoW}:-1,format=rgba,colorchannelmixer=aa=${opacity}[logo]`]
 
-  // If the global dual-sided gate is on (`gateEnable` non-empty), the logo
-  // piggybacks on it so intro/title/tail/outro all stay logo-free. Otherwise
-  // fall back to the legacy 10s hardcode when the user only toggled
-  // `hide_during_intro`. When neither is on, the logo runs every frame.
+  // Callers pass the resolved logo window. Frozen after_10_seconds recipes
+  // use the legacy fallback when no explicit window is supplied.
   let logoEnable = ''
   if (gateEnable) {
     logoEnable = gateEnable

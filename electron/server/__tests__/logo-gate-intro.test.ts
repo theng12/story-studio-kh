@@ -5,6 +5,7 @@
  */
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { basename } from 'node:path'
 
 import { resolveFinalLogoBounds } from '../lib/final-render-core.js'
 import { buildGateEnable } from '../lib/video-effects.js'
@@ -48,7 +49,7 @@ function assetsFor(description: FinalRenderExportDescription) {
   return description.source_requirements.map((source, index) => ({
     logical_id: source.logical_id,
     role: source.role,
-    safe_name: `${source.logical_id}.bin`,
+    safe_name: basename(source.source_path),
     size_bytes: 1,
     sha256: [HASH_1, HASH_2, HASH_3][index] ?? HASH_1,
     input_mode: { kind: 'single' as const },
@@ -131,7 +132,7 @@ test('remote export represents the legacy 10s intro gate and the always-on gate 
   assert.equal(after10.kind, 'exportable')
   if (after10.kind !== 'exportable') return
   assert.equal(after10.recipe.operations.find((operation: any) => operation.kind === 'logo').gate, 'after_10_seconds')
-  assert.match(compiledArgs(after10), /overlay=.*:enable='gt\(t,10\.00\)'/)
+  assert.match(compiledArgs(after10), /overlay=.*:enable='gt\(t,10\)'/)
 
   const always = describeFinalRenderExport(opts({
     logo: { ...logo, hide_during_intro: false },
