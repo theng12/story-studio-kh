@@ -42,6 +42,7 @@ import { MERGED_AUDIO_FILENAME } from '../lib/merged-audio-selection.js'
 import { assertDecodableImage, isDecodableImage } from '../lib/image-validation.js'
 import { getFFmpegPath } from '../services/ffmpeg-manager.js'
 import { bundledFontsFilterOption } from '../lib/subtitle-font-dir.js'
+import { renderTitleCardTextLayer, type TitleCardProof } from '../lib/title-card-text.js'
 import { stageChapterTitleFont, escapeChapterFontfile, layoutChapterTitle, chapterTitleAppearance, assertChapterTitleCovers } from '../lib/chapter-title-font.js'
 import { applyAutomaticChapterTitles } from '../lib/chapter-title-binding.js'
 import { peekChapterBackground, recordChapterBackgroundPick, resolveChapterBackground } from '../services/chapter-background-pool.js'
@@ -61,7 +62,7 @@ import { finalDurationIssue, missingEnabledVideoInputs, missingInputsMessage, sw
 import {
   closingMusicWanted, runFinalCheck, storeFinalCheck, finalCheckSummary, readPlannedSectionGaps,
   finalCheckOptionsFor,
-  type FinalCheckExpectation, type FinalCheckIntro, type FinalCheckResult, type PlannedSectionGaps,
+  type FinalCheckExpectation, type FinalCheckIntro, type FinalCheckResult, type FinalCheckTitleCard, type PlannedSectionGaps,
 } from '../lib/final-video-check.js'
 import { sketchSceneBlankStartsForEpisode } from '../services/final-check-expectation.js'
 import { withLock } from '../lib/atomic-store.js'
@@ -887,6 +888,11 @@ export function finalCheckExpectation(
     sectionGaps?: PlannedSectionGaps | null
     /** The branded intro this render drew, so the check can tell its own black from a fault. */
     intro?: FinalCheckIntro
+    /**
+     * The fitted text title card this render drew, and the raster proof of its text. Its own black is
+     * the card's background, not a gap — see `isTitleCardBlack`.
+     */
+    titleCard?: FinalCheckTitleCard
   },
 ): FinalCheckExpectation {
   return {
@@ -908,6 +914,7 @@ export function finalCheckExpectation(
     ...(Number(opts.speechEndSec) > 0 ? { speech_end_sec: Number(opts.speechEndSec) } : {}),
     ...(opts.sectionGaps ? { section_gaps: opts.sectionGaps } : {}),
     ...(opts.intro ? { intro: opts.intro } : {}),
+    ...(opts.titleCard ? { title_card: opts.titleCard } : {}),
   }
 }
 
@@ -4236,6 +4243,9 @@ export async function generateVideo(job: Job): Promise<VideoAssemblyDisposition>
 
     // 6. Prepare title image clip (if provided)
     let titleClipPath: string | undefined
+    /** The fitted text card this render drew, when the title slot is a text card rather than an image. */
+    let titleCardProof: TitleCardProof | undefined
+    let titleCardDurationSec = 0
     // Sleep title (item 15): the head slot keeps today's duration, filled with
     // scene 1's own picture — the title art/text itself is drawn after the
     // intro by `sleepTitle` below, so the title can never appear twice.
@@ -4275,7 +4285,10 @@ export async function generateVideo(job: Job): Promise<VideoAssemblyDisposition>
         job.output_lines.push('Text title card skipped: this FFmpeg build has no drawtext filter.')
       } else {
         if (titleClipPath) job.output_lines.push('Text title card replaces the separate title image clip for this render.')
-        titleClipPath = await prepareTextCardClip(req.title_card, 'title', resW, resH, quality, tempDir, job)
+        const titleCard = await prepareTextCardClip(req.title_card, 'title', resW, resH, quality, tempDir, job)
+        titleClipPath = titleCard.path
+        titleCardProof = titleCard.proof
+        titleCardDurationSec = titleCard.duration
       }
     }
 
@@ -4351,9 +4364,9 @@ export async function generateVideo(job: Job): Promise<VideoAssemblyDisposition>
       if (!canDrawtext) {
         job.output_lines.push('Text outro card skipped: this FFmpeg build has no drawtext filter.')
       } else {
-        const cardPath = await prepareTextCardClip(req.outro_card, 'outro', resW, resH, quality, tempDir, job)
-        const duration = (await getAudioDuration(cardPath)) || req.outro_card.duration || 4
-        timelineClipsByAnchor.after_outro.push({ path: cardPath, duration })
+        const card = await prepareTextCardClip(req.outro_card, 'outro', resW, resH, quality, tempDir, job)
+        const duration = (await getAudioDuration(card.path)) || req.outro_card.duration || 4
+        timelineClipsByAnchor.after_outro.push({ path: card.path, duration })
       }
     }
     // Image Pool intervals begin after any measured opening clips. The merged
@@ -4803,6 +4816,16 @@ export async function generateVideo(job: Job): Promise<VideoAssemblyDisposition>
     })
 
     const introClipForCheck = await introForFinalCheck(req, timelineClipsByAnchor, introClipPath)
+    // The concat order is before_intro → intro → title card. The card's window is on the finished
+    // file's clock, so the check can excuse exactly that stretch of black and nothing else.
+    const beforeIntroSec = timelineClipsByAnchor.before_intro.reduce((sum, clip) => sum + clip.duration, 0)
+    const introSecForCheck = introClipPath ? (await getAudioDuration(introClipPath)) || 0 : 0
+    const titleCardForCheck: FinalCheckTitleCard | undefined = titleCardProof && titleCardDurationSec > 0
+      ? {
+        window: { start_sec: beforeIntroSec + introSecForCheck, end_sec: beforeIntroSec + introSecForCheck + titleCardDurationSec },
+        proof: titleCardProof,
+      }
+      : undefined
     const finalCheckExpected = finalCheckExpectation(req, {
       plannedSec: totalRenderDuration, tailSec: postRoll, bakedTailSec: mergedClosingTailSec, backgroundMusic: mergedBackgroundMusicRecord,
       tailFromEndSec: outroDuration + afterOutroDur,
@@ -4815,6 +4838,7 @@ export async function generateVideo(job: Job): Promise<VideoAssemblyDisposition>
       speechEndSec: narrationLeadInSec + narrationDuration,
       sectionGaps: await readPlannedSectionGaps(episodeDir),
       ...(introClipForCheck ? { intro: introClipForCheck } : {}),
+      ...(titleCardForCheck ? { titleCard: titleCardForCheck } : {}),
     })
     // The check's Sketch Draw exemptions come from this episode's own Scene Plan and clip
     // receipts (never a guessed reveal); no plan or receipt leaves black judged as before.
@@ -6075,7 +6099,7 @@ async function prepareTextCardClip(
   quality: { crf: number; preset: string; fps: number },
   tempDir: string,
   job: Job,
-): Promise<string> {
+): Promise<{ path: string; duration: number; proof: TitleCardProof }> {
   const clipPath = path.join(tempDir, `${kind}_text_card.mp4`)
   const duration = Math.max(1, Number(card.duration) || (kind === 'title' ? 5 : 4))
   const mediaPath = String(card.background_media_path || '')
@@ -6085,55 +6109,48 @@ async function prepareTextCardClip(
 
   if (hasMedia) {
     args.push(...(await buildLoopingMediaInputArgs(mediaPath)))
-    filters.push(...normalizeFrame(w, h, quality.fps).filter(f => !f.startsWith('fps=')))
+    filters.push(`[0:v]${normalizeFrame(w, h, quality.fps).filter(f => !f.startsWith('fps=')).join(',')}[bg]`)
   } else {
     const backgroundName = 'background' in card ? String(card.background || 'black') : 'black'
     const color = backgroundName === 'gradient' ? '#111827'
       : backgroundName === 'dark_blur' ? '#101014'
         : backgroundName === 'black' ? 'black' : backgroundName
     args.push('-f', 'lavfi', '-i', `color=c=${color}:s=${w}x${h}:r=${quality.fps}:d=${duration}`)
-    filters.push('setsar=1')
+    filters.push('[0:v]setsar=1[bg]')
     if (mediaPath) job.output_lines.push(`Text ${kind} card background is unavailable; using ${color}.`)
   }
 
-  const textColor = getStyleColor(card.style || 'white')
-  // v1.4.15 — sized against the frame's SHORT edge. `h` was the short edge on
-  // every canvas that existed before this release, so 16:9 output is unchanged;
-  // in portrait, `h` is the long edge and a title at 7.5% of it overflowed the
-  // frame sideways.
+  // v1.4.390 — the text is measured and drawn by the bundled-font renderer, then overlaid. The old
+  // single `drawtext` line had no wrap and no shrink, so a long title was clipped at both ends
+  // (Origin Field EP0031). `mainSize` is the size a short title has always had; fitting only shrinks.
   const mainSize = Math.max(32, Math.round(frameTextUnit(w, h) * (kind === 'title' ? 0.075 : 0.06)))
-  // The gap between title and subtitle now scales with the type it separates.
-  // It used to be a flat 40px above centre and 45px below, which was tuned at
-  // 1080p and was already wrong at 4K — the type tripled and the gap did not.
-  // At 1080p these still compute to 41 and 45, so the pinned look is preserved.
-  const gapAbove = Math.round(mainSize * 0.5)
-  const gapBelow = Math.round(mainSize * 0.55)
-  const mainY = kind === 'title' && 'subtitle' in card && card.subtitle
-    ? `(h-text_h)/2-${gapAbove}`
-    : '(h-text_h)/2'
-  filters.push(
-    `drawtext=text='${escapeDrawtext(card.text || '')}':fontsize=${mainSize}:fontcolor=${textColor}:` +
-    `borderw=2:bordercolor=black@0.65:x=(w-text_w)/2:y=${mainY}`,
-  )
-  if (kind === 'title' && 'subtitle' in card && card.subtitle?.trim()) {
-    filters.push(
-      `drawtext=text='${escapeDrawtext(card.subtitle)}':fontsize=${Math.max(22, Math.round(mainSize * 0.48))}:` +
-      `fontcolor=white:borderw=1:bordercolor=black@0.65:x=(w-text_w)/2:y=(h/2)+${gapBelow}`,
-    )
-  }
-  filters.push('format=yuv420p')
+  const layer = await renderTitleCardTextLayer({
+    text: card.text || '',
+    subtitle: kind === 'title' && 'subtitle' in card ? card.subtitle : undefined,
+    style: card.style || 'white',
+    kind,
+    width: w,
+    height: h,
+    basePx: mainSize,
+  })
+  const layerPath = path.join(tempDir, `${kind}_text_layer.png`)
+  await fs.writeFile(layerPath, layer.png)
+  args.push('-loop', '1', '-i', layerPath)
+  filters.push('[bg][1:v]overlay=0:0:format=auto,format=yuv420p[v]')
+
   args.push(
-    '-vf', filters.join(','), '-t', duration.toString(),
+    '-filter_complex', filters.join(';'), '-map', '[v]', '-t', duration.toString(),
     '-c:v', 'libx264', '-crf', quality.crf.toString(), '-preset', 'ultrafast',
     '-r', quality.fps.toString(), '-fps_mode', 'cfr', '-pix_fmt', 'yuv420p',
     '-color_range', 'tv', '-colorspace', 'bt709', '-color_primaries', 'bt709', '-color_trc', 'bt709',
     '-an', clipPath,
   )
   job.output_lines.push(
-    `Preparing ${kind} text card (${duration}s${hasMedia ? ` · ${path.basename(mediaPath)}` : ''})`,
+    `Preparing ${kind} text card (${duration}s${hasMedia ? ` · ${path.basename(mediaPath)}` : ''}; `
+    + `${kind} fitted at ${layer.proof.font_px}px on ${layer.proof.lines} line${layer.proof.lines === 1 ? '' : 's'})`,
   )
   await runFfmpeg(args)
-  return clipPath
+  return { path: clipPath, duration, proof: layer.proof }
 }
 
 async function prepareTitleClip(

@@ -123,7 +123,7 @@ export function escapeChapterFontfile(fontfile: string): string {
 }
 
 /** sharp reads text as Pango markup, so a heading's own `&`, `<`, `>` must stay literal. */
-function escapePangoMarkup(text: string): string {
+export function escapePangoMarkup(text: string): string {
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }
 

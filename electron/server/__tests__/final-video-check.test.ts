@@ -10,8 +10,9 @@
 import assert from 'node:assert/strict'
 import { after, before, describe, test } from 'node:test'
 import { execFileSync } from 'node:child_process'
+import crypto from 'node:crypto'
 import fs from 'node:fs/promises'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
@@ -25,6 +26,8 @@ import {
   finalCheckPath,
   finalCheckSummary,
   finalCheckVerdict,
+  freshStoredExpectation,
+  isTitleCardBlack,
   parseBlackdetect,
   parseSilencedetect,
   plannedSecFromSectionGaps,
@@ -38,6 +41,7 @@ import {
   storeFinalCheck,
   tailWindow,
   type FinalCheckExpectation,
+  type FinalCheckTitleCard,
 } from '../lib/final-video-check.js'
 
 let dir: string
@@ -769,5 +773,195 @@ describe('planned pauses between sections', () => {
     await fs.writeFile(path.join(folder, 'audio_chapters.json'),
       JSON.stringify({ sections: [{ duration_s: 100 }, { duration_s: 200 }], gap_duration_s: 5 }))
     assert.deepEqual(await readPlannedSectionGaps(folder), { gap_sec: 5, durations_sec: [100, 200] })
+  })
+})
+
+/**
+ * The intentional text title card (Origin Field EP0031, 2026-11-08).
+ *
+ * Its black background is content the episode asked for, so the check must not call it a gap — but
+ * the exemption is never a blanket window. It requires a self-consistent raster proof AND a finished
+ * frame that really shows non-blank text inside the safe margins. A blank, clipped, unproven or
+ * out-of-window card is still a black fault.
+ */
+describe('the intentional text title card', () => {
+  const W = 1920
+  const H = 1080
+  const MARGIN = 54
+  const TEXT = 'When Mountain Ranges Rose Through the Atmosphere | Documentary for Sleep'
+  const bounds = { left: 96, top: 420, right: 1824, bottom: 660 }
+
+  function proof(over: Partial<FinalCheckTitleCard['proof']> = {}): FinalCheckTitleCard['proof'] {
+    return {
+      text: TEXT,
+      text_sha256: crypto.createHash('sha256').update(TEXT).digest('hex'),
+      rendered_sha256: 'a'.repeat(64),
+      bounds,
+      frame: { width: W, height: H },
+      safe_margin_px: MARGIN,
+      nonblank_pixels: 12_345,
+      font_id: 'inter',
+      font_px: 58,
+      lines: 2,
+      ...over,
+    }
+  }
+
+  function card(over: Partial<FinalCheckTitleCard> = {}): FinalCheckTitleCard {
+    return { window: { start_sec: 8, end_sec: 13 }, proof: proof(), ...over }
+  }
+
+  function actual(
+    black: Array<{ start_sec: number; end_sec: number }>,
+    measured: FinalCheckTitleCard['proof'] | null = proof(),
+    measureError?: string,
+  ) {
+    return {
+      duration_sec: 20,
+      video_sec: 20,
+      audio_sec: null,
+      width: W,
+      height: H,
+      tail_lufs: null,
+      black,
+      silence: [] as Array<{ start_sec: number; end_sec: number }>,
+      ...(measureError
+        ? { title_card: { measured_at_sec: 10.5, nonblank_pixels: 0, bounds: null, frame: { width: 0, height: 0 }, error: measureError } }
+        : {
+          title_card: {
+            measured_at_sec: 10.5,
+            nonblank_pixels: measured?.nonblank_pixels ?? 0,
+            bounds: measured?.bounds ?? null,
+            frame: measured?.frame ?? { width: W, height: H },
+          },
+        }),
+    }
+  }
+
+  const plan = (over: Partial<FinalCheckExpectation> = {}) => expect({
+    planned_sec: 20, width: W, height: H, title_card: card(), ...over,
+  })
+
+  test('a drawn, contained title excuses exactly its own black window', () => {
+    const issues = finalCheckIssues(actual([{ start_sec: 8, end_sec: 13 }]), plan())
+    assert.deepEqual(issues, [])
+  })
+
+  test('a blank finished card is still black', () => {
+    const issues = finalCheckIssues(actual([{ start_sec: 8, end_sec: 13 }], null), plan())
+    assert.deepEqual(issues.map(issue => issue.check), ['black'])
+  })
+
+  test('a clipped finished card is still black', () => {
+    const clipped = proof({ bounds: { left: 0, top: 420, right: 1824, bottom: 660 } })
+    const issues = finalCheckIssues(actual([{ start_sec: 8, end_sec: 13 }], clipped), plan())
+    assert.deepEqual(issues.map(issue => issue.check), ['black'])
+  })
+
+  test('a proof whose hash does not describe its text excuses nothing', () => {
+    const issues = finalCheckIssues(
+      actual([{ start_sec: 8, end_sec: 13 }]),
+      plan({ title_card: card({ proof: proof({ text_sha256: 'not-the-hash' }) }) }),
+    )
+    assert.deepEqual(issues.map(issue => issue.check), ['black'])
+  })
+
+  test('a proof with no rendered raster excuses nothing', () => {
+    const issues = finalCheckIssues(
+      actual([{ start_sec: 8, end_sec: 13 }]),
+      plan({ title_card: card({ proof: proof({ rendered_sha256: '' }) }) }),
+    )
+    assert.deepEqual(issues.map(issue => issue.check), ['black'])
+  })
+
+  test('black outside the card window is still black', () => {
+    const issues = finalCheckIssues(actual([{ start_sec: 14, end_sec: 19 }]), plan())
+    assert.deepEqual(issues.map(issue => issue.check), ['black'])
+  })
+
+  test('a card frame that could not be measured excuses nothing', () => {
+    const issues = finalCheckIssues(actual([{ start_sec: 8, end_sec: 13 }], null, 'decode failed'), plan())
+    assert.deepEqual(issues.map(issue => issue.check), ['black'])
+  })
+
+  test('a contained frame that is not the proven card is still black', () => {
+    // Same window and non-blank, but the ink sits somewhere the proof never drew it.
+    const elsewhere = proof({ bounds: { left: 300, top: 420, right: 1500, bottom: 660 } })
+    const issues = finalCheckIssues(actual([{ start_sec: 8, end_sec: 13 }], elsewhere), plan())
+    assert.deepEqual(issues.map(issue => issue.check), ['black'])
+  })
+
+  test('the pure predicate agrees, and a proof at the safe edge is still inside', () => {
+    const measured = actual([{ start_sec: 8, end_sec: 13 }]).title_card
+    assert.equal(isTitleCardBlack({ start_sec: 8, end_sec: 13 }, card(), measured), true)
+    const edge = proof({ bounds: { left: MARGIN, top: MARGIN, right: W - MARGIN, bottom: H - MARGIN } })
+    const edgeMeasured = actual([{ start_sec: 8, end_sec: 13 }], edge).title_card
+    assert.equal(isTitleCardBlack({ start_sec: 8, end_sec: 13 }, card({ proof: edge }), edgeMeasured), true)
+  })
+
+  test('a resumed expectation keeps the card proof, so the check does not weaken on resume', async () => {
+    const videoPath = path.join(dir, 'title-card-resume.mp4')
+    writeFileSync(videoPath, 'not a real video, only an identity')
+    const stat = await fs.stat(videoPath)
+    const expected = plan()
+    await storeFinalCheck(videoPath, {
+      checked_at: new Date().toISOString(),
+      file: { size: stat.size, mtime_ms: stat.mtimeMs },
+      expected,
+      actual: actual([{ start_sec: 8, end_sec: 13 }]),
+      passed: true,
+      issues: [],
+    })
+    const stored = await readStoredFinalCheck(videoPath)
+    assert.equal(stored?.stale, false)
+    assert.deepEqual(freshStoredExpectation(stored)?.title_card, expected.title_card)
+  })
+})
+
+/**
+ * The same decision, measured on a real encoded file: the frame at the card's midpoint must show
+ * ink. A card that encoded blank fails even though its expectation says a title was drawn.
+ */
+describe('the title card frame is measured on the finished file', () => {
+  function cardVideo(withText: boolean): string {
+    const draw = withText ? ",drawbox=c=white:t=fill:enable='between(t,2,5)':x=60:y=80:w=60:h=10" : ''
+    return ffmpeg([
+      '-f', 'lavfi', '-i', `color=c=blue:s=320x180:r=10:d=2`,
+      '-f', 'lavfi', '-i', `color=c=black:s=320x180:r=10:d=3`,
+      '-f', 'lavfi', '-i', `color=c=blue:s=320x180:r=10:d=3`,
+      '-filter_complex', `[0:v][1:v][2:v]concat=n=3:v=1:a=0${draw}[v]`,
+      '-map', '[v]', '-c:v', 'libx264', '-pix_fmt', 'yuv420p',
+    ], withText ? 'title-card-drawn.mp4' : 'title-card-blank.mp4')
+  }
+
+  const cardExpectation = (): FinalCheckTitleCard => ({
+    window: { start_sec: 2, end_sec: 5 },
+    proof: {
+      text: 'A title card',
+      text_sha256: crypto.createHash('sha256').update('A title card').digest('hex'),
+      rendered_sha256: 'b'.repeat(64),
+      bounds: { left: 60, top: 80, right: 120, bottom: 90 },
+      frame: { width: 320, height: 180 },
+      safe_margin_px: 24,
+      nonblank_pixels: 600,
+      font_id: 'inter',
+      font_px: 30,
+      lines: 1,
+    },
+  })
+
+  test('a drawn card passes; the same window encoded blank still fails', async () => {
+    const drawn = await runFinalCheck(cardVideo(true), expect({
+      planned_sec: 8, width: 320, height: 180, title_card: cardExpectation(),
+    }))
+    assert.deepEqual(drawn.issues, [], JSON.stringify(drawn.actual))
+    assert.ok((drawn.actual.title_card?.nonblank_pixels ?? 0) > 0)
+    assert.ok(drawn.actual.title_card?.bounds, 'the finished frame has measured ink')
+
+    const blank = await runFinalCheck(cardVideo(false), expect({
+      planned_sec: 8, width: 320, height: 180, title_card: cardExpectation(),
+    }))
+    assert.deepEqual(blank.issues.map(issue => issue.check), ['black'])
+    assert.equal(blank.actual.title_card?.nonblank_pixels, 0)
   })
 })

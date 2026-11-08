@@ -4,6 +4,11 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.390 — 2026-11-09
+
+- Opening title cards wrap or shrink long titles to keep the complete text inside the video frame with safe margins.
+- Final black-gap checks recognize a deliberate title card only when its rendered text is visible and fits inside the frame. Blank, clipped or unverified cards remain failures.
+
 ## v1.4.389 — 2026-11-08
 
 - Local release packaging uses the same signing identity across updates and reports a missing identity instead of silently producing an ad-hoc release.
