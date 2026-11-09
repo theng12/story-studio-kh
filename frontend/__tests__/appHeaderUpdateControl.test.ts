@@ -139,6 +139,19 @@ test('a failed status read says unavailable and stays reachable — never hidden
   } finally { destroy() }
 })
 
+test('a failed update check never labels the installed version up to date', async () => {
+  const api = apiFor(async () => ({ phase: 'idle', current_version: '1.4.5', last_check_error: 'Release feed unavailable' }), async () => { throw new Error('no install') })
+  const { trigger, open, destroy } = await mountBanner(api, async () => true)
+  try {
+    assert.match(trigger().title, /unavailable/i)
+    assert.doesNotMatch(trigger().title, /Up to date/)
+    await open()
+    assert.match(host2Dialog(trigger())?.textContent || '', /Release feed unavailable/)
+    assert.ok(trigger().querySelector('.is-danger'))
+    assert.deepEqual(api.calls.filter(c => c.path === '/app-update/install-now'), [])
+  } finally { destroy() }
+})
+
 test('Escape closes the popover and returns focus to the trigger; outside click closes it', async () => {
   const api = apiFor(async () => READY, async () => { throw new Error('no install') })
   const { trigger, open, destroy } = await mountBanner(api, async () => true)

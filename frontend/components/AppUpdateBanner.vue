@@ -76,7 +76,8 @@ const { ask } = useConfirm()
 /** The one honest sentence for every state: loading, current, waiting, failed, unavailable. Never a made-up version. */
 const state = computed(() => {
   const s = status.value
-  if (!s) return error.value ? 'Update status unavailable.' : 'Checking for updates…'
+  if (error.value || s?.last_check_error) return 'Update status unavailable.'
+  if (!s) return 'Checking for updates…'
   const v = s.release?.version
   if (s.phase === 'failed') return v ? `The update to ${v} did not complete.` : s.error || 'The update did not complete.'
   if (s.phase === 'rolled_back') return v ? `${v} did not start, so the previous version was put back.` : s.error || 'The update did not start, so the previous version was put back.'
@@ -98,7 +99,7 @@ const state = computed(() => {
 const tone = computed(() => {
   const s = status.value
   if (!s) return error.value ? 'danger' : 'loading'
-  if (error.value || s.phase === 'failed' || s.phase === 'rolled_back') return 'danger'
+  if (error.value || s.last_check_error || s.phase === 'failed' || s.phase === 'rolled_back') return 'danger'
   if (['ready', 'downloading', 'draining', 'installing'].includes(s.phase)) return 'accent'
   return ''
 })
