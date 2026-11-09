@@ -172,6 +172,8 @@ export interface PublishingTimelineEpisode {
   url: string
   publication_checked_at: string | null
   publication_freshness: PublishingFreshness
+  /** Only unchecked artifact stages may be hydrated; read errors and job verdicts must survive. */
+  artifacts_pending?: boolean
 }
 
 export interface PublishingOverviewChannel {

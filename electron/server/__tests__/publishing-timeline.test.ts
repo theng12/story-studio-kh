@@ -15,6 +15,17 @@ test('upload start is the recorded start, never the release plan or enqueue time
   const started = projectTimelineEpisode({ ...base, uploadJob: job({ type: 'youtube_upload', started_at: '2026-11-09T11:00:00Z' }) })
   assert.equal(started.upload_start_at, '2026-11-09T11:00:00Z')
 })
+test('only pending artifact checks can be hydrated; queue verdicts and read failures remain authoritative', () => {
+  assert.equal(projectTimelineEpisode(base).artifacts_pending, true)
+  assert.equal(projectTimelineEpisode({ ...base, code: '' }).artifacts_pending, false)
+  for (const status of ['running', 'queued', 'paused', 'error'] as const) {
+    const episode = projectTimelineEpisode({ ...base, uploadJob: job({ type: 'youtube_upload', status }) })
+    assert.equal(episode.artifacts_pending, false)
+    assert.notEqual(episode.state, 'not_checked')
+  }
+  assert.notEqual(projectTimelineEpisode({ ...base, error: 'Queue unreadable' }).artifacts_pending, true)
+})
+
 test('a completed job never proves final artifacts', () => {
   const episode = projectTimelineEpisode({ ...base, stepJob: job({ status: 'done' }) })
   assert.notEqual(episode.stage, 'final')

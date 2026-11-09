@@ -82,5 +82,6 @@ export function projectTimelineEpisode(input: {
       result.detail = `${observed.privacy_status === 'public' ? 'Public' : 'Scheduled'} at the last YouTube check.${fresh === 'fresh' ? '' : ' This observation is stale; current visibility is not checked.'}${observed.privacy_status === 'public' && !observed.published_at ? ' Public release date was not returned.' : ''}`
     }
   }
+  result.artifacts_pending = !!input.code && !input.assets && result.stage === 'not_checked' && result.state === 'not_checked'
   return result
 }

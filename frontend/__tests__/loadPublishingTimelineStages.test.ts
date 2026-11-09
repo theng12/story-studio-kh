@@ -4,7 +4,7 @@ import { loadPublishingTimelineStages } from '../utils/loadPublishingTimelineSta
 import type { PublishingOverviewChannel } from '../../electron/server/contracts/publishing-overview'
 
 function channel(slug: string, stage = 'not_checked') {
-  return { slug, timeline: { episodes: [{ episode_code: 'EP0001', stage, state: stage === 'not_checked' ? 'not_checked' : 'failed', detail: 'Original evidence' }] } } as PublishingOverviewChannel
+  return { slug, timeline: { episodes: [{ episode_code: 'EP0001', artifacts_pending: stage === 'not_checked', stage, state: stage === 'not_checked' ? 'not_checked' : 'failed', detail: 'Original evidence' }] } } as PublishingOverviewChannel
 }
 
 test('cached artifact hydration is bounded, reads only episode lists and preserves known work and publication', async () => {
@@ -22,6 +22,22 @@ test('cached artifact hydration is bounded, reads only episode lists and preserv
   assert.match(channels[0]!.timeline!.episodes[0]!.detail, /2 of 5/)
   assert.equal(channels[3]!.timeline!.episodes[0]!.state, 'failed')
   assert.equal(channels[4]!.timeline!.episodes[0]!.stage, 'public')
+})
+
+test('hydration preserves upload verdicts and unreadable server evidence', async () => {
+  const channels = ['active', 'failed', 'paused', 'waiting', 'not_checked'].map(state => {
+    const c = channel(state)
+    Object.assign(c.timeline!.episodes[0]!, { state, detail: `Upload ${state}`, artifacts_pending: state !== 'not_checked' })
+    return c
+  })
+  const before = JSON.stringify(channels)
+  let reads = 0
+  await loadPublishingTimelineStages(channels, async () => {
+    reads++
+    return [{ episode_code: 'EP0001', status: { script: false } }]
+  }, () => true)
+  assert.equal(reads, 0)
+  assert.equal(JSON.stringify(channels), before)
 })
 
 test('failed, missing, malformed and unreliable status never become an idea or completion', async () => {

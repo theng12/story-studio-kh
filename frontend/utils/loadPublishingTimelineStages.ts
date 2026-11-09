@@ -14,12 +14,12 @@ export async function loadPublishingTimelineStages(
   getRows: (path: string) => Promise<unknown>,
   isCurrent: () => boolean,
 ): Promise<void> {
-  const pending = channels.filter(channel => channel.timeline?.episodes.some(episode => episode.stage === 'not_checked'))
+  const pending = channels.filter(channel => channel.timeline?.episodes.some(episode => episode.artifacts_pending && episode.stage === 'not_checked' && episode.state === 'not_checked'))
   let cursor = 0
   await Promise.all(Array.from({ length: Math.min(2, pending.length) }, async () => {
     while (isCurrent() && cursor < pending.length) {
       const channel = pending[cursor++]!
-      const episodes = channel.timeline!.episodes.filter(episode => episode.stage === 'not_checked')
+      const episodes = channel.timeline!.episodes.filter(episode => episode.artifacts_pending && episode.stage === 'not_checked' && episode.state === 'not_checked')
       try {
         const response = await getRows(`/projects/${encodeURIComponent(channel.slug)}/episodes`)
         if (!Array.isArray(response)) throw new Error('Invalid episode list')
