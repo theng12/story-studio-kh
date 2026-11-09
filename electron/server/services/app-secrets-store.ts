@@ -30,6 +30,7 @@ import fs from 'fs/promises'
 import path from 'path'
 import { writeJsonAtomic, withCrossProcessLock } from '../lib/atomic-store.js'
 import { isEncryptionAvailable, encryptToBase64, decryptFromBase64 } from '../lib/safe-storage.js'
+import { CredentialsUnavailableError } from '../lib/keychain-access.js'
 import { registerSecretForRedaction } from '../lib/redact-secrets.js'
 import { assertWriteIsolatedInTests } from '../lib/test-isolation.js'
 import { resolveStoryStudioVersion } from '../lib/app-version.js'
@@ -398,7 +399,7 @@ function parseV3(raw: unknown, allowSecretBuckets = false): AppSecretsV3 | null 
   return out
 }
 
-async function writeRaw(filePath: string, value: AppSecretsV3): Promise<void> {
+async function writeRaw(filePath: string, value: AppSecretsV3, requireEncryption: boolean): Promise<void> {
   const plain = JSON.stringify(value)
   if (isEncryptionAvailable()) {
     const envelope: EncryptedEnvelope = {
@@ -409,6 +410,7 @@ async function writeRaw(filePath: string, value: AppSecretsV3): Promise<void> {
     await writeJsonAtomic(filePath, envelope, { mode: 0o600 })
     return
   }
+  if (requireEncryption) throw new CredentialsUnavailableError()
   await writeJsonAtomic(filePath, value, { mode: 0o600 })
 }
 
@@ -500,10 +502,11 @@ async function mutateContentStoreAnchorState(
   })
 }
 
-/** Read app-level provider secrets. Only a missing or undecryptable store reads as empty. */
+/** Only a missing store is empty; unreadable ciphertext must remain recoverable in place. */
 export async function readAppSecrets(): Promise<AppSecretsV3> {
   const read = await readSecretFile(appSecretsPath())
-  if (read.kind === 'missing' || read.kind === 'undecryptable') return emptyV3()
+  if (read.kind === 'missing') return emptyV3()
+  if (read.kind === 'undecryptable') throw new CredentialsUnavailableError()
   if (read.kind === 'io-error') throw read.error
   if (read.kind === 'invalid') throw new Error('App secrets file is invalid')
   const parsed = parseV3(read.value, read.kind === 'encrypted')
@@ -554,7 +557,7 @@ export async function stageYouTubeSecretRecovery(
     if (!eligible) throw new Error('YouTube credentials are not eligible for scoped recovery')
     base.youtube = { pending_registry: pending }
     await fs.mkdir(path.dirname(filePath), { recursive: true })
-    await writeRaw(filePath, base)
+    await writeRaw(filePath, base, true)
   })
   await logSecretMutation({
     operation: 'youtube-secret-recovery', input_state: 'recoverable', result: 'written',
@@ -572,7 +575,7 @@ export async function writeAppSecrets(
   let result = emptyV3()
   const operationId = randomUUID()
   let inputState: SecretRead['kind'] = 'missing'
-  let backupOutcome = 'not-needed'
+  const backupOutcome = 'not-needed'
   const encryptionAvailable = isEncryptionAvailable()
   try {
     await withCrossProcessLock(filePath, async () => {
@@ -583,9 +586,8 @@ export async function writeAppSecrets(
       if (read.kind === 'plaintext' && isRecord(read.value) && Object.hasOwn(read.value, 'youtube')) {
         throw new Error('Plaintext YouTube secrets cannot be rewritten. In Settings → YouTube, remove unusable YouTube credentials, then reconnect.')
       }
-      const v3 = read.kind === 'missing' || read.kind === 'undecryptable'
-        ? emptyV3()
-        : parseV3(read.value, read.kind === 'encrypted')
+      if (read.kind === 'undecryptable') throw new CredentialsUnavailableError()
+      const v3 = read.kind === 'missing' ? emptyV3() : parseV3(read.value, read.kind === 'encrypted')
       if (!v3) throw new Error('App secrets payload is invalid')
       await mutate(v3)
       registerYouTubeSecrets(v3.youtube)
@@ -602,24 +604,7 @@ export async function writeAppSecrets(
         if (bucket && !bucket.apiKey) delete v3.providers[pid]
       }
       try { await fs.mkdir(path.dirname(filePath), { recursive: true }) } catch { /* race-safe */ }
-    // If we're about to overwrite an envelope we couldn't decrypt on
-    // this machine, sidecar-rename it first. The keychain identity
-    // might become available again later (eg the user signs back into
-    // the macOS account that wrote the original file), at which point
-    // the backup is the only path back to those keys.
-      if (read.kind === 'undecryptable') {
-        const backup = `${filePath}.bak.${Date.now()}.${operationId}`
-        await fs.rename(filePath, backup)
-        const handle = await fs.open(backup, 'r')
-        try { await handle.sync() } finally { await handle.close() }
-        if (process.platform !== 'win32') {
-          const directory = await fs.open(path.dirname(filePath), 'r')
-          try { await directory.sync() } finally { await directory.close() }
-        }
-        backupOutcome = 'preserved'
-        await pruneOldBackups(filePath, backup).catch(() => {})
-      }
-      await writeRaw(filePath, v3)
+      await writeRaw(filePath, v3, read.kind === 'encrypted' || !!v3.youtube || !!v3.social)
       result = v3
     })
   } catch (error) {
@@ -681,37 +666,6 @@ export async function readContentStoreKeyAnchor(input: {
   const found = anchors.find(anchor => anchor.origin === input.origin
     && anchor.account_id === input.account_id && anchor.content_account_id === input.content_account_id)
   return found ? { ...found, keys: found.keys.map(key => ({ ...key })) } : null
-}
-
-/** Maximum sidecar backups (`app-secrets.json.bak.<ts>`) to retain. */
-const MAX_BACKUPS = 3
-
-async function pruneOldBackups(filePath: string, protectedPath?: string): Promise<void> {
-  const dir = path.dirname(filePath)
-  const base = path.basename(filePath)
-  const prefix = `${base}.bak.`
-  let entries: string[]
-  try {
-    entries = await fs.readdir(dir)
-  } catch { return }
-  const backups = entries.filter((name) => name.startsWith(prefix))
-  if (backups.length <= MAX_BACKUPS) return
-  // Sort by mtime descending — oldest fall off the end.
-  const stamped = await Promise.all(
-    backups.map(async (name) => {
-      const p = path.join(dir, name)
-      try {
-        const st = await fs.stat(p)
-        return { p, mtimeMs: p === protectedPath ? Number.POSITIVE_INFINITY : st.mtimeMs }
-      } catch {
-        return { p, mtimeMs: p === protectedPath ? Number.POSITIVE_INFINITY : 0 }
-      }
-    }),
-  )
-  stamped.sort((a, b) => b.mtimeMs - a.mtimeMs)
-  for (const e of stamped.slice(MAX_BACKUPS)) {
-    await fs.rm(e.p, { force: true }).catch(() => { /* best-effort */ })
-  }
 }
 
 /**

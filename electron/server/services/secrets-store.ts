@@ -68,9 +68,7 @@ export interface SecretsV2 {
   providers: Partial<Record<ProviderId, ProviderAccounts>>
 }
 
-// Preserved for callers that imported it. Never thrown by the new read
-// path — undecryptable per-project files are returned as empty so the
-// user can simply reconnect.
+// Unreadable project credentials must refuse mutations, preserving the encrypted file.
 export class SecretsDecryptError extends Error {
   readonly __tag = 'SecretsDecryptError' as const
   constructor(public readonly filePath: string, public readonly cause?: unknown) {
@@ -106,10 +104,8 @@ async function readProjectFile(slug: string): Promise<Record<string, any>> {
       const plain = decryptFromBase64(raw.ciphertext)
       const obj = JSON.parse(plain)
       return (obj && typeof obj === 'object') ? obj : {}
-    } catch {
-      // Undecryptable on this machine — surface as empty. The user will
-      // reconnect when they next try to upload; no banner needed.
-      return {}
+    } catch (cause) {
+      throw new SecretsDecryptError(filePath, cause)
     }
   }
   if (raw && typeof raw === 'object') {
@@ -130,12 +126,16 @@ async function readProjectFile(slug: string): Promise<Record<string, any>> {
  */
 async function writeProjectFileLocked(slug: string, value: Record<string, any>): Promise<void> {
   const filePath = projectSecretsPath(slug)
+  const encryptionAvailable = isEncryptionAvailable()
+  if (!encryptionAvailable && isEnvelope(await readJsonOr(filePath, null))) {
+    throw new SecretsDecryptError(filePath)
+  }
   const isEmpty = Object.keys(value).length === 0
   if (isEmpty) {
     await fs.rm(filePath, { force: true })
     return
   }
-  if (isEncryptionAvailable()) {
+  if (encryptionAvailable) {
     const envelope: EncryptedEnvelope = {
       __encrypted: true,
       version: 1,

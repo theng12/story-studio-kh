@@ -1020,6 +1020,12 @@ export interface JobEnqueuedResponse {
   genstudio_chat_recovery?: true
   queue_position?: number
   /**
+   * Server-computed: whether this row is real work to count as running. False for a `running`
+   * final-render row whose remote outcome is already acknowledged or whose durable hold has no
+   * remote job — it is still on the list, but no badge or quiet check may call it running.
+   */
+  counts_as_running?: boolean
+  /**
    * Which provider accounts served this job. Keyed by providerId. The
    * resolver populates this live via the SSE `update` stream, so Jobs-page
    * cards can show attribution without a refetch. See `Job.accounts_used`

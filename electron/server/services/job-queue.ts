@@ -2514,6 +2514,8 @@ type RendererPaidImageReplacementAttempt = Pick<PaidImageReplacementAttempt,
 }
 type RendererJob = Omit<Job, 'paid_image_replacement_attempts' | 'generation_replacement_attempts' | 'manual_failed_item_replacement'> & {
   paid_image_replacement_attempt?: RendererPaidImageReplacementAttempt
+  /** Server-computed: see `countsAsRunning`. */
+  counts_as_running: boolean
   /** Row-view fields; see `trimToHistoryRow`. */
   summary_line?: string | null
   progress_counter?: string | null
@@ -2615,7 +2617,7 @@ function serializeJob(job: Job, view: JobView = 'full'): RendererJob {
   delete copy.generation_replacement_attempts
   delete copy.manual_failed_item_replacement
   delete copy.final_render_remote_wait
-  const rendererJob: RendererJob = copy
+  const rendererJob: RendererJob = { ...copy, counts_as_running: countsAsRunning(job) }
   // Read-time classification (AGENTS.md §8): a finished row whose Pipeline step
   // the channel has since switched off reads `skipped`, not failed. Nothing on
   // disk is rewritten — the historical error stays exactly as it was recorded —
@@ -4010,8 +4012,8 @@ async function restoreConsumedFinalRenderTerminal(job: Job): Promise<boolean> {
 /**
  * One-time, evidence-only repair for a final render that an earlier boot reopened (1.4.347–1.4.388).
  * It restores the terminal projection only when the row still carries its own consumed terminal
- * digest and the retained terminal artifact matches it. It never touches the destination, starts no
- * work, and never runs at boot — a running row without that proof is refused.
+ * digest and the retained terminal artifact matches it. It never touches the destination and starts
+ * no work. It is the supported control and the boot repair — a running row without that proof is refused.
  */
 export async function reconcileReopenedFinalRenderTerminal(
   projectSlug: string,
@@ -5278,6 +5280,18 @@ async function readPersistedJobs(projectSlug: string): Promise<Job[]> {
             }
             continue
           }
+          // A row an earlier boot reopened (1.4.347–1.4.388) still carries its consumed terminal
+          // digest. Restore that finished projection from the retained terminal before parking it
+          // as running again — the same evidence-only repair the supported reconcile route uses.
+          // A row without that proof is never terminalized; the recovery fence below keeps it.
+          if (j.type === 'video_assembly' && j.status === 'running' && j.local_execution_complete !== true
+            && typeof j.result?.final_render_terminal_sha256 === 'string') {
+            try {
+              const restored = await reconcileReopenedFinalRenderTerminal(j.project_slug, j.job_id)
+              jobs.set(j.job_id, restored.job)
+              continue
+            } catch { /* no retained terminal proof: park it with the recovery fence below */ }
+          }
           // Only a WELL-FORMED refused receipt may keep a terminal status here (14dc367f: a refused
           // render that finished, or was stopped, on this Mac is not put back in the lane). A
           // malformed, unknown-version, non-refused or snapshot-missing marker row keeps 1.4.359's
@@ -5738,9 +5752,9 @@ export async function runningJobsThatWouldNotResume(): Promise<Job[]> {
       const disk = await loadAuthoritativeJob(j.project_slug, j.job_id).catch(() => null)
       const parsed = parseFinalRenderRemoteWaitReceipt(disk?.final_render_remote_wait, j.job_id)
       // A durable parked row has no local worker and boot reloads it; an unreadable hold cannot prove that.
-      const parked = parsed.ok && parsed.receipt.version === 3 && parsed.receipt.gateway_job_id === null
-        && ['recovery_hold', 'lookup_not_found'].includes(parsed.receipt.phase)
-        && !activeRunJobIds.has(j.job_id)
+      // Acknowledged is settled evidence too: the boot repair restores it, so an in-process hold on it
+      // must not make the prompt updater wait for work that is not running.
+      const parked = !!disk && finalRenderNotExecuting(disk)
       if (!disk || !hasFinalRenderRemoteWaitMarker(disk) || !parsed.ok
         || (finalRenderRecoveryHolds.has(finalRenderStateKey(j.project_slug, j.job_id)) && !parked)) left.push(j)
       continue
@@ -8817,6 +8831,26 @@ export async function getRawProjectJobs(projectSlug: string): Promise<Job[]> {
 }
 
 /**
+ * A final-render row that is not executing: its remote outcome is already acknowledged, or it is
+ * durably parked with no remote job. Everything else keeps its running count — an unknown remote
+ * render is still active work, and "not executing locally" is not "idle" (AGENTS.md §6).
+ */
+function finalRenderNotExecuting(job: Job): boolean {
+  if (job.type !== 'video_assembly' || activeRunJobIds.has(job.job_id)) return false
+  const parsed = parseFinalRenderRemoteWaitReceipt(job.final_render_remote_wait, job.job_id)
+  if (!parsed.ok || parsed.receipt.version !== 3) return false
+  const receipt = parsed.receipt
+  if (receipt.phase === 'acknowledged') return true
+  return receipt.gateway_job_id === null
+    && (receipt.phase === 'recovery_hold' || receipt.phase === 'lookup_not_found')
+}
+
+/** What the running badge (and every quiet check reading it) counts. */
+function countsAsRunning(job: Job): boolean {
+  return job.status === 'running' && !finalRenderNotExecuting(job)
+}
+
+/**
  * One scope's status counts, read from the raw queue. Counting a fleet's
  * history must never clone it — this is what lets the active-only snapshot
  * still report how much finished work exists.
@@ -8829,7 +8863,7 @@ export async function countJobs(projectSlug: string): Promise<JobStats> {
     // Hidden rows are off the list, so they are in no badge (see getQueueStats).
     if (isJobHidden(job)) continue
     stats.total += 1
-    if (job.status === 'running') stats.running += 1
+    if (countsAsRunning(job)) stats.running += 1
     else if (job.status === 'queued') stats.queued += 1
     else if (job.status === 'paused') stats.paused += 1
     else if (job.status === 'done') stats.done += 1
@@ -8933,6 +8967,7 @@ function jobControlsOf(job: Job): JobControl[] {
 function rawDisplayStatus(job: Job): string {
   if (isSkippedJob(job)) return 'skipped'
   if (job.status === 'error' && disabledStepReasonForJob(job)) return 'skipped'
+  if (job.status === 'running' && !countsAsRunning(job)) return 'parked'
   return jobDisplayStatus(job)
 }
 
@@ -10645,7 +10680,7 @@ export function getQueueStats(projectSlug?: string): JobStats {
   // them — they simply do not add to "Needs attention" or "Done".
   jobList = jobList.filter(j => !isJobHidden(j))
   return {
-    running: jobList.filter(j => j.status === 'running').length,
+    running: jobList.filter(countsAsRunning).length,
     queued: jobList.filter(j => j.status === 'queued').length,
     paused: jobList.filter(j => j.status === 'paused').length,
     done: jobList.filter(j => j.status === 'done').length,

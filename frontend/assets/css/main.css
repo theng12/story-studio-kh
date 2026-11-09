@@ -420,6 +420,11 @@ label {
   background: rgba(107, 114, 128, 0.15);
   color: var(--text-muted);
 }
+/* Parked: a final render with no work running, waiting for recovery. Not a failure. */
+.badge-parked {
+  background: rgba(148, 163, 184, 0.18);
+  color: var(--text-muted);
+}
 
 /* ── Grid helpers ────────────────────────────────────────────────────────── */
 

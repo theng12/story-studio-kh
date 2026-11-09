@@ -88,6 +88,20 @@ describe('useNetworkStatus', () => {
     assert.equal(fetchCalls.filter(url => url.includes('/api/system/queue/')).length, 0)
   })
 
+  test('credentials can be unavailable while the engine remains online, then recover', async () => {
+    const { online, credentialsMessage, refresh } = useNetworkStatus()
+    handler = url => ({ ok: true, body: url === '/api/health'
+      ? { credentials: { state: 'unavailable', message: 'Credentials unavailable. Choose Help → Unlock credentials…' } }
+      : {} })
+    await refresh()
+    assert.equal(online.value, true)
+    assert.match(credentialsMessage.value, /Credentials unavailable/)
+    assert.equal(fetchCalls.some(url => url.includes('unlock')), false, 'status probes never request an interactive unlock')
+    handler = () => ({ ok: true, body: { credentials: { state: 'available', message: '' } } })
+    await refresh()
+    assert.equal(credentialsMessage.value, '')
+  })
+
   test('failed probe reports offline and never calls queue controls', async () => {
     const { online, refresh } = useNetworkStatus()
     // Prime to online so we observe a transition.

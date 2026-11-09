@@ -4,6 +4,13 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.390 — 2026-11-09
+
+- Opening title cards wrap or shrink long titles to keep the complete text inside the video frame with safe margins.
+- Final black-gap checks recognize a deliberate title card only when its rendered text is visible and fits inside the frame. Blank, clipped or unverified cards remain failures.
+- Finished remote renders that older versions left running settle from their retained completion evidence after a restart, without changing the accepted final. Acknowledged or safely parked renders no longer inflate running counts.
+- Unattended Mac startup refuses Keychain access that needs a prompt and shows “Credentials unavailable” without replacing saved credentials. Help → Unlock credentials… lets someone at the Mac grant access deliberately.
+
 ## v1.4.389 — 2026-11-08
 
 - Local release packaging uses the same signing identity across updates and reports a missing identity instead of silently producing an ad-hoc release.

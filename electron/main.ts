@@ -39,6 +39,7 @@ import {
   summarizeBatchEpisodes,
 } from './server/services/job-notifier.js'
 import { isQuittingForUpdate } from './server/services/app-update.js'
+import { unlockCredentials } from './server/lib/safe-storage.js'
 import type { Job } from './server/models/types.js'
 import type { BatchEpisodeOutcome } from './server/services/job-notifier.js'
 
@@ -340,6 +341,17 @@ function buildMenu() {
     {
       role: 'help',
       submenu: [
+        ...(process.platform === 'darwin' ? [{
+          label: 'Unlock credentials…',
+          click: () => {
+            try {
+              unlockCredentials()
+              void dialog.showMessageBox({ type: 'info', message: 'Keychain access is available.', detail: 'You can retry the action that needed your credentials.' })
+            } catch (error) {
+              void dialog.showMessageBox({ type: 'error', message: 'Credentials are still unavailable.', detail: `${String((error as Error).message)} Choose Always Allow in the Keychain dialog when you are ready. Nothing was replaced.` })
+            }
+          },
+        }] : []),
         {
           label: 'Show Logs',
           click: () => {

@@ -51,12 +51,16 @@
       </div>
     </div>
     <DataRefreshIndicator variant="banner" />
+    <div v-if="credentialsMessage" class="credentials-error" role="alert">{{ credentialsMessage }}</div>
   </header>
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useWhatsNewModal } from '~/composables/useWhatsNewModal'
+import { useNetworkStatus } from '~/composables/useNetworkStatus'
+
+const { credentialsMessage } = useNetworkStatus()
 
 const route = useRoute()
 const { public: pubCfg } = useRuntimeConfig()
@@ -86,6 +90,14 @@ function openWhatsNew() { _whatsNew.open() }
 </script>
 
 <style scoped>
+.credentials-error {
+  padding: 10px 16px;
+  color: var(--text-primary);
+  background: color-mix(in srgb, var(--danger) 16%, var(--bg-secondary));
+  border-top: 1px solid var(--danger);
+  font-size: var(--font-sm);
+  overflow-wrap: anywhere;
+}
 .app-header {
   position: sticky;
   top: 0;

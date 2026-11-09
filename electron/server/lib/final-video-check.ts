@@ -18,7 +18,11 @@
 
 import fs from 'fs/promises'
 import path from 'path'
+import crypto from 'node:crypto'
+import { spawn } from 'node:child_process'
+import sharp from 'sharp'
 import { existsSync, rmSync, statSync, writeFileSync } from 'fs'
+import { getFFmpegPath } from '../services/ffmpeg-manager.js'
 import { getMediaInfo } from './ffmpeg-validation.js'
 import { finalDurationIssue } from './video-enabled-inputs.js'
 import { EBUR128_FILTER, parseEbur128Summary } from '../generators/music-episode-build.js'
@@ -239,6 +243,12 @@ export interface FinalCheckExpectation {
    */
   intro?: FinalCheckIntro
   /**
+   * The fitted text title card this render drew. Its black background is the episode's content, so
+   * a black stretch inside `window` is excused — but only with a trusted proof AND a finished frame
+   * that really shows non-blank text inside the safe margins (see `isTitleCardBlack`).
+   */
+  title_card?: FinalCheckTitleCard
+  /**
    * The Sketch Draw scenes' expected blank starts, in the finished file's own clock. Each entry is
    * one scene whose own clip receipt says it drew from a bare canvas for a recorded number of
    * frames. A black stretch that begins at that scene's start and ends inside that window is the
@@ -311,6 +321,46 @@ export interface FinalCheckIntro {
   black?: Array<{ start_sec: number; end_sec: number }>
 }
 
+/**
+ * A text title card the render drew, and the raster proof that its text is actually on screen.
+ *
+ * A card's black background is content the episode asked for, so a black stretch inside its window is
+ * not a gap — but ONLY when the title is really drawn and inside the frame. The proof records what
+ * was rendered; `runFinalCheck` also measures the finished file's own frame at the card's midpoint,
+ * so a card that encoded blank or clipped is still reported as black.
+ */
+export interface FinalCheckTitleCard {
+  /** Where the card plays in the finished file. */
+  window: { start_sec: number; end_sec: number }
+  /**
+   * What the card renderer measured on the raster it actually overlaid: the text, its hash, the ink
+   * bounds, the frame size and how many non-transparent pixels it drew. A proof whose text hash does
+   * not describe its text is not trusted, and nothing is exempted.
+   */
+  proof: {
+    text: string
+    text_sha256: string
+    rendered_sha256: string
+    bounds: { left: number; top: number; right: number; bottom: number }
+    frame: { width: number; height: number }
+    safe_margin_px: number
+    nonblank_pixels: number
+    font_id: string
+    font_px: number
+    lines: number
+  }
+}
+
+/** What the finished file itself shows at the title card's midpoint. */
+export interface FinalCheckTitleCardFrame {
+  measured_at_sec: number
+  nonblank_pixels: number
+  bounds: { left: number; top: number; right: number; bottom: number } | null
+  frame: { width: number; height: number }
+  /** Why the frame could not be measured; absent when it was. */
+  error?: string
+}
+
 /** Each section's length in playback order, and the pause between neighbouring sections. */
 export interface PlannedSectionGaps {
   gap_sec: number
@@ -338,6 +388,8 @@ export interface FinalCheckResult {
     tail_lufs: number | null
     black: Array<{ start_sec: number; end_sec: number }>
     silence: Array<{ start_sec: number; end_sec: number }>
+    /** The finished file's own frame at the expected title card's midpoint, when one was expected. */
+    title_card?: FinalCheckTitleCardFrame
   }
   passed: boolean
   issues: FinalCheckIssue[]
@@ -607,6 +659,175 @@ export function isIntroAssetBlack(
     && run.end_sec <= black.end_sec + window.start_sec + t)
 }
 
+/** How far a measured black stretch may sit from the title card's window and still be it (encode rounding). */
+const TITLE_CARD_TOLERANCE_SEC = 0.5
+
+/**
+ * How far the FINISHED frame's ink may bleed past the proof's safe margin. yuv420p compression can
+ * spread a glyph edge by a pixel or two; a genuinely clipped card starts at the frame edge, not two
+ * pixels inside it.
+ */
+const TITLE_CARD_FRAME_BLEED_PX = 2
+
+/** How far the finished frame's ink box may sit from the proof's box and still be the same card. */
+const TITLE_CARD_BOUNDS_TOLERANCE_PX = 8
+
+function withinSafeMargins(
+  bounds: { left: number; top: number; right: number; bottom: number },
+  frame: { width: number; height: number },
+  margin: number,
+): boolean {
+  return frame.width > 0 && frame.height > 0
+    && margin >= 0
+    && bounds.left >= margin
+    && bounds.top >= margin
+    && bounds.right <= frame.width - margin
+    && bounds.bottom <= frame.height - margin
+    && bounds.right > bounds.left
+    && bounds.bottom > bounds.top
+}
+
+function sha256(value: string): string {
+  return crypto.createHash('sha256').update(value).digest('hex')
+}
+
+/**
+ * True when this black stretch is the intentional title card, and the card really drew its text.
+ *
+ * Owner/developer decision, 2026-11-08 (Origin Field EP0031): the 5 s black after the intro was a
+ * title card whose text was clipped off both ends. The exemption is therefore never "black in the
+ * opening is fine". Four things must all hold:
+ *
+ *  1. the stretch lies inside the card's own window in the finished file;
+ *  2. the expectation's proof is self-consistent — non-empty text whose SHA-256 is the stored hash,
+ *     a recorded raster hash, real ink, and ink bounds inside the safe margins;
+ *  3. the finished file itself was measured at the card's midpoint, and that frame is non-blank;
+ *  4. the finished frame's ink bounds are inside the same safe margins at the same frame size.
+ *
+ * A card that encoded blank, clipped, or with no proof is reported as black, exactly like any other
+ * unexplained stretch. A successful FFmpeg exit or a non-empty configured string is never proof.
+ */
+export function isTitleCardBlack(
+  run: { start_sec: number; end_sec: number },
+  titleCard: FinalCheckTitleCard | undefined,
+  measured: FinalCheckTitleCardFrame | undefined,
+): boolean {
+  const window = titleCard?.window
+  const proof = titleCard?.proof
+  if (!window || !proof) return false
+  if (!(window.end_sec > window.start_sec)) return false
+  if (!proof.text.trim() || proof.text_sha256 !== sha256(proof.text)) return false
+  if (!/^[0-9a-f]{64}$/.test(proof.rendered_sha256) || !(proof.nonblank_pixels > 0)) return false
+  if (!Number.isFinite(proof.safe_margin_px) || proof.safe_margin_px < 0) return false
+  if (!proof.bounds || !withinSafeMargins(proof.bounds, proof.frame, proof.safe_margin_px)) return false
+  if (!measured || measured.error) return false
+  const t = TITLE_CARD_TOLERANCE_SEC
+  if (run.start_sec < window.start_sec - t || run.end_sec > window.end_sec + t) return false
+  if (measured.measured_at_sec < window.start_sec || measured.measured_at_sec > window.end_sec) return false
+  if (measured.frame.width !== proof.frame.width || measured.frame.height !== proof.frame.height) return false
+  if (!(measured.nonblank_pixels > 0) || !measured.bounds) return false
+  const measuredMargin = Math.max(0, proof.safe_margin_px - TITLE_CARD_FRAME_BLEED_PX)
+  if (!withinSafeMargins(measured.bounds, measured.frame, measuredMargin)) return false
+  // The finished frame must be the SAME card the proof describes, not merely some non-blank text in
+  // the window. Re-encoding moves an edge by a pixel or two, never by a whole line.
+  const near = (a: number, b: number) => Math.abs(a - b) <= TITLE_CARD_BOUNDS_TOLERANCE_PX
+  return near(measured.bounds.left, proof.bounds.left)
+    && near(measured.bounds.top, proof.bounds.top)
+    && near(measured.bounds.right, proof.bounds.right)
+    && near(measured.bounds.bottom, proof.bounds.bottom)
+}
+
+/** Pixels at or below this on every channel are the card's black background, not ink. */
+const TITLE_CARD_INK_FLOOR = 48
+
+/**
+ * Extract the finished file's frame at the card's midpoint and measure its ink.
+ *
+ * Never throws: a frame that cannot be read is `error`, which `isTitleCardBlack` treats as untrusted.
+ * One extra ffmpeg pass, only when the expectation carries a title card.
+ */
+export async function measureTitleCardFrame(
+  videoPath: string,
+  titleCard: FinalCheckTitleCard,
+  overrides: FinalCheckOptions = {},
+): Promise<FinalCheckTitleCardFrame> {
+  const o = opts(overrides)
+  const at = (titleCard.window.start_sec + titleCard.window.end_sec) / 2
+  try {
+    // The frame comes back over stdout as PNG bytes: no temp file to create, move or retire.
+    const png = await captureFramePng(videoPath, at, o.timeout_ms)
+    const { data, info } = await sharp(png).ensureAlpha().raw().toBuffer({ resolveWithObject: true })
+    let left = info.width
+    let top = info.height
+    let right = 0
+    let bottom = 0
+    let nonblank = 0
+    for (let y = 0; y < info.height; y++) {
+      for (let x = 0; x < info.width; x++) {
+        const index = (y * info.width + x) * 4
+        if (data[index]! <= TITLE_CARD_INK_FLOOR
+          && data[index + 1]! <= TITLE_CARD_INK_FLOOR
+          && data[index + 2]! <= TITLE_CARD_INK_FLOOR) continue
+        nonblank += 1
+        if (x < left) left = x
+        if (y < top) top = y
+        if (x + 1 > right) right = x + 1
+        if (y + 1 > bottom) bottom = y + 1
+      }
+    }
+    return {
+      measured_at_sec: at,
+      nonblank_pixels: nonblank,
+      bounds: nonblank > 0 ? { left, top, right, bottom } : null,
+      frame: { width: info.width, height: info.height },
+    }
+  } catch (error: any) {
+    return {
+      measured_at_sec: at,
+      nonblank_pixels: 0,
+      bounds: null,
+      frame: { width: 0, height: 0 },
+      error: error?.message || String(error),
+    }
+  }
+}
+
+/** One PNG frame at `at` seconds, decoded from ffmpeg's stdout (image2pipe). */
+async function captureFramePng(videoPath: string, at: number, timeoutMs: number): Promise<Buffer> {
+  const ffmpegBin = await getFFmpegPath()
+  return new Promise((resolve, reject) => {
+    let settled = false
+    let timer: ReturnType<typeof setTimeout> | null = null
+    const finish = (error: Error | null, png?: Buffer) => {
+      if (settled) return
+      settled = true
+      if (timer) clearTimeout(timer)
+      if (error) reject(error)
+      else resolve(png!)
+    }
+    const proc = spawn(ffmpegBin, [
+      '-hide_banner', '-nostdin', '-ss', at.toFixed(3), '-i', videoPath,
+      '-frames:v', '1', '-f', 'image2pipe', '-vcodec', 'png', '-',
+    ], { stdio: ['ignore', 'pipe', 'pipe'] })
+    const chunks: Buffer[] = []
+    let stderr = ''
+    if (timeoutMs > 0) {
+      timer = setTimeout(() => {
+        // Normal bounded termination: let ffmpeg exit on its own signal, never SIGKILL.
+        proc.kill('SIGTERM')
+        finish(new Error(`FFmpeg timed out after ${timeoutMs}ms measuring the title card frame`))
+      }, timeoutMs)
+    }
+    proc.stdout.on('data', (chunk: Buffer) => chunks.push(chunk))
+    proc.stderr.on('data', (chunk: Buffer) => { stderr = (stderr + chunk.toString()).slice(-4096) })
+    proc.on('error', error => finish(error))
+    proc.on('close', code => {
+      if (code === 0) finish(null, Buffer.concat(chunks))
+      else finish(new Error(`FFmpeg exited with code ${code} measuring the title card frame: ${stderr}`))
+    })
+  })
+}
+
 /** `12.3` → `0:12`, `3700` → `1:01:40`. Plain clock for a plain sentence. */
 function clock(sec: number): string {
   const total = Math.max(0, Math.round(sec))
@@ -735,6 +956,9 @@ export function finalCheckIssues(
     // A stretch inside the branded intro, which the intro's own asset is black over, is the owner's
     // opening. Only that: black anywhere else is still judged by the rules below.
     if (isIntroAssetBlack(run, expected.intro)) continue
+    // A text title card's black background is the episode's content, but only when the finished
+    // frame itself proves the title was drawn and stayed inside the safe margins.
+    if (isTitleCardBlack(run, expected.title_card, actual.title_card)) continue
     // A legacy freeze recorded the tail's length but not where it sits. Calling this black "outside
     // the closing tail" would assert a placement the check does not know; report the fact as STOP.
     if (expected.tail_unknown) {
@@ -970,6 +1194,12 @@ export async function runFinalCheck(
     tailLufs = parseEbur128Summary(tailStderr).lufs
   }
 
+  // The card's own black may be excused, but only if the finished file really shows its text. One
+  // extra frame decode at the card's midpoint — never a whole-file pass.
+  const titleCardFrame = expected.title_card
+    ? await measureTitleCardFrame(videoPath, expected.title_card, overrides)
+    : undefined
+
   const actual: FinalCheckResult['actual'] = {
     duration_sec: info.durationSec,
     video_sec: info.videoDurationSec ?? null,
@@ -979,6 +1209,7 @@ export async function runFinalCheck(
     tail_lufs: tailLufs,
     black: parseBlackdetect(analysis),
     silence: parseSilencedetect(analysis, info.durationSec),
+    ...(titleCardFrame ? { title_card: titleCardFrame } : {}),
   }
   // The intro's own black is the owner's content, and measuring it is a third ffmpeg pass over a
   // small asset — skipped entirely when the caller already carries a measurement, so re-reading a

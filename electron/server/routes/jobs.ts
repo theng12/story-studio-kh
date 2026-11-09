@@ -15,6 +15,7 @@ import { resolveEpisodePathsByCode, resolveScenePlanPath } from '../services/uti
 import { scenePromptPackOutputContract } from '../lib/story-output-contracts.js'
 import { stampFreshGenerationAction } from '../lib/fresh-generation-action.js'
 import { evidenceHoldsUnknownOutcome } from '../lib/genstudio-client.js'
+import { jobDisplayStatus } from '../contracts/jobs-history.js'
 
 export const router = Router()
 
@@ -148,7 +149,7 @@ function summarizeJobs(jobsList: Job[]) {
   // what is on the list, not of what exists.
   const visible = jobsList.filter(job => !jq.isJobHidden(job))
   return {
-    running: visible.filter(job => job.status === 'running').length,
+    running: visible.filter(job => jobDisplayStatus(job) === 'running').length,
     queued: visible.filter(job => job.status === 'queued').length,
     paused: visible.filter(job => job.status === 'paused').length,
     done: visible.filter(job => job.status === 'done').length,
