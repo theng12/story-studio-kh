@@ -59,6 +59,17 @@ def verify(root, res, head, tree, diff_sha, version, repo,
     if res.get('gate') != GATE_NAME:
         _fail(f'proof gate {res.get("gate")!r} is not {GATE_NAME!r}')
 
+    # Verify supplied identity matches the proof BEFORE delegating.
+    # The CLI re-derives identity from the repo; this catches a publisher
+    # passing stale head/tree/diff_sha that the CLI would reject anyway,
+    # but surfaces the error from the adapter rather than a subprocess.
+    if res.get('head') != head:
+        _fail(f"proof HEAD {res.get('head')} is not the supplied HEAD {head}")
+    if res.get('tree') is not None and res.get('tree') != tree:
+        _fail(f"proof tree {res.get('tree')} is not the supplied tree {tree}")
+    if res.get('diff_sha256') != diff_sha:
+        _fail('proof diff_sha256 does not match the supplied diff')
+
     # Trusted inputs: the publisher must supply these explicitly.
     if not config:
         _fail('trusted config path is required for testctl-change-aware proof')

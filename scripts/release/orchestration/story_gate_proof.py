@@ -22,7 +22,7 @@ smoke; an unchanged suite reads skipped with the commit it last passed on, never
 The old Story-specific schema-3 verifier (proof_kind 'story-testctl-proof') was WIP and never
 qualified. It was replaced on 2026-11-09 by a thin adapter that delegates to the portfolio
 common-core CLI (proof_kind 'testctl-change-aware', schema 2). Proofs carrying the old kind
-or bare schema 3 are refused at publication.
+or bare schema 3 are refused at publication; there is no schema-3 dispatch path.
 """
 import hashlib
 import json

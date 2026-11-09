@@ -3,13 +3,15 @@ portfolio common-core CLI.
 
 Every fixture is a throwaway git repo plus a synthetic proof directory, config,
 review and fake testctl script; no Story suite, no network, no publisher import,
-no real app signing or installer. The trusted CLI path points at the portfolio
-worktree's testctl.mjs for real interop tests. Run:
+no real app signing or installer. The trusted CLI path defaults to the installed
+~/Developer/portfolio/tools/testctl.mjs but can be overridden via STORY_TESTCTL_CLI
+for local evidence runs. Run:
 
     python3 -I scripts/release/orchestration/test_story_testctl_proof.py
 """
 import hashlib
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -23,9 +25,11 @@ import story_testctl_proof as stp
 
 VERSION = '1.4.391'
 EMPTY = sgp.EMPTY_DIFF
-# Trusted CLI for real interop — the portfolio worktree's testctl.mjs.
-TRUSTED_TESTCTL = Path('/Volumes/KH-STUDIO-ATLAS/KH-Worktrees/portfolio/'
-                       'qualified-testctl-proof-20261109/tools/testctl.mjs')
+# Trusted CLI: env override first, then installed default. Never hardcoded
+# to a worktree path in committed code.
+TRUSTED_TESTCTL = Path(os.environ.get(
+    'STORY_TESTCTL_CLI',
+    str(Path.home() / 'Developer' / 'portfolio' / 'tools' / 'testctl.mjs')))
 
 
 def sha(path):
@@ -44,7 +48,8 @@ class Fixture:
         for d in (self.repo, self.policy, self.receipts / 'story', self.proof):
             d.mkdir(parents=True, exist_ok=True)
         self.git('init', '-b', 'main')
-        self.git('config', 'user.email', 'story-tests@example.invalid')
+        # Owner-approved commit email; never use a test-specific address.
+        self.git('config', 'user.email', '112568204+theng12@users.noreply.github.com')
         self.git('config', 'user.name', 'Story Tests')
         self.git('config', 'commit.gpgsign', 'false')
         self.write({'package.json': json.dumps({'version': VERSION}) + '\n',
@@ -68,21 +73,26 @@ class Fixture:
             'projects': {'story': {'path': str(self.repo), 'lanes': self.lanes}},
         }, indent=1) + '\n')
 
-        # Review file: required by the common-core verifier.
+        # Review file: required by the common-core verifier. Includes
+        # caller_paths per lane_mapping so the core's named-lane mapping
+        # enforcement is satisfied.
         changed = self.git('diff', '--name-only', '-z', self.base, self.head
                            ).split('\0')
         changed = [p for p in changed if p]
+        caller_paths = [p for p in changed
+                        if p.startswith(('electron/', 'frontend/'))]
         self.review_path = self.root / 'review.json'
         self.review_path.write_text(json.dumps({
             'base': self.base, 'head': self.head,
             'changed_paths': changed,
-            'caller_paths': [p for p in changed
-                             if p.startswith(('electron/', 'frontend/'))],
+            'caller_paths': caller_paths,
             'lane_mapping': {
                 'release-cheap': {'reason': 'global cheap check',
-                                  'changed_paths': changed},
+                                  'changed_paths': changed,
+                                  'caller_paths': caller_paths},
                 'packaged-smoke': {'reason': 'candidate launch smoke',
-                                   'changed_paths': changed},
+                                   'changed_paths': changed,
+                                   'caller_paths': caller_paths},
             },
         }, indent=1) + '\n')
 
@@ -180,6 +190,16 @@ class AdapterTest(unittest.TestCase):
         self.fx.save_gate(gate)
         self.rejects('old Story schema-3 proof is refused')
 
+    # -- identity mismatch (adapter verifies before delegating) ------------
+    def test_rejects_head_mismatch(self):
+        self.rejects('is not the supplied HEAD', head='a' * 40)
+
+    def test_rejects_tree_mismatch(self):
+        self.rejects('is not the supplied tree', tree='b' * 40)
+
+    def test_rejects_diff_sha_mismatch(self):
+        self.rejects('does not match the supplied diff', diff='c' * 64)
+
     # -- missing trusted inputs --------------------------------------------
     def test_rejects_missing_trusted_config(self):
         self.rejects('trusted config path is required', config=None)
@@ -208,12 +228,12 @@ class AdapterTest(unittest.TestCase):
         self.rejects('must be "ran" at the candidate HEAD')
 
     # -- schema collision handling -----------------------------------------
-    def test_rejects_wrong_proof_kind(self):
+    def test_rejects_wrong_proof_kind_falls_to_composite(self):
         gate = json.loads((self.fx.proof / 'gate-result.json').read_text())
         gate['proof_kind'] = 'something-else'
         self.fx.save_gate(gate)
-        # A schema-2 proof with an unrecognized proof_kind falls through to
-        # the composite dispatcher, which rejects it on its own terms.
+        # A schema-2 proof with an unrecognized proof_kind falls through
+        # to the composite dispatcher, which rejects it on its own terms.
         self.rejects('composite')
 
     def test_rejects_wrong_gate_name(self):
@@ -224,15 +244,16 @@ class AdapterTest(unittest.TestCase):
 
     # -- existing schema1/schema2 dispatch unchanged -----------------------
     def test_schema1_still_dispatches(self):
-        """A schema-1 proof (no proof_kind) still routes to _verify_schema1."""
-        # We don't build a full schema-1 fixture here; just confirm the
-        # dispatcher doesn't crash on a missing proof_kind when schema is 1.
-        # The actual schema-1 regression lives in the release gate.
-        pass  # covered by the release gate's schema-1 proofs
+        """Schema-1 proofs (no proof_kind) still route to _verify_schema1.
+        Covered by the release gate's schema-1 proofs; this placeholder
+        documents the contract."""
+        pass
 
     def test_composite_schema2_still_dispatches(self):
-        """A schema-2 proof without proof_kind still routes to composite."""
-        pass  # covered by the release gate's composite proofs
+        """Schema-2 proofs without proof_kind still route to composite.
+        Covered by the release gate's composite proofs; this placeholder
+        documents the contract."""
+        pass
 
 
 if __name__ == '__main__':
