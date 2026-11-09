@@ -524,9 +524,8 @@ export async function readAppSecrets(): Promise<AppSecretsV3> {
  * Attended-unlock verification, called only from the native Help menu: the
  * existing ciphertext must really decrypt before success is announced.
  * `isEncryptionAvailable()` alone never proved that. A missing store is a
- * distinct state — there is nothing to prove — and an invalid payload is
- * reported loudly by `readAppSecrets` on the next real read, so neither fails
- * here. Failures are finite stages only: no path, no native text, no ciphertext.
+ * distinct state; every existing payload must validate before unlock succeeds.
+ * Failures are finite stages only: no path, no native text, no ciphertext.
  */
 export function verifyStoredCredentialsDecrypt(): void {
   let text: string

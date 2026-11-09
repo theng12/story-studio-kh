@@ -251,6 +251,9 @@ function openWhatsNew() { _whatsNew.open() }
 @media (max-width: 720px) {
   .app-header-bar { flex-wrap: wrap; row-gap: 7px; padding-block: 8px; }
   .app-header-tools { order: 2; margin-left: auto; }
+  /* Anchor the popover to the full header so the icon's position cannot clip it. */
+  .app-header-tools :deep(.app-update) { position: static; }
+  .app-header-tools :deep(.app-update-popover) { top: calc(100% + 8px); right: 16px; }
   /* The nav owns rows of its own here, so the refresh chip takes the first
      row beside the brand instead: it overlays nothing, and keeping the slot
      in the flow at a fixed width means the brand and the tools hold the same
