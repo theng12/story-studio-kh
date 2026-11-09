@@ -92,3 +92,36 @@ test('GET /jobs/all stays usable while the credential store is unreadable', asyn
   const response = await request(app).get('/api/jobs/all').expect(200)
   assert.ok(Array.isArray(response.body.jobs), 'the job list answers instead of 500-ing on credentials')
 })
+
+test('a malformed credential store also leaves metadata usable with unknown keys', async () => {
+  await pm.createProject({ name: 'Corrupt Store Channel' })
+  const bytes = Buffer.from('{ not json')
+  await fs.writeFile(appSecretsPath(), bytes)
+
+  const rows = await pm.listProjects()
+  assert.equal(rows.length, 1)
+  assert.equal(rows[0].has_api_keys, null, 'a corrupt store is unknown, never false')
+  assert.deepEqual(await fs.readFile(appSecretsPath()), bytes)
+  await assert.rejects(readAppSecrets(), (error: unknown) => error instanceof CredentialsUnavailableError && error.stage === 'store-invalid')
+})
+
+test('an IO-unreadable credential store also leaves metadata usable with unknown keys', async () => {
+  await pm.createProject({ name: 'Unreadable Store Channel' })
+  await fs.writeFile(appSecretsPath(), JSON.stringify({ schema_version: 3, providers: { genstudio: { apiKey: 'gsk_synthetic' } } }), { mode: 0o600 })
+  const original = (fs as any).readFile
+  ;(fs as any).readFile = async (file: unknown, ...args: unknown[]) => {
+    if (String(file) === appSecretsPath()) {
+      const error: any = new Error('synthetic io failure')
+      error.code = 'EACCES'
+      throw error
+    }
+    return original.call(fs, file, ...args)
+  }
+  try {
+    const rows = await pm.listProjects()
+    assert.equal(rows.length, 1)
+    assert.equal(rows[0].has_api_keys, null, 'an unreadable store is unknown, never false')
+  } finally {
+    ;(fs as any).readFile = original
+  }
+})

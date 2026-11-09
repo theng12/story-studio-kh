@@ -513,10 +513,10 @@ export async function readAppSecrets(): Promise<AppSecretsV3> {
   const read = await readSecretFile(appSecretsPath())
   if (read.kind === 'missing') return emptyV3()
   if (read.kind === 'undecryptable') throw new CredentialsUnavailableError(read.stage)
-  if (read.kind === 'io-error') throw read.error
-  if (read.kind === 'invalid') throw new Error('App secrets file is invalid')
+  if (read.kind === 'io-error') throw new CredentialsUnavailableError('store-unreadable')
+  if (read.kind === 'invalid') throw new CredentialsUnavailableError('store-invalid')
   const parsed = parseV3(read.value, read.kind === 'encrypted')
-  if (!parsed) throw new Error('App secrets payload is invalid')
+  if (!parsed) throw new CredentialsUnavailableError('store-invalid')
   return parsed
 }
 
@@ -537,9 +537,16 @@ export function verifyStoredCredentialsDecrypt(): void {
     throw new CredentialsUnavailableError('operation-failed')
   }
   let raw: unknown
-  try { raw = JSON.parse(text) } catch { return }
-  if (!isEnvelope(raw)) return
-  decryptFromBase64(raw.ciphertext) // coded failure (decrypt-failed / access-denied) propagates as-is
+  try { raw = JSON.parse(text) } catch { throw new CredentialsUnavailableError('store-invalid') }
+  if (!isEnvelope(raw)) {
+    // Plaintext is readable legacy state; it must still hold a valid payload.
+    if (!parseV3(raw, false)) throw new CredentialsUnavailableError('store-invalid')
+    return
+  }
+  const plain = decryptFromBase64(raw.ciphertext) // coded failure (decrypt-failed / access-denied) propagates as-is
+  let value: unknown
+  try { value = JSON.parse(plain) } catch { throw new CredentialsUnavailableError('store-invalid') }
+  if (!parseV3(value, true)) throw new CredentialsUnavailableError('store-invalid')
 }
 
 /**

@@ -20,12 +20,18 @@ export const CREDENTIAL_STAGES = [
   'encrypt-failed',
   'decrypt-failed',
   'module-unavailable',
+  'store-invalid',
+  'store-unreadable',
   'operation-failed',
 ] as const
 export type CredentialsStage = typeof CREDENTIAL_STAGES[number]
 
 export class CredentialsUnavailableError extends Error {
-  constructor(readonly stage: CredentialsStage = 'operation-failed') {
+  constructor(
+    readonly stage: CredentialsStage = 'operation-failed',
+    /** Integer native status from the failure that actually produced this error; never carried over. */
+    readonly osCode?: number,
+  ) {
     super(CREDENTIALS_UNAVAILABLE)
     this.name = 'CredentialsUnavailableError'
   }
@@ -49,7 +55,7 @@ export class KeychainAccess {
 
   private refuse(stage: CredentialsStage, osCode?: number): never {
     this.status = { state: 'unavailable', code: stage, ...(osCode !== undefined ? { os_code: osCode } : {}), message: CREDENTIALS_UNAVAILABLE }
-    throw new CredentialsUnavailableError(stage)
+    throw new CredentialsUnavailableError(stage, osCode)
   }
 
   private preflight(interactive: boolean): KeychainGuard {
@@ -71,18 +77,27 @@ export class KeychainAccess {
     }
   }
 
-  run<T>(operation: () => T): T {
+  /**
+   * A capability check. A refusal is recorded, but success NEVER claims usable
+   * credentials: availability alone is not proof that the key decrypts.
+   */
+  probe<T>(operation: () => T): T {
     this.preflight(false)
     try {
-      const value = operation()
-      this.status = { state: 'available', message: '' }
-      return value
+      return operation()
     } catch (error) {
-      // A stage raised inside the storage layer (encryption/decryption) is kept;
+      // The stage and native code of the failure actually hit are kept;
       // anything else was the operation itself and stays generic — never a message.
-      if (error instanceof CredentialsUnavailableError) return this.refuse(error.stage)
+      if (error instanceof CredentialsUnavailableError) return this.refuse(error.stage, error.osCode)
       return this.refuse('operation-failed')
     }
+  }
+
+  /** A real guarded encrypt/decrypt operation: success means the key worked. */
+  run<T>(operation: () => T): T {
+    const value = this.probe(operation)
+    this.status = { state: 'available', message: '' }
+    return value
   }
 
   /**
@@ -99,7 +114,9 @@ export class KeychainAccess {
       return true
     } catch (error) {
       const stage = error instanceof CredentialsUnavailableError ? error.stage : 'operation-failed'
-      this.status = { state: 'unavailable', code: stage, message: CREDENTIALS_UNAVAILABLE }
+      // Only the code from THIS failure: a stale code would misdiagnose the mini.
+      const osCode = error instanceof CredentialsUnavailableError ? error.osCode : undefined
+      this.status = { state: 'unavailable', code: stage, ...(osCode !== undefined ? { os_code: osCode } : {}), message: CREDENTIALS_UNAVAILABLE }
       return false
     }
   }

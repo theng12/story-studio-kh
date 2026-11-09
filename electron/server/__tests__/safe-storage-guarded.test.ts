@@ -51,6 +51,8 @@ test('the Mac wrapper guards availability, encrypt and decrypt before Electron, 
     assert.equal(storage.getCredentialsStatus().state, 'unavailable')
     assert.equal(storage.getCredentialsStatus().code, 'decrypt-failed')
     assert.equal(storage.getCredentialsStatus().message, CREDENTIALS_UNAVAILABLE, 'no raw/native text in the status')
+    assert.equal(storage.isEncryptionAvailable(), true)
+    assert.equal(storage.getCredentialsStatus().state, 'unavailable', 'a capability check never announces usable credentials')
     assert.equal(storage.unlockCredentials(), true, 'a later verified unlock recovers')
 
     loader._load = (name, ...args) => name === 'electron' ? {} : originalLoad.call(Module, name, ...args)

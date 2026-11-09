@@ -56,7 +56,7 @@ export function isEncryptionAvailable(): boolean {
   const ss = getSafeStorage()
   if (!ss) return false
   // On macOS, refuse before Chromium can cache a denied initialization or show a modal.
-  if (keychainAccess) return keychainAccess.run(() => !!availableStorage())
+  if (keychainAccess) return keychainAccess.probe(() => !!availableStorage())
   try { return ss.isEncryptionAvailable() } catch { return false }
 }
 

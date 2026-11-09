@@ -117,3 +117,26 @@ test('attended unlock does not report success when ciphertext verification rejec
   assert.equal(access.unlock(() => {}), true)
   assert.equal(access.getStatus().state, 'available')
 })
+
+test('attended unlock keeps the native code from the failure it hit, and never reuses an old one', () => {
+  let status = -128
+  const access = new KeychainAccess(() => ({
+    probe: () => status,
+    setInteractionAllowed: () => 0,
+  }), 'Story Studio KH')
+  assert.equal(access.unlock(() => assert.fail('cancelled')), false)
+  assert.equal(access.getStatus().os_code, -128, 'the cancelled-dialog code survives for diagnosis')
+  status = 0
+  assert.equal(access.unlock(() => { throw new Error('operation failed') }), false)
+  assert.equal(access.getStatus().code, 'operation-failed')
+  assert.equal(access.getStatus().os_code, undefined, 'an operation failure has no native code of its own')
+})
+
+test('a capability probe never announces usable credentials', () => {
+  const access = new KeychainAccess(() => ({ probe: () => 0, setInteractionAllowed: () => 0 }), 'Story Studio KH')
+  assert.equal(access.probe(() => true), true)
+  assert.equal(access.getStatus().state, 'not-checked', 'availability alone is not usable credentials')
+  assert.throws(() => access.probe(() => { throw new Error('nope') }), CredentialsUnavailableError)
+  assert.equal(access.getStatus().state, 'unavailable')
+  assert.equal(access.getStatus().code, 'operation-failed')
+})

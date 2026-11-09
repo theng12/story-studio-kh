@@ -459,3 +459,27 @@ describe('dedicated Content Store anchor persistence', () => {
     assert.equal(entry.anchor_key_count_after, 'unavailable')
   })
 })
+
+test('attended unlock verification refuses an existing invalid or incomplete store without touching it', async () => {
+  await isolate()
+  const malformed = Buffer.from('{ not json')
+  await fs.writeFile(appSecretsPath(), malformed)
+  assert.throws(() => verifyStoredCredentialsDecrypt(), (error: unknown) => {
+    assert.ok(error instanceof CredentialsUnavailableError)
+    assert.equal(error.stage, 'store-invalid', 'malformed JSON is not a verified key')
+    assert.equal(error.message, CREDENTIALS_UNAVAILABLE)
+    return true
+  })
+  assert.deepEqual(await fs.readFile(appSecretsPath()), malformed)
+  await assert.rejects(readAppSecrets(), (error: unknown) => error instanceof CredentialsUnavailableError && error.stage === 'store-invalid')
+
+  // Ciphertext decrypts, but the decrypted payload fails the schema — still not success.
+  const invalidPayload = Buffer.from(JSON.stringify({
+    __encrypted: true,
+    version: 1,
+    ciphertext: encryptToBase64(JSON.stringify({ schema_version: 3, providers: { genstudio: { apiKey: 42 } } })),
+  }))
+  await fs.writeFile(appSecretsPath(), invalidPayload)
+  assert.throws(() => verifyStoredCredentialsDecrypt(), (error: unknown) => error instanceof CredentialsUnavailableError && error.stage === 'store-invalid')
+  assert.deepEqual(await fs.readFile(appSecretsPath()), invalidPayload)
+})
