@@ -242,19 +242,5 @@ class AdapterTest(unittest.TestCase):
         self.fx.save_gate(gate)
         self.rejects("is not 'story-change-aware-testctl'")
 
-    # -- existing schema1/schema2 dispatch unchanged -----------------------
-    def test_schema1_still_dispatches(self):
-        """Schema-1 proofs (no proof_kind) still route to _verify_schema1.
-        Covered by the release gate's schema-1 proofs; this placeholder
-        documents the contract."""
-        pass
-
-    def test_composite_schema2_still_dispatches(self):
-        """Schema-2 proofs without proof_kind still route to composite.
-        Covered by the release gate's composite proofs; this placeholder
-        documents the contract."""
-        pass
-
-
 if __name__ == '__main__':
     unittest.main(verbosity=2)
