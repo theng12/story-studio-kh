@@ -15,6 +15,9 @@ no historical-version allowance.  Missing or malformed evidence is a rejection, 
 `verify` dispatches on the proof's schema.  Schema 2 is the composite contract in
 `story_composite_proof.py`: the original gate may have stopped on one failing test lane, which
 must be reconciled file by file against a focused rerun.  Schema 1's contract is unchanged.
+Schema 3 is the change-aware testctl contract in `story_testctl_proof.py` (owner 2026-11-08):
+testctl receipts prove the changed work, its callers, the cheap global checks and the packaged
+smoke; an unchanged suite reads skipped with the commit it last passed on, never passed.
 """
 import hashlib
 import json
@@ -110,9 +113,9 @@ def _tracked(status):
 
 def verify(proof_dir, head, tree, diff_sha, version=None, repo=None):
     """Dispatch on gate-result.json's schema: 1 is the single full gate, 2 is a composite
-    proof whose original gate stopped on a failing suite lane.  `repo` is the publishing
-    checkout; schema 1 ignores it, schema 2 requires it.  A schema-1 proof's contract is
-    unchanged."""
+    proof whose original gate stopped on a failing suite lane, 3 is a change-aware proof built
+    from testctl receipts.  `repo` is the publishing checkout; schema 1 ignores it, schema 2
+    and 3 require it.  A schema-1 proof's contract is unchanged."""
     root = Path(proof_dir).resolve()
     if not root.is_dir():
         _fail(f'proof directory missing: {root}')
@@ -133,6 +136,16 @@ def verify(proof_dir, head, tree, diff_sha, version=None, repo=None):
             raise
         except (ImportError, OSError, ValueError, TypeError, KeyError, AttributeError) as e:
             _fail(f'composite proof could not be verified: {type(e).__name__}')
+    if schema == 3:
+        if repo is None:
+            _fail('schema 3 proof requires the publishing repo')
+        try:
+            from story_testctl_proof import verify as verify_testctl
+            return verify_testctl(root, res, head, tree, diff_sha, version, repo)
+        except ProofError:
+            raise
+        except (ImportError, OSError, ValueError, TypeError, KeyError, AttributeError) as e:
+            _fail(f'change-aware proof could not be verified: {type(e).__name__}')
     _fail(f'unsupported proof schema {schema!r}')
 
 
