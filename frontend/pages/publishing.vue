@@ -259,13 +259,21 @@
           :hidden="activeTab !== 'calendar'"
         >
           <div class="calendar-head">
-            <h2 id="calendar-title">Calendar</h2>
+            <h2 id="calendar-title">{{ calendarPresentation === 'timeline' ? 'Channel timeline' : 'Calendar list' }}</h2>
+            <div class="calendar-views" role="group" aria-label="Calendar presentation">
+              <button type="button" class="calendar-view-button" :aria-pressed="calendarPresentation === 'timeline'" @click="calendarPresentation = 'timeline'">Timeline</button>
+              <button type="button" class="calendar-view-button" :aria-pressed="calendarPresentation === 'list'" @click="calendarPresentation = 'list'">Calendar list</button>
+            </div>
+          </div>
+
+          <PublishingTimeline v-if="activeTab === 'calendar' && calendarPresentation === 'timeline'" :channels="filteredChannels" />
+
+          <div v-show="calendarPresentation === 'list'">
             <ul class="legend" aria-label="Legend">
               <li><span class="legend-swatch legend-confirmed" aria-hidden="true"></span> Confirmed by YouTube</li>
               <li><span class="legend-swatch legend-planned" aria-hidden="true"></span> Planned (target)</li>
               <li><span class="legend-swatch legend-empty" aria-hidden="true"></span> Expected slot, nothing placed</li>
             </ul>
-          </div>
 
           <div class="calendar-controls">
             <div class="calendar-views" role="group" aria-label="Calendar range">
@@ -337,6 +345,7 @@
               <button type="button" class="btn btn-secondary btn-sm" :disabled="calendarPage === calendarPageCount" @click="nextCalendarPage">Next</button>
             </nav>
           </template>
+          </div>
         </section>
       </template>
     </template>
@@ -354,7 +363,7 @@ import {
 } from '@shared/publishing-overview'
 import type { PublishingOverviewCalendarEntry, PublishingOverviewChannel } from '@shared/publishing-overview'
 
-const { overview, loading, error, refreshing, load, refresh } = usePublishingOverview()
+const { overview, loading, error, refreshing, load, refresh, loadTimelineStages } = usePublishingOverview()
 const { put } = useApi()
 
 // Load once when the page is opened. Never on every render.
@@ -370,7 +379,14 @@ const tabs: Array<{ id: PublishingTab; label: string }> = [
   { id: 'calendar', label: 'Calendar' },
 ]
 const activeTab = ref<PublishingTab>('coverage')
+const calendarPresentation = ref<'timeline' | 'list'>('timeline')
 const tabRefs = new Map<PublishingTab, HTMLButtonElement>()
+watch([activeTab, calendarPresentation, overview], (_value, _old, onCleanup) => {
+  if (activeTab.value !== 'calendar' || calendarPresentation.value !== 'timeline') return
+  let current = true
+  onCleanup(() => { current = false })
+  void loadTimelineStages(() => current)
+})
 
 function setTabRef(id: PublishingTab, element: unknown): void {
   if (element instanceof HTMLButtonElement) tabRefs.set(id, element)

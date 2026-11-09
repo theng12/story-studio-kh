@@ -159,6 +159,21 @@ export interface PublishingOverviewRecommendation {
   reason: string
 }
 
+export interface PublishingTimelineEpisode {
+  id?: string
+  episode_code: string
+  title: string
+  upload_start_at: string | null
+  public_release_at: string | null
+  date_source: 'confirmed' | 'planned' | 'none'
+  stage: 'idea' | 'writing' | 'images' | 'render' | 'final' | 'uploaded' | 'scheduled' | 'public' | 'not_checked'
+  state: 'waiting' | 'active' | 'failed' | 'paused' | 'complete' | 'not_checked'
+  detail: string
+  url: string
+  publication_checked_at: string | null
+  publication_freshness: PublishingFreshness
+}
+
 export interface PublishingOverviewChannel {
   slug: string
   name: string
@@ -191,6 +206,9 @@ export interface PublishingOverviewChannel {
    * Absent on a payload from an older build.
    */
   cadence?: PublishingOverviewCadence
+
+  /** Absent on older payloads means not checked, rather than no episodes. */
+  timeline?: { episodes: PublishingTimelineEpisode[]; error?: string }
 
   confirmed: {
     /** The next confirmed publishAt, or null. */

@@ -4,6 +4,12 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.391 — 2026-11-09
+
+- Publishing’s Calendar now opens a channel timeline showing accepted episodes, actual upload starts, planned releases and the last confirmed YouTube schedules or public dates. Missing dates and unchecked statuses stay explicit.
+- Compare weekly releases with an adjustable three-per-week starting target, zoom or move through upcoming weeks, expand overlapping episodes, enlarge the timeline or read the same episodes in a table. The existing Coverage view and Calendar list remain available.
+- Episode progress reuses Production Board’s cached artifact checks without delaying the overview. Opening the timeline does not upload, reschedule or change YouTube visibility.
+
 ## v1.4.390 — 2026-11-09
 
 - Opening title cards wrap or shrink long titles to keep the complete text inside the video frame with safe margins.

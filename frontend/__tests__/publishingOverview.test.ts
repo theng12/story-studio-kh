@@ -84,6 +84,7 @@ async function mount(options: MountOptions = {}) {
     error: ref(options.error ?? null),
     refreshing: ref(false),
     load: () => {},
+    loadTimelineStages: async () => {},
     refresh: () => { refreshCalls.count++; return Promise.resolve(null) },
   }
   // The label editor's one write path. Tests never touch a real route.
@@ -102,6 +103,10 @@ async function mount(options: MountOptions = {}) {
   // Proper stubs for the auto-imported components so the template resolves them
   // (and the notice's default slot actually renders).
   app.component('PlainBackLink', { render: () => null })
+  app.component('PublishingTimeline', defineComponent({
+    props: ['channels'],
+    setup: (p: any) => () => h('section', { 'data-testid': 'timeline-channels' }, p.channels.map((c: any) => h('span', c.name))),
+  }))
   app.component('WorkspaceNotice', { render(this: any) { return this.$slots.default ? this.$slots.default() : null } })
   // The page links rows with <NuxtLink class="plan-link">; without Nuxt's runtime the
   // tag resolves to nothing, so stub it as a real anchor (class falls through) the
@@ -267,6 +272,22 @@ async function search(host: HTMLElement, value: string) {
   input.dispatchEvent(new Event('input', { bubbles: true }))
   await flush()
 }
+
+test('Calendar opens the all-channel timeline, shares search, and retains the calendar list', async () => {
+  const channels = Array.from({ length: 31 }, (_, i) => channel({ slug: `c${i}`, name: `Channel ${i}` }))
+  const ui = await mount({ overview: overviewWith(channels) })
+  try {
+    tabButton(ui.host, 'Calendar').click(); await flush()
+    assert.equal(ui.host.querySelector('[data-testid="timeline-channels"]')?.querySelectorAll('span').length, 31)
+    await search(ui.host, 'Channel 30')
+    assert.equal(ui.host.querySelector('[data-testid="timeline-channels"]')?.textContent, 'Channel 30')
+    buttonByText(ui.host, '.calendar-view-button', 'Calendar list').click(); await flush()
+    assert.equal(ui.host.querySelector('[data-testid="timeline-channels"]'), null)
+    assert.equal((ui.host.querySelector('.calendar-controls')?.parentElement as HTMLElement).style.display, '')
+    assert.equal(ui.refreshCalls.count, 0)
+    assert.equal(puts.length, 0)
+  } finally { ui.close() }
+})
 
 // ---- Existing honesty checks -------------------------------------------------
 test('a plan-less channel says "Publishing plan not set"; an unchecked channel says never checked, not zero', async () => {

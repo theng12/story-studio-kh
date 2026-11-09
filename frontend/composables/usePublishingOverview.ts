@@ -14,6 +14,7 @@
 import { ref } from 'vue'
 import { useApi } from './useApi.js'
 import { swrForceRefresh } from '../utils/swrCache'
+import { loadPublishingTimelineStages } from '../utils/loadPublishingTimelineStages'
 import type { PublishingOverviewResponse } from '@shared/publishing-overview'
 
 const overview = ref<PublishingOverviewResponse | null>(null)
@@ -76,5 +77,11 @@ export function usePublishingOverview() {
     }
   }
 
-  return { overview, loading, error, refreshing, load, refresh }
+  async function loadTimelineStages(isVisible: () => boolean): Promise<void> {
+    const current = overview.value
+    if (!current) return
+    await loadPublishingTimelineStages(current.channels, path => get(path), () => overview.value === current && isVisible())
+  }
+
+  return { overview, loading, error, refreshing, load, refresh, loadTimelineStages }
 }

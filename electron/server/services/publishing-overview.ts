@@ -62,6 +62,9 @@ import { resolveYouTubeCredential } from './youtube-credential.js'
 import { createProjectFactsCache, projectDirFor, projectMetaOnce, resolveEpisodePaths, EPISODE_PROBE_BATCH, type ProjectFactsCache } from './utils.js'
 import { findYouTubeSourceVideoPath } from './youtube-source-video.js'
 import { episodeStepJobStates, STEP_JOB_TYPES } from '../contracts/episode-step-jobs.js'
+import { projectTimelineEpisode } from './publishing-timeline.js'
+import type { PublishingTimelineEpisode } from '../contracts/publishing-overview.js'
+import type { ObservedPublication } from './youtube-publication-cache.js'
 import {
   isChannelStatus,
   type ChannelStatus,
@@ -262,18 +265,22 @@ async function readReadiness(
   ideasUnreadable: boolean,
   channelId: string | null,
   facts: ProjectFactsCache,
+  timelineDates: Record<string, string>,
+  timelineChannelId: string | null,
+  now: number,
 ): Promise<{
+  timeline: NonNullable<PublishingOverviewChannel['timeline']>
   readiness: PublishingOverviewChannel['readiness']
   readyToPublish: number | null
   readyCodes: string[]
   pendingCodes: string[]
 }> {
   const codes = new Set<string>()
-  const withCode: Array<{ episode_code: string; title: string }> = []
+  const withCode: Array<{ id: string; episode_code: string; title: string }> = []
   for (const idea of ideas) {
     if (!idea.episode_code) continue
     codes.add(idea.episode_code)
-    withCode.push({ episode_code: idea.episode_code, title: idea.title || '' })
+    withCode.push({ id: idea.id, episode_code: idea.episode_code, title: idea.title || '' })
   }
 
   // Why a readiness figure is unknown. One string for the UI to show; the
@@ -341,11 +348,26 @@ async function readReadiness(
     }
   }
 
+  const observations = new Map<string, ObservedPublication>()
+  let observationError: string | undefined
+  if (remoteReadable && timelineChannelId) {
+    try {
+      const cache = await readYouTubePublicationCache(slug)
+      const legacy = await legacyUploadsFor(slug, timelineChannelId, facts)
+      const view = publicationCacheView(publishingState!, cache, records, timelineChannelId, { now, legacy })
+      for (const entry of view.videos) observations.set(entry.video_id, entry)
+    } catch { observationError = 'YouTube publication observations could not be read.' }
+  }
+  const timelineRows = new Map<string, PublishingTimelineEpisode>()
+  for (const idea of ideas) {
+    timelineRows.set(idea.id, projectTimelineEpisode({ id: idea.id, code: idea.episode_code || '', title: idea.title, slug, now, plannedAt: idea.episode_code ? timelineDates[idea.episode_code] : undefined, error: idea.episode_code ? 'Episode artifacts have not been checked.' : undefined }))
+  }
   const inProgress = new Set<string>()
   const needsAttention = new Set<string>()
   let stepError: string | undefined
+  let stepJobs: Awaited<ReturnType<typeof jq.getJobs>> = []
   try {
-    const stepJobs = await jq.getJobs(slug, { type: STEP_JOB_TYPES, view: 'stream' })
+    stepJobs = await jq.getJobs(slug, { type: STEP_JOB_TYPES, view: 'stream' })
     for (const [key, state] of episodeStepJobStates(stepJobs)) {
       const code = key.slice(0, key.lastIndexOf(':'))
       if (!codes.has(code)) continue
@@ -387,6 +409,13 @@ async function readReadiness(
       for (let i = 0; i < withCode.length; i += EPISODE_PROBE_BATCH) {
         const batch = withCode.slice(i, i + EPISODE_PROBE_BATCH)
         await Promise.all(batch.map(async (idea) => {
+          const timelineInput = {
+            id: idea.id, code: idea.episode_code, title: idea.title, slug, now,
+            plannedAt: timelineDates[idea.episode_code],
+            uploadJob: latestEpisodeUploadJob(uploadJobs, idea.episode_code, timelineChannelId),
+            stepJob: stepJobs.filter(job => job.episode_id === idea.episode_code)
+              .sort((a, b) => a.created_at.localeCompare(b.created_at)).at(-1),
+          }
           try {
             let remote: Awaited<ReturnType<typeof remoteVideoFor>> | null = null
             if (remoteReadable) {
@@ -408,6 +437,7 @@ async function readReadiness(
             // second copy of it.
             if (remote?.video_id) {
               onYouTubeCodes.add(idea.episode_code)
+              timelineRows.set(idea.id, projectTimelineEpisode({ ...timelineInput, remoteVideoId: remote.video_id, otherChannel: remote.other_channel, observation: observations.get(remote.video_id) }))
               return
             }
             // An upload under way is neither ready nor waiting for generation.
@@ -422,12 +452,18 @@ async function readReadiness(
               latestEpisodeUploadJob(uploadJobs, idea.episode_code, channelId), undefined, operationsUnreadable, remote,
             ).state)) {
               uploading.add(idea.episode_code)
+              timelineRows.set(idea.id, projectTimelineEpisode({ ...timelineInput, error: uploadJobsError }))
               return
             }
             const paths = await resolveEpisodePaths(slug, idea.episode_code, idea.title, facts)
             const source = await findYouTubeSourceVideoPath(paths, slug, idea.episode_code, idea.title, facts)
             ;(source ? ready : pending).push(idea.episode_code)
-          } catch { unknown.push(idea.episode_code) }
+            // Artifact stages load separately through the cached Production Board endpoint.
+            timelineRows.set(idea.id, projectTimelineEpisode({ ...timelineInput, final: !!source, error: stepError || uploadJobsError }))
+          } catch {
+            unknown.push(idea.episode_code)
+            timelineRows.set(idea.id, projectTimelineEpisode({ ...timelineInput, error: 'Episode files or upload evidence could not be read. Open Upload Center or the Production Board to check.' }))
+          }
         }))
       }
       readyUnknown = unknown.length
@@ -456,7 +492,9 @@ async function readReadiness(
     }
   }
 
+  const timelineError = [...reasons, ...(observationError ? [observationError] : []), ...(sweepFailed ? ['Episode sweep did not finish.'] : [])].join(' ')
   return {
+    timeline: { episodes: [...timelineRows.values()], ...(timelineError ? { error: timelineError } : {}) },
     readiness: {
       // Parity with /projects/:slug/channel-counts: `episodes` is EVERY accepted
       // idea, code or not. The per-code figures below count only coded episodes,
@@ -597,7 +635,11 @@ export async function buildChannelOverview(
   const planSet: boolean | null = usable ? true : (planError ? null : false)
   const tz = usable?.timezone || 'UTC'
 
-  const itemSchedule = await readItemSchedule(slug, facts).catch(() => ({} as Record<string, string>))
+  let itemScheduleError: string | undefined
+  const itemSchedule = await readItemSchedule(slug, facts).catch(() => {
+    itemScheduleError = 'Episode release plans could not be read.'
+    return {} as Record<string, string>
+  })
   const localPlanned = Object.entries(itemSchedule)
     .filter(([, iso]) => !!iso)
     .map(([key, iso]) => ({ code: key, at: iso }))
@@ -677,7 +719,8 @@ export async function buildChannelOverview(
     }
   }
 
-  const { readiness, readyToPublish, readyCodes, pendingCodes } = await readReadiness(slug, ideas, ideasUnreadable, channelId, facts)
+  const { timeline, readiness, readyToPublish, readyCodes, pendingCodes } = await readReadiness(slug, ideas, ideasUnreadable, channelId, facts, itemSchedule, assignedChannelId || channelId, now)
+  if (itemScheduleError) timeline.error = [timeline.error, itemScheduleError].filter(Boolean).join(' ')
   const recommendations = buildRecommendations(slug, readyCodes, pendingCodes)
 
   // Missing slots in the next four weeks, at THIS channel's own cadence.
@@ -782,6 +825,7 @@ export async function buildChannelOverview(
       name,
       channel,
       channel_status: channelStatus,
+      timeline,
       plan_set: planSet,
       ...(planSet === null ? { plan_error: planError || 'the publishing plan could not be read' } : {}),
       plan_name: plan?.name ?? null,

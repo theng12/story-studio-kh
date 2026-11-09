@@ -155,6 +155,29 @@ async function unreadableEpisode(slug: string, code: string): Promise<void> {
   await im.promoteToAccepted(slug, idea!.id, { episode_code: code })
 }
 
+test('timeline uses real saved release targets, verifies finals and leaves unscanned artifacts not checked', async () => {
+  const created = await projectWithCadence('Timeline channel', 'TL')
+  await pendingEpisode(created.slug, 'TL0001')
+  await acceptedEpisode(created.slug, 'TL0002', 'A finished episode')
+  const plannedAt = '2027-01-11T18:00:00.000Z'
+  await pm.updateConfig(created.slug, { upload_item_schedule: { TL0001: plannedAt } } as any)
+  const before = await pm.getConfig(created.slug)
+  const overview = await svc.readPublishingOverview({ now: Date.now() })
+  const rows = overview.channels.find(channel => channel.slug === created.slug)!.timeline!.episodes
+  assert.equal(rows.length, 2)
+  const pending = rows.find(row => row.episode_code === 'TL0001')!
+  assert.equal(pending.public_release_at, plannedAt)
+  assert.equal(pending.date_source, 'planned')
+  assert.equal(pending.upload_start_at, null)
+  assert.equal(pending.stage, 'not_checked')
+  assert.equal(pending.state, 'not_checked')
+  const final = rows.find(row => row.episode_code === 'TL0002')!
+  assert.equal(final.stage, 'final')
+  assert.equal(final.state, 'complete')
+  assert.equal(final.public_release_at, null)
+  assert.deepEqual(await pm.getConfig(created.slug), before, 'overview never migrates or rewrites the saved plan')
+})
+
 test('a channel with no cadence says "Publishing plan not set" — never a guessed rhythm', async () => {
   const now = Date.now()
   await pm.createProject({ name: 'No Plan Channel', episode_prefix: 'NP' })
@@ -729,6 +752,7 @@ test('only the settings write path and the overview read channel_status — no u
     'electron/server/models/types.ts',
     'electron/server/services/publishing-overview.ts',
     'frontend/pages/publishing.vue',
+    'frontend/components/PublishingTimeline.vue',
   ])
   const skip = new Set(['node_modules', '__tests__', '.nuxt', '.output', 'dist', '_trash', '.git'])
   const found = new Set<string>()
