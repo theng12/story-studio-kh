@@ -26,6 +26,9 @@
       <div class="app-header-tools">
         <GenStudioStandingStrip variant="inline" class="app-header-standing" />
         <FeatureHelpCenter />
+        <!-- Update status + install actions live at the TOP of the window
+             (the old fixed bottom pill is removed from app.vue). -->
+        <AppUpdateBanner data-testid="header-update" />
         <button
           type="button"
           class="version-badge"
