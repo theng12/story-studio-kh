@@ -189,7 +189,7 @@ describe('listProjects survives a folder whose disk never answers', () => {
     // Unchanged behaviour, restated because the checks that now share this
     // branch did not previously have one: a channel that is there but
     // unreadable stays visible as a problem instead of silently vanishing.
-    assert.match(pm, /if \(e\?\.message === 'READ_TIMEOUT'\)[\s\S]{0,600}status: 'downloading'/)
+    assert.match(code(pm), /if \(e\?\.message === 'READ_TIMEOUT'\)[\s\S]{0,600}status: 'downloading'/)
   })
 
   test('the async twin of resolveOutputRoot gives the same answer', async () => {
