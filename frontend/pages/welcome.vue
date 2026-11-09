@@ -1,5 +1,6 @@
 <template>
   <div class="welcome-page">
+    <AppUpdateBanner class="welcome-update" />
     <main class="welcome-main">
       <section class="welcome-intro">
         <span class="welcome-eyebrow">{{ repointing ? 'Library not found' : 'Welcome to Story Studio' }}</span>
@@ -197,7 +198,8 @@ async function confirm() {
 </script>
 
 <style scoped>
-.welcome-page { min-height: 100vh; background: var(--bg-primary); color: var(--text-primary); }
+.welcome-page { position: relative; min-height: 100vh; background: var(--bg-primary); color: var(--text-primary); }
+.welcome-update { position: absolute; top: 12px; right: 16px; }
 .welcome-main { margin: 0 auto; max-width: 720px; padding: 64px 24px; }
 .welcome-eyebrow {
   color: var(--accent);
