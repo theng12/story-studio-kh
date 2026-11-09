@@ -192,8 +192,13 @@
                 class="project-row-key"
                 data-ready="false"
               >{{ isFolderUnreadable(project) ? 'Can’t read this channel’s folder' : 'Folder missing' }}</span>
+              <!-- has_api_keys null = the credential store could not be read
+                   here (unknown). Unknown must never claim "needs key" (AGENTS §6). -->
+              <span v-else-if="project.has_api_keys == null" class="project-row-key" data-ready="unknown">
+                {{ credentialBadgeText(project.has_api_keys) }}
+              </span>
               <span v-else class="project-row-key" :data-ready="Boolean(project.has_api_keys)">
-                {{ project.has_api_keys ? 'Key connected' : 'Needs Gateway API Key' }}
+                {{ credentialBadgeText(project.has_api_keys) }}
               </span>
             </NuxtLink>
             <div class="project-row-actions">
@@ -235,9 +240,13 @@
                   class="project-status project-status-missing"
                 >Folder missing</span>
                 <!-- This pill only says whether a Gateway API Key is saved. It is
-                     not a readiness check, so it must not read like one. -->
+                     not a readiness check, so it must not read like one.
+                     Unknown (null) is neither present nor absent — say so. -->
+                <span v-else-if="project.has_api_keys == null" class="project-status" data-ready="unknown">
+                  {{ credentialBadgeText(project.has_api_keys) }}
+                </span>
                 <span v-else class="project-status" :data-ready="Boolean(project.has_api_keys)">
-                  {{ project.has_api_keys ? 'Key connected' : 'Needs Gateway API Key' }}
+                  {{ credentialBadgeText(project.has_api_keys) }}
                 </span>
               </span>
               <span class="project-copy">
@@ -639,6 +648,7 @@ import {
   MAX_PROJECT_LABEL_LENGTH,
   applyChannelFilters,
   channelLabels,
+  credentialBadgeText,
   formulaLabel,
   isTypingTarget,
   labelCounts,

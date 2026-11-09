@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import Module from 'node:module'
 import { test } from 'node:test'
+import { CREDENTIALS_UNAVAILABLE, CredentialsUnavailableError } from '../lib/keychain-access.js'
 
 test('the Mac wrapper guards availability, encrypt and decrypt before Electron, and unlock is explicit', async () => {
   const loader = Module as unknown as { _load: (name: string, ...args: unknown[]) => unknown }
@@ -37,16 +38,26 @@ test('the Mac wrapper guards availability, encrypt and decrypt before Electron, 
     assert.equal(events.some(event => event.startsWith('electron:')), false)
     assert.equal(events.includes('probe:true'), false)
     assert.equal(storage.getCredentialsStatus().state, 'unavailable')
-    storage.unlockCredentials()
+    assert.equal(storage.unlockCredentials(), true, 'a verified attended unlock reports success')
     assert.equal(events.filter(event => event === 'probe:true').length, 1)
     const encrypted = storage.encryptToBase64('synthetic')
     assert.equal(storage.decryptFromBase64(encrypted), 'synthetic')
     assert.equal(storage.getCredentialsStatus().state, 'available')
     assert.equal(events.filter(event => event === 'interaction:true').length, 0, 'only native probe scopes an attended read')
+
+    // Existing-ciphertext verification: if the decrypt really fails, unlock must
+    // NOT announce success — availability alone never proved the key works.
+    assert.equal(storage.unlockCredentials(() => { throw new CredentialsUnavailableError('decrypt-failed') }), false)
+    assert.equal(storage.getCredentialsStatus().state, 'unavailable')
+    assert.equal(storage.getCredentialsStatus().code, 'decrypt-failed')
+    assert.equal(storage.getCredentialsStatus().message, CREDENTIALS_UNAVAILABLE, 'no raw/native text in the status')
+    assert.equal(storage.unlockCredentials(), true, 'a later verified unlock recovers')
+
     loader._load = (name, ...args) => name === 'electron' ? {} : originalLoad.call(Module, name, ...args)
     const missing = await import(new URL('../lib/safe-storage.ts?guarded-wrapper-missing', import.meta.url).href) as typeof import('../lib/safe-storage.js')
     assert.throws(missing.isEncryptionAvailable, /Credentials unavailable/, 'a broken Mac module must never select plaintext fallback')
     assert.equal(missing.getCredentialsStatus().state, 'unavailable')
+    assert.equal(missing.getCredentialsStatus().code, 'module-unavailable')
   } finally {
     loader._load = originalLoad
     if (version) Object.defineProperty(process.versions, 'electron', version)

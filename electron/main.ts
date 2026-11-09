@@ -40,6 +40,7 @@ import {
 } from './server/services/job-notifier.js'
 import { isQuittingForUpdate } from './server/services/app-update.js'
 import { unlockCredentials } from './server/lib/safe-storage.js'
+import { verifyStoredCredentialsDecrypt } from './server/services/app-secrets-store.js'
 import type { Job } from './server/models/types.js'
 import type { BatchEpisodeOutcome } from './server/services/job-notifier.js'
 
@@ -344,12 +345,17 @@ function buildMenu() {
         ...(process.platform === 'darwin' ? [{
           label: 'Unlock credentials…',
           click: () => {
+            // Success is reported only after existing ciphertext really
+            // decrypts — availability alone never proved that. The failure
+            // text is fixed: a raw message could carry a path or native
+            // diagnostic (stage codes live on /api/health, not on screen).
             try {
-              unlockCredentials()
-              void dialog.showMessageBox({ type: 'info', message: 'Keychain access is available.', detail: 'You can retry the action that needed your credentials.' })
-            } catch (error) {
-              void dialog.showMessageBox({ type: 'error', message: 'Credentials are still unavailable.', detail: `${String((error as Error).message)} Choose Always Allow in the Keychain dialog when you are ready. Nothing was replaced.` })
-            }
+              if (unlockCredentials(verifyStoredCredentialsDecrypt)) {
+                void dialog.showMessageBox({ type: 'info', message: 'Keychain access is available.', detail: 'You can retry the action that needed your credentials.' })
+                return
+              }
+            } catch { /* unlock reports a boolean; nothing raw to surface */ }
+            void dialog.showMessageBox({ type: 'error', message: 'Credentials are still unavailable.', detail: 'Your saved credentials are unchanged. Choose Always Allow in the Keychain dialog when you are ready. Nothing was replaced.' })
           },
         }] : []),
         {

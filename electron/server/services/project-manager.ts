@@ -19,6 +19,7 @@ import { DEFAULT_THUMBNAIL_COUNT } from '../contracts/thumbnail-counts.js'
 import { normalizeProjectLabels } from '../contracts/project-labels.js'
 import { writeJsonAtomic, withLock } from '../lib/atomic-store.js'
 import { assertWriteIsolatedInTests } from '../lib/test-isolation.js'
+import { CredentialsUnavailableError } from '../lib/keychain-access.js'
 import type {
   AudioModelConfig, CreateProjectRequest, ProjectConfig, ProjectMeta, ProjectSummary,
   SafeProjectConfig, UpdateApiKeysRequest, UpdateConfigRequest, UpdateProjectRequest,
@@ -733,6 +734,7 @@ export async function listProjects(options: ListProjectsOptions = {}): Promise<P
   // stalled network volume or a disk going bad do it too — and the timeout is
   // the only thing that turns that into one slow row instead of a dead app.
   const READ_TIMEOUT_MS = 30_000
+  let credentialsWarned = false
   const summaries = await Promise.all(candidates.map(async (cand): Promise<ProjectSummary | null> => {
     const metaPath = path.join(cand.dir, 'project.json')
 
@@ -788,7 +790,9 @@ export async function listProjects(options: ListProjectsOptions = {}): Promise<P
           slug: cand.folderName,
           episode_prefix: '',
           created_at: '',
-          has_api_keys: false,
+          // Unknown, not "no keys": the credential store was never read on
+          // this path (metadata read timed out first).
+          has_api_keys: null,
           // Exact even here: project.json is unreadable, but the episodes
           // folder no longer depends on anything inside it.
           output_root: path.join(cand.dir, 'episodes'),
@@ -809,7 +813,21 @@ export async function listProjects(options: ListProjectsOptions = {}): Promise<P
     if (softDeleted.has(slug)) return null  // hidden via soft-delete tombstone
     seenSlugs.add(slug)
 
-    const secrets = await readSecrets(slug)
+    // Metadata must survive an unreadable credential store (AGENTS §6): a
+    // credential-read failure is unknown, never "no keys" and never a 500 for
+    // the whole channel list. Other errors still throw loudly.
+    let hasApiKeys: boolean | null
+    try {
+      const secrets = await readSecrets(slug)
+      hasApiKeys = !!secrets.genstudio_api_key
+    } catch (error) {
+      if (!(error instanceof CredentialsUnavailableError)) throw error
+      if (!credentialsWarned) {
+        credentialsWarned = true
+        console.warn('[projects] credentials unreadable on this Mac — has_api_keys reported as unknown for the list')
+      }
+      hasApiKeys = null
+    }
 
     const { path: outputRootAbs, exists: outputRootExists } = outputRoot
 
@@ -818,7 +836,7 @@ export async function listProjects(options: ListProjectsOptions = {}): Promise<P
       slug,
       episode_prefix: meta.episode_prefix,
       created_at: meta.created_at,
-      has_api_keys: !!secrets.genstudio_api_key,
+      has_api_keys: hasApiKeys,
       // (Removed: portable field. All projects are equivalent now;
       // the synced badge it powered is gone.)
       output_root: outputRootAbs,

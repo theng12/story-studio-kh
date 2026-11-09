@@ -26,11 +26,13 @@
  * writers are small enough to migrate.)
  */
 import { randomUUID } from 'node:crypto'
+import { readFileSync } from 'node:fs'
 import fs from 'fs/promises'
 import path from 'path'
 import { writeJsonAtomic, withCrossProcessLock } from '../lib/atomic-store.js'
 import { isEncryptionAvailable, encryptToBase64, decryptFromBase64 } from '../lib/safe-storage.js'
 import { CredentialsUnavailableError } from '../lib/keychain-access.js'
+import type { CredentialsStage } from '../lib/keychain-access.js'
 import { registerSecretForRedaction } from '../lib/redact-secrets.js'
 import { assertWriteIsolatedInTests } from '../lib/test-isolation.js'
 import { resolveStoryStudioVersion } from '../lib/app-version.js'
@@ -143,7 +145,7 @@ type SecretRead =
   | { kind: 'missing' }
   | { kind: 'plaintext'; value: unknown }
   | { kind: 'encrypted'; value: unknown }
-  | { kind: 'undecryptable' }
+  | { kind: 'undecryptable'; stage?: CredentialsStage }
   | { kind: 'invalid' }
   | { kind: 'io-error'; error: unknown }
 
@@ -345,7 +347,11 @@ async function readSecretFile(filePath: string): Promise<SecretRead> {
   if (raw && typeof raw === 'object' && '__encrypted' in raw) {
     if (!isEnvelope(raw)) return { kind: 'invalid' }
     let plain: string
-    try { plain = decryptFromBase64(raw.ciphertext) } catch { return { kind: 'undecryptable' } }
+    try { plain = decryptFromBase64(raw.ciphertext) } catch (error) {
+      // Keep the finite stage (access-denied vs decrypt-failed); a caller that
+      // needs to refuse rethrows it instead of flattening to a bare class.
+      return { kind: 'undecryptable', stage: error instanceof CredentialsUnavailableError ? error.stage : 'decrypt-failed' }
+    }
     try { return { kind: 'encrypted', value: JSON.parse(plain) } } catch { return { kind: 'invalid' } }
   }
   return { kind: 'plaintext', value: raw }
@@ -410,7 +416,7 @@ async function writeRaw(filePath: string, value: AppSecretsV3, requireEncryption
     await writeJsonAtomic(filePath, envelope, { mode: 0o600 })
     return
   }
-  if (requireEncryption) throw new CredentialsUnavailableError()
+  if (requireEncryption) throw new CredentialsUnavailableError('encryption-unavailable')
   await writeJsonAtomic(filePath, value, { mode: 0o600 })
 }
 
@@ -506,12 +512,34 @@ async function mutateContentStoreAnchorState(
 export async function readAppSecrets(): Promise<AppSecretsV3> {
   const read = await readSecretFile(appSecretsPath())
   if (read.kind === 'missing') return emptyV3()
-  if (read.kind === 'undecryptable') throw new CredentialsUnavailableError()
+  if (read.kind === 'undecryptable') throw new CredentialsUnavailableError(read.stage)
   if (read.kind === 'io-error') throw read.error
   if (read.kind === 'invalid') throw new Error('App secrets file is invalid')
   const parsed = parseV3(read.value, read.kind === 'encrypted')
   if (!parsed) throw new Error('App secrets payload is invalid')
   return parsed
+}
+
+/**
+ * Attended-unlock verification, called only from the native Help menu: the
+ * existing ciphertext must really decrypt before success is announced.
+ * `isEncryptionAvailable()` alone never proved that. A missing store is a
+ * distinct state — there is nothing to prove — and an invalid payload is
+ * reported loudly by `readAppSecrets` on the next real read, so neither fails
+ * here. Failures are finite stages only: no path, no native text, no ciphertext.
+ */
+export function verifyStoredCredentialsDecrypt(): void {
+  let text: string
+  try {
+    text = readFileSync(appSecretsPath(), 'utf8')
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return // no store yet: distinct from unreadable
+    throw new CredentialsUnavailableError('operation-failed')
+  }
+  let raw: unknown
+  try { raw = JSON.parse(text) } catch { return }
+  if (!isEnvelope(raw)) return
+  decryptFromBase64(raw.ciphertext) // coded failure (decrypt-failed / access-denied) propagates as-is
 }
 
 /**
@@ -586,7 +614,7 @@ export async function writeAppSecrets(
       if (read.kind === 'plaintext' && isRecord(read.value) && Object.hasOwn(read.value, 'youtube')) {
         throw new Error('Plaintext YouTube secrets cannot be rewritten. In Settings → YouTube, remove unusable YouTube credentials, then reconnect.')
       }
-      if (read.kind === 'undecryptable') throw new CredentialsUnavailableError()
+      if (read.kind === 'undecryptable') throw new CredentialsUnavailableError(read.stage)
       const v3 = read.kind === 'missing' ? emptyV3() : parseV3(read.value, read.kind === 'encrypted')
       if (!v3) throw new Error('App secrets payload is invalid')
       await mutate(v3)

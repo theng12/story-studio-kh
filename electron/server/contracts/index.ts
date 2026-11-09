@@ -439,13 +439,15 @@ export interface ProjectMetaResponse {
   auto_introduction_enabled?: boolean
 }
 
-/** Shape of `GET /projects` — list view summary, never includes keys. */
+/** Shape of `GET /projects` — list view summary, never includes keys.
+ * `has_api_keys`: true = present, false = confirmed absent, null = unknown
+ * (credential store unreadable on this Mac — never render as "needs key"). */
 export interface ProjectSummaryResponse {
   name: string
   slug: string
   episode_prefix: string
   created_at: string
-  has_api_keys: boolean
+  has_api_keys: boolean | null
   /** v1.0.302 — raw configured format id; the home page maps it to a label. */
   format_id?: string
 }

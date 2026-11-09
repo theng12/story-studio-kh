@@ -28,7 +28,7 @@ function getSafeStorage(): ElectronSafeStorage | null {
     } catch { cached = null }
     moduleUnavailable = process.platform === 'darwin' && !!process.versions.electron && !cached
   }
-  if (moduleUnavailable) throw new CredentialsUnavailableError()
+  if (moduleUnavailable) throw new CredentialsUnavailableError('module-unavailable')
   return cached
 }
 
@@ -40,14 +40,14 @@ export function shouldUseKeychain(): boolean {
 }
 
 export function getCredentialsStatus(): CredentialsStatus {
-  if (moduleUnavailable) return { state: 'unavailable', message: CREDENTIALS_UNAVAILABLE }
+  if (moduleUnavailable) return { state: 'unavailable', code: 'module-unavailable', message: CREDENTIALS_UNAVAILABLE }
   return keychainAccess?.getStatus() ?? { state: 'not-checked', message: '' }
 }
 
 function availableStorage(): ElectronSafeStorage {
   const ss = getSafeStorage()
   if (!ss) throw new Error('safeStorage not available (not running in Electron?)')
-  if (!ss.isEncryptionAvailable()) throw new CredentialsUnavailableError()
+  if (!ss.isEncryptionAvailable()) throw new CredentialsUnavailableError('encryption-unavailable')
   return ss
 }
 
@@ -67,18 +67,47 @@ function withEncryption<T>(operation: (ss: ElectronSafeStorage) => T): T {
   return keychainAccess ? keychainAccess.run(run) : run()
 }
 
+// A failed encrypt or decrypt is reported as its own finite stage, never as the
+// native message (which may name the reason, the item, or nothing useful at all).
 export function encryptToBase64(plaintext: string): string {
-  return withEncryption(ss => ss.encryptString(plaintext).toString('base64'))
+  return withEncryption((ss) => {
+    try { return ss.encryptString(plaintext).toString('base64') }
+    catch { throw new CredentialsUnavailableError('encrypt-failed') }
+  })
 }
 
 export function decryptFromBase64(b64: string): string {
-  return withEncryption(ss => ss.decryptString(Buffer.from(b64, 'base64')))
+  return withEncryption((ss) => {
+    try { return ss.decryptString(Buffer.from(b64, 'base64')) }
+    catch { throw new CredentialsUnavailableError('decrypt-failed') }
+  })
 }
 
-/** Native menu only: a person at the Mac explicitly requests the Keychain dialog. */
-export function unlockCredentials(): void {
-  if (!shouldUseKeychain()) throw new Error('Keychain access is disabled for this launch')
-  getSafeStorage()
-  if (!keychainAccess) throw new Error('Attended Keychain unlock is available only in the Mac app')
-  keychainAccess.unlock(() => { availableStorage() })
+/**
+ * Native menu only: a person at the Mac explicitly requests the Keychain dialog.
+ * Reports success only when noninteractive reads work AND the key really
+ * round-trips a decrypt — availability alone never proved that.
+ * Returns a boolean instead of throwing so the menu cannot echo a raw
+ * diagnostic (or a path, or native text) back to the screen.
+ */
+export function unlockCredentials(verify?: () => void): boolean {
+  try {
+    if (!shouldUseKeychain()) return false
+    getSafeStorage()
+    if (!keychainAccess) return false
+    return keychainAccess.unlock(() => {
+      availableStorage()
+      // A fresh install has no stored ciphertext yet; a round-trip proves the
+      // key decrypts either way. Callers pass a store-level check on top.
+      const probe = 'story-studio-unlock-probe'
+      if (decryptFromBase64(encryptToBase64(probe)) !== probe) {
+        throw new CredentialsUnavailableError('decrypt-failed')
+      }
+      verify?.()
+    })
+  } catch {
+    // Coded configuration/module failures only; status (or module-unavailable
+    // above) already carries the finite reason.
+    return false
+  }
 }

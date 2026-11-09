@@ -135,6 +135,19 @@ export function languageLabel(code: unknown): string {
   return CONTENT_LANGUAGE_OPTIONS.find(option => option.value === code)?.label ?? ''
 }
 
+// ── credential pill ─────────────────────────────────────────────────────────
+
+/**
+ * What the channel card says about its Gateway API key. `null`/`undefined` =
+ * the credential store could not be read on this Mac: UNKNOWN, never "needs
+ * key" and never empty (AGENTS §6 — a failure and a zero are different
+ * answers, and the honest unknown must not read as absence).
+ */
+export function credentialBadgeText(hasApiKeys: unknown): string {
+  if (typeof hasApiKeys !== 'boolean') return 'Key status unknown'
+  return hasApiKeys ? 'Key connected' : 'Needs Gateway API Key'
+}
+
 // ── search ──────────────────────────────────────────────────────────────────
 
 /**

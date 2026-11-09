@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url'
 import { afterEach, describe, test } from 'node:test'
 
 import { encryptToBase64 } from '../lib/safe-storage.js'
+import { CREDENTIALS_UNAVAILABLE, CredentialsUnavailableError } from '../lib/keychain-access.js'
 import { flushLogLines, getLogDir } from '../services/logger.js'
 import {
   appSecretsPath,
@@ -18,6 +19,7 @@ import {
   readAppSecrets,
   writeAppSecrets,
   setApiKey,
+  verifyStoredCredentialsDecrypt,
 } from '../services/app-secrets-store.js'
 import { readYouTubeConnectionRegistry } from '../services/youtube-connection-store.js'
 import { readSecretsV2, writeSecretsV2 } from '../services/secrets-store.js'
@@ -196,7 +198,13 @@ describe('app-secret mutation input classification', () => {
     await isolate()
     const original = Buffer.from(JSON.stringify({ __encrypted: true, version: 1, ciphertext: 'not-decryptable' }))
     await fs.writeFile(appSecretsPath(), original)
-    await assert.rejects(readAppSecrets(), /Credentials unavailable/)
+    await assert.rejects(readAppSecrets(), (error: unknown) => {
+      assert.ok(error instanceof CredentialsUnavailableError, 'a typed failure, not an empty store')
+      assert.equal(error.stage, 'decrypt-failed', 'finite stage, never a native message')
+      assert.equal(error.message, CREDENTIALS_UNAVAILABLE)
+      assert.ok(!String(error.message).includes('not-decryptable'), 'ciphertext never reaches the message')
+      return true
+    })
     assert.deepEqual(await fs.readFile(appSecretsPath()), original)
   })
 
@@ -221,6 +229,29 @@ describe('app-secret mutation input classification', () => {
     setTestSafeStorageAvailable(true)
     assert.equal(await getApiKey('genstudio'), 'gsk_original')
   })
+})
+
+test('attended unlock verification: existing ciphertext must really decrypt before success', async () => {
+  await isolate()
+  // A missing store is a distinct state: nothing to prove, nothing to refuse.
+  await fs.rm(appSecretsPath(), { force: true })
+  verifyStoredCredentialsDecrypt()
+
+  // A readable store verifies.
+  await setApiKey('genstudio', 'gsk_verify_probe')
+  verifyStoredCredentialsDecrypt()
+
+  // Unreadable ciphertext: verification rejects with a finite stage, and the
+  // bytes on disk are untouched — a failed check never becomes a success.
+  const original = Buffer.from(JSON.stringify({ __encrypted: true, version: 1, ciphertext: 'not-decryptable' }))
+  await fs.writeFile(appSecretsPath(), original)
+  assert.throws(() => verifyStoredCredentialsDecrypt(), (error: unknown) => {
+    assert.ok(error instanceof CredentialsUnavailableError)
+    assert.equal(error.stage, 'decrypt-failed')
+    assert.equal(error.message, CREDENTIALS_UNAVAILABLE, 'no path, native text or ciphertext')
+    return true
+  })
+  assert.deepEqual(await fs.readFile(appSecretsPath()), original)
 })
 
 test('loss of encryption during mutation never downgrades app credentials to plaintext', async () => {

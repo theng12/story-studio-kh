@@ -28,6 +28,7 @@ import {
   applyChannelFilters,
   channelLabels,
   channelSearchText,
+  credentialBadgeText,
   filterChannelsByLabels,
   filtersAreActive,
   formulaLabel,
@@ -313,5 +314,16 @@ describe('the "/" shortcut', () => {
     assert.equal(isTypingTarget({ tagName: 'DIV' } as unknown as EventTarget), false)
     assert.equal(isTypingTarget({ tagName: 'BODY' } as unknown as EventTarget), false)
     assert.equal(isTypingTarget(null), false)
+  })
+})
+
+describe('the credential pill', () => {
+  test('present, absent and unknown are three different answers — unknown never says "needs key"', () => {
+    assert.equal(credentialBadgeText(true), 'Key connected')
+    assert.equal(credentialBadgeText(false), 'Needs Gateway API Key')
+    assert.equal(credentialBadgeText(null), 'Key status unknown')
+    assert.equal(credentialBadgeText(undefined), 'Key status unknown')
+    assert.notEqual(credentialBadgeText(null), 'Needs Gateway API Key')
+    assert.notEqual(credentialBadgeText(undefined), 'Key connected')
   })
 })

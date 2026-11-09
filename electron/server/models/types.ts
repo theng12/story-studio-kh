@@ -1832,7 +1832,14 @@ export interface ProjectSummary {
   slug: string
   episode_prefix: string
   created_at: string
-  has_api_keys: boolean
+  /**
+   * Whether a Gateway API key is stored for this Mac: true = present,
+   * false = confirmed absent (no key configured), null = UNKNOWN — the
+   * encrypted credential store could not be read here. Unknown must never
+   * render as "needs key" or as empty (AGENTS §6: a failure and a zero are
+   * not the same answer).
+   */
+  has_api_keys: boolean | null
   // (Removed from new responses: portable. Optional field stays in the
   // type so old client builds parsing the response don't break.)
   portable?: boolean
