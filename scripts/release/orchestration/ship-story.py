@@ -73,6 +73,9 @@ def arg(flag, default):
 
 
 GATE_PROOF = None
+TRUSTED_CONFIG = None
+TRUSTED_REVIEW = None
+TRUSTED_TESTCTL = None
 
 
 def now(): return datetime.now(timezone.utc).isoformat()
@@ -85,7 +88,14 @@ _proof = None
 def require_gate_proof():
     global _proof
     if _proof is None:
-        try: _proof = story_gate_proof.verify(GATE_PROOF, head, tree, diff_sha, VERSION, repo=P)
+        try:
+            # Thread trusted paths for testctl-change-aware proofs; schema 1/2
+            # composite callers ignore these kwargs (the adapter accepts them as
+            # optional so existing positional callers still work).
+            _proof = story_gate_proof.verify(
+                GATE_PROOF, head, tree, diff_sha, VERSION, repo=P,
+                config=TRUSTED_CONFIG, review=TRUSTED_REVIEW,
+                testctl=TRUSTED_TESTCTL)
         except story_gate_proof.ProofError as e: stop(f'full-gate proof rejected: {e}')
         record('gate-proof', _proof)
     return _proof
@@ -167,10 +177,20 @@ def observe():
 
 def main():
     global VERSION, GATE_PROOF, D, head, tree, diff_sha
+    global TRUSTED_CONFIG, TRUSTED_REVIEW, TRUSTED_TESTCTL
     VERSION = sys.argv[1]
     D = Path(__file__).resolve().parent.parent / 'story-releases' / VERSION
     D.mkdir(parents=True, exist_ok=True)
     GATE_PROOF = Path(arg('--gate-proof', '/build/Developer/_orchestra/app-closeout-20261021/story-gate'))
+    # Trusted paths for testctl-change-aware proofs; schema 1/2 composite
+    # proofs ignore these. The publisher must supply them explicitly when
+    # using a common-core proof; never derived from proof content.
+    raw_config = arg('--trusted-config', None)
+    raw_review = arg('--trusted-review', None)
+    raw_testctl = arg('--trusted-testctl', None)
+    if raw_config: TRUSTED_CONFIG = str(Path(raw_config).resolve())
+    if raw_review: TRUSTED_REVIEW = str(Path(raw_review).resolve())
+    if raw_testctl: TRUSTED_TESTCTL = str(Path(raw_testctl).resolve())
 
     if OBSERVE:
         observe(); return

@@ -18,6 +18,11 @@ must be reconciled file by file against a focused rerun.  Schema 1's contract is
 Schema 3 is the change-aware testctl contract in `story_testctl_proof.py` (owner 2026-11-08):
 testctl receipts prove the changed work, its callers, the cheap global checks and the packaged
 smoke; an unchanged suite reads skipped with the commit it last passed on, never passed.
+
+The old Story-specific schema-3 verifier (proof_kind 'story-testctl-proof') was WIP and never
+qualified. It was replaced on 2026-11-09 by a thin adapter that delegates to the portfolio
+common-core CLI (proof_kind 'testctl-change-aware', schema 2). Proofs carrying the old kind
+or bare schema 3 are refused at publication.
 """
 import hashlib
 import json
@@ -111,11 +116,14 @@ def _tracked(status):
     return [line for line in status.splitlines() if line.strip() and not line.startswith('??')]
 
 
-def verify(proof_dir, head, tree, diff_sha, version=None, repo=None):
+def verify(proof_dir, head, tree, diff_sha, version=None, repo=None,
+           config=None, review=None, testctl=None):
     """Dispatch on gate-result.json's schema: 1 is the single full gate, 2 is a composite
-    proof whose original gate stopped on a failing suite lane, 3 is a change-aware proof built
-    from testctl receipts.  `repo` is the publishing checkout; schema 1 ignores it, schema 2
-    and 3 require it.  A schema-1 proof's contract is unchanged."""
+    proof whose original gate stopped on a failing suite lane, or a common-core testctl
+    change-aware proof (proof_kind 'testctl-change-aware', also schema 2).  `repo` is the
+    publishing checkout; schema 1 ignores it, schema 2 and testctl-change-aware require it.
+    `config`, `review` and `testctl` are trusted paths for testctl-change-aware proofs;
+    schema 1 and composite callers ignore them.  A schema-1 proof's contract is unchanged."""
     root = Path(proof_dir).resolve()
     if not root.is_dir():
         _fail(f'proof directory missing: {root}')
@@ -124,6 +132,21 @@ def verify(proof_dir, head, tree, diff_sha, version=None, repo=None):
     if not isinstance(res, dict):
         _fail('gate-result.json is not an object')
     schema = res.get('schema')
+    proof_kind = res.get('proof_kind')
+    # Distinguish by proof_kind BEFORE schema number: the common-core testctl
+    # proof is schema 2 with proof_kind 'testctl-change-aware', while the older
+    # composite proof is also schema 2 but carries no proof_kind.
+    if proof_kind == 'testctl-change-aware':
+        if repo is None:
+            _fail('testctl-change-aware proof requires the publishing repo')
+        try:
+            from story_testctl_proof import verify as verify_testctl
+            return verify_testctl(root, res, head, tree, diff_sha, version, repo,
+                                  config=config, review=review, testctl=testctl)
+        except ProofError:
+            raise
+        except (ImportError, OSError, ValueError, TypeError, KeyError, AttributeError) as e:
+            _fail(f'testctl-change-aware proof could not be verified: {type(e).__name__}')
     if schema == 1:
         return _verify_schema1(root, res, head, tree, diff_sha, version)
     if schema == 2:
@@ -136,16 +159,9 @@ def verify(proof_dir, head, tree, diff_sha, version=None, repo=None):
             raise
         except (ImportError, OSError, ValueError, TypeError, KeyError, AttributeError) as e:
             _fail(f'composite proof could not be verified: {type(e).__name__}')
-    if schema == 3:
-        if repo is None:
-            _fail('schema 3 proof requires the publishing repo')
-        try:
-            from story_testctl_proof import verify as verify_testctl
-            return verify_testctl(root, res, head, tree, diff_sha, version, repo)
-        except ProofError:
-            raise
-        except (ImportError, OSError, ValueError, TypeError, KeyError, AttributeError) as e:
-            _fail(f'change-aware proof could not be verified: {type(e).__name__}')
+    if schema == 3 or res.get('kind') == 'story-testctl-proof':
+        _fail('old Story schema-3 proof is refused; use the common-core '
+              'testctl-change-aware proof exported by the portfolio CLI')
     _fail(f'unsupported proof schema {schema!r}')
 
 
