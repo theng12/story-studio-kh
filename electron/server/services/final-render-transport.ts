@@ -133,8 +133,10 @@ async function renderDisplayLabels(
  * durable intent exists so a composition it must refuse never becomes a parked unknown POST. Every
  * figure comes from the live descriptor (§1), and a source whose size cannot be read keeps the local
  * render rather than being guessed past.
+ *
+ * Exported for testing only; production callers use it through the prepare path below.
  */
-async function privateFinalRenderBoundsViolation(
+export async function privateFinalRenderBoundsViolation(
   description: Readonly<FinalRenderExportDescription>,
   bounds: NonNullable<FinalRenderCapabilities['execution_bounds']>,
 ): Promise<string | null> {
@@ -196,6 +198,24 @@ async function privateFinalRenderBoundsViolation(
   if (total > bounds.max_total_input_bytes) {
     return `the sources total ${Math.ceil(total / (1024 * 1024))} MB and the paired Gateway accepts at `
       + `most ${Math.floor(bounds.max_total_input_bytes / (1024 * 1024))} MB`
+  }
+  // Check the live subtitle limits before staging so oversized packets stay local.
+  if ('max_subtitle_ass_bytes' in bounds) {
+    const fontSources = sources.filter(source => source.role === 'subtitle_font')
+    if (fontSources.length > bounds.max_subtitle_fonts) {
+      return `this video sends ${fontSources.length} subtitle fonts and the paired Gateway accepts at most `
+        + `${bounds.max_subtitle_fonts}`
+    }
+    for (const [index, source] of sources.entries()) {
+      if (source.role !== 'subtitle_ass' && source.role !== 'subtitle_font') continue
+      const limit = source.role === 'subtitle_ass' ? bounds.max_subtitle_ass_bytes : bounds.max_subtitle_font_bytes
+      const size = sizes[index]!
+      if (size > limit) {
+        return `a subtitle ${source.role === 'subtitle_ass' ? 'ASS document' : 'font'} is `
+          + `${size} bytes and the paired Gateway accepts at most `
+          + `${limit} bytes per ${source.role === 'subtitle_ass' ? 'document' : 'font'}`
+      }
+    }
   }
   // Whole frames, exactly as the Gateway counts them: `width * height * ceil(fps * duration)`.
   const frames = Math.ceil(duration * canvas.working_fps)

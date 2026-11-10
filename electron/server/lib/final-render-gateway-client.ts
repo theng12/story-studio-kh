@@ -48,6 +48,10 @@ interface FinalRenderBoundsCommon {
   max_asset_bytes: number
   max_total_input_bytes: number
   max_pixel_frames: number
+  scratch_reserve_bytes: number
+  output_limit_bytes: number
+  process_tree_rss_limit_bytes: number
+  cumulative_wall_seconds: number
 }
 
 /** No `bounds_version`: the Gateway publishes an open canvas-pair list (v1). */
@@ -61,7 +65,17 @@ export interface FinalRenderBoundsV2 extends FinalRenderBoundsCommon {
   canvas_range: { max_edge: number; max_pixels: number }
 }
 
-export type FinalRenderExecutionBounds = FinalRenderBoundsV1 | FinalRenderBoundsV2
+/** The v4 subtitle profile adds these three required counters; base v1/v2/v3 never carry them. */
+export interface FinalRenderSubtitleBounds {
+  max_subtitle_ass_bytes: number
+  max_subtitle_font_bytes: number
+  max_subtitle_fonts: number
+}
+
+export type FinalRenderExecutionBounds =
+  | FinalRenderBoundsV1
+  | FinalRenderBoundsV2
+  | (FinalRenderBoundsV2 & FinalRenderSubtitleBounds)
 
 export interface FinalRenderCapabilities {
   format: 'studio.render.gateway-capabilities.v1'
@@ -85,9 +99,9 @@ export interface FinalRenderCapabilities {
   late_labels?: FinalRenderLateLabelsCapability
   /**
    * Present only in a subtitle-scoped response that requested this exact contract.
-   * Never set today: subtitle descriptor authority awaits the Hub/Gateway freeze
-   * (after Hub 222), so every subtitle-scoped envelope is refused at parse —
-   * no assumed v4 pins, and the late-label envelope never grants subtitle authority.
+   * Requires the v4 subtitle profile/compiler schema and all three subtitle counters.
+   * Descriptor digests and dependency links are checked here; installed pins and execution
+   * authority are checked separately by the prepare path.
    */
   subtitles?: FinalRenderSubtitlesCapability
   execution_bounds?: FinalRenderExecutionBounds
@@ -374,12 +388,14 @@ function parseToolsDescriptor(raw: string): void {
   positiveSafeInteger(tools.ffprobe_size_bytes, 'tools descriptor.ffprobe_size_bytes')
 }
 
-function parseCompilerDescriptor(raw: string, requestedLateLabels = false): void {
+function parseCompilerDescriptor(raw: string, requestedLateLabels = false, requestedSubtitles = false): void {
   const compiler = exactRecord(parseJsonText(raw, 'compiler descriptor'), [
     'format', 'implementation', 'python_runtime_sha256', 'render_hash_sha256',
     'render_contract_sha256', 'final_render_compiler_sha256',
   ], 'compiler descriptor')
-  const implementation = requestedLateLabels ? 'hub-final-render-late-label-v3' : 'hub-final-render-v1'
+  const implementation = requestedSubtitles
+    ? 'hub-final-render-subtitle-v1'
+    : requestedLateLabels ? 'hub-final-render-late-label-v3' : 'hub-final-render-v1'
   if (compiler.format !== 'studio.render.compiler.v1' || compiler.implementation !== implementation) {
     invalid('compiler descriptor implementation is unsupported')
   }
@@ -389,14 +405,21 @@ function parseCompilerDescriptor(raw: string, requestedLateLabels = false): void
   ]) sha256(compiler[key], `compiler descriptor.${key}`)
 }
 
-function parseProfileDescriptor(raw: string, toolsDigest: string, compilerDigest: string, requestedLateLabels = false): FinalRenderExecutionBounds {
+function parseProfileDescriptor(raw: string, toolsDigest: string, compilerDigest: string, requestedLateLabels = false, requestedSubtitles = false): FinalRenderExecutionBounds {
   const profile = exactRecord(parseJsonText(raw, 'profile descriptor'), [
     'format', 'implementation', 'recipe_namespace', 'compiler_artifact_sha256',
     'tools_artifact_sha256', 'combination_set', 'tier_policy', 'output_policy',
     'execution_bounds', 'hardware_qualification_record_sha256',
     'fidelity_record_sha256', 'production_eligible',
   ], 'profile descriptor')
-  const literals: Record<string, string> = requestedLateLabels ? {
+  const literals: Record<string, string> = requestedSubtitles ? {
+    format: 'studio.render.profile.v4',
+    implementation: 'story-classic-subtitle-v1',
+    recipe_namespace: 'studio.render.final.v1',
+    combination_set: 'retained-classic-subtitle-candidate-v1',
+    tier_policy: 'story-final-chain-v1',
+    output_policy: 'story-final-output-v1',
+  } : requestedLateLabels ? {
     format: 'studio.render.profile.v3',
     implementation: 'story-classic-late-label-v3',
     recipe_namespace: 'studio.render.final.v1',
@@ -422,7 +445,7 @@ function parseProfileDescriptor(raw: string, toolsDigest: string, compilerDigest
     if (profile[key] !== null) sha256(profile[key], `profile descriptor.${key}`)
   }
   if (profile.production_eligible !== false) invalid('profile descriptor.production_eligible is unsupported')
-  return parseExecutionBounds(profile.execution_bounds)
+  return parseExecutionBounds(profile.execution_bounds, requestedSubtitles)
 }
 
 const BOUNDS_COUNTERS = [
@@ -434,9 +457,13 @@ const BOUNDS_COUNTERS = [
 /**
  * The Gateway states which canvas rule it enforces through `bounds_version`. An absent version is the
  * v1 pair list; version 2 replaces it with an even canvas inside a published range. A version this
- * build does not know is refused rather than read as one of them.
+ * build does not know is refused rather than read as one of them. The three subtitle counters are
+ * required by the v4 subtitle profile and forbidden everywhere else, so a base/v3 profile cannot
+ * smuggle them in and a v4 profile cannot omit them.
  */
-function parseExecutionBounds(value: unknown): FinalRenderExecutionBounds {
+const SUBTITLE_BOUNDS_KEYS = ['max_subtitle_ass_bytes', 'max_subtitle_font_bytes', 'max_subtitle_fonts'] as const
+
+function parseExecutionBounds(value: unknown, requestedSubtitles = false): FinalRenderExecutionBounds {
   const label = 'profile descriptor.execution_bounds'
   const candidate = record(value, label)
   const bounds = exactRecord(candidate, [
@@ -444,6 +471,7 @@ function parseExecutionBounds(value: unknown): FinalRenderExecutionBounds {
       ? ['bounds_version', 'canvas_range']
       : ['canvas_pairs']),
     'working_fps', 'max_duration_sec', ...BOUNDS_COUNTERS,
+    ...(requestedSubtitles ? SUBTITLE_BOUNDS_KEYS : []),
   ], label)
   if (Object.hasOwn(candidate, 'bounds_version')) {
     if (bounds.bounds_version !== 2) {
@@ -469,6 +497,12 @@ function parseExecutionBounds(value: unknown): FinalRenderExecutionBounds {
   bounds.working_fps.forEach((fps, index) => positiveSafeInteger(fps, `${label}.working_fps[${index}]`))
   positiveFinite(bounds.max_duration_sec, `${label}.max_duration_sec`)
   for (const key of BOUNDS_COUNTERS) positiveSafeInteger(bounds[key], `${label}.${key}`)
+  // The v4 subtitle profile is the bounds_version 2 rule plus this exact counter triple; a v4-shaped
+  // profile that drops the version is refused rather than read as the v1 pair list.
+  if (requestedSubtitles) {
+    if (!Object.hasOwn(candidate, 'bounds_version')) invalid(`${label} is missing the subtitle canvas rule`)
+    for (const key of SUBTITLE_BOUNDS_KEYS) positiveSafeInteger(bounds[key], `${label}.${key}`)
+  }
   return bounds as unknown as FinalRenderExecutionBounds
 }
 
@@ -691,19 +725,19 @@ function parseCapabilities(
     invalid('capabilities response advertised subtitles Story never requested')
   }
   if (requestedSubtitles && hasSubtitles) {
+    // The descriptor parsers below must also admit the matching subtitle schema.
     parseSubtitlesCapability(result.subtitles)
-    // Fail closed until the Hub/Gateway descriptor freeze (after Hub 222): the
-    // late-label envelope explicitly refuses subtitle authority, and this build
-    // has no agreed subtitle descriptor literals, so a subtitle-scoped envelope
-    // is refused rather than admitted against assumed v4 pins.
-    invalid('subtitle descriptor pins are not frozen')
   }
   const useLateLabelDescriptors = requestedLateLabels && hasLateLabels
-  parseCompilerDescriptor(compiler.descriptor_utf8, useLateLabelDescriptors)
+  // The subtitle descriptor pair is selected by the response carrying subtitle authority, not by
+  // the request alone: an old Gateway that answers the scoped query with its unchanged v1 pair
+  // grants no subtitle authority and keeps its v1 descriptors.
+  const useSubtitleDescriptors = requestedSubtitles && hasSubtitles
+  parseCompilerDescriptor(compiler.descriptor_utf8, useLateLabelDescriptors, useSubtitleDescriptors)
   if (typeof result.profile_descriptor_utf8 !== 'string') invalid('capabilities profile descriptor bytes are invalid')
   const profileDigest = sha256(result.profile_digest, 'capabilities profile_digest')
   if (digestBytes(result.profile_descriptor_utf8) !== profileDigest) invalid('capabilities profile byte digest does not match')
-  const parsedBounds = parseProfileDescriptor(result.profile_descriptor_utf8, tools.digest, compiler.digest, useLateLabelDescriptors)
+  const parsedBounds = parseProfileDescriptor(result.profile_descriptor_utf8, tools.digest, compiler.digest, useLateLabelDescriptors, useSubtitleDescriptors)
   ;(result as any).execution_bounds = parsedBounds
   if (Object.hasOwn(result, 'qualification_provenance') && result.qualification_provenance !== null) {
     try { result.qualification_provenance = parseQualificationProvenance(result.qualification_provenance) } catch (error) {

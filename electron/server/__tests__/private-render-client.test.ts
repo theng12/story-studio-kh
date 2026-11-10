@@ -94,6 +94,34 @@ const LATE_CAPABILITIES = {
   format: 'studio.render.late-label.v3',
   motions: [...LATE_LABEL_MOTIONS],
 }
+const SUBTITLE_COMPILER_UTF8 = canonicalJson({
+  format: 'studio.render.compiler.v1', implementation: 'hub-final-render-subtitle-v1',
+  python_runtime_sha256: '8'.repeat(64), render_hash_sha256: '9'.repeat(64),
+  render_contract_sha256: 'b'.repeat(64), final_render_compiler_sha256: 'c'.repeat(64),
+})
+const SUBTITLE_COMPILER_DIGEST = digestUtf8(SUBTITLE_COMPILER_UTF8)
+/** Synthetic v4 bounds exercise version 2 and the three required subtitle counters. */
+const SUBTITLE_BOUNDS = {
+  bounds_version: 2, canvas_range: { max_edge: 3840, max_pixels: 8_294_400 },
+  working_fps: [24, 25, 30, 60], max_duration_sec: 10_800, max_operations: 32,
+  max_assets: 32, max_asset_bytes: 8_589_934_592, max_total_input_bytes: 17_179_869_184,
+  max_pixel_frames: 5_374_771_200_000, scratch_reserve_bytes: 17_179_869_184,
+  output_limit_bytes: 8_589_934_592, process_tree_rss_limit_bytes: 10_737_418_240,
+  cumulative_wall_seconds: 14_400, max_subtitle_ass_bytes: 4_194_304,
+  max_subtitle_font_bytes: 33_554_432, max_subtitle_fonts: 8,
+}
+const SUBTITLE_PROFILE_UTF8 = canonicalJson({
+  format: 'studio.render.profile.v4', implementation: 'story-classic-subtitle-v1',
+  recipe_namespace: 'studio.render.final.v1', compiler_artifact_sha256: SUBTITLE_COMPILER_DIGEST,
+  tools_artifact_sha256: TOOLS_DIGEST,
+  combination_set: 'retained-classic-subtitle-candidate-v1',
+  tier_policy: 'story-final-chain-v1', output_policy: 'story-final-output-v1',
+  execution_bounds: SUBTITLE_BOUNDS,
+  hardware_qualification_record_sha256: null, fidelity_record_sha256: null,
+  production_eligible: false,
+})
+const SUBTITLE_PROFILE_DIGEST = digestUtf8(SUBTITLE_PROFILE_UTF8)
+const SUBTITLE_CAPABILITIES = { format: 'studio.render.subtitle.v1' }
 /** The same paired profile under the v2 canvas rule: a version and a range, in place of the pairs. */
 const BOUNDS_V2 = {
   bounds_version: 2, canvas_range: { max_edge: 3840, max_pixels: 8_294_400 },
@@ -526,7 +554,7 @@ test('a late-label-scoped read requests the exact contract and accepts only its 
   )
 })
 
-test('a subtitle-scoped read requests the exact contract and fails closed until descriptor pins freeze', async () => {
+test('a subtitle-scoped read admits only matching v4 descriptors and complete live bounds', async () => {
   const client = await import('../lib/final-render-gateway-client.js')
   const requested: FinalRenderEncodeEntry = {
     container: 'mp4', requested_codec: 'h264', requested_effort: 'hardware',
@@ -562,26 +590,76 @@ test('a subtitle-scoped read requests the exact contract and fails closed until 
   const oldGateway = await client.getFinalRenderCapabilities(undefined, { requestedSubtitles: true })
   assert.equal(oldGateway.subtitles, undefined)
 
-  // Combined cue+subtitle scope still asks the subtitle contract in the slot; a
-  // late-label envelope answering it keeps late-label authority and grants none.
+  // Combined cue+subtitle scope asks the subtitle contract in the single slot. The
+  // response must carry the v4 subtitle descriptor pair; a late-label envelope may
+  // then ride alongside it on the same candidate, and both authorities are read.
+  answer({
+    profile_descriptor_utf8: SUBTITLE_PROFILE_UTF8,
+    profile_digest: SUBTITLE_PROFILE_DIGEST,
+    compiler: { descriptor_utf8: SUBTITLE_COMPILER_UTF8, digest: SUBTITLE_COMPILER_DIGEST },
+    subtitles: SUBTITLE_CAPABILITIES,
+    late_labels: LATE_CAPABILITIES,
+  })
+  const combined = await client.getFinalRenderCapabilities(undefined, { requestedLateLabels: true, requestedSubtitles: true })
+  assert.equal(combined.late_labels?.format, 'studio.render.late-label.v3')
+  assert.equal(combined.subtitles?.format, 'studio.render.subtitle.v1')
+  assert.equal(new URL(seen[3]!).searchParams.get('requested_contract'), 'studio.render.subtitle.v1')
+  // A late-label descriptor pair answering a combined query carries no subtitle field,
+  // so it is the "no subtitle authority" answer: late-label authority is read and kept,
+  // and no subtitle authority is granted. The descriptor pair still matches its scope.
   answer({
     profile_descriptor_utf8: LATE_PROFILE_UTF8,
     profile_digest: LATE_PROFILE_DIGEST,
     compiler: { descriptor_utf8: LATE_COMPILER_UTF8, digest: LATE_COMPILER_DIGEST },
     late_labels: LATE_CAPABILITIES,
   })
-  const combined = await client.getFinalRenderCapabilities(undefined, { requestedLateLabels: true, requestedSubtitles: true })
-  assert.equal(combined.late_labels?.format, 'studio.render.late-label.v3')
-  assert.equal(combined.subtitles, undefined)
-  assert.equal(new URL(seen[3]!).searchParams.get('requested_contract'), 'studio.render.subtitle.v1')
+  const noSubtitleAuthority = await client.getFinalRenderCapabilities(undefined, { requestedLateLabels: true, requestedSubtitles: true })
+  assert.equal(noSubtitleAuthority.late_labels?.format, 'studio.render.late-label.v3')
+  assert.equal(noSubtitleAuthority.subtitles, undefined)
 
-  // A well-formed subtitle record is refused until this build carries the
-  // frozen descriptor pins — no assumed v4 literals admit it today.
-  answer({ subtitles: { format: 'studio.render.subtitle.v1' } })
+  // Matching synthetic v4 descriptors expose their published subtitle ceilings.
+  answer({
+    profile_descriptor_utf8: SUBTITLE_PROFILE_UTF8,
+    profile_digest: SUBTITLE_PROFILE_DIGEST,
+    compiler: { descriptor_utf8: SUBTITLE_COMPILER_UTF8, digest: SUBTITLE_COMPILER_DIGEST },
+    subtitles: SUBTITLE_CAPABILITIES,
+  })
+  const admitted = await client.getFinalRenderCapabilities(undefined, { requestedSubtitles: true })
+  assert.equal(admitted.subtitles?.format, 'studio.render.subtitle.v1')
+  const admittedBounds = admitted.execution_bounds!
+  assert.equal('max_subtitle_fonts' in admittedBounds ? admittedBounds.max_subtitle_fonts : undefined, 8)
+  assert.equal('max_subtitle_ass_bytes' in admittedBounds ? admittedBounds.max_subtitle_ass_bytes : undefined, 4_194_304)
+  // A well-formed subtitle record under a non-subtitle descriptor pair is refused: a
+  // capability flag never grants authority under a profile this build does not accept.
+  answer({ subtitles: SUBTITLE_CAPABILITIES })
   await assert.rejects(
     client.getFinalRenderCapabilities(undefined, { requestedSubtitles: true }),
-    /pins|frozen|subtitle/i,
+    /profile|compiler|unsupported|invalid/i,
   )
+  const rejectSubtitleProfile = async (changes: Record<string, unknown>) => {
+    const profile = canonicalJson({ ...JSON.parse(SUBTITLE_PROFILE_UTF8), ...changes })
+    answer({
+      profile_descriptor_utf8: profile, profile_digest: digestUtf8(profile),
+      compiler: { descriptor_utf8: SUBTITLE_COMPILER_UTF8, digest: SUBTITLE_COMPILER_DIGEST },
+      subtitles: SUBTITLE_CAPABILITIES,
+    })
+    await assert.rejects(client.getFinalRenderCapabilities(undefined, { requestedSubtitles: true }),
+      /execution_bounds|subtitle|invalid|exact|unsupported|dependencies/i)
+  }
+  for (const key of ['max_subtitle_ass_bytes', 'max_subtitle_font_bytes', 'max_subtitle_fonts']) {
+    const without = Object.fromEntries(Object.entries(SUBTITLE_BOUNDS).filter(([name]) => name !== key))
+    await rejectSubtitleProfile({ execution_bounds: without })
+    for (const invalid of [0, -1, 1.5, true, '8', Number.MAX_SAFE_INTEGER + 1]) {
+      await rejectSubtitleProfile({ execution_bounds: { ...SUBTITLE_BOUNDS, [key]: invalid } })
+    }
+  }
+  await rejectSubtitleProfile({ execution_bounds: {
+    ...Object.fromEntries(Object.entries(SUBTITLE_BOUNDS).filter(([key]) => !['bounds_version', 'canvas_range'].includes(key))),
+    canvas_pairs: [{ width: 1920, height: 1080 }],
+  } })
+  await rejectSubtitleProfile({ compiler_artifact_sha256: COMPILER_DIGEST })
+  await rejectSubtitleProfile({ tools_artifact_sha256: 'f'.repeat(64) })
+  await rejectSubtitleProfile({ production_eligible: true })
   // The record shape itself is still exact.
   answer({ subtitles: { format: 'studio.render.subtitle.v9' } })
   await assert.rejects(
@@ -589,7 +667,7 @@ test('a subtitle-scoped read requests the exact contract and fails closed until 
     /format|unsupported|response|invalid/i,
   )
   // Unsolicited subtitle authority in a normal read fails closed.
-  answer({ subtitles: { format: 'studio.render.subtitle.v1' } })
+  answer({ subtitles: SUBTITLE_CAPABILITIES })
   await assert.rejects(
     client.getFinalRenderCapabilities(),
     /subtitles|requested|response|invalid/i,
@@ -599,6 +677,21 @@ test('a subtitle-scoped read requests the exact contract and fails closed until 
   await assert.rejects(
     client.getFinalRenderCapabilities(undefined, { requestedSubtitles: true }),
     /field|exact|response|invalid/i,
+  )
+  // A base (non-subtitle) profile may not smuggle in the subtitle counters.
+  answer({
+    profile_descriptor_utf8: canonicalJson({
+      ...JSON.parse(PROFILE_UTF8),
+      execution_bounds: { ...BOUNDS_V2, max_subtitle_fonts: 8 },
+    }),
+    profile_digest: digestUtf8(canonicalJson({
+      ...JSON.parse(PROFILE_UTF8),
+      execution_bounds: { ...BOUNDS_V2, max_subtitle_fonts: 8 },
+    })),
+  })
+  await assert.rejects(
+    client.getFinalRenderCapabilities(),
+    /execution_bounds|exact|invalid/i,
   )
 })
 

@@ -602,6 +602,38 @@ controls. On 2026-10-26, the owner approved the video expansion plan (`memory/vi
 6. **Paid models added but not used**: only Wan 3.0 and Seedance 2.5 via the Gateway, with every
    option read live from capability records. Nothing is charged by default, and nothing in tests.
 
+### Model inventory and its named exceptions — 2026-10-11 and 2026-10-27
+
+**Inventory and dispatch belong to GenStudio.** The Add Custom Model form, a project-level `models`
+catalog, `is_custom` entries and a unified catalog write path were removed, along with direct Studio
+Hub and sibling-Studio routing. Story Studio talks to exactly one endpoint and must never be handed
+a second address. Two narrow exceptions were decided; neither is a generation endpoint:
+
+- **Idea real sources (2026-10-11, plan Q4).** `services/reference-pool.ts` makes free, read-only
+  GETs to `en.wikipedia.org` — no key, no model, at most one request a second, a non-personal
+  User-Agent, cached, failing soft. Generation is never routed there.
+- **Optional local duplicate screening (2026-10-27).** `google/embeddinggemma-2` (Apache-2.0) runs
+  inside Story's own process, not on the fleet and not through the Gateway, to warn about
+  near-duplicate scene images and repeated titles. It starts OFF and is never required: uploading
+  without it works as before, and when it is off, not downloaded or broken every check reads "not
+  checked", never "passed". On opt-in, `services/local-model-store.ts` fetches the pinned ONNX
+  export from `huggingface.co/onnx-community/embeddinggemma-2-ONNX` (one immutable revision) plus
+  the darwin-arm64 slice of `onnxruntime-node` from `unpkg.com`, each file verified against a pinned
+  size and SHA-256. It is a model-file download only — no generation request, no provider selection
+  or routing, no second endpoint. The model is not in the DMG (≈970 MB of weights, ≈46 MB runtime);
+  removing it moves the files to Story's Trash, never `rm`.
+
+### Other retired surfaces — why the list is closed
+
+The Co-writer, shared Brand profile system, Add Custom Model form and Render Studio remain retired.
+The older retired list also said `text-to-video`; the owner's explicit 2026-10-26 multi-lane approval
+above supersedes that entry. AI text-to-video is now a deliberate Scene Plan lane, not a retired
+capability. Title prefix/suffix branding, branded intro visuals, project art styles, and Video
+Assembly logo/presentation controls remain valid independent project controls. Story Studio does not own the writing model (2026-10-17); the
+Gateway does. Model retirements are by id, in one list per app, never by display name. Sora 2,
+Runway Gen-3 and the local LTX-2.3/Lance/Gemma-3-12B packs are deleted from code, docs, tests and
+rules; stored project data still reads safely and is never rewritten.
+
 ---
 
 ## 8. Related records kept elsewhere
@@ -612,3 +644,67 @@ controls. On 2026-10-26, the owner approved the video expansion plan (`memory/vi
 - **`CHANGELOG.md`** — the shipped-fix record, newest first. The in-app What's New reads it.
 - **The test suite** — where most of these rules are actually enforced. When a rule here and a test
   disagree, the test is what runs; fix one of them deliberately.
+
+## 9. Release verification — change-aware policy and watchdog history
+
+**Owner, 2026-11-08: "there's no point in rerunning the same test over any over again."** The
+change-aware policy replaces the mandatory ten-step gate as the default: the cheap checks (lint,
+changelog, typography, security, model-drift, typecheck) plus the packaged launch/update smoke on
+one exact source, focused regressions for every changed path and its callers, and an honest record
+of what ran, what was reused (with its source commit) and what was skipped. Full regression stays
+required when the reach cannot be bounded — shared queue, storage or generator infrastructure;
+dependencies, toolchain, signing, installer or test-harness changes; a broad refactor — or when the
+last full-run proof is missing. A skipped suite reads "skipped (unchanged since <commit>)", never
+"passed".
+
+**The publisher historically required the ten-step schema-1 proof.** It binds exact HEAD/tree/diff,
+actual exits, re-derived log hashes and discovered coverage floors, and rejects `PARTIAL RUN` as
+full-suite evidence. Those integrity requirements remain; repeating unrelated suites merely to
+satisfy that old format does not. Developer owns `~/Developer/portfolio/bin/testctl` as the one
+executor and receipt store; there is no second Story runner. Story configures its affected lanes
+there, scopes `paths` only after reviewing all test inputs, and keeps publisher verification as an
+adapter citing receipt key, source commit and log SHA-256.
+
+**Adapter status at candidate `0f565217b` (recorded 2026-11-10).** The shared-library bridge is
+integrated: portfolio `b07f416` merged git-preflight hardening with the qualified proof adapter, and
+`9713509` requires exact named-lane proof coverage with no waivers. Story side, `054b6a9` replaced
+the never-qualified WIP schema-3 verifier with a thin caller-supplied trusted-CLI adapter
+(`scripts/release/orchestration/story_testctl_proof.py`, proof kind `testctl-change-aware`, schema
+2); `story_gate_proof.py` refuses the old kind and bare schema 3 at publication. Integrated is not
+released: no Story release has yet been proven through the bridge, so an unsupported scoped proof
+stays blocked rather than bypassing verification or relabelling a failed or superseded run. The
+standalone change-aware reference in `c20ed497` (`scripts/release/change-aware/`, branch
+`work/change-aware-release-20261108`) is retained as research only — it was never deployed, and no
+release, rule or tool may be pointed back at it or copy from it. Core changes go to Developer's
+portfolio branch for merge.
+
+**The hang watchdog is 180 minutes** (`STORY_STUDIO_BACKEND_TEST_TIMEOUT_MS`). The old 90-minute
+default sat below the measured serial runtime (5,268–6,189 s) and killed a green 1.4.359 run at
+850/854 files. A kill by this watchdog is a machine setting, not a product defect: raise the
+number, do not narrow the lane.
+
+**Parallel tests (owner, 2026-10-24: "do that whenever possible")** replaced "one suite at a time
+across all workers". The Story full regression runs alone among Story suites; the backend lane deals
+files across `min(4, cores/2)` workers (`STORY_STUDIO_BACKEND_TEST_WORKERS` overrides), each with
+its own process, HOME/TMPDIR sandbox and coverage file, then runs a measured `SERIAL_TEST_FILES`
+list alone. A split run prints `aggregate suite coverage: C/D file(s) completed; inputs=[...]`,
+which `story_gate_proof.py` requires the per-invocation lines to add up to exactly. A serial entry
+is measured, never guessed: it failed while other files ran and passed alone, or it asserts a
+wall-clock ceiling or exact interval-fire count. Slow files are fixed through an existing seam
+(`_setJobAutoRetryDelaysForTesting`, `_setGenStudioPollLadderForTesting`,
+`STORY_STUDIO_*_RETRY_BASE_MS`) or a shared fixture, never by deleting the assertion. With no gate
+running, up to two focused runs may share different worktrees; installer tests and anything touching
+the real mini, live Gateway or production never run in parallel. A timing-looking failure that ran
+alongside other work is rerun alone before being called a defect.
+
+**Released installers keep a rollback pair — owner, 2026-11-10, candidate `0f565217b`.** The old
+rule said `scripts/release/build-unsigned-dmg.mjs` moved the previous DMG to `_trash/dist/` itself,
+so `dist/` held only the build just made. That made a rebuild of the same version destroy its own
+predecessor (the line used to be `fs.rmSync(dmgOutputPath)`) and left no working installer if the
+new one failed acceptance. Both desktop builders now stage and verify new output before exposing it,
+replaced same-version candidates are backed up recoverably rather than deleted, and the released
+pair stays in place while a candidate is unverified. Rotation of the retained pair happens only
+through `npm run dist:retain -- <trusted-story-pins.json>`, which runs the shared portfolio helper
+(`portfolio/tools/release-dist.py`); it manages only the pair it recorded, and unmanaged historical
+aliases need their own recoverable retirement after dependency and active-job checks. Never rotate
+an artifact some build or release is still using. See `scripts/release/orchestration/README.md`.
