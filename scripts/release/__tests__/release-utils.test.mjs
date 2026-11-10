@@ -15,7 +15,8 @@ import {
   resolvePackagedDependency,
   restoreSourceManifests,
   snapshotSourceManifests,
-  trashOldDmgs,
+  createDmgBuildDirectory,
+  promoteDmgBuild,
   validateServiceBaseUrl,
 } from '../release-utils.mjs'
 
@@ -206,24 +207,127 @@ describe('packaging tree guard', () => {
   })
 })
 
-describe('trashOldDmgs', () => {
-  test('creates a missing dist/ instead of crashing (fresh worktree)', () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dmg-trash-'))
-    const dist = path.join(dir, 'dist')
-    const trash = path.join(dir, '_trash', 'dist')
-    trashOldDmgs(dist, trash)
-    assert.ok(fs.statSync(dist).isDirectory())
+describe('staged DMG packaging', () => {
+  const artifact = 'Story Studio KH 1.4.391-arm64.dmg'
+  const previous = 'Story Studio KH 1.4.390-arm64.dmg'
+
+  function fixture(t) {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'staged-dmg-'))
+    t.after(() => fs.rmSync(root, { recursive: true, force: true }))
+    const dist = path.join(root, 'dist')
+    const trash = path.join(root, '_trash', 'dist')
+    const stage = createDmgBuildDirectory(dist, trash)
+    return { root, dist, trash, stage }
+  }
+
+  test('fresh worktrees stage without removing anything; failed builds keep the released pair', t => {
+    const { dist, trash, stage } = fixture(t)
+    for (const name of [previous, artifact, `${artifact}.blockmap`, 'latest-mac.yml', 'signing-1.4.391.json', 'notes.txt']) {
+      fs.writeFileSync(path.join(dist, name), `old:${name}`)
+    }
+    fs.writeFileSync(path.join(stage, artifact), 'unfinished new build')
+    // A build/verification failure never calls promotion.
+    for (const name of [previous, artifact, `${artifact}.blockmap`, 'latest-mac.yml', 'signing-1.4.391.json', 'notes.txt']) {
+      assert.equal(fs.readFileSync(path.join(dist, name), 'utf8'), `old:${name}`)
+    }
     assert.deepEqual(fs.readdirSync(trash), [])
   })
 
-  test('moves old DMGs and blockmaps aside with the stamp before the extension', () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dmg-trash-'))
-    const dist = path.join(dir, 'dist')
-    const trash = path.join(dir, '_trash', 'dist')
-    fs.mkdirSync(dist)
-    for (const f of ['A-arm64.dmg', 'A-arm64.dmg.blockmap', 'notes.txt']) fs.writeFileSync(path.join(dist, f), f)
-    trashOldDmgs(dist, trash, new Date('2026-10-04T01:02:03Z'))
-    assert.deepEqual(fs.readdirSync(dist), ['notes.txt'])
-    assert.deepEqual(fs.readdirSync(trash).sort(), ['A-arm64-20261004010203.dmg', 'A-arm64-20261004010203.dmg.blockmap'])
+  test('verified candidates replace only their outputs and preserve same-version history', t => {
+    const { dist, trash, stage } = fixture(t)
+    const retained = 'Story Studio KH-1.4.390.dmg'
+    for (const name of [previous, retained, artifact, `${artifact}.blockmap`, 'signing-1.4.391.json']) {
+      fs.writeFileSync(path.join(dist, name), `old:${name}`)
+    }
+    fs.mkdirSync(path.join(dist, 'mac-arm64'))
+    fs.writeFileSync(path.join(dist, 'mac-arm64', 'marker'), 'old app')
+    fs.mkdirSync(path.join(stage, 'mac-arm64'))
+    fs.writeFileSync(path.join(stage, 'mac-arm64', 'marker'), 'new app')
+    for (const name of [artifact, `${artifact}.blockmap`, 'signing-1.4.391.json']) {
+      fs.writeFileSync(path.join(stage, name), `new:${name}`)
+    }
+    fs.mkdirSync(path.join(stage, 'signing-test-evidence'))
+    const backup = promoteDmgBuild(stage, dist, trash, artifact)
+    for (const name of [previous, retained]) assert.equal(fs.readFileSync(path.join(dist, name), 'utf8'), `old:${name}`)
+    for (const name of [artifact, `${artifact}.blockmap`, 'signing-1.4.391.json']) {
+      assert.equal(fs.readFileSync(path.join(dist, name), 'utf8'), `new:${name}`)
+      assert.equal(fs.readFileSync(path.join(backup, name), 'utf8'), `old:${name}`)
+    }
+    assert.equal(fs.readFileSync(path.join(backup, 'mac-arm64', 'marker'), 'utf8'), 'old app')
+    assert.equal(fs.readFileSync(path.join(dist, 'mac-arm64', 'marker'), 'utf8'), 'new app')
+    assert.ok(fs.existsSync(path.join(stage, 'signing-test-evidence')), 'recorded launch log paths survive')
+    const next = createDmgBuildDirectory(dist, trash)
+    fs.writeFileSync(path.join(next, artifact), 'third build')
+    const secondBackup = promoteDmgBuild(next, dist, trash, artifact)
+    assert.notEqual(backup, secondBackup)
+    assert.equal(fs.readFileSync(path.join(backup, artifact), 'utf8'), `old:${artifact}`)
+    assert.equal(fs.readFileSync(path.join(secondBackup, artifact), 'utf8'), `new:${artifact}`)
+  })
+
+  test('handoff failure restores existing outputs and retains the new candidate', t => {
+    const { dist, trash, stage } = fixture(t)
+    for (const name of [artifact, `${artifact}.blockmap`]) {
+      fs.writeFileSync(path.join(dist, name), `old:${name}`)
+      fs.writeFileSync(path.join(stage, name), `new:${name}`)
+    }
+    const rename = fs.renameSync
+    t.mock.method(fs, 'renameSync', (source, target) => {
+      if (source === path.join(stage, `${artifact}.blockmap`)) throw new Error('synthetic handoff failure')
+      return rename(source, target)
+    })
+    assert.throws(() => promoteDmgBuild(stage, dist, trash, artifact), /synthetic handoff failure/)
+    for (const name of [artifact, `${artifact}.blockmap`]) {
+      assert.equal(fs.readFileSync(path.join(dist, name), 'utf8'), `old:${name}`)
+      assert.equal(fs.readFileSync(path.join(stage, name), 'utf8'), `new:${name}`)
+    }
+  })
+
+  test('missing staged DMG cannot promote stale sidecars', t => {
+    const { dist, trash, stage } = fixture(t)
+    fs.writeFileSync(path.join(dist, artifact), 'old build')
+    fs.writeFileSync(path.join(stage, 'latest-mac.yml'), 'new metadata')
+    assert.throws(() => promoteDmgBuild(stage, dist, trash, artifact), /ENOENT/)
+    assert.equal(fs.readFileSync(path.join(dist, artifact), 'utf8'), 'old build')
+    assert.deepEqual(fs.readdirSync(trash), [])
+  })
+
+  test('existing trash-parent compatibility links work without retargeting', t => {
+    const { root, dist, trash, stage } = fixture(t)
+    const recovery = path.join(root, 'existing-recovery')
+    fs.renameSync(path.dirname(trash), recovery)
+    fs.symlinkSync(recovery, path.dirname(trash))
+    assert.ok(fs.existsSync(createDmgBuildDirectory(dist, trash)))
+    fs.writeFileSync(path.join(dist, artifact), 'old build')
+    fs.writeFileSync(path.join(stage, artifact), 'new build')
+    const backup = promoteDmgBuild(stage, dist, trash, artifact)
+    assert.equal(path.dirname(backup), path.join(recovery, 'dist'))
+    assert.equal(fs.readFileSync(path.join(backup, artifact), 'utf8'), 'old build')
+    assert.equal(fs.readFileSync(path.join(dist, artifact), 'utf8'), 'new build')
+    assert.ok(fs.lstatSync(path.dirname(trash)).isSymbolicLink())
+  })
+
+  test('unusable recovery storage fails before allocating a candidate directory', t => {
+    const { root, dist, trash } = fixture(t)
+    fs.renameSync(path.dirname(trash), path.join(root, 'retained-recovery'))
+    fs.writeFileSync(path.dirname(trash), 'blocked')
+    const before = fs.readdirSync(dist)
+    assert.throws(() => createDmgBuildDirectory(dist, trash), /EEXIST|ENOTDIR/)
+    assert.deepEqual(fs.readdirSync(dist), before)
+  })
+
+  test('symlink outputs or final trash directories are refused without moving installers', t => {
+    const { root, dist, trash, stage } = fixture(t)
+    fs.writeFileSync(path.join(stage, artifact), 'new build')
+    const outside = path.join(root, 'outside')
+    fs.mkdirSync(outside)
+    fs.symlinkSync(path.join(outside, 'absent'), path.join(dist, artifact))
+    assert.throws(() => promoteDmgBuild(stage, dist, trash, artifact), /non-regular/)
+    assert.ok(fs.lstatSync(path.join(dist, artifact)).isSymbolicLink())
+    fs.unlinkSync(path.join(dist, artifact))
+    fs.rmdirSync(trash)
+    fs.symlinkSync(outside, trash)
+    assert.throws(() => promoteDmgBuild(stage, dist, trash, artifact), /real directory/)
+    assert.deepEqual(fs.readdirSync(outside), [])
+    assert.equal(fs.readFileSync(path.join(stage, artifact), 'utf8'), 'new build')
   })
 })

@@ -30,7 +30,7 @@ build, and the production Electron compile. The release check additionally
 proves that the renderer's startup document has no remote script, stylesheet,
 or font dependency and that every referenced startup asset is present locally.
 
-For a local unsigned packaging check that neither installs nor launches the app:
+For the normal locally signed package and isolated launch verification (no installation):
 
 ```bash
 npm run dist:smoke
@@ -40,15 +40,18 @@ That command:
 
 1. validates or fetches the pinned universal FFmpeg inputs;
 2. rebuilds from source;
-3. clears only this version's `dist/mac-arm64` app and `dist/<artifact>.dmg`
-   to prevent stale-artifact passes while preserving older handoff builds;
-4. forces Electron Builder signing identity to `null`, disables notarization,
+3. validates recovery storage before the build and stages output in a fresh
+   `dist/.dmg-build-*` folder; existing installers stay untouched on failure;
+4. uses the configured stable local signing identity, disables notarization,
    and publishes nothing;
 5. creates the arm64 app and DMG;
 6. mounts the DMG read-only, checks its layout, then detaches it;
 7. inspects `app.asar`, unpacked native modules, bundle metadata, architecture,
    offline assets, packaged What's New entry, and forbidden file names; and
-8. prints the DMG byte size and SHA-256.
+8. prints the DMG byte size and SHA-256, proves signing and isolated launch, then
+   exposes the verified candidate in `dist/`, backing replaced outputs up
+   recoverably. Released-pair rotation waits for installed functional acceptance
+   and the shared retention helper; see `scripts/release/orchestration/README.md`.
 
 Re-run artifact verification without rebuilding:
 

@@ -5,7 +5,7 @@ import path from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
-import { expandArtifactName, packagingTreeErrors, restoreSourceManifests, snapshotSourceManifests } from './release-utils.mjs'
+import { createDmgBuildDirectory, expandArtifactName, packagingTreeErrors, promoteDmgBuild, restoreSourceManifests, snapshotSourceManifests } from './release-utils.mjs'
 import { notarytoolCredentialArgs, publicReleaseCredentialErrors } from './public-release-credentials.mjs'
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url))
@@ -39,13 +39,15 @@ if (treeErrors.length) {
   throw new Error(`Cannot package from this tree:\n- ${treeErrors.join('\n- ')}`)
 }
 
+const trashDist = path.join(root, '_trash', 'dist')
+const buildDir = createDmgBuildDirectory(outputDir, trashDist)
 run('npm', ['run', 'fetch:ffmpeg'])
 run('npm', ['run', 'build:scene-clip'])
 run('npm', ['run', 'build'])
 run('npm', ['run', 'check:release', '--', '--built', '--package-input'])
 
 const config = structuredClone(baseConfig)
-config.directories = { ...config.directories, output: outputDir }
+config.directories = { ...config.directories, output: buildDir }
 if (!fs.existsSync(path.join(electronDist, 'Electron.app'))) {
   throw new Error(`Lockfile-installed Electron runtime is missing: ${electronDist}`)
 }
@@ -59,10 +61,8 @@ const artifactName = expandArtifactName(contract.artifactName, {
   arch: contract.architectures[0],
   ext: 'dmg',
 })
-const appOutputDir = path.join(outputDir, 'mac-arm64')
-const dmgPath = path.join(outputDir, artifactName)
-fs.rmSync(appOutputDir, { recursive: true, force: true })
-fs.rmSync(dmgPath, { force: true })
+const dmgPath = path.join(buildDir, artifactName)
+// Keep existing installers intact until the staged package passes verification.
 
 console.log(`[public-package] signing and packaging ${contract.productName} v${pkg.version}`)
 // electron-builder has been seen to rewrite this checkout's own manifest into its
@@ -83,7 +83,7 @@ try {
   run('xcrun', ['notarytool', 'submit', dmgPath, ...notarytoolCredentialArgs(), '--wait'], { redactArgs: true })
   run('xcrun', ['stapler', 'staple', dmgPath])
 
-  const appPath = path.join(outputDir, 'mac-arm64', `${contract.productName}.app`)
+  const appPath = path.join(buildDir, 'mac-arm64', `${contract.productName}.app`)
   run(process.execPath, [
     path.join(scriptDir, 'verify-signed-desktop-artifact.mjs'),
     '--app', appPath,
@@ -96,4 +96,6 @@ try {
   }
 }
 
-console.log(`[public-package] ready: ${dmgPath}`)
+const backup = promoteDmgBuild(buildDir, outputDir, trashDist, artifactName)
+console.log(`[public-package] previous candidate outputs preserved: ${backup}`)
+console.log(`[public-package] ready: ${path.join(outputDir, artifactName)}`)

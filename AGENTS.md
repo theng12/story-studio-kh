@@ -497,8 +497,8 @@ The order is **prebuild → ten-step gate → rebuild from `main`**, and it is n
   file is a Git branch or remote ref — record its name and SHA in a note under
   `_trash/` before deleting it, and never rewrite published history.
 
-- **Every change is merged, committed, pushed, and built into a DMG — and the previous DMG moves
-  to `_trash/dist/` automatically.** The owner's rule, 2026-09-26: **the whole cycle every time**,
+- **Every change is merged, committed, pushed, and built into a DMG; keep the latest two
+  verified released installers in canonical `dist/` (owner, 2026-11-10).** The owner's rule, 2026-09-26: **the whole cycle every time**,
   not only for something you would call a release — nothing ships un-gated, un-built or un-pushed.
   Bump `package.json` **and** `package-lock.json`, add the newest-first `CHANGELOG.md` entry, run
   `npm run check:changelog`, prebuild with `npm run dist:smoke`, run the ten-step gate on that
@@ -507,10 +507,12 @@ The order is **prebuild → ten-step gate → rebuild from `main`**, and it is n
   **Batch, do not dribble — owner, 2026-10-26: "do all 4 if possible so it's faster."** Put related
   changes into one release and run **one full gate per release batch** (focused runs first for every
   area the batch touches). Batching never excuses narrowing the gate.
-  `scripts/release/build-unsigned-dmg.mjs` moves the previous DMG aside itself — that line used to be
-  `fs.rmSync(dmgOutputPath)`, so a rebuild of the same version destroyed the previous artefact — which
-  means `dist/` holds exactly the build you just made and `_trash/dist/` holds the history, with no
-  tidy-up step for anyone to remember.
+  Both desktop builders stage and verify new output before exposing it; replaced same-version
+  candidates are backed up recoverably, never deleted. Keep the released rollback pair while a
+  candidate is unverified. After installed functional acceptance and active-job/dependency checks,
+  `npm run dist:retain -- <trusted-story-pins.json>` invokes the shared portfolio helper. It alone
+  manages its recorded pair; unmanaged historical aliases require separate recoverable retirement
+  after dependency checks. See `scripts/release/orchestration/README.md`.
   **The one exception is a content-only change**: a standalone `.sspack` is its own artefact and takes
   no app version bump and no DMG (the release classification in §10). That is a deliberate carve-out,
   not an oversight.

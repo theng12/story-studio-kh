@@ -249,3 +249,62 @@ is discovered by the release lane as a normal 13th release test file.
 - The proof does not check the DMG. The publisher still does, as above.
 - A schema-2 proof requires the candidate version to equal the original gate version, so a
   version bump after the gate forces a fresh cheap-step run.
+
+### Installer preservation in the normal release
+
+Both desktop builders use a fresh `dist/.dmg-build-*` folder. Build, artifact
+verification and the existing isolated launch/signing checks finish there before
+candidate outputs are exposed in `dist/`. A failed build leaves the old DMGs,
+blockmaps, app and signing receipts untouched. Replaced same-version candidate
+outputs move into one exclusive `_trash/dist/replaced-build-*` folder; unrelated
+versions and managed released DMGs stay in place. Failed staged outputs and launch
+logs remain available for diagnosis. The existing trash-parent compatibility link
+is resolved without replacing it; output and final trash directories must be real
+directories. Recovery storage is checked before the expensive build. Do not invoke
+either builder during an active release chain or another build.
+
+Staged failure evidence and signing logs are not automatically swept at the next
+build. The release lead includes their measured disk cost in admission and retains
+their recorded paths while a receipt, diagnostic, build or active job uses them.
+After acceptance and the standing cleanup hold is lifted, dependency-checked
+recoverable retirement is still required; do not call this cleanup complete.
+
+Building a candidate does not rotate the released pair. After the ordinary release
+has passed exact-main/proof/signature/feed checks, intended-machine installation
+and functional acceptance, the release lead records those receipts and checks
+that no active build, release, rollback, render or evidence dependency uses the old
+artifacts. Only then run the accepted shared helper through the normal release hook:
+
+```bash
+npm run dist:retain -- /absolute/path/to/trusted-story-pins.json
+```
+
+The caller supplies a trusted schema-1 document with exactly the Story entry:
+`app: "Story Studio KH"`, `project: <canonical repository root>` (**not** its
+`dist/` subdirectory), and the two accepted releases, each with exact `version`,
+absolute main-built `source`, `sha256`, `bytes` and installed/functional acceptance
+`evidence`. Keep the previous working release until the new one meets all those
+checks. A credential-unavailable installation is not functional acceptance.
+There is no housekeeping build or extra app release for this step.
+
+The hook invokes `Shared Tools/portfolio/tools/release-dist.py`; Story does not
+reimplement its schema, ledger, hash checks, locking or retention policy.
+Execution is currently blocked: canonical Story's existing `_trash` compatibility
+link resolves outside the repository, while accepted helper `767ac2b` refuses
+linked/external trash roots during retirement. The helper owner must resolve that
+contract before this hook is used for rotation. Do not alter the compatibility
+link or call the helper merely to probe it: it may copy new pins before refusing
+retirement. The prepared pins use the real canonical repository root, not its
+legacy project alias. The shared
+helper writes `<App Name>-<version>.dmg` and `dist/.release-dist.json`, and takes a
+project-root `.release-dist.lock` (ignored by git). It leaves pinned sources and
+unmanaged files alone. Story's build/publisher filename remains the exact
+`Story Studio KH <version>-arm64.dmg`, so the managed rollback copies do not add
+another publisher match. Do not silently rename a build or select by newest mtime.
+
+Record the helper's real exit and JSON result, then rehash the retained pair. Only
+managed older files are retired by the helper. Historical unmanaged build-name
+aliases require their own dependency/active-job check and recoverable retirement;
+never describe adoption as having removed them. Same-version/different-byte
+released pins are refused by the shared helper and require a new release version.
+A helper refusal stops this retention step and preserves the unresolved state.

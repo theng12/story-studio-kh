@@ -5,7 +5,7 @@ import path from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
-import { expandArtifactName, packagingTreeErrors, restoreSourceManifests, snapshotSourceManifests, trashOldDmgs } from './release-utils.mjs'
+import { createDmgBuildDirectory, expandArtifactName, packagingTreeErrors, promoteDmgBuild, restoreSourceManifests, snapshotSourceManifests } from './release-utils.mjs'
 import { localSigningConfig } from './local-signing.mjs'
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url))
@@ -57,13 +57,15 @@ try {
   process.exit(1)
 }
 
+const trashDist = path.join(root, '_trash', 'dist')
+const buildDir = createDmgBuildDirectory(outputDir, trashDist)
 runNpm(['run', 'fetch:ffmpeg'])
 runNpm(['run', 'build:scene-clip'])
 runNpm(['run', 'build'])
 runNpm(['run', 'check:release', '--', '--built', '--package-input'])
 
 const config = structuredClone(baseConfig)
-config.directories = { ...config.directories, output: outputDir }
+config.directories = { ...config.directories, output: buildDir }
 if (!fs.existsSync(path.join(electronDist, 'Electron.app'))) {
   throw new Error(`Lockfile-installed Electron runtime is missing: ${electronDist}`)
 }
@@ -82,18 +84,9 @@ const artifactName = expandArtifactName(contract.artifactName, {
   arch: contract.architectures[0],
   ext: 'dmg',
 })
-const appOutputDir = path.join(outputDir, 'mac-arm64')
-const dmgOutputPath = path.join(outputDir, artifactName)
-// Never clean the whole dist folder: it is the visible handoff location and
-// may contain prior releases. Remove only this version's app + DMG so stale
-// files cannot satisfy the verification that follows.
-fs.rmSync(appOutputDir, { recursive: true, force: true })
-// **The owner's rule, 2026-09-26: an old DMG moves to `_trash/dist/`; it is never `rm`d.**
-// This line was `fs.rmSync(dmgOutputPath, { force: true })`, so a rebuild of the same version
-// destroyed the previous artefact, and every other version's DMG simply stayed in `dist/` for
-// ever. Both now move aside. `mac-arm64/` above is a working tree electron-builder regenerates,
-// not an artefact anyone keeps, so removing that one stands.
-trashOldDmgs(outputDir, path.join(root, '_trash', 'dist'))
+const dmgOutputPath = path.join(buildDir, artifactName)
+// Packaging, verification and launch must finish before replacing any candidate.
+// Accepted release-pair rotation belongs to the shared post-acceptance helper.
 
 console.log(`[release-package] packaging ${contract.productName} v${pkg.version} (${contract.architectures[0]}) into dist/ signed as "${signing.status.identity}"`)
 // NEW-11 is NOT this build's doing — see the corrected note on `snapshotSourceManifests`.
@@ -109,7 +102,7 @@ try {
     publish: 'never',
   })
 
-  const appPath = path.join(outputDir, 'mac-arm64', `${contract.productName}.app`)
+  const appPath = path.join(buildDir, 'mac-arm64', `${contract.productName}.app`)
 
   const verify = spawnSync(process.execPath, [
     path.join(scriptDir, 'verify-desktop-artifact.mjs'),
@@ -124,7 +117,7 @@ try {
     path.join(scriptDir, 'verify-macos-signing.mjs'),
     '--app', appPath,
     '--identity', signing.status.identity,
-    '--receipt', path.join(outputDir, `signing-${pkg.version}.json`),
+    '--receipt', path.join(buildDir, `signing-${pkg.version}.json`),
   ], { cwd: root, stdio: 'inherit', env: process.env })
   if (signingProof.error) throw signingProof.error
   if (signingProof.status !== 0) throw new Error(`packaged signing and launchd verification exited ${signingProof.status}`)
@@ -135,4 +128,6 @@ try {
   }
 }
 
-console.log(`[release-package] ready: ${dmgOutputPath}`)
+const backup = promoteDmgBuild(buildDir, outputDir, trashDist, artifactName)
+console.log(`[release-package] previous candidate outputs preserved: ${backup}`)
+console.log(`[release-package] ready: ${path.join(outputDir, artifactName)}`)

@@ -291,22 +291,75 @@ export function restoreSourceManifests(root, snapshot) {
   return changed
 }
 
-/**
- * Move every DMG (and blockmap) in `outputDir` to `trashDist` with a timestamp
- * (owner's rule, 2026-09-26: old DMGs are never `rm`d). Creates `outputDir`
- * first: a fresh checkout or worktree has no `dist/` yet, and reading it crashed.
- */
-export function trashOldDmgs(outputDir, trashDist, now = new Date()) {
-  fs.mkdirSync(outputDir, { recursive: true })
-  fs.mkdirSync(trashDist, { recursive: true })
-  const stamp = now.toISOString().replace(/[-:T]/g, '').slice(0, 14)
-  for (const entry of fs.readdirSync(outputDir)) {
-    if (!entry.endsWith('.dmg') && !entry.endsWith('.dmg.blockmap')) continue
-    // The stamp goes BEFORE the extension, so a trashed blockmap still reads as one:
-    // `…-arm64-<stamp>.dmg.blockmap`. Stripping only the last extension left
-    // `…-arm64.dmg-<stamp>.blockmap`, which reads as a blockmap of a `.dmg-…` file.
-    const suffix = entry.endsWith('.blockmap') ? '.dmg.blockmap' : '.dmg'
-    const stem = entry.slice(0, -suffix.length)
-    fs.renameSync(path.join(outputDir, entry), path.join(trashDist, `${stem}-${stamp}${suffix}`))
+function realDirectory(directory) {
+  fs.mkdirSync(directory, { recursive: true })
+  const info = fs.lstatSync(directory)
+  if (!info.isDirectory() || info.isSymbolicLink()) throw new Error(`Expected a real directory: ${directory}`)
+}
+
+function dmgTrashDirectory(trashDist) {
+  const parent = path.dirname(trashDist)
+  fs.mkdirSync(parent, { recursive: true })
+  // Canonical Story has an existing _trash compatibility link; preserve it.
+  const resolved = path.join(fs.realpathSync(parent), path.basename(trashDist))
+  realDirectory(resolved)
+  return resolved
+}
+
+/** Validate recovery storage before building; failed candidates remain isolated. */
+export function createDmgBuildDirectory(outputDir, trashDist) {
+  realDirectory(outputDir)
+  dmgTrashDirectory(trashDist)
+  return fs.mkdtempSync(path.join(outputDir, '.dmg-build-'))
+}
+
+/** Expose verified outputs, preserving replaced candidates in one recoverable folder. */
+export function promoteDmgBuild(buildDir, outputDir, trashDist, artifactName) {
+  if (path.dirname(buildDir) !== outputDir || !path.basename(buildDir).startsWith('.dmg-build-')) {
+    throw new Error('DMG build must be staged directly inside its output directory')
   }
+  realDirectory(outputDir)
+  realDirectory(buildDir)
+  if (path.basename(artifactName) !== artifactName || !artifactName.endsWith('.dmg')) {
+    throw new Error('Expected an exact DMG artifact basename')
+  }
+  const dmg = fs.lstatSync(path.join(buildDir, artifactName))
+  if (!dmg.isFile() || dmg.isSymbolicLink()) throw new Error('Staged DMG must be a regular file')
+  // Keep isolated launch logs at their recorded paths after their job has stopped.
+  const entries = fs.readdirSync(buildDir).filter(name => !name.startsWith('signing-test-'))
+  for (const name of entries) {
+    for (const directory of [buildDir, outputDir]) {
+      let info
+      try { info = fs.lstatSync(path.join(directory, name)) } catch (error) {
+        if (error.code === 'ENOENT' && directory === outputDir) continue
+        throw error
+      }
+      if (info.isSymbolicLink() || (!info.isFile() && !info.isDirectory())) {
+        throw new Error(`Refusing non-regular packaging output: ${path.join(directory, name)}`)
+      }
+    }
+  }
+  const backup = fs.mkdtempSync(path.join(dmgTrashDirectory(trashDist), 'replaced-build-'))
+  const replaced = []
+  const promoted = []
+  try {
+    for (const name of entries) {
+      const target = path.join(outputDir, name)
+      if (fs.existsSync(target)) {
+        fs.renameSync(target, path.join(backup, name))
+        replaced.push(name)
+      }
+      fs.renameSync(path.join(buildDir, name), target)
+      promoted.push(name)
+    }
+  } catch (error) {
+    try {
+      for (const name of promoted.reverse()) fs.renameSync(path.join(outputDir, name), path.join(buildDir, name))
+      for (const name of replaced.reverse()) fs.renameSync(path.join(backup, name), path.join(outputDir, name))
+    } catch (rollbackError) {
+      throw new AggregateError([error, rollbackError], `Packaging handoff failed; preserve ${buildDir} and ${backup}`)
+    }
+    throw error
+  }
+  return backup
 }

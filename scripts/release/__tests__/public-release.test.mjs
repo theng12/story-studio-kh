@@ -49,6 +49,20 @@ describe('public desktop release gate', () => {
     }
   })
 
+  test('both packaging paths verify staged outputs before exposing them', () => {
+    for (const script of ['build-public-dmg.mjs', 'build-unsigned-dmg.mjs']) {
+      const source = fs.readFileSync(path.join(root, 'scripts/release', script), 'utf8')
+      assert.match(source, /config\.directories = \{ \.\.\.config\.directories, output: buildDir \}/)
+      assert.match(source, /path\.join\(buildDir, 'mac-arm64'/)
+      assert.ok(source.indexOf('createDmgBuildDirectory(outputDir, trashDist)') < source.indexOf("['run', 'fetch:ffmpeg']"))
+      assert.ok(source.indexOf('promoteDmgBuild(buildDir,') > source.lastIndexOf('restoreSourceManifests(root,'))
+      assert.doesNotMatch(source, /fs\.rmSync|trashOldDmgs/)
+    }
+    const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'))
+    assert.equal(pkg.scripts.dist, 'npm run dist:smoke')
+    assert.equal(pkg.scripts['dist:retain'], 'python3 -I "$HOME/Developer/Shared Tools/portfolio/tools/release-dist.py"')
+  })
+
   test('desktop runtime does not depend on the vulnerable extract-zip package', () => {
     const lock = JSON.parse(fs.readFileSync(path.join(root, 'package-lock.json'), 'utf8'))
     const electron = lock.packages?.['node_modules/electron']
