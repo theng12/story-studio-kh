@@ -1,3 +1,4 @@
+import { videoRequestControls } from '../../lib/video-request-controls.js'
 /** GenStudio-only image-to-video provider. */
 
 import { registry } from '../registry.js'
@@ -224,6 +225,7 @@ const genstudioVideoProvider: VideoProvider = {
         operation: variant.operation,
         durationSeconds: duration,
         resolution,
+        extraControls: videoRequestControls(resolved.controls, request.providerParams?.video_controls),
         requestIdentity: `${request.idempotencyIdentity || request.startImagePath}:variant:${index + 1}`,
         isCancelled: request.isCancelled,
         onJobAccepted: (taskId, idempotencyKey) => request.onJobAccepted?.(taskId, idempotencyKey, index),

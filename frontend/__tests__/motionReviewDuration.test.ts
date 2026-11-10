@@ -198,12 +198,12 @@ describe('Motion Review duration controls', () => {
     await settle()
 
     const rows = [...mounted.el.querySelectorAll('.scene-duration-plan')].map(row => row.textContent || '')
-    assert.match(rows[0]!, /Narration\s*6\.2s/)
-    assert.match(rows[0]!, /Next request\s*8s/)
+    assert.match(rows[0]!, /Scene \/ narration timeline\s*6\.2s/)
+    assert.match(rows[0]!, /Generated motion request\s*8s/)
     assert.match(rows[0]!, /Trim 1\.8s/)
     assert.match(rows[0]!, /Estimated cost\s*80 credits/)
-    assert.match(rows[1]!, /Narration\s*12s/)
-    assert.match(rows[1]!, /Next request\s*10s/)
+    assert.match(rows[1]!, /Scene \/ narration timeline\s*12s/)
+    assert.match(rows[1]!, /Generated motion request\s*10s/)
     assert.match(rows[1]!, /Hold final frame 2s/)
     assert.match(mounted.text(), /2 clips/)
     assert.match(mounted.text(), /Estimated total 180 credits/)
@@ -285,6 +285,49 @@ describe('Motion Review duration controls', () => {
       model: 'genstudio-video:sparse', aspect_ratio: '16:9', operation: 'image-to-video',
       duration_mode: 'follow_narration', resolution: '720p',
     })
+    mounted.destroy()
+  })
+
+  test('carries a chosen extra switch and blocks new unsupported controls after refresh', async () => {
+    const published = { ...model('controls', [variant(5, '720p')]), controls: [
+      { name: 'enhance', type: 'boolean', default: true, note: 'Published enhancement' },
+    ] }
+    const mounted = await mount({ models: [published] })
+    change(mounted.el.querySelector<HTMLSelectElement>('select[aria-label="Aspect ratio"]')!, '16:9')
+    const toggle = mounted.el.querySelector<HTMLInputElement>('input[role="switch"]')!
+    assert.ok(toggle)
+    assert.equal(toggle.checked, true)
+    toggle.click()
+    await settle()
+    mounted.el.querySelector<HTMLButtonElement>('button')!.click()
+    await settle()
+    assert.equal(mounted.calls.length, 1)
+    assert.deepEqual(mounted.calls[0]!.body.video_controls, { enhance: false })
+
+    mounted.models.value = [{ ...published, controls: [{ name: 'extension_seconds', type: 'integer', default: null, note: null }] }]
+    await settle()
+    assert.match(mounted.text(), /Update Story Studio.*extension_seconds/)
+    assert.equal(mounted.el.querySelector<HTMLButtonElement>('button')!.disabled, true)
+    mounted.el.querySelector<HTMLButtonElement>('button')!.click()
+    await settle()
+    assert.equal(mounted.calls.length, 1, 'a newly unsupported capability cannot enqueue a second purchase')
+    mounted.destroy()
+  })
+
+  test('leaves chaining visibly unavailable without submitting extra clips', async () => {
+    const mounted = await mount({
+      models: [model('short', [variant(5, '720p')])],
+      scenes: [scene({ end_sec: 12, clip_exists: true, visual_lane: 'image_to_video' })],
+    })
+    const options = [...mounted.el.querySelectorAll<HTMLOptionElement>('option[value="chain"]')]
+    assert.ok(options.length)
+    assert.ok(options.every(option => option.disabled && /unavailable/.test(option.textContent || '')))
+    const chainButtons = [...mounted.el.querySelectorAll<HTMLButtonElement>('button')]
+      .filter(button => /Chain clips/.test(button.textContent || ''))
+    assert.ok(chainButtons.every(button => button.disabled))
+    chainButtons.forEach(button => button.click())
+    await settle()
+    assert.equal(mounted.calls.length, 0)
     mounted.destroy()
   })
 

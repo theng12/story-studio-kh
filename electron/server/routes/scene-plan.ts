@@ -1216,8 +1216,9 @@ router.post('/projects/:slug/scene-plan/:episodeId/set-fill-mode', async (req, r
   const sceneId = typeof req.body?.scene_id === 'string' ? req.body.scene_id.trim() : ''
   const fillMode = req.body?.fill_mode
   if (!sceneId) return res.status(400).json({ detail: 'scene_id is required' })
-  if (fillMode !== 'chain' && fillMode !== 'hold' && fillMode !== null && fillMode !== undefined) {
-    return res.status(400).json({ detail: 'fill_mode must be chain, hold, or null' })
+  if (fillMode === 'chain') return res.status(400).json({ detail: 'Video chaining is not available in this version. Choose Hold last frame; no extra clips will be generated.' })
+  if (fillMode !== 'hold' && fillMode !== null && fillMode !== undefined) {
+    return res.status(400).json({ detail: 'fill_mode must be hold or null' })
   }
 
   try {
@@ -1230,8 +1231,13 @@ router.post('/projects/:slug/scene-plan/:episodeId/set-fill-mode', async (req, r
       const fresh = JSON.parse(await fs.readFile(sidecarPath, 'utf-8')) as ScenePlan
       const target = fresh.scenes.find(item => item.id === sceneId)
       if (!target) throw new Error(`Scene ${sceneId} not found in scene_plan.json`)
-      if (fillMode) target.fill_mode = fillMode
-      else delete target.fill_mode
+      if (fillMode) {
+        target.fill_mode = fillMode
+        target.clip_shortfall_mode = 'hold'
+      } else {
+        delete target.fill_mode
+        delete target.clip_shortfall_mode
+      }
       await writeJsonAtomic(sidecarPath, fresh)
     })
     res.json({ ok: true, scene_id: sceneId, fill_mode: fillMode || null })
@@ -1267,7 +1273,10 @@ router.post('/projects/:slug/scene-plan/:episodeId/check-clip-bounds', async (re
 router.post('/projects/:slug/scene-plan/:episodeId/fill-flagged-scenes', async (req, res) => {
   const { slug, episodeId } = req.params
   if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
-  const fillMode = req.body?.fill_mode === 'chain' ? 'chain' : 'hold'
+  if (req.body?.fill_mode !== 'hold') {
+    return res.status(400).json({ detail: 'Video chaining is not available in this version. Choose Hold last frame; no extra clips will be generated.' })
+  }
+  const fillMode = 'hold' as const
   const sceneIds = Array.isArray(req.body?.scene_ids) ? req.body.scene_ids : null
 
   try {
@@ -1282,6 +1291,7 @@ router.post('/projects/:slug/scene-plan/:episodeId/fill-flagged-scenes', async (
       for (const scene of fresh.scenes) {
         if (!targetIds || targetIds.has(scene.id)) {
           scene.fill_mode = fillMode
+          scene.clip_shortfall_mode = 'hold'
         }
       }
       await writeJsonAtomic(sidecarPath, fresh)

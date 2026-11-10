@@ -1,3 +1,4 @@
+import { videoControlIdentity } from './video-request-controls.js'
 /**
  * GenStudio KH client boundary for Story Studio.
  *
@@ -2283,8 +2284,8 @@ export interface GenStudioVideoModel extends GenStudioCatalogLock, GenStudioPric
 /** One published boolean switch on a video row. */
 export interface GenStudioVideoControl {
   name: string
-  type: 'boolean'
-  /** The lane's own default, or `null` when it stated none. */
+  type: string
+  /** Unsupported types remain visible so callers can require an update. */
   default: boolean | null
   /** The lane's own sentence, shown verbatim. `null` when it wrote none. */
   note: string | null
@@ -2492,6 +2493,7 @@ export interface GenStudioVideoRequest extends GenStudioOperationContext {
    * switch instead of a invented promise about time saved.
    */
   audio?: boolean
+  extraControls?: Record<string, boolean>
   requestIdentity?: string
   /**
    * Reuse a key already checkpointed beside the Story asset. Persisting the key
@@ -6031,10 +6033,11 @@ export function publishedVideoControls(value: unknown): GenStudioVideoControl[] 
   return value.flatMap((entry: any): GenStudioVideoControl[] => {
     const name = typeof entry?.name === 'string' ? entry.name.trim() : ''
     if (!name) return []
-    if (String(entry?.type ?? '').trim().toLowerCase() !== 'boolean') return []
+    const type = String(entry?.type ?? '').trim().toLowerCase()
+    if (!type) return []
     return [{
       name,
-      type: 'boolean' as const,
+      type,
       default: typeof entry?.default === 'boolean' ? entry.default : null,
       note: typeof entry?.note === 'string' && entry.note.trim() ? entry.note.trim() : null,
     }]
@@ -6086,6 +6089,7 @@ export function buildGenStudioVideoIdempotencyKey(input: {
    * requests rather than the same key.
    */
   audio?: boolean
+  extraControls?: Record<string, boolean>
   requestIdentity?: string
 }): string {
   const digest = createHash('sha256').update(JSON.stringify({
@@ -6097,6 +6101,7 @@ export function buildGenStudioVideoIdempotencyKey(input: {
     duration_seconds: input.durationSeconds,
     resolution: input.resolution,
     audio: typeof input.audio === 'boolean' ? input.audio : null,
+    ...(videoControlIdentity(input.extraControls) ? { video_controls: videoControlIdentity(input.extraControls) } : {}),
     request_identity: input.requestIdentity || null,
   })).digest('hex')
   return `story-video-${digest.slice(0, 44)}`
@@ -6223,6 +6228,7 @@ async function generateVideoWithGenStudioAdmitted(
 ): Promise<GenStudioVideoResult> {
   const prompt = request.prompt.trim()
   const modelId = request.modelId.trim()
+  const extraControls = videoControlIdentity(request.extraControls)
   if (prompt.length < 3 || prompt.length > 4_000) throw new Error('Gateway video prompts must contain 3 to 4,000 characters.')
   if (!modelId) throw new Error('Select a Gateway video model.')
   if (!STORY_STUDIO_VIDEO_MODES.includes(request.operation as any)) {
@@ -6271,6 +6277,7 @@ async function generateVideoWithGenStudioAdmitted(
     durationSeconds: request.durationSeconds,
     resolution: request.resolution,
     audio: request.audio,
+    extraControls: request.extraControls,
     requestIdentity: request.requestIdentity,
   })
 
@@ -6284,6 +6291,7 @@ async function generateVideoWithGenStudioAdmitted(
       ['mode', request.operation],
       ['duration_seconds', request.durationSeconds],
       ['resolution', request.resolution],
+      ...Object.entries(extraControls || {}).map(([name, value]) => [name, String(value)] as [string, string]),
       ...(request.aspectRatio ? [['aspect_ratio', request.aspectRatio] as [string, string]] : []),
       // Only the OFF half of a published switch is ever sent, and only when the
       // caller set it. The request preview is what the owner reads to see what
@@ -6313,6 +6321,7 @@ async function generateVideoWithGenStudioAdmitted(
         aspect_ratio: request.aspectRatio,
         duration_seconds: request.durationSeconds,
         resolution: request.resolution,
+        ...extraControls,
         // Omitted entirely unless the caller set a published switch: the lane's
         // own default is the right answer for a caller who stated nothing, and
         // sending `true` on every request would override a lane whose default

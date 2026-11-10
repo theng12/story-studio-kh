@@ -1,3 +1,4 @@
+import { videoRequestControls, videoControlIdentity } from '../lib/video-request-controls.js'
 /**
  * Per-scene image-to-video clip generator (v1.0.470 — Phase 2 of the
  * motion-prompt feature).
@@ -189,6 +190,7 @@ interface SceneClipGenerateParams {
    * requests in the idempotency digest rather than the same one written twice.
    */
   audio?: boolean
+  video_controls?: Record<string, boolean>
   /** Exact per-scene requests accepted at enqueue time. Follow narration
    * resolves these from the authoritative Scene Plan windows. */
   scene_durations?: Record<string, {
@@ -294,10 +296,12 @@ export function selectSceneClipNarrationVariant(
   const ratioMatched = requested
     ? forResolution.filter(variant => typeof variant.aspect_ratio === 'string' && variant.aspect_ratio.trim() === requested)
     : []
-  const candidates = (ratioMatched.length ? ratioMatched : forResolution)
+  const candidates = (requested && forResolution.some(variant => variant.aspect_ratio)
+    ? ratioMatched
+    : forResolution)
     .sort((a, b) => a.duration_seconds - b.duration_seconds)
   if (!candidates.length) {
-    throw new Error(`The Gateway publishes no priced image-to-video duration at ${resolution.trim()} for this model.`)
+    throw new Error(`The Gateway publishes no priced ${operation} duration at ${resolution.trim()}${requested ? ` for ${requested}` : ''} for this model.`)
   }
   return candidates.find(variant => variant.duration_seconds >= narrationDurationSeconds) || candidates.at(-1)!
 }
@@ -634,6 +638,7 @@ export async function generateSceneClipJob(job: Job): Promise<void> {
       `Ignoring audio=${params.audio}: ${modelId} publishes no audio switch, so its own default applies.`,
     )
   }
+  const extraControls = videoRequestControls(catalogModel.controls, params.video_controls)
   const audioChoice = publishesAudioSwitch && typeof params.audio === 'boolean' ? params.audio : undefined
 
   job.output_lines.push(`Scene ${scene.scene_index} (${scene_id}) — animate via the Gateway / ${modelId}`)
@@ -723,6 +728,7 @@ export async function generateSceneClipJob(job: Job): Promise<void> {
       // satisfy a silent retry of the same scene, and both hash and key are what decide
       // whether a recovered job belongs to this request.
       audio: audioChoice ?? null,
+      ...(videoControlIdentity(extraControls) ? { video_controls: videoControlIdentity(extraControls) } : {}),
     }))
     // Reconnect ONLY to a saved job that belongs to this exact request AND has
     // not already settled. Hash equality alone would let an old failed job
@@ -747,6 +753,7 @@ export async function generateSceneClipJob(job: Job): Promise<void> {
       durationSeconds,
       resolution,
       audio: audioChoice,
+      extraControls,
       requestIdentity,
     })
     const submittedAt = recoveryEntry?.submitted_at || new Date().toISOString()
@@ -788,6 +795,7 @@ export async function generateSceneClipJob(job: Job): Promise<void> {
       durationSeconds,
       resolution,
       ...(typeof audioChoice === 'boolean' ? { audio: audioChoice } : {}),
+      extraControls,
       requestIdentity,
       idempotencyKey,
       isCancelled: () => jq.isCancelled(job.job_id),
@@ -920,7 +928,7 @@ export async function generateSceneClipJob(job: Job): Promise<void> {
       requested_duration_seconds: durationSeconds,
       duration_seconds: measuredDurationSeconds,
       ...(isTextToVideo ? { renderer: 'text_to_video' as const } : {}),
-      ...(params.duration_mode === 'follow_narration'
+      ...(params.duration_mode === 'follow_narration' || scene.fill_mode === 'hold'
         ? { shortfall_mode: 'hold' as const }
         : {}),
     },

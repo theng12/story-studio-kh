@@ -29,6 +29,7 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
+import request from 'supertest'
 
 import { generateSceneClipJob } from '../generators/scene-clip.js'
 import { publishedAudioChoice } from '../providers/video/genstudio.js'
@@ -47,6 +48,7 @@ function audioSwitch(publishedDefault: boolean | null = true) {
 async function createClipFixture(name: string, options: {
   controls?: Array<Record<string, unknown>>
   audio?: unknown
+  videoControls?: Record<string, boolean>
 } = {}) {
   const temp = await useTempDataDir()
   const service = await startMockGenStudioService()
@@ -107,6 +109,9 @@ async function createClipFixture(name: string, options: {
   return {
     temp,
     service,
+    project,
+    episodeId,
+    planPath: path.join(paths.scene_prompts_dir, 'scene_plan.json'),
     job: {
       job_id: `audio-switch-${Math.random().toString(16).slice(2)}`,
       project_slug: project.slug,
@@ -129,6 +134,7 @@ async function createClipFixture(name: string, options: {
         duration_seconds: 1,
         resolution: '720p',
         ...(options.audio === undefined ? {} : { audio: options.audio }),
+        ...(options.videoControls ? { video_controls: options.videoControls } : {}),
       },
     } as any,
   }
@@ -136,7 +142,7 @@ async function createClipFixture(name: string, options: {
 
 // ── 1. The transport ─────────────────────────────────────────────────────
 
-test('the transport reads only boolean switches, and keeps the lane\'s own default and note', () => {
+test('the transport preserves switches and exposes new control types for update-required handling', () => {
   assert.deepEqual(publishedVideoControls([audioSwitch()]), [{
     name: 'audio', type: 'boolean', default: true, note: AUDIO_NOTE,
   }])
@@ -150,10 +156,37 @@ test('the transport reads only boolean switches, and keeps the lane\'s own defau
     { type: 'boolean', default: true },
     { name: '  ', type: 'boolean', default: true },
     { name: 'quality', type: 'string', default: 'high' },
-  ]), [])
+  ]), [
+    { name: 'seed', type: 'integer', default: null, note: null },
+    { name: 'quality', type: 'string', default: null, note: null },
+  ])
   // Not a list at all — an older catalogue — is no switches, never a crash.
   assert.deepEqual(publishedVideoControls(undefined), [])
   assert.deepEqual(publishedVideoControls({ name: 'audio' }), [])
+})
+
+test('fill routes refuse chaining and hold updates the assembly shortfall flag', async () => {
+  const fixture = await createClipFixture('Hold without extra generation')
+  try {
+    const { app } = await import('../app.js')
+    const base = `/api/projects/${fixture.project.slug}/scene-plan/${fixture.episodeId}`
+    const before = await fs.readFile(fixture.planPath, 'utf8')
+    for (const endpoint of ['set-fill-mode', 'fill-flagged-scenes']) {
+      const response = await request(app).post(`${base}/${endpoint}`)
+        .send({ scene_id: 'scene-switch', scene_ids: ['scene-switch'], fill_mode: 'chain' }).expect(400)
+      assert.match(response.body.detail, /chaining is not available/)
+      assert.equal(await fs.readFile(fixture.planPath, 'utf8'), before)
+    }
+    await request(app).post(`${base}/set-fill-mode`)
+      .send({ scene_id: 'scene-switch', fill_mode: 'hold' }).expect(200)
+    const saved = JSON.parse(await fs.readFile(fixture.planPath, 'utf8')).scenes[0]
+    assert.equal(saved.fill_mode, 'hold')
+    assert.equal(saved.clip_shortfall_mode, 'hold')
+    assert.equal(fixture.service.submissions.length, 0)
+  } finally {
+    await fixture.service.close()
+    await fixture.temp.cleanup()
+  }
 })
 
 // ── 2. The provider ──────────────────────────────────────────────────────
@@ -187,6 +220,24 @@ test('a silent clip request is submitted as silent', async () => {
     assert.equal(submissions.length, 1, 'exactly one paid submission')
     assert.equal(submissions[0]?.parsedBody?.audio, false,
       'the OFF half of the switch is what the operator asked for and what must reach the lane')
+  } finally {
+    await fixture.service.close()
+    await fixture.temp.cleanup()
+  }
+})
+
+test('additional published switches survive onto the Gateway body without another submission', async () => {
+  const fixture = await createClipFixture('Extra published switches', {
+    controls: [audioSwitch(), { name: 'enhance', type: 'boolean', default: true }],
+    audio: false,
+    videoControls: { enhance: false },
+  })
+  try {
+    await generateSceneClipJob(fixture.job)
+    const submissions = fixture.service.submissions.filter(entry => entry.operation === 'video' && !entry.replay)
+    assert.equal(submissions.length, 1)
+    assert.equal(submissions[0]?.parsedBody?.enhance, false)
+    assert.equal(submissions[0]?.parsedBody?.audio, false)
   } finally {
     await fixture.service.close()
     await fixture.temp.cleanup()

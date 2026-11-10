@@ -364,6 +364,7 @@
             </span>
             <span v-if="control.note" class="switch-note">{{ control.note }}</span>
           </label>
+          <span v-if="unsupportedVideoControls.length" class="model-unavailable-notice" role="alert">Update Story Studio to use this model’s new controls: {{ unsupportedVideoControls.map(control => control.name).join(', ') }}. No generation will be submitted.</span>
           <label class="model-field resolution-field">
             <span>Aspect ratio</span>
             <select v-model="selectedAspectRatio" class="select" :disabled="!availableAspectRatios.length" aria-label="Aspect ratio">
@@ -453,7 +454,7 @@
             <strong>{{ clipMisfitLabel }}</strong>
             <span>Re-plan those scenes in Scene Plan, or fill the extra time here:</span>
             <span class="clip-misfit-actions">
-              <button class="btn btn-sm btn-secondary" :disabled="fillingMisfits" @click="fillFlaggedScenes('chain')">Chain clips</button>
+              <button class="btn btn-sm btn-secondary" disabled title="Video chaining is not available in this version. No extra clips will be generated.">Chain clips — unavailable</button>
               <button class="btn btn-sm btn-secondary" :disabled="fillingMisfits" @click="fillFlaggedScenes('hold')">Hold last frame</button>
             </span>
           </div>
@@ -538,13 +539,13 @@
                 @change="setSceneFillMode(scene, ($event.target as HTMLSelectElement).value)"
               >
                 <option value="hold">Hold last frame</option>
-                <option value="chain">Chain clips</option>
+                <option value="chain" disabled>Chain clips — unavailable in this version</option>
               </select>
             </label>
           </div>
           <div v-if="scene.duration_plan" class="scene-duration-plan" :class="{ 'has-shortfall': scene.duration_plan.adjustment === 'hold' }">
-            <span><small>Narration</small><strong>{{ formatSeconds(scene.duration_plan.narration_seconds) }}</strong></span>
-            <span><small>Next request</small><strong>{{ formatSeconds(scene.duration_plan.requested_seconds) }}</strong></span>
+            <span><small>Scene / narration timeline</small><strong>{{ formatSeconds(scene.duration_plan.narration_seconds) }}</strong></span>
+            <span><small>Generated motion request</small><strong>{{ formatSeconds(scene.duration_plan.requested_seconds) }}</strong></span>
             <span><small>Adjustment</small><strong>{{ scene.duration_plan.adjustment_label }}</strong></span>
             <span
               v-if="!videoHasUsdPrice"
@@ -1606,6 +1607,7 @@ const selectedVideoVariants = computed<VideoVariant[]>(() => (
  * lane shows its own. A malformed entry is dropped rather than repaired — a switch this
  * page cannot describe is one it must not offer.
  */
+const unsupportedVideoControls = computed(() => (selectedVideoModel.value?.controls || []).filter(control => control.type !== 'boolean'))
 const selectedVideoControls = computed<GenStudioVideoControl[]>(() => {
   const published = (selectedVideoModel.value as { controls?: unknown } | null)?.controls
   if (!Array.isArray(published)) return []
@@ -1934,7 +1936,7 @@ const clipMisfitLabel = computed(() => {
   return `${clipMisfits.value.length} video ${clipMisfits.value.length === 1 ? 'scene is' : 'scenes are'} outside the planned model's clip length (${parts.join(', ')}).`
 })
 const fillingMisfits = ref(false)
-async function fillFlaggedScenes(fillMode: 'chain' | 'hold') {
+async function fillFlaggedScenes(fillMode: 'hold') {
   const ep = episodeId.value
   if (!ep || !clipMisfits.value.length) return
   fillingMisfits.value = true
@@ -1943,9 +1945,7 @@ async function fillFlaggedScenes(fillMode: 'chain' | 'hold') {
       fill_mode: fillMode,
       scene_ids: clipMisfits.value.map(m => m.scene.id),
     })
-    success(fillMode === 'chain'
-      ? `Chaining clips for ${clipMisfits.value.length} flagged scene(s).`
-      : `Holding the last frame for ${clipMisfits.value.length} flagged scene(s).`)
+    success(`Holding the last frame for ${clipMisfits.value.length} flagged scene(s). No extra clips are generated.`)
     await loadReview()
   } catch (error: any) {
     showError(error?.data?.detail || error?.message || 'Could not fill the flagged scenes')
@@ -2020,6 +2020,7 @@ const selectionReady = computed(() => isSketchDraw.value
       saving: presentationSaving.value || penSaving.value || holdSaving.value || revealSaving.value,
       pen: sketchPen.value, hasLogo: channelHasLogo.value })
   : !!selectedResolution.value
+  && !unsupportedVideoControls.value.length
   && availableAspectRatios.value.includes(selectedAspectRatio.value)
   && !!selectedResolutionVariants.value.length
   && (durationMode.value === 'follow_narration' || !!selectedManualVariant.value)
@@ -2042,6 +2043,7 @@ const generateStatus = computed(() => {
   }
   if (!i2vModels.value.length) return 'No image-to-video model is available right now. Scenes stay still.'
   if (!videoModel.value) return 'Pick an image-to-video model'
+  if (unsupportedVideoControls.value.length) return 'Update Story Studio to use the selected model’s new controls'
   if (!availableAspectRatios.value.includes(selectedAspectRatio.value)) return 'Choose an aspect ratio'
   if (!selectedResolutionVariants.value.length) return 'Choose a resolution'
   if (!canGenerate.value) return 'No approved missing clips are waiting for motion'
@@ -2186,7 +2188,7 @@ async function loadReview(options: { bustCache?: boolean } = {}) {
   }
 }
 
-function generationPayload(): Record<string, string | number | boolean> | null {
+function generationPayload(): Record<string, unknown> | null {
   if (isSketchDraw.value) return selectionReady.value ? { renderer: 'sketch_draw' } : null
   if (!videoModel.value || !selectionReady.value) return null
   // Only a switch this model publishes AND the operator actually chose travels. The `audio`
@@ -2196,6 +2198,9 @@ function generationPayload(): Record<string, string | number | boolean> | null {
     .filter(control => control.name === 'audio')
     .map(control => switchChoices.value[control.name])
     .find(value => typeof value === 'boolean')
+  const videoControls = Object.fromEntries(selectedVideoControls.value
+    .filter(control => control.name !== 'audio' && typeof switchChoices.value[control.name] === 'boolean')
+    .map(control => [control.name, switchChoices.value[control.name]]))
   return {
     model: videoModel.value,
     aspect_ratio: selectedAspectRatio.value,
@@ -2206,6 +2211,7 @@ function generationPayload(): Record<string, string | number | boolean> | null {
       ? { duration_seconds: selectedManualVariant.value.duration_seconds }
       : {}),
     ...(typeof chosenAudio === 'boolean' ? { audio: chosenAudio } : {}),
+    ...(Object.keys(videoControls).length ? { video_controls: videoControls } : {}),
   }
 }
 
@@ -2350,7 +2356,11 @@ async function setSceneLane(scene: MotionScene, lane: string) {
 async function setSceneFillMode(scene: MotionScene, fillMode: string) {
   const ep = episodeId.value
   if (!ep) return
-  const next = fillMode === 'chain' ? 'chain' : 'hold'
+  if (fillMode !== 'hold') {
+    showError('Video chaining is not available in this version. Choose Hold last frame.')
+    return
+  }
+  const next = 'hold'
   scene.fill_mode = next
   laneSavingId.value = scene.id
   try {

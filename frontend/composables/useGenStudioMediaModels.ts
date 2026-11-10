@@ -32,7 +32,7 @@ export interface GenStudioVoiceModelInfo extends PriceTruth {
  *  type, and the lane's own default and note, neither of which is ever coerced. */
 export interface GenStudioVideoControl {
   name: string
-  type: 'boolean'
+  type: string
   /** The lane's own default, or `null` when it stated none. */
   default: boolean | null
   /** The lane's own sentence, shown verbatim. `null` when it wrote none. */
