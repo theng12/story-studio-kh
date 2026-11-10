@@ -196,6 +196,11 @@ interface SceneClipGenerateParams {
   scene_durations?: Record<string, {
     duration_seconds: number
     narration_duration_seconds: number
+    /** The published row this scene was accepted at. Older jobs omit these and
+     * fall back to the job-level operation/resolution/aspect fields. */
+    operation?: string
+    resolution?: string
+    aspect_ratio?: string
   }>
   duration_mode?: 'manual' | 'follow_narration'
   /** Exact eligible IDs accepted for a new bulk motion request. */
@@ -593,27 +598,34 @@ export async function generateSceneClipJob(job: Job): Promise<void> {
   const story = await readSceneStoryContext(job.project_slug, episode_id)
   const clipPrompt = `${baseClipPrompt}${sceneStoryStateSuffix(scene_id, story).suffix}`
 
+  // The exact row this scene was accepted at. A batch writes one entry per scene, so a
+  // mixed image/text plan cannot inherit the first scene's operation or canvas; older jobs
+  // omit these and fall back to the job-level fields they were queued with.
+  const savedDuration = params.scene_durations?.[scene_id]
+  const savedOperation = typeof savedDuration?.operation === 'string' ? savedDuration.operation.trim() : ''
+  const savedResolution = typeof savedDuration?.resolution === 'string' ? savedDuration.resolution.trim() : ''
+  const savedAspect = typeof savedDuration?.aspect_ratio === 'string' ? savedDuration.aspect_ratio.trim() : ''
   // The ratio is resolved BEFORE the variant, because the variant is a *row* of the catalogue and
   // the ratio is part of which row this is. A queued job whose ratio and resolution are not one
   // published row is refused here, naming the rows that exist, rather than submitted and refused
   // by the lane — or worse, submitted and answered with a different shape.
-  const requestAspect = typeof params.aspect_ratio === 'string' ? params.aspect_ratio.trim() : ''
+  const requestAspect = savedAspect || (typeof params.aspect_ratio === 'string' ? params.aspect_ratio.trim() : '')
   if (!requestAspect) {
     throw new Error(`An aspect ratio is required for ${model}; The Gateway publishes no default aspect ratio for video models.`)
   }
 
   // Re-check the live catalog at execution time. A queued historical job may
   // outlive a route/catalog refresh, but it must never revive a direct route.
-  const savedDuration = params.scene_durations?.[scene_id]
   // The scene owns its operation. A T2V scene is always text-to-video, whatever a stale client
   // sent; every other scene keeps the image-to-video request it has always made.
-  const sceneOperation = isTextToVideo ? 'text-to-video' : (params.operation || STORY_STUDIO_VIDEO_MODE)
-  const requestedVariant = params.operation === undefined && params.duration_seconds === undefined && params.resolution === undefined
+  const sceneOperation = isTextToVideo ? 'text-to-video' : (savedOperation || params.operation || STORY_STUDIO_VIDEO_MODE)
+  const hasPerSceneVariant = !!(savedOperation || savedResolution || savedAspect)
+  const requestedVariant = !hasPerSceneVariant && params.operation === undefined && params.duration_seconds === undefined && params.resolution === undefined
     ? undefined
     : {
       operation: sceneOperation,
       duration_seconds: savedDuration?.duration_seconds ?? params.duration_seconds,
-      resolution: params.resolution,
+      resolution: savedResolution || params.resolution,
       aspect_ratio: requestAspect,
     }
   const { apiKey, modelId, model: catalogModel, variant } = await requireSceneClipGenStudioModel(model, requestedVariant)
@@ -1063,15 +1075,16 @@ export async function generateSceneClipsBatchJob(job: Job): Promise<void> {
       if (jq.isCancelled(job.job_id)) throw new Error('Cancelled by user')
       jq.throwIfPauseRequested(job.job_id)
       const scene = ready[index]!
+      const sceneDuration = params.scene_durations?.[scene.id]
       job.params = {
         ...job.params,
         episode_id,
         scene_id: scene.id,
         model,
-        aspect_ratio: params.aspect_ratio,
-        operation: params.operation,
-        duration_seconds: params.scene_durations?.[scene.id]?.duration_seconds ?? params.duration_seconds,
-        resolution: params.resolution,
+        aspect_ratio: sceneDuration?.aspect_ratio || params.aspect_ratio,
+        operation: sceneDuration?.operation || params.operation,
+        duration_seconds: sceneDuration?.duration_seconds ?? params.duration_seconds,
+        resolution: sceneDuration?.resolution || params.resolution,
         auto_approve_clip: true,
       }
       try {

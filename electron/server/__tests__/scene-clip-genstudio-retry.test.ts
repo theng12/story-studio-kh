@@ -267,7 +267,7 @@ test('a Follow narration batch preserves its hold mode for each child clip', () 
 
   assert.match(batch, /job\.params = \{\s*\.\.\.job\.params,/,
     'per-scene child params must retain duration_mode from the durable parent request')
-  assert.match(source, /params\.duration_mode === 'follow_narration'\s*\? \{ shortfall_mode: 'hold' as const \}/,
+  assert.match(source, /params\.duration_mode === 'follow_narration' \|\| scene\.fill_mode === 'hold'\s*\? \{ shortfall_mode: 'hold' as const \}/,
     'each Follow child must checkpoint final-frame hold for assembly')
 })
 

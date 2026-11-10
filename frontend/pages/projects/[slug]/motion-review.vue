@@ -1529,6 +1529,12 @@ const SILENT_CLIP_NOTICE =
   + 'The clip is not cheaper and not faster — this model denoises picture and sound together — it is '
   + 'simply silent, and the episode uses your narration either way.'
 
+function publishedSoundOff(controls: GenStudioVideoControl[] | null | undefined, choices: Record<string, boolean>): boolean {
+  return (controls || []).some(control => ['audio', 'generate_audio'].includes(control.name)
+    && control.type === 'boolean'
+    && (typeof choices[control.name] === 'boolean' ? choices[control.name] : control.default) === false)
+}
+
 const i2vModels = computed(() => {
   const discovered = genStudioVideoModels.value
     // Keep every published row visible; unsupported modes are refused at selection.
@@ -1555,11 +1561,13 @@ const i2vModels = computed(() => {
       // Only a published `true` is disclosed. `false` and `null` (GenStudio
       // said nothing) both say nothing here — a silent model needs no warning,
       // and an unpublished field is not evidence of one either way.
-      const generatesAudio = model.generates_audio === true
+      const selected = videoModel.value === `genstudio-video:${model.id}` || videoModel.value === model.id
+      const soundOff = publishedSoundOff(model.controls, selected ? switchChoices.value : {})
+      const generatesAudio = model.generates_audio === true && !soundOff
       // The same publication rule the switch itself uses: only a model that publishes the
       // control can have its sound turned off, so only those rows say so.
       const publishesAudioSwitch = Array.isArray(model.controls)
-        && model.controls.some(control => control?.name === 'audio' && control?.type === 'boolean')
+        && model.controls.some(control => ['audio', 'generate_audio'].includes(control?.name) && control?.type === 'boolean')
       return {
         id: `genstudio-video:${model.id}`,
         label: model.display_name,
@@ -1576,10 +1584,9 @@ const i2vModels = computed(() => {
             + 'Choose a resolution, then use one published length or match each scene to its narration.'
           : 'The Gateway publishes no priced length or resolution for this model, so Story Studio '
             + 'cannot generate a clip with it.')
-          + (generatesAudio ? ` ${GENERATED_AUDIO_DISCLOSURE}` : '')
+          + (soundOff ? ' Sound is off in the published sound control.' : generatesAudio ? ` ${GENERATED_AUDIO_DISCLOSURE}` : '')
           + (publishesAudioSwitch
-            ? ' You can write its clips without sound below; the price is the same, because it makes'
-              + ' picture and sound in one pass.'
+            ? ' You can change its published sound control below.'
             : ''),
         disabled: !!unavailableReason,
         disabledReason: unavailableReason || undefined,
@@ -1597,8 +1604,11 @@ const selectedVideoModelLimits = computed(() => i2vModels.value.find(model => mo
 const selectedVideoModelAudioNotice = computed(() => {
   if (selectedVideoModel.value?.generates_audio !== true) return ''
   // The switch, when the lane publishes one, decides which of the two true sentences applies.
-  const audioSwitch = selectedVideoControls.value.find(control => control.name === 'audio')
-  if (audioSwitch && !switchValue(audioSwitch)) return SILENT_CLIP_NOTICE
+  if (publishedSoundOff(selectedVideoControls.value, switchChoices.value)) {
+    return selectedVideoControls.value.some(control => control.name === 'audio')
+      ? SILENT_CLIP_NOTICE
+      : 'Sound is off in this model’s published sound control. Story will request a silent clip; the episode uses your narration.'
+  }
   return GENERATED_AUDIO_DISCLOSURE
 })
 const selectedVideoModel = computed(() => {
@@ -1790,7 +1800,8 @@ function selectLiveVideoModel(): void {
     videoModelNotice.value = VIDEO_MODEL_UNAVAILABLE_MESSAGE
   }
 }
-watch([i2vModels, mediaModelsLoaded], selectLiveVideoModel, { immediate: true })
+// Sound-choice menu updates must not re-run catalogue defaults or replace a cleared saved model.
+watch([genStudioVideoModels, mediaModelsLoaded], selectLiveVideoModel, { immediate: true })
 
 /**
  * Last of all, the app-wide default video model (Settings → Default models).
@@ -1815,7 +1826,7 @@ function fillAppDefaultVideoModel(): void {
   if (!option || option.disabled) return
   videoModel.value = option.id
 }
-watch(i2vModels, fillAppDefaultVideoModel, { immediate: true })
+watch(genStudioVideoModels, fillAppDefaultVideoModel, { immediate: true })
 
 function chooseResolution(event: Event): void {
   const requested = manualDurationSeconds.value

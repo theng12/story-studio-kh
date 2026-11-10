@@ -54,6 +54,9 @@ async function loadPage(): Promise<Component> {
   const componentUrl = `data:text/javascript;base64,${Buffer.from(
     out.code
       .replaceAll('"vue"', JSON.stringify(vueUrl))
+      .replace(/"@shared\/([\w-]+)"/g, (_match, name: string) => (
+        JSON.stringify(new URL(`../../electron/server/contracts/${name}.ts`, import.meta.url).href)
+      ))
       .replace(/"~\/utils\/([\w-]+)"/g, (_match, name: string) => (
         JSON.stringify(new URL(`../utils/${name}.ts`, import.meta.url).href)
       )),
@@ -70,7 +73,10 @@ const ModelMenuStub = defineComponent({
       'aria-label': 'Image-to-video model options',
       value: props.modelValue,
       onChange: (event: Event) => emit('update:modelValue', (event.target as HTMLSelectElement).value),
-    }, (props.options as any[]).map(option => h('option', { value: option.id, disabled: option.disabled }, option.label)))
+    }, (props.options as any[]).map(option => h('option', {
+      value: option.id, disabled: option.disabled,
+      title: [option.description, ...(option.badges || []).map((badge: any) => badge.label)].join(' '),
+    }, option.label)))
   },
 })
 const TopActionBarStub = defineComponent({
@@ -177,6 +183,36 @@ function switchInput(el: HTMLElement, name: string): HTMLInputElement | null {
 }
 
 describe('Motion Review audio switch', () => {
+  test('published generate_audio false stays silent in the notice, menu and submitted controls', async () => {
+    const mounted = await mount([model('published-sound-switch', [
+      { name: 'generate_audio', type: 'boolean', default: false, note: 'Generate a soundtrack' },
+    ])])
+    const control = switchInput(mounted.el, 'Generate_audio')!
+    assert.ok(control)
+    assert.equal(control.checked, false)
+    assert.match(mounted.text(), /Sound is off in this model’s published sound control/)
+    assert.doesNotMatch(mounted.text(), /This model also generates its own audio track/)
+    const option = mounted.el.querySelector<HTMLOptionElement>('select[aria-label="Image-to-video model options"] option')!
+    assert.match(option.title, /Sound is off/)
+    assert.doesNotMatch(option.title, /Generates audio|you are charged for it/)
+    control.click()
+    await settle()
+    assert.match(mounted.text(), /This model also generates its own audio track/)
+    control.click()
+    await settle()
+    mounted.preset().apply({ ...mounted.preset().snapshot(), switches: { generate_audio: false } })
+    const ratio = mounted.el.querySelector<HTMLSelectElement>('select[aria-label="Aspect ratio"]')!
+    ratio.value = '16:9'
+    ratio.dispatchEvent(new Event('change', { bubbles: true }))
+    mounted.el.querySelector<HTMLInputElement>('input[name="duration-mode"][value="follow_narration"]')!.click()
+    await settle()
+    mounted.el.querySelector<HTMLButtonElement>('button')!.click()
+    await settle()
+    assert.equal(mounted.calls.at(-1)?.body?.video_controls?.generate_audio, false)
+    assert.equal('audio' in mounted.calls.at(-1)!.body, false, 'the published field name is preserved')
+    mounted.destroy()
+  })
+
   test('a model publishing the switch shows it, with the lane\'s own note', async () => {
     const mounted = await mount([model('local-video', [
       { name: 'audio', type: 'boolean', default: true, note: AUDIO_NOTE },

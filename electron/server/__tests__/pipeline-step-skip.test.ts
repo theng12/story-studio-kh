@@ -191,6 +191,7 @@ async function seedProjectWithAcceptedIdea(
 
 function enableMockVideoCatalog(
   service: Awaited<ReturnType<typeof startMockGenStudioService>>,
+  controls?: Array<Record<string, unknown>>,
 ): () => void {
   const originalFetch = globalThis.fetch
   globalThis.fetch = async (input, init) => {
@@ -201,6 +202,7 @@ function enableMockVideoCatalog(
     return new Response(JSON.stringify(models.map(model => ({
       ...model,
       available: true,
+      ...(controls ? { controls } : {}),
       variants: [{
         operation: 'image-to-video',
         duration_seconds: 8, resolution: '1080p', credits_per_video: 90,
@@ -479,7 +481,11 @@ describe('run-batch — v1.0.363 audio-paced wiring', () => {
       assert.equal((await request(app).put('/api/app-settings/api-keys/genstudio').send({ apiKey: MOCK_GENSTUDIO_FULL_KEY })).status, 200)
       const { clearGenStudioCatalogCache } = await import('../lib/genstudio-client.js')
       clearGenStudioCatalogCache()
-      restoreVideoCatalog = enableMockVideoCatalog(service)
+      restoreVideoCatalog = enableMockVideoCatalog(service, [
+        { name: 'audio', type: 'boolean', default: true },
+        { name: 'enhance', type: 'boolean', default: true },
+        { name: 'generate_audio', type: 'boolean', default: true },
+      ])
 
       const legacy = await seedProjectWithAcceptedIdea()
       await pm.updateConfig(legacy.slug, {
@@ -498,6 +504,9 @@ describe('run-batch — v1.0.363 audio-paced wiring', () => {
       await pm.updateConfig(current.slug, {
         motion_review_presets: [{ id: 'mr-current', name: 'Current Motion', data: {
           model: 'mock-video-v1', aspect_ratio: '16:9', operation: 'image-to-video', duration_seconds: 8, resolution: '1080p',
+          // Motion Review saves every chosen switch by its published name. The explicit
+          // false must reach the job, or the lane's paid default sound would come back.
+          switches: { audio: false, enhance: false, generate_audio: false },
         } }],
         'motion_review_last_preset_motion-review': 'mr-current',
       } as any)
@@ -510,6 +519,42 @@ describe('run-batch — v1.0.363 audio-paced wiring', () => {
       assert.equal(job?.params.operation, 'image-to-video')
       assert.equal(job?.params.duration_seconds, 8)
       assert.equal(job?.params.resolution, '1080p')
+      assert.equal(job?.params.audio, false, 'the preset’s explicit silent choice is carried')
+      assert.deepEqual(job?.params.video_controls, { enhance: false, generate_audio: false },
+        'other published switches keep their name and explicit false')
+    } finally {
+      restoreVideoCatalog?.()
+      await service.close()
+    }
+  })
+
+  test('Motion Review Pipeline refuses an unpublished switch before enqueueing a job', async () => {
+    const service = await startMockGenStudioService()
+    let restoreVideoCatalog: (() => void) | undefined
+    try {
+      assert.equal((await request(app).put('/api/app-settings/genstudio').send({ url: service.baseUrl })).status, 200)
+      assert.equal((await request(app).put('/api/app-settings/api-keys/genstudio').send({ apiKey: MOCK_GENSTUDIO_FULL_KEY })).status, 200)
+      const { clearGenStudioCatalogCache } = await import('../lib/genstudio-client.js')
+      clearGenStudioCatalogCache()
+      restoreVideoCatalog = enableMockVideoCatalog(service, [{ name: 'enhance', type: 'boolean', default: true }])
+
+      const project = await seedProjectWithAcceptedIdea()
+      await pm.updateConfig(project.slug, {
+        motion_review_presets: [{ id: 'mr-bad-switch', name: 'Bad switch', data: {
+          model: 'mock-video-v1', aspect_ratio: '16:9', operation: 'image-to-video', duration_seconds: 8, resolution: '1080p',
+          // `seed` is not published by this row, so the preset cannot carry it onto the lane.
+          switches: { enhance: false, seed: false },
+        } }],
+        'motion_review_last_preset_motion-review': 'mr-bad-switch',
+      } as any)
+      const refused = await request(app)
+        .post(`/api/projects/${project.slug}/pipeline/run-batch`)
+        .send({ episode_ids: [project.episodeId], steps: ['motion_review'] })
+
+      assert.equal(refused.status, 400)
+      assert.match(refused.body.detail, /does not publish a supported seed control/)
+      const jq = await import('../services/job-queue.js')
+      assert.equal((await jq.getJobs(project.slug)).length, 0, 'nothing enters the queue')
     } finally {
       restoreVideoCatalog?.()
       await service.close()

@@ -16,7 +16,7 @@ import request from 'supertest'
 import sharp from 'sharp'
 import { useTempDataDir } from './_helpers.js'
 import { MOCK_GENSTUDIO_FULL_KEY, startMockGenStudioService } from './fixtures/mock-genstudio-service.js'
-import { fiveSecondVideoBytes } from './fixtures/tiny-video.js'
+import { fiveSecondVideoBytes, tinyVideoBytes, twoSecondVideoBytes } from './fixtures/tiny-video.js'
 
 const ONE_PIXEL_PNG = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLKSQAAAABJRU5ErkJggg==',
@@ -183,6 +183,7 @@ function withFirstStatusAssertion(
 function enableMockVideoCatalog(
   service: Awaited<ReturnType<typeof startMockGenStudioService>>,
   variants?: Array<Record<string, unknown>>,
+  controls?: Array<Record<string, unknown>>,
 ): () => void {
   const originalFetch = globalThis.fetch
   globalThis.fetch = async (input, init) => {
@@ -190,7 +191,12 @@ function enableMockVideoCatalog(
     const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url)
     if (url.origin !== service.baseUrl || !['/v1/video/models', '/v1/videos/models'].includes(url.pathname)) return response
     const models = await response.json() as Array<Record<string, unknown>>
-    return new Response(JSON.stringify(models.map(model => ({ ...model, available: true, ...(variants ? { variants } : {}) }))), {
+    return new Response(JSON.stringify(models.map(model => ({
+      ...model,
+      available: true,
+      ...(variants ? { variants } : {}),
+      ...(controls ? { controls } : {}),
+    }))), {
       status: response.status,
       headers: { 'Content-Type': 'application/json' },
     })
@@ -345,10 +351,172 @@ test('Follow narration resolves and saves each scene duration from the selected 
 
     assert.equal(response.body.params.duration_mode, 'follow_narration')
     assert.deepEqual(response.body.params.scene_durations, {
-      'scene-round-up': { duration_seconds: 5, narration_duration_seconds: 4.2 },
-      'scene-cap': { duration_seconds: 8, narration_duration_seconds: 12 },
+      'scene-round-up': {
+        duration_seconds: 5, narration_duration_seconds: 4.2,
+        operation: 'image-to-video', resolution: '720p',
+      },
+      'scene-cap': {
+        duration_seconds: 8, narration_duration_seconds: 12,
+        operation: 'image-to-video', resolution: '720p',
+      },
     })
     assert.equal(service.submissions.filter(entry => entry.operation === 'video').length, 0)
+  } finally {
+    restoreVideoCatalog?.()
+    const jq = await import('../services/job-queue.js')
+    await clearHeldFixtureJobs(jq, queuedJobId ? [queuedJobId] : [], wasQueuePaused)
+    await service.close()
+    await temp.cleanup()
+  }
+})
+
+test('a mixed text/image motion batch keeps each scene’s own published operation and row', async () => {
+  const temp = await useTempDataDir()
+  const service = await startMockGenStudioService()
+  let restoreVideoCatalog: (() => void) | undefined
+  let queuedJobId = ''
+  let wasQueuePaused = false
+  try {
+    const jq = await import('../services/job-queue.js')
+    wasQueuePaused = jq.isQueuePaused()
+    await jq.setQueuePaused(true)
+    await configureMockGenStudio(service.baseUrl)
+    restoreVideoCatalog = enableMockVideoCatalog(service, [
+      { operation: 'text-to-video', duration_seconds: 1, resolution: '480p', credits_per_video: 10, minimum_credits: 10, price_version: 'mock-mixed-v1' },
+      { operation: 'text-to-video', duration_seconds: 2, resolution: '480p', credits_per_video: 20, minimum_credits: 20, price_version: 'mock-mixed-v1' },
+      { operation: 'image-to-video', duration_seconds: 1, resolution: '480p', credits_per_video: 14, minimum_credits: 14, price_version: 'mock-mixed-v1' },
+      { operation: 'image-to-video', duration_seconds: 2, resolution: '480p', credits_per_video: 24, minimum_credits: 24, price_version: 'mock-mixed-v1' },
+    ], [{ name: 'audio', type: 'boolean', default: true }])
+    service.queueScenario('video', { videoArtifact: tinyVideoBytes() })
+    service.queueScenario('video', { videoArtifact: twoSecondVideoBytes() })
+    const app = (await import('../app.js')).app
+    const { project, episodeId, paths } = await createEpisode('Mixed text and image motion batch')
+    await fs.mkdir(paths.scene_prompts_dir, { recursive: true })
+    await fs.writeFile(path.join(paths.scene_prompts_dir, 'scene_plan.json'), JSON.stringify({
+      scenes: [
+        {
+          id: 'scene-text', scene_index: 1, start_sec: 0, end_sec: 0.7, motion_choice: 'clip',
+          visual_lane: 'text_to_video', video_prompt: 'The lantern flares and the room fills with light.',
+        },
+        {
+          id: 'scene-image', scene_index: 2, start_sec: 0.7, end_sec: 2.1, approved: true,
+          motion_choice: 'clip', motion_prompt: 'A slow push toward the open archive door.',
+        },
+      ],
+    }))
+    await fs.writeFile(path.join(paths.episode_dir, 'continuity.json'), JSON.stringify({
+      motion_scope: { mode: 'all' }, motion_level: 2,
+    }))
+    const { resolveSceneImagesDir } = await import('../generators/scene-image.js')
+    const imageDir = await resolveSceneImagesDir(project.slug, episodeId, paths.episode_dir)
+    await fs.mkdir(imageDir, { recursive: true })
+    await fs.writeFile(path.join(imageDir, 'scene-image.png'), ONE_PIXEL_PNG)
+
+    const response = await request(app)
+      .post(`/api/projects/${project.slug}/scene-review/${episodeId}/generate-clips-batch`)
+      .send({
+        model: 'mock-video-v1', duration_mode: 'follow_narration',
+        resolution: '480p', aspect_ratio: '16:9', audio: false,
+      })
+      .expect(201)
+    queuedJobId = response.body.job_id
+    // The first eligible scene is text-to-video. The image scene must not inherit its
+    // operation (nor the first scene's duration) from that shared job header.
+    assert.deepEqual(response.body.params.scene_durations, {
+      'scene-text': {
+        duration_seconds: 1, narration_duration_seconds: 0.7,
+        operation: 'text-to-video', resolution: '480p',
+      },
+      'scene-image': {
+        duration_seconds: 2, narration_duration_seconds: 2.1 - 0.7,
+        operation: 'image-to-video', resolution: '480p',
+      },
+    })
+    assert.equal(response.body.params.audio, false)
+
+    const { generateSceneClipsBatchJob } = await import('../generators/scene-clip.js')
+    await generateSceneClipsBatchJob(jq.getJob(queuedJobId)!)
+    const submitted = service.submissions.filter(entry => entry.operation === 'video' && !entry.replay)
+    assert.deepEqual(submitted.map(entry => ({
+      mode: entry.parsedBody?.mode,
+      duration: entry.parsedBody?.duration_seconds,
+      resolution: entry.parsedBody?.resolution,
+      audio: entry.parsedBody?.audio,
+    })), [
+      { mode: 'text-to-video', duration: 1, resolution: '480p', audio: false },
+      { mode: 'image-to-video', duration: 2, resolution: '480p', audio: false },
+    ])
+    const saved = JSON.parse(await fs.readFile(path.join(paths.scene_prompts_dir, 'scene_plan.json'), 'utf8'))
+    assert.deepEqual(saved.scenes.map((scene: any) => [scene.id, scene.clip_shortfall_mode]), [
+      ['scene-text', 'hold'], ['scene-image', 'hold'],
+    ], 'both generated children preserve final-frame hold for assembly')
+  } finally {
+    restoreVideoCatalog?.()
+    const jq = await import('../services/job-queue.js')
+    await clearHeldFixtureJobs(jq, queuedJobId ? [queuedJobId] : [], wasQueuePaused)
+    await service.close()
+    await temp.cleanup()
+  }
+})
+
+test('a manual mixed motion batch admits the image scene on its own operation, not the requested T2V one', async () => {
+  const temp = await useTempDataDir()
+  const service = await startMockGenStudioService()
+  let restoreVideoCatalog: (() => void) | undefined
+  let queuedJobId = ''
+  let wasQueuePaused = false
+  try {
+    const jq = await import('../services/job-queue.js')
+    wasQueuePaused = jq.isQueuePaused()
+    await jq.setQueuePaused(true)
+    await configureMockGenStudio(service.baseUrl)
+    restoreVideoCatalog = enableMockVideoCatalog(service, [
+      { operation: 'text-to-video', duration_seconds: 2, resolution: '480p', aspect_ratio: '16:9', credits_per_video: 20, minimum_credits: 20, price_version: 'mock-manual-mixed-v1' },
+      { operation: 'image-to-video', duration_seconds: 2, resolution: '480p', aspect_ratio: '16:9', credits_per_video: 24, minimum_credits: 24, price_version: 'mock-manual-mixed-v1' },
+    ])
+    const app = (await import('../app.js')).app
+    const { project, episodeId, paths } = await createEpisode('Manual mixed text and image motion batch')
+    await fs.mkdir(paths.scene_prompts_dir, { recursive: true })
+    await fs.writeFile(path.join(paths.scene_prompts_dir, 'scene_plan.json'), JSON.stringify({
+      scenes: [
+        {
+          id: 'scene-text', scene_index: 1, start_sec: 0, end_sec: 0.7, motion_choice: 'clip',
+          visual_lane: 'text_to_video', video_prompt: 'The lantern flares and the room fills with light.',
+        },
+        {
+          id: 'scene-image', scene_index: 2, start_sec: 0.7, end_sec: 2.1, approved: true,
+          motion_choice: 'clip', motion_prompt: 'A slow push toward the open archive door.',
+        },
+      ],
+    }))
+    await fs.writeFile(path.join(paths.episode_dir, 'continuity.json'), JSON.stringify({
+      motion_scope: { mode: 'all' }, motion_level: 2,
+    }))
+    const { resolveSceneImagesDir } = await import('../generators/scene-image.js')
+    const imageDir = await resolveSceneImagesDir(project.slug, episodeId, paths.episode_dir)
+    await fs.mkdir(imageDir, { recursive: true })
+    await fs.writeFile(path.join(imageDir, 'scene-image.png'), ONE_PIXEL_PNG)
+
+    const response = await request(app)
+      .post(`/api/projects/${project.slug}/scene-review/${episodeId}/generate-clips-batch`)
+      .send({
+        model: 'mock-video-v1', duration_mode: 'manual', operation: 'text-to-video',
+        duration_seconds: 2, resolution: '480p', aspect_ratio: '16:9',
+      })
+      .expect(201)
+    queuedJobId = response.body.job_id
+    // The request names T2V, but the image scene has no image-to-video row under that
+    // operation: admission must keep the image scene on its own published I2V row.
+    assert.deepEqual(response.body.params.scene_durations, {
+      'scene-text': {
+        duration_seconds: 2, narration_duration_seconds: 0.7,
+        operation: 'text-to-video', resolution: '480p', aspect_ratio: '16:9',
+      },
+      'scene-image': {
+        duration_seconds: 2, narration_duration_seconds: 2.1 - 0.7,
+        operation: 'image-to-video', resolution: '480p', aspect_ratio: '16:9',
+      },
+    })
   } finally {
     restoreVideoCatalog?.()
     const jq = await import('../services/job-queue.js')

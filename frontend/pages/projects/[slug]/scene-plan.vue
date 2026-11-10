@@ -1113,11 +1113,12 @@
                 :value="scene.fill_mode || 'hold'"
                 class="input input-xs"
                 :disabled="planBusy"
-                @change="updateSceneFillMode(scene, ($event.target as HTMLSelectElement).value)"
+                @change="updateSceneFillMode(scene, $event.target as HTMLSelectElement)"
               >
                 <option value="hold">Freeze last frame</option>
-                <option value="chain">Chain clips</option>
+                <option value="chain" disabled>Chain clips — unavailable</option>
               </select>
+              <span class="text-xs text-muted">Chaining is unavailable. Holding the last frame generates no extra clips.</span>
             </div>
             <div class="scene-row-actions mt-1">
               <NuxtLink
@@ -3151,17 +3152,25 @@ async function updateSceneKeyMoment(scene: ScenePlanEntry, checked: boolean): Pr
   }
 }
 
-async function updateSceneFillMode(scene: ScenePlanEntry, fillMode: string): Promise<void> {
+async function updateSceneFillMode(scene: ScenePlanEntry, select: HTMLSelectElement): Promise<void> {
   const ep = episodeId.value
+  const fillMode = select.value
+  select.value = scene.fill_mode || 'hold'
   if (!ep) return
-  scene.fill_mode = fillMode as any
+  if (fillMode !== 'hold') {
+    showError('Video chaining is unavailable. Choose Freeze last frame; no extra clips will be generated.')
+    return
+  }
   try {
     await post(`/projects/${slug.value}/scene-plan/${ep}/set-fill-mode`, {
       scene_id: scene.id,
       fill_mode: fillMode,
     })
+    if (episodeId.value === ep) scene.fill_mode = 'hold'
   } catch (e: any) {
     showError(e?.data?.detail || e?.message || 'Failed to update fill mode')
+  } finally {
+    if (episodeId.value === ep) select.value = scene.fill_mode || 'hold'
   }
 }
 

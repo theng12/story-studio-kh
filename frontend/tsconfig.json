@@ -8,6 +8,7 @@
       "@shared/contextual-cue-position": ["../electron/server/contracts/contextual-cue-position.ts"],
       "@shared/provider-task-state": ["../electron/server/contracts/provider-task-state.ts"],
       "@shared/motion-scope": ["../electron/server/contracts/motion-scope.ts"],
+      "@shared/video-capabilities": ["../electron/server/contracts/video-capabilities.ts"],
       "@shared/pacing": ["../electron/server/contracts/pacing.ts"],
       "@shared/project-labels": ["../electron/server/contracts/project-labels.ts"],
       "@shared/project-slug": ["../electron/server/contracts/project-slug.ts"],

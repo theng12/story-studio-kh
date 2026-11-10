@@ -43,6 +43,7 @@ import {
   requireSceneClipGenStudioCatalogModel,
   requireSceneClipGenStudioModel,
   resolveVideoAssetsDir,
+  selectSceneClipGenStudioVariant,
   selectSceneClipNarrationVariant,
 } from '../generators/scene-clip.js'
 import { publishedVideoControls, STORY_STUDIO_VIDEO_MODE, type GenStudioVideoControl } from '../lib/genstudio-client.js'
@@ -132,7 +133,15 @@ function requestedSceneClipVariant(body: Record<string, unknown>): SceneClipVari
 }
 
 type SceneClipDurationMode = 'manual' | 'follow_narration'
-type SceneClipDurations = Record<string, { duration_seconds: number; narration_duration_seconds: number }>
+type SceneClipDurations = Record<string, {
+  duration_seconds: number
+  narration_duration_seconds: number
+  /** Exact published row this scene was accepted at. A mixed image/text plan
+   * therefore keeps each scene's own operation, resolution and canvas. */
+  operation: string
+  resolution: string
+  aspect_ratio?: string
+}>
 
 /**
  * The published `audio` switch for a queued clip, or `undefined` when the request set none.
@@ -178,13 +187,17 @@ function narrationDurationSeconds(scene: ScenePlanEntry): number {
 
 function sceneClipDurations(
   scenes: readonly ScenePlanEntry[],
-  durationForNarration: (narrationDuration: number, scene: ScenePlanEntry) => number,
+  variantForNarration: (narrationDuration: number, scene: ScenePlanEntry) => SceneClipVariantSelection,
 ): SceneClipDurations {
   return Object.fromEntries(scenes.map(scene => {
     const narration_duration_seconds = narrationDurationSeconds(scene)
+    const variant = variantForNarration(narration_duration_seconds, scene)
     return [scene.id, {
-      duration_seconds: durationForNarration(narration_duration_seconds, scene),
+      duration_seconds: variant.duration_seconds,
       narration_duration_seconds,
+      operation: variant.operation,
+      resolution: variant.resolution,
+      ...(variant.aspect_ratio ? { aspect_ratio: variant.aspect_ratio } : {}),
     }]
   }))
 }
@@ -1500,7 +1513,7 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-clip', async (req,
       variant = followVariant
       audio = requestedSceneClipAudio(body, selected.model)
       videoControls = videoRequestControls(selected.model.controls, body.video_controls)
-      sceneDurations = sceneClipDurations([scene], narration => selectSceneClipNarrationVariant(selected.model.variants, resolution, narration, body.aspect_ratio, sceneOperation).duration_seconds)
+      sceneDurations = sceneClipDurations([scene], () => followVariant)
     } else {
       const selected = await requireSceneClipGenStudioModel(model, requestedVariant)
       modelId = selected.modelId
@@ -1508,7 +1521,7 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-clip', async (req,
       audio = requestedSceneClipAudio(body, selected.model)
       videoControls = videoRequestControls(selected.model.controls, body.video_controls)
       const scene = plan.scenes.find(item => item.id === sceneId)
-      if (scene) sceneDurations = sceneClipDurations([scene], () => variant.duration_seconds)
+      if (scene) sceneDurations = sceneClipDurations([scene], () => variant)
     }
     if (jq.isDuplicate(slug, episodeId, 'scene_clip_generate' as JobType, (p: any) => p?.scene_id === sceneId)) {
       return res.status(409).json({ detail: `Scene ${sceneId} clip already generating` })
@@ -1571,12 +1584,11 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-clips-batch', asyn
       const resolution = typeof body.resolution === 'string' ? body.resolution.trim() : ''
       if (!resolution) return res.status(400).json({ detail: 'resolution is required when following narration' })
       const selected = await requireSceneClipGenStudioCatalogModel(model)
-      sceneDurations = sceneClipDurations(eligible, (narration, scene) => selectSceneClipNarrationVariant(selected.model.variants, resolution, narration, body.aspect_ratio, scene.visual_lane === 'text_to_video' ? 'text-to-video' : STORY_STUDIO_VIDEO_MODE).duration_seconds)
+      sceneDurations = sceneClipDurations(eligible, (narration, scene) => selectSceneClipNarrationVariant(selected.model.variants, resolution, narration, body.aspect_ratio, scene.visual_lane === 'text_to_video' ? 'text-to-video' : STORY_STUDIO_VIDEO_MODE))
       const first = Object.values(sceneDurations)[0]
       if (!first) return res.status(400).json({ detail: 'No scenes are available to follow narration' })
-      const followVariant = selectSceneClipNarrationVariant(selected.model.variants, resolution, first.narration_duration_seconds, body.aspect_ratio, eligible[0]!.visual_lane === 'text_to_video' ? 'text-to-video' : STORY_STUDIO_VIDEO_MODE)
       modelId = selected.modelId
-      variant = followVariant
+      variant = first
       audio = requestedSceneClipAudio(body, selected.model)
       videoControls = videoRequestControls(selected.model.controls, body.video_controls)
     } else {
@@ -1585,7 +1597,12 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-clips-batch', asyn
       variant = selected.variant
       audio = requestedSceneClipAudio(body, selected.model)
       videoControls = videoRequestControls(selected.model.controls, body.video_controls)
-      sceneDurations = sceneClipDurations(eligible, () => variant.duration_seconds)
+      sceneDurations = sceneClipDurations(eligible, (_narration, scene) => selectSceneClipGenStudioVariant(selected.model.variants, {
+        operation: scene.visual_lane === 'text_to_video' ? 'text-to-video' : STORY_STUDIO_VIDEO_MODE,
+        duration_seconds: variant.duration_seconds,
+        resolution: variant.resolution,
+        aspect_ratio: typeof body.aspect_ratio === 'string' ? body.aspect_ratio : variant.aspect_ratio,
+      }))
     }
     const job = await jq.enqueue({
       project_slug: slug,
@@ -1692,7 +1709,7 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-missing-clips', as
       const selectedVariant = durationMode === 'follow_narration'
         ? selectSceneClipNarrationVariant(followVariants, followResolution, narrationDurationSeconds(s), body.aspect_ratio, s.visual_lane === 'text_to_video' ? 'text-to-video' : STORY_STUDIO_VIDEO_MODE)
         : variant!
-      const durations = sceneClipDurations([s], () => selectedVariant.duration_seconds)
+      const durations = sceneClipDurations([s], () => selectedVariant)
       await jq.enqueue({
         project_slug: slug,
         type: 'scene_clip_generate' as JobType,

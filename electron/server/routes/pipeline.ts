@@ -57,6 +57,7 @@ import {
 } from '../lib/disk.js'
 import { getApiKey } from '../services/app-secrets-store.js'
 import { listImageModels, listTranscriptionModels, publishedVideoControls } from '../lib/genstudio-client.js'
+import { videoRequestControls } from '../lib/video-request-controls.js'
 import { resolveTranscriptionLanguage } from '../generators/subtitles.js'
 import { requireSceneClipGenStudioModel } from '../generators/scene-clip.js'
 import { resolveGenStudioModelId, unavailableLegacyModelMessage, unavailableTranscriptionModelMessage } from '../services/genstudio-model-migration.js'
@@ -1821,7 +1822,7 @@ async function resolvePipelineTranscriptionParams(
  * their executor-only fallback; presets must be re-saved instead. */
 async function resolvePipelineMotionParams(
   preset: StoredPreset,
-): Promise<{ model: string; operation: string; duration_seconds: number; resolution: string; audio?: boolean }> {
+): Promise<{ model: string; operation: string; duration_seconds: number; resolution: string; audio?: boolean; video_controls?: Record<string, boolean> }> {
   const params = resolveStepParams('motion_review', '', '', preset)
   const model = (typeof params.model === 'string' ? params.model.trim() : '')
     // Last of all, this Mac's app-wide default video model (Settings → Default models).
@@ -1839,18 +1840,30 @@ async function resolvePipelineMotionParams(
     // lane would ignore it, and the batch would report a silent clip nobody asked for. A
     // non-boolean is refused rather than coerced: `"false"` is a string, not a request.
     const saved = (preset?.data ?? preset) as Record<string, any>
-    const publishesAudio = publishedVideoControls(resolved.model.controls)
-      .some(control => control.name === 'audio')
-    if (saved.audio !== undefined && typeof saved.audio !== 'boolean') {
+    const published = publishedVideoControls(resolved.model.controls)
+    const publishesAudio = published.some(control => control.name === 'audio')
+    // Motion Review saves the operator's switches by published name. Read that map first; a
+    // preset saved before it existed still carries the flat `audio` field.
+    const savedSwitches = saved.switches
+    if (savedSwitches !== undefined && (!savedSwitches || typeof savedSwitches !== 'object' || Array.isArray(savedSwitches))) {
+      throw new Error('The saved Motion Review preset has invalid switches. Open Motion Review and save the preset again.')
+    }
+    const switches: Record<string, unknown> = { ...(savedSwitches || {}) }
+    const audio = switches.audio !== undefined ? switches.audio : saved.audio
+    if (audio !== undefined && typeof audio !== 'boolean') {
       throw new Error('The saved Motion Review preset has a non-boolean audio setting. Open Motion Review and save the preset again.')
     }
-    const audio = publishesAudio && typeof saved.audio === 'boolean' ? saved.audio : undefined
+    delete switches.audio
+    // Refuses a name this model does not publish and preserves an explicit false, so one
+    // model's switch cannot carry onto another and a silent clip is not quietly made audible.
+    const videoControls = videoRequestControls(published, Object.keys(switches).length ? switches : undefined)
     return {
       model: `genstudio-video:${resolved.modelId}`,
       operation: resolved.variant.operation,
       duration_seconds: resolved.variant.duration_seconds,
       resolution: resolved.variant.resolution,
-      ...(typeof audio === 'boolean' ? { audio } : {}),
+      ...(publishesAudio && typeof audio === 'boolean' ? { audio } : {}),
+      ...(Object.keys(videoControls).length ? { video_controls: videoControls } : {}),
     }
   } catch (error: unknown) {
     const detail = error instanceof Error ? error.message : 'The selected Motion Review variant is unavailable.'
@@ -2711,7 +2724,7 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
     }
   }
 
-  let pipelineMotionParams: { model: string; operation: string; duration_seconds: number; resolution: string; audio?: boolean } | null = null
+  let pipelineMotionParams: { model: string; operation: string; duration_seconds: number; resolution: string; audio?: boolean; video_controls?: Record<string, boolean> } | null = null
   if (presetByStep.motion_review) {
     const motionData = (presetByStep.motion_review.data ?? presetByStep.motion_review) as Record<string, any>
     if (motionData?.renderer !== 'sketch_draw') {
