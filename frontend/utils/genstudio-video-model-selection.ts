@@ -1,6 +1,7 @@
 import { selectLiveGenStudioModel, type LiveGenStudioModel } from './live-genstudio-model-selection.js'
+import { videoCapabilityRefusal, type PublishedVideoCapabilities } from '../../electron/server/contracts/video-capabilities.js'
 
-interface LiveVideoModel extends LiveGenStudioModel {
+interface LiveVideoModel extends LiveGenStudioModel, PublishedVideoCapabilities {
   modes: readonly string[]
   variants: readonly unknown[]
 }
@@ -14,7 +15,7 @@ export function selectLiveImageToVideoModel<T extends LiveVideoModel>(
     .filter(model => model.modes.some(m => ['image-to-video', 'text-to-video'].includes(m)))
     .map(model => ({
       ...model,
-      available: model.available && model.variants.length > 0,
+      available: model.available && !videoCapabilityRefusal(model) && model.variants.length > 0,
     }))
   return selectLiveGenStudioModel(savedModelId, candidates)
 }

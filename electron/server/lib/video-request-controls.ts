@@ -2,7 +2,9 @@
 // shortcut: extra controls support booleans; add other types when their Gateway request contract is confirmed.
 const RESERVED = new Set([
   'prompt', 'model', 'model_id', 'mode', 'operation', 'aspect_ratio', 'resolution',
-  'duration_seconds', 'reference_asset_id', 'reference_images', 'job_group',
+  'duration_seconds', 'duration', 'durationSec', 'aspectRatio', 'videoMode',
+  'output_count', 'outputCount', 'n', 'reference_asset_ids', 'end_image_asset_id',
+  'reference_asset_id', 'reference_images', 'job_group',
   'job_group_id', 'provider', 'audio', 'api_key', '__proto__', 'constructor', 'prototype',
 ])
 

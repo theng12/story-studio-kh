@@ -1,3 +1,4 @@
+import type { PublishedVideoCapabilities } from '@shared/video-capabilities'
 import type { PriceTruth } from '../utils/genstudio-price-usd.js'
 import type { GenStudioCostTier } from '../utils/genstudio-cost-tier.js'
 import { GENSTUDIO_CATALOG_STALE_CEILING_MS } from './useGenStudioCatalogCache.js'
@@ -39,7 +40,7 @@ export interface GenStudioVideoControl {
   note: string | null
 }
 
-export interface GenStudioVideoModelInfo extends PriceTruth {
+export interface GenStudioVideoModelInfo extends PriceTruth, PublishedVideoCapabilities {
   id: string
   display_name: string
   description?: string

@@ -26,6 +26,17 @@ const models = [
   },
 ]
 
+test('published update-required and multiple-output-only rows cannot become an automatic or saved purchase', () => {
+  const unavailable = [
+    { ...models[1]!, id: 'needs-mapping', support_status: 'update_required' },
+    { ...models[1]!, id: 'two-outputs', output_counts: [2] },
+    { ...models[1]!, id: 'reference-only', modes: ['reference-to-video'] },
+  ]
+  assert.equal(selectLiveImageToVideoModel('', unavailable), null)
+  for (const row of unavailable) assert.equal(selectLiveImageToVideoModel(row.id, unavailable), null)
+  assert.equal(selectLiveImageToVideoModel('', [...unavailable, models[2]!])?.id, 'premium-usable')
+})
+
 test('empty Motion selection skips an Economy row with no priced variant', () => {
   assert.equal(selectLiveImageToVideoModel('', models)?.id, 'economy-usable')
 })

@@ -63,6 +63,7 @@ const ModelMenuStub = defineComponent({
     }, (props.options as any[]).map(option => h('option', {
       value: option.id,
       disabled: option.disabled,
+      title: [option.meta, option.disabledReason].filter(Boolean).join('. '),
     }, option.label)))
   },
 })
@@ -314,6 +315,43 @@ describe('Motion Review duration controls', () => {
     mounted.el.querySelector<HTMLButtonElement>('button')!.click()
     await settle()
     assert.equal(mounted.calls.length, 1, 'a newly unsupported capability cannot enqueue a second purchase')
+    mounted.destroy()
+  })
+
+  test('keeps bounded browser and unknown rows visible without inventing runnable variants', async () => {
+    const rows = [4, 8, 3, 10].map((seconds, index) => ({
+      ...model(`opaque-${index}`, []), modes: [index < 2 ? 'text-to-video' : 'reference-to-video'],
+      duration_seconds: { min: seconds, max: seconds, step: 1, default: seconds },
+      output_counts: [1], resolutions: [], support_status: 'bounded',
+      resolution_status: 'update_required', pricing_status: 'unknown',
+    }))
+    const reason = 'Model listed; no verified video transport mapping. Update required.'
+    const mounted = await mount({ models: [...rows, {
+      ...model('new-opaque-model', [], false), modes: ['reference-to-video'], locked: true,
+      support_status: 'update_required', support_reason: reason, lock_reason: reason,
+      duration_seconds: null, aspect_ratios: [], output_counts: [],
+    }] })
+    const menu = mounted.el.querySelector<HTMLSelectElement>('select[aria-label="Image-to-video model options"]')!
+    assert.equal(menu.options.length, 5)
+    assert.ok(Array.from(menu.options).every(option => option.disabled))
+    for (const [index, seconds] of [4, 8, 3, 10].entries()) {
+      assert.match(menu.options[index]!.title, new RegExp(`${seconds}s only`))
+      assert.match(menu.options[index]!.title, /Outputs per request: 1.*Resolution not verified.*Price unknown/)
+    }
+    assert.match(menu.options[4]!.title, /no verified video transport mapping/)
+    // An old preset can still name a now-disabled row; it must remain visible and refuse.
+    change(menu, 'genstudio-video:opaque-2')
+    await settle()
+    assert.match(mounted.text(), /3s only/)
+    assert.match(mounted.text(), /reference-to-video.*Update required/)
+    assert.equal(mounted.el.querySelector<HTMLButtonElement>('button')!.disabled, true)
+    mounted.el.querySelector<HTMLButtonElement>('button')!.click()
+    await settle()
+    assert.equal(mounted.calls.length, 0)
+    change(menu, 'genstudio-video:new-opaque-model')
+    await settle()
+    assert.match(mounted.text(), /no verified video transport mapping/)
+    assert.equal(mounted.calls.length, 0)
     mounted.destroy()
   })
 

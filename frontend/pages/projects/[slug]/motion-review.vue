@@ -318,7 +318,7 @@
         <div class="motion-tools" :class="{ 'sketch-tools': isSketchDraw }">
           <template v-if="!isSketchDraw">
           <label class="model-field">
-            <span>Image-to-video model</span>
+            <span>Video model</span>
             <ModelMenu
               v-model="videoModel"
               :options="i2vModels"
@@ -335,6 +335,8 @@
             <span v-if="videoModelNotice" class="model-unavailable-notice" role="alert">
               {{ videoModelNotice }}
             </span>
+            <span v-if="selectedVideoModelUnavailableReason" class="model-unavailable-notice" role="alert">{{ selectedVideoModelUnavailableReason }}</span>
+            <span v-if="selectedVideoModelLimits" class="model-audio-notice">{{ selectedVideoModelLimits }}</span>
             <span v-if="selectedVideoModelAudioNotice" class="model-audio-notice">
               {{ selectedVideoModelAudioNotice }}
             </span>
@@ -624,6 +626,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { DEFAULT_MOTION_SCOPE } from '@shared/motion-scope'
 import { selectLiveImageToVideoModel } from '~/utils/genstudio-video-model-selection'
+import { videoCapabilityRefusal } from '@shared/video-capabilities'
 import { genStudioModelLockReason } from '~/utils/live-genstudio-model-selection'
 import { describeVideoModelRate, formatCredits } from '~/utils/genstudio-credit-cost'
 import { formatUsd, hasPriceTruth } from '~/utils/genstudio-price-usd'
@@ -1528,15 +1531,27 @@ const SILENT_CLIP_NOTICE =
 
 const i2vModels = computed(() => {
   const discovered = genStudioVideoModels.value
-    // Story Studio submits image-to-video only. The catalogue carries every
-    // published mode; the restriction is applied here, at the picker.
-    .filter(model => model.modes.includes(STORY_STUDIO_VIDEO_OPERATION))
+    // Keep every published row visible; unsupported modes are refused at selection.
     .map((model) => {
       const variants = variantsForVideoOperation(model.variants, STORY_STUDIO_VIDEO_OPERATION)
       const variant = cheapestVariant(variants)
       const rate = describeVideoModelRate({ ...model, variants })
       // An enforced limit has to be visible at the point of choosing.
-      const noVariant = 'No published length or resolution'
+      const duration = model.duration_seconds
+      const limits = [
+        ...(duration ? [duration.min === duration.max ? `${duration.min}s only`
+          : `${duration.min}–${duration.max}s in ${duration.step}s steps`] : []),
+        ...(model.aspect_ratios.length ? [`Aspect: ${model.aspect_ratios.join(', ')}`] : []),
+        ...(model.output_counts?.length ? [`Outputs per request: ${model.output_counts.join(', ')}`] : []),
+        ...(model.resolution_status === 'update_required' ? ['Resolution not verified'] : []),
+        ...(model.pricing_status === 'unknown' ? ['Price unknown'] : []),
+      ].join(' · ')
+      const noVariant = limits || 'No published length or resolution'
+      const unavailableReason = videoCapabilityRefusal(model) || genStudioModelLockReason(model)
+        || (!model.available ? model.activation_blockers?.join(' ') || 'This video model is not currently available.' : '')
+        || (!model.modes.includes(STORY_STUDIO_VIDEO_OPERATION)
+          ? `Story Studio cannot submit this model’s published modes: ${model.modes.join(', ') || 'none'}. Update required.` : '')
+        || (!variant ? 'The Gateway publishes no priced length or resolution for this model.' : '')
       // Only a published `true` is disclosed. `false` and `null` (GenStudio
       // said nothing) both say nothing here — a silent model needs no warning,
       // and an unpublished field is not evidence of one either way.
@@ -1554,7 +1569,7 @@ const i2vModels = computed(() => {
         price: rate.text,
         priceTitle: rate.title,
         meta: variant
-          ? `${variant.duration_seconds}s at ${variant.resolution}${hasPriceTruth(model) ? '' : ` — ${variant.credits_per_video} credits`}`
+          ? `${variant.duration_seconds}s at ${variant.resolution}${hasPriceTruth(model) ? '' : ` — ${variant.credits_per_video} credits`}${limits ? ` · ${limits}` : ''}`
           : noVariant,
         description: (variant
           ? `The cheapest published option is selected first (${variant.duration_seconds}s at ${variant.resolution}). `
@@ -1566,17 +1581,16 @@ const i2vModels = computed(() => {
             ? ' You can write its clips without sound below; the price is the same, because it makes'
               + ' picture and sound in one pass.'
             : ''),
-        disabled: !model.available || model.locked === true || !variant,
-        disabledReason: genStudioModelLockReason(model) || (!model.available
-          ? 'This video model is not currently available.'
-          : !variant
-            ? 'The Gateway publishes no priced length or resolution for this model.'
-            : undefined),
+        disabled: !!unavailableReason,
+        disabledReason: unavailableReason || undefined,
         badges: generatesAudio ? [{ label: 'Generates audio', tone: 'warning' as const }] : [],
               }
     })
   return discovered
 })
+
+const selectedVideoModelUnavailableReason = computed(() => i2vModels.value.find(model => model.id === videoModel.value)?.disabledReason || '')
+const selectedVideoModelLimits = computed(() => i2vModels.value.find(model => model.id === videoModel.value)?.meta || '')
 
 /** The selected model's audio disclosure, or empty when there is nothing to
  *  disclose. Re-derived from the live catalogue on every model change. */
@@ -2044,6 +2058,8 @@ const generateStatus = computed(() => {
   if (!i2vModels.value.length) return 'No image-to-video model is available right now. Scenes stay still.'
   if (!videoModel.value) return 'Pick an image-to-video model'
   if (unsupportedVideoControls.value.length) return 'Update Story Studio to use the selected model’s new controls'
+  const unavailableReason = i2vModels.value.find(model => model.id === videoModel.value)?.disabledReason
+  if (unavailableReason) return unavailableReason
   if (!availableAspectRatios.value.includes(selectedAspectRatio.value)) return 'Choose an aspect ratio'
   if (!selectedResolutionVariants.value.length) return 'Choose a resolution'
   if (!canGenerate.value) return 'No approved missing clips are waiting for motion'

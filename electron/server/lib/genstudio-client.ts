@@ -1,4 +1,5 @@
 import { videoControlIdentity } from './video-request-controls.js'
+import { publishedVideoCapabilities, videoCapabilityRefusal, type PublishedVideoCapabilities } from '../contracts/video-capabilities.js'
 /**
  * GenStudio KH client boundary for Story Studio.
  *
@@ -2222,7 +2223,7 @@ export interface GenStudioVideoVariant {
   price_version: string
 }
 
-export interface GenStudioVideoModel extends GenStudioCatalogLock, GenStudioPriceTruth, GenStudioProductAliases {
+export interface GenStudioVideoModel extends GenStudioCatalogLock, GenStudioPriceTruth, GenStudioProductAliases, PublishedVideoCapabilities {
   id: string
   display_name: string
   description?: string
@@ -5951,7 +5952,8 @@ async function loadVideoModelsSnapshot(
     provider_name: typeof value?.provider_name === 'string' && value.provider_name.trim()
       ? value.provider_name.trim()
       : undefined,
-    available: value?.available === true,
+    available: value?.available === true && !videoCapabilityRefusal(publishedVideoCapabilities(value)),
+    ...publishedVideoCapabilities(value),
     ...parseGenStudioCatalogLock(value),
     ...parseGenStudioPriceTruth(value),
     ...parseGenStudioChargeable(value),
