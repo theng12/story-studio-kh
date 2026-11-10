@@ -34,7 +34,7 @@ test('published update-required and multiple-output-only rows cannot become an a
   ]
   assert.equal(selectLiveImageToVideoModel('', unavailable), null)
   for (const row of unavailable) assert.equal(selectLiveImageToVideoModel(row.id, unavailable), null)
-  assert.equal(selectLiveImageToVideoModel('', [...unavailable, models[2]!])?.id, 'premium-usable')
+  assert.equal(selectLiveImageToVideoModel('', [...unavailable, models[1]!])?.id, 'economy-usable')
 })
 
 test('empty Motion selection skips an Economy row with no priced variant', () => {
