@@ -41,6 +41,9 @@ async function loadPage(): Promise<Component> {
   const componentUrl = `data:text/javascript;base64,${Buffer.from(
     out.code
       .replaceAll('"vue"', JSON.stringify(vueUrl))
+      .replace(/"@shared\/([\w-]+)"/g, (_match, name: string) => (
+        JSON.stringify(new URL(`../../electron/server/contracts/${name}.ts`, import.meta.url).href)
+      ))
       .replace(/"~\/utils\/([\w-]+)"/g, (_match, name: string) => (
         JSON.stringify(new URL(`../utils/${name}.ts`, import.meta.url).href)
       )),
