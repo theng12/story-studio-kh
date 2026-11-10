@@ -48,7 +48,8 @@ export function publishedVideoCapabilities(value: unknown): PublishedVideoCapabi
   for (const key of ['supports_start_frame', 'supports_end_frame', 'supports_reference_images'] as const) {
     if (typeof row[key] === 'boolean') result[key] = row[key]
   }
-  if (positiveInteger(row.max_reference_images) || row.max_reference_images === null) {
+  if ((typeof row.max_reference_images === 'number' && Number.isSafeInteger(row.max_reference_images)
+    && row.max_reference_images >= 0) || row.max_reference_images === null) {
     result.max_reference_images = row.max_reference_images
   }
   return result
@@ -59,8 +60,8 @@ export function videoCapabilityRefusal(model: PublishedVideoCapabilities): strin
   if (model.support_status === 'update_required') {
     return model.support_reason || 'Update required: the Gateway has no verified video mapping for this model.'
   }
-  if (model.output_counts?.length && !model.output_counts.includes(1)) {
-    return `The Gateway publishes ${model.output_counts.join(', ')} outputs per request. Story Studio requires one clip per scene; extra outputs are unavailable.`
+  if (model.output_counts?.some(count => count !== 1)) {
+    return `The Gateway publishes ${model.output_counts.join(', ')} outputs per request. Story Studio requires one clip per scene; choosing an output count is unavailable. Update required before generation.`
   }
   return ''
 }

@@ -39,13 +39,14 @@ test('capability metadata preserves each exact browser bound, empty resolutions 
 
 test('malformed metadata supplies no guessed bounds and count rules stay optional for other providers', () => {
   assert.deepEqual(publishedVideoCapabilities({}), {})
+  assert.deepEqual(publishedVideoCapabilities({ max_reference_images: 0 }), { max_reference_images: 0 })
   for (const duration of [null, 4, { min: true, max: 10, step: 1 }, { min: 10, max: 3, step: 1 }, { min: 3, max: 10, step: 0 }]) {
     assert.equal(publishedVideoCapabilities({ duration_seconds: duration }).duration_seconds, null)
   }
   assert.deepEqual(publishedVideoCapabilities({ duration_seconds: { min: 3, max: 9, step: 2, default: 4, auto: true } }).duration_seconds, { min: 3, max: 9, step: 2, auto: true })
   assert.equal(videoCapabilityRefusal({}), '')
   assert.equal(videoCapabilityRefusal({ output_counts: [] }), '')
-  assert.equal(videoCapabilityRefusal({ output_counts: [1, 2] }), '')
+  assert.match(videoCapabilityRefusal({ output_counts: [1, 2] }), /choosing an output count is unavailable/)
   assert.match(videoCapabilityRefusal({ output_counts: [2] }), /one clip per scene/)
 })
 

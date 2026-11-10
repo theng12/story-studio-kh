@@ -30,6 +30,7 @@ test('published update-required and multiple-output-only rows cannot become an a
   const unavailable = [
     { ...models[1]!, id: 'needs-mapping', support_status: 'update_required' },
     { ...models[1]!, id: 'two-outputs', output_counts: [2] },
+    { ...models[1]!, id: 'selectable-count', output_counts: [1, 2] },
     { ...models[1]!, id: 'reference-only', modes: ['reference-to-video'] },
   ]
   assert.equal(selectLiveImageToVideoModel('', unavailable), null)
