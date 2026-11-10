@@ -4,6 +4,7 @@ import path from 'node:path'
 import { afterEach, describe, test } from 'node:test'
 
 import { useTempDataDir } from './_helpers.js'
+import { diagnosticEvent, diagnosticPhase, installDiagnosticHooks } from './_diagnostic-phases.js'
 import { saveYouTubeChannelGrantForTest } from './_youtube-connection-test-helper.js'
 import { FakeYouTube } from './fixtures/fake-youtube.js'
 import { tinyVideoBytes } from './fixtures/tiny-video.js'
@@ -25,14 +26,18 @@ let cleanup: (() => Promise<void>) | undefined
 const INIT_PATH = '/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status'
 const SESSION = 'https://upload.youtube.test/resumable/startup-session'
 
+installDiagnosticHooks('youtube-upload-startup.test.ts')
 afterEach(async () => {
+  diagnosticEvent('transport-reset:start')
   __resetYouTubeTransportForTests()
-  await cleanup?.()
+  diagnosticEvent('transport-reset:end')
+  await diagnosticPhase('fixture-cleanup', () => cleanup?.())
   cleanup = undefined
 })
 
 async function setUp(label: string): Promise<{ slug: string; accountId: string; source: string }> {
-  const temp = await useTempDataDir()
+  diagnosticEvent('fixture-setup:start')
+  const temp = await diagnosticPhase('fixture-create', () => useTempDataDir())
   cleanup = temp.cleanup
   await configureYouTubeApplication({
     client_id: `startup-client-${label}`,
@@ -57,6 +62,7 @@ async function setUp(label: string): Promise<{ slug: string; accountId: string; 
 
   const source = path.join(temp.dir, 'source.mp4')
   await fs.writeFile(source, tinyVideoBytes())
+  diagnosticEvent('fixture-setup:end')
   return { slug: project.slug, accountId: `registry:${channelId}`, source }
 }
 

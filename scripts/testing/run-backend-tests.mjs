@@ -749,6 +749,16 @@ async function runInvocation(invocation, ctx) {
     stdio: ['inherit', 'pipe', 'pipe'],
     detached: process.platform !== 'win32',
   })
+  const diagnosticStart = performance.now()
+  const diagnostic = (phase, details = {}) => {
+    if (ctx.env.STORY_STUDIO_TEST_DIAGNOSTICS !== '1') return
+    console.error(`[story-test-diagnostic] ${JSON.stringify({
+      pid: process.pid, child_pid: child.pid, invocation: invocation.label, at: new Date().toISOString(),
+      monotonic_ms: performance.now(), elapsed_ms: performance.now() - diagnosticStart, phase, ...details,
+    })}`)
+  }
+  diagnostic('invocation-spawned', { files: invocation.files })
+  child.once('close', (code, signal) => diagnostic('invocation-child-close', { code, signal }))
   let transcript = ''
   const stdout = forwarder(process.stdout, chunk => { transcript += chunk })
   const stderr = forwarder(process.stderr, chunk => { transcript += chunk })
@@ -761,6 +771,7 @@ async function runInvocation(invocation, ctx) {
     .finally(() => clearTimeout(watchdog))
   stdout.flush()
   stderr.flush()
+  diagnostic('invocation-wait-returned', { exitCode, coveragePath, snapshotRoot: ctx.snapshotRoot })
   return { invocation, exitCode, transcript, coveragePath, snapshotRoot: ctx.snapshotRoot, summaryLines: [...stdout.held, ...stderr.held] }
 }
 

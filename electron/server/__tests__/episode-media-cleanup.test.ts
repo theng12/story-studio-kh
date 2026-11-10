@@ -9,6 +9,7 @@ import sharp from 'sharp'
 import request from 'supertest'
 
 import { useTempDataDir } from './_helpers.js'
+import { diagnosticEvent, diagnosticPhase, diagnosticsEnabled, installDiagnosticHooks } from './_diagnostic-phases.js'
 import { waitFor, waitForValue } from './_timing.js'
 import { saveYouTubeChannelGrantForTest } from './_youtube-connection-test-helper.js'
 import { DEFAULT_SUBFOLDER_NAMES } from '../models/types.js'
@@ -50,8 +51,9 @@ const reviewedFiles = (preview: MediaCleanupPreviewSummary): MediaCleanupFile[] 
 const libraryFiles = (preview: LibraryCleanupPreviewSummary): LibraryCleanupFile[] =>
   preview.channels.flatMap(channel => channel.files)
 
+installDiagnosticHooks('episode-media-cleanup.test.ts')
 before(async () => {
-  tmp = await useTempDataDir()
+  tmp = await diagnosticPhase('fixture-create', () => useTempDataDir())
   cleanup = await import('../services/episode-media-cleanup.js')
   pm = await import('../services/project-manager.js')
   im = await import('../services/idea-manager.js')
@@ -63,8 +65,8 @@ before(async () => {
 })
 
 beforeEach(async () => {
-  await tmp.cleanup()
-  tmp = await useTempDataDir()
+  await diagnosticPhase('fixture-cleanup', () => tmp.cleanup())
+  tmp = await diagnosticPhase('fixture-create', () => useTempDataDir())
   cleanup._resetMediaCleanupStateForTests()
   const projectDir = path.join(pm.projectsRoot(), SLUG)
   await fs.mkdir(projectDir, { recursive: true })
@@ -85,7 +87,7 @@ beforeEach(async () => {
   }))
 })
 
-after(async () => { await tmp.cleanup() })
+after(async () => { await diagnosticPhase('fixture-cleanup', () => tmp.cleanup()) })
 afterEach(() => { __resetYouTubeTransportForTests() })
 
 async function seedEpisode(code: string, title = `Episode ${code}`) {
@@ -1930,6 +1932,7 @@ describe('all-channel (Library) maintenance', () => {
    * grows with the number of files again.
    */
   test('a large run and a large final sweep both answer a bounded operation GET', async () => {
+    diagnosticEvent('large-fixture-seed:start')
     await seedChannel('chan-a', 'Channel A')
     const episode = await seedEpisodeIn('chan-a', 'EP0001', 'A long run')
     const png = await sharp({ create: { width: 8, height: 8, channels: 3, background: '#203040' } }).png().toBuffer()
@@ -1938,14 +1941,15 @@ describe('all-channel (Library) maintenance', () => {
       await fs.writeFile(path.join(episode.paths.bg_dir, `s${String(index).padStart(4, '0')}.png`), png)
     }
 
-    const { preview } = await libraryPreview('shrink_images')
+    diagnosticEvent('large-fixture-seed:end', { files: runFiles })
+    const { preview } = await diagnosticPhase('large-library-preview', () => libraryPreview('shrink_images'))
     // The run really walks every file (sharp, per-episode locks), so it needs a
     // budget of its own rather than `libraryRun`'s 5s preview-sized one.
     const startedRun = await cleanup.startLibraryMediaCleanupRun({ preview_id: preview.preview_id })
-    const run = await waitForValue(() => {
+    const run = await diagnosticPhase('large-library-run', () => waitForValue(() => {
       const current = cleanup.getLibraryMediaCleanupOperation(startedRun.operation_id)
       return current && ['completed', 'failed', 'stopped'].includes(current.status) ? current : null
-    }, { timeoutMs: 60_000, label: 'library shrink run' })
+    }, { timeoutMs: 60_000, label: 'library shrink run' }))
     assert.equal(run.status, 'completed', run.error)
     assert.equal(run.result?.item_count, runFiles, 'the run counted every reviewed file')
     assert.equal(run.result?.items.length, cleanup.PREVIEW_SAMPLE_FILES, 'the outcomes the operation carries are capped')
@@ -1954,8 +1958,9 @@ describe('all-channel (Library) maintenance', () => {
     const app = express()
     app.use(express.json())
     app.use('/api', router)
-    const read = await request(app).get(`/api/library/media-cleanup/operations/${run.id}`).expect(200)
+    const read = await diagnosticPhase('large-library-operation-get', () => request(app).get(`/api/library/media-cleanup/operations/${run.id}`).expect(200))
     const runBytes = Buffer.byteLength(JSON.stringify(read.body))
+    diagnosticEvent('large-library-operation-size', { bytes: runBytes })
     const perItem = Buffer.byteLength(JSON.stringify(run.result!.items[0]))
     const preCapRunBytes = perItem * runFiles
     assert.ok(preCapRunBytes > 40_000, `one entry per file would have sent ~${preCapRunBytes} bytes`)
@@ -1966,23 +1971,39 @@ describe('all-channel (Library) maintenance', () => {
     // Unverified finals (no upload evidence) are skipped, which is the whole
     // point — the list still has one entry per episode.
     const { bulkCleanupFinalVideos } = await import('../services/storage-audit.js')
+    diagnosticEvent('final-sweep-seed:start')
     const sweepCodes: string[] = []
     for (let index = 2; index <= 300; index += 1) {
       const code = `EP${String(index).padStart(4, '0')}`
       await seedEpisodeIn('chan-a', code, `Sweep ${code}`)
       sweepCodes.push(code)
     }
-    const started = await cleanup.startTrackedCleanup('chan-a', 'verifying', () => bulkCleanupFinalVideos('chan-a', { episode_codes: sweepCodes }))
-    const sweep = await waitForValue(() => {
+    diagnosticEvent('final-sweep-seed:end', { episodes: sweepCodes.length })
+    let prepass = true
+    const started = await cleanup.startTrackedCleanup('chan-a', 'verifying', () => diagnosticPhase('final-sweep-work', () => bulkCleanupFinalVideos('chan-a', {
+      episode_codes: sweepCodes,
+      // The first total follows lookup+sizing; episode callbacks bracket serial fresh verification.
+      progress: diagnosticsEnabled ? {
+        total(files, bytes) {
+          diagnosticEvent(prepass ? 'final-sweep-prepass:end' : 'final-sweep-episode-total', { files, bytes })
+          prepass = false
+        },
+        episode(code, index, total) { diagnosticEvent('final-sweep-episode:start', { code, index, total }) },
+        reading(_file, size) { diagnosticEvent('final-sweep-reading', { size }); return () => {} },
+        stopped: () => false,
+      } : undefined,
+    })))
+    const sweep = await diagnosticPhase('final-sweep-settlement', () => waitForValue(() => {
       const current = cleanup.getMediaCleanupOperation('chan-a', started.operation_id)
       return current && ['completed', 'failed', 'stopped'].includes(current.status) ? current : null
-    }, { timeoutMs: 30_000, label: 'final sweep operation' })
+    }, { timeoutMs: 30_000, label: 'final sweep operation' }))
     assert.equal(sweep.status, 'completed', sweep.error)
     assert.equal(sweep.final_cleanup?.item_count, sweepCodes.length, 'the sweep counted every episode it looked at')
     assert.equal(sweep.final_cleanup?.items.length, cleanup.PREVIEW_SAMPLE_FILES, 'the sweep outcomes are capped')
 
-    const sweepRead = await request(app).get(`/api/projects/chan-a/media-cleanup/operations/${started.operation_id}`).expect(200)
+    const sweepRead = await diagnosticPhase('final-sweep-operation-get', () => request(app).get(`/api/projects/chan-a/media-cleanup/operations/${started.operation_id}`).expect(200))
     const sweepBytes = Buffer.byteLength(JSON.stringify(sweepRead.body))
+    diagnosticEvent('final-sweep-operation-size', { bytes: sweepBytes })
     const preCapSweepBytes = Buffer.byteLength(JSON.stringify(sweep.final_cleanup!.items[0])) * sweepCodes.length
     assert.ok(preCapSweepBytes > 40_000, `one entry per episode would have sent ~${preCapSweepBytes} bytes`)
     assert.ok(sweepBytes < 40_000, `the sweep operation GET answers ${sweepBytes} bytes, down from ~${preCapSweepBytes}`)

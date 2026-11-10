@@ -15,6 +15,7 @@ import path from 'node:path'
 import { clearTimeout as clearRealTimeout, setTimeout as realSetTimeout } from 'node:timers'
 
 import { useTempDataDir } from './_helpers.js'
+import { diagnosticPhase, installDiagnosticHooks } from './_diagnostic-phases.js'
 import { sleep, waitFor } from './_timing.js'
 import * as updater from '../services/app-update.js'
 import { __setFinalCheckRunnerForTests, runningFinalChecks, startFinalCheck } from '../lib/final-video-check.js'
@@ -164,8 +165,9 @@ function options(queue: any, extra: Partial<updater.UpdaterOptions> = {}): updat
   }
 }
 
+installDiagnosticHooks('app-update.test.ts')
 beforeEach(async () => {
-  tmp = await useTempDataDir()
+  tmp = await diagnosticPhase('fixture-create', () => useTempDataDir())
   settings = updater.defaultSettings(null)
   updater._resetForTesting()
 })
@@ -173,7 +175,7 @@ afterEach(async () => {
   updater._resetForTesting()
   // A parked final check would hold the next test's drain for a check that never finishes.
   __setFinalCheckRunnerForTests(null)
-  await tmp.cleanup()
+  await diagnosticPhase('fixture-cleanup', () => tmp.cleanup())
 })
 
 describe('signature', () => {
@@ -1469,7 +1471,8 @@ describe('swap helper (temp dir)', () => {
     const mount = path.join(tmp.dir, 'other-volume')
     fs.mkdirSync(mount)
     execFileSync('/usr/bin/hdiutil', ['create', '-quiet', '-size', '4m', '-fs', 'HFS+', '-volname', 'other', image])
-    execFileSync('/usr/bin/hdiutil', ['attach', '-quiet', '-nobrowse', '-noautoopen', '-mountpoint', mount, image])
+    const attachArgs = ['attach', '-quiet', '-nobrowse', '-noautoopen', '-mountpoint', mount, image]
+    await diagnosticPhase('native-cross-volume-attach', () => execFileSync('/usr/bin/hdiutil', attachArgs), { file: '/usr/bin/hdiutil', args: attachArgs })
     try {
       const keep = path.join(mount, 'previous-apps')
       const apps = path.join(tmp.dir, 'Applications')
@@ -1622,7 +1625,7 @@ describe('extraction', () => {
     makeApp(src, '1.4.258')
     const dmg = path.join(tmp.dir, 'r.dmg')
     execFileSync('/usr/bin/hdiutil', ['create', '-quiet', '-srcfolder', src, '-format', 'UDZO', dmg])
-    const app = await updater.extractApp(dmg, path.join(tmp.dir, 'out'))
+    const app = await diagnosticPhase('native-readonly-extract', () => updater.extractApp(dmg, path.join(tmp.dir, 'out')), { file: '/usr/bin/hdiutil' })
     execFileSync('/usr/bin/xattr', ['-w', 'com.apple.quarantine', '0081;00000000;Test;', app])
     await updater.checkBundle(app, '1.4.258')
     assert.throws(() => execFileSync('/usr/bin/xattr', ['-p', 'com.apple.quarantine', app], { stdio: 'pipe' }))

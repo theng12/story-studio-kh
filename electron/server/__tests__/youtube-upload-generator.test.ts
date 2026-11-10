@@ -4,6 +4,7 @@ import path from 'node:path'
 import { afterEach, describe, test } from 'node:test'
 
 import { useTempDataDir } from './_helpers.js'
+import { diagnosticEvent, diagnosticPhase, installDiagnosticHooks } from './_diagnostic-phases.js'
 import { saveYouTubeChannelGrantForTest } from './_youtube-connection-test-helper.js'
 import { FakeYouTube } from './fixtures/fake-youtube.js'
 import { tinyVideoWithSoundBytes as tinyVideoBytes } from './fixtures/tiny-video.js'
@@ -31,10 +32,13 @@ import { resolveSourceRevision } from '../services/youtube-operation-recorder.js
 let cleanup: (() => Promise<void>) | undefined
 const reviewedParamsBySlug = new Map<string, Record<string, unknown>>()
 
+installDiagnosticHooks('youtube-upload-generator.test.ts')
 afterEach(async () => {
+  diagnosticEvent('transport-reset:start')
   __resetYouTubeTransportForTests()
   reviewedParamsBySlug.clear()
-  await cleanup?.()
+  diagnosticEvent('transport-reset:end')
+  await diagnosticPhase('fixture-cleanup', () => cleanup?.())
   cleanup = undefined
 })
 
@@ -44,7 +48,8 @@ const CHANNEL = 'UC-generator'
 const SESSION = 'https://upload.youtube.test/resumable/session-abc'
 
 async function setUp(assign: boolean): Promise<{ slug: string; accountId: string }> {
-  const temp = await useTempDataDir()
+  diagnosticEvent('fixture-setup:start')
+  const temp = await diagnosticPhase('fixture-create', () => useTempDataDir())
   cleanup = temp.cleanup
   const project = await createProject({ name: 'Generator Project' })
   const slug = project.slug
@@ -94,6 +99,7 @@ async function setUp(assign: boolean): Promise<{ slug: string; accountId: string
     })
     await assignProjectYouTubeChannel({ project_slug: slug, channel_id: CHANNEL, expected_previous_channel_id: null })
   }
+  diagnosticEvent('fixture-setup:end')
   return { slug, accountId: `registry:${CHANNEL}` }
 }
 
