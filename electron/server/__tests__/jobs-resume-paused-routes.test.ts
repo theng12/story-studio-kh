@@ -340,7 +340,14 @@ describe('queue-level scoped paused-job Resume', () => {
     assert.equal(jq.getJob(failedB.job_id)?.status, 'paused')
     assert.equal(jq.getJob(missingExecutor.job_id)?.status, 'paused')
     assert.equal(jq.getJob(retiredType.job_id)?.status, 'paused')
-    assert.deepEqual(updates.sort(), [identity.job_id, sameLane.job_id, otherLane.job_id].sort())
+    // Every test in this file shares the module-level queue, so a late update
+    // for an earlier test's job can arrive while this listener is attached.
+    // Only this test's own jobs are in scope for "only resumed jobs update".
+    const owned = [identity, sameLane, otherLane, terminal, alreadyQueued, failedA, failedB, missingExecutor, retiredType].map(job => job.job_id)
+    assert.deepEqual(
+      updates.filter(jobId => owned.includes(jobId)).sort(),
+      [identity.job_id, sameLane.job_id, otherLane.job_id].sort(),
+    )
 
     const identityAfter = jq.getJob(identity.job_id)!
     assert.deepEqual({
