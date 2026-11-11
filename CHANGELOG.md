@@ -12,6 +12,7 @@ What's new in each release. Newest first.
 - Compare weekly releases with an adjustable three-per-week starting target, zoom or move through upcoming weeks, expand overlapping episodes, enlarge the timeline or read the same episodes in a table. The existing Coverage view and Calendar list remain available.
 - Episode progress reuses Production Board’s cached artifact checks without delaying the overview. Opening the timeline does not upload, reschedule or change YouTube visibility.
 - Private remote rendering checks the paired renderer’s subtitle support and exact font and subtitle file limits before preparing a transfer.
+- Motion Review and Pipeline keep the selected model’s published video settings, including sound turned off. Longer scenes hold the final frame; unavailable choices explain why they cannot run.
 
 ## v1.4.390 — 2026-11-09
 
