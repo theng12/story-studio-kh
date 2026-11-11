@@ -48,9 +48,11 @@ export function publishedVideoCapabilities(value: unknown): PublishedVideoCapabi
   for (const key of ['supports_start_frame', 'supports_end_frame', 'supports_reference_images'] as const) {
     if (typeof row[key] === 'boolean') result[key] = row[key]
   }
-  if ((typeof row.max_reference_images === 'number' && Number.isSafeInteger(row.max_reference_images)
-    && row.max_reference_images >= 0) || row.max_reference_images === null) {
+  if (typeof row.max_reference_images === 'number' && Number.isSafeInteger(row.max_reference_images)
+    && row.max_reference_images >= 0) {
     result.max_reference_images = row.max_reference_images
+  } else if (row.max_reference_images === null) {
+    result.max_reference_images = null
   }
   return result
 }

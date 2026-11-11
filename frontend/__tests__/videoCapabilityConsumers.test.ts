@@ -41,13 +41,16 @@ test('video capability alias resolves semantically from both actual frontend con
   const probeSource = `import { videoCapabilityRefusal, type PublishedVideoCapabilities } from '@shared/video-capabilities';
     const row: PublishedVideoCapabilities = { duration_seconds: { min: 4, max: 4, step: 1 }, output_counts: [1] };
     const reason: string = videoCapabilityRefusal(row);`
-  const host = ts.createCompilerHost(options)
-  const read = host.getSourceFile.bind(host)
-  host.getSourceFile = (file, languageVersion, onError, shouldCreateNewSourceFile) => file === probe
-    ? ts.createSourceFile(probe, probeSource, languageVersion, true)
-    : read(file, languageVersion, onError, shouldCreateNewSourceFile)
-  const diagnostics = ts.getPreEmitDiagnostics(ts.createProgram([probe], options, host))
-  assert.deepEqual(diagnostics.map(d => ts.flattenDiagnosticMessageText(d.messageText, '\n')), [])
+  for (const strict of [parsed.options.strict, true]) {
+    const compilerOptions = { ...options, strict }
+    const host = ts.createCompilerHost(compilerOptions)
+    const read = host.getSourceFile.bind(host)
+    host.getSourceFile = (file, languageVersion, onError, shouldCreateNewSourceFile) => file === probe
+      ? ts.createSourceFile(probe, probeSource, languageVersion, true)
+      : read(file, languageVersion, onError, shouldCreateNewSourceFile)
+    const diagnostics = ts.getPreEmitDiagnostics(ts.createProgram([probe], compilerOptions, host))
+    assert.deepEqual(diagnostics.map(d => ts.flattenDiagnosticMessageText(d.messageText, '\n')), [], `strict=${strict}`)
+  }
 })
 
 test('Scene Plan disables chaining and refuses a forced chain choice without local changes or requests', async () => {
