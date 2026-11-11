@@ -2,6 +2,8 @@
 
 Rules for working in Story Studio KH; each is imperative and in force.
 
+**Efficient delegation and parallel work (owner 2026-11-10):** Invoke the global `efficient-orchestration` skill for multi-step coordination after required ponytail; follow the authoritative [Efficient delegation and parallel work section](/build/Developer/_orchestra/developer-handoff/LEAD-RULES.md#efficient-delegation-and-parallel-work). Leads own complete bounded implementation/check/review/fix outcomes and brief workers with required skills, graph queries, exact working folders, source and owned files. Run independent source/light work in parallel; serialize only conflicting writers, the existing KH Apps heavy-job schedule and conflicting target actions. This supersedes blanket one-app source/light parks; existing permission, release, device, security, paid/public and Production holds remain.
+
 **The evidence — incidents, dates, owner quotes and the code that owns each rule — lives in
 [`docs/architecture/agents-decisions.md`](docs/architecture/agents-decisions.md).** Read it to know
 *why*, or before concluding a rule is wrong. Where a rule records a reversed owner decision, it
