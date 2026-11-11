@@ -315,7 +315,7 @@ describe('staged DMG packaging', () => {
     assert.deepEqual(fs.readdirSync(dist), before)
   })
 
-  test('a symlink output is refused without moving installers', t => {
+  test('symlink outputs or final trash directories are refused without moving installers', t => {
     const { root, dist, trash, stage } = fixture(t)
     fs.writeFileSync(path.join(stage, artifact), 'new build')
     const outside = path.join(root, 'outside')
@@ -323,17 +323,7 @@ describe('staged DMG packaging', () => {
     fs.symlinkSync(path.join(outside, 'absent'), path.join(dist, artifact))
     assert.throws(() => promoteDmgBuild(stage, dist, trash, artifact), /non-regular/)
     assert.ok(fs.lstatSync(path.join(dist, artifact)).isSymbolicLink())
-    assert.deepEqual(fs.readdirSync(outside), [])
-    assert.equal(fs.readFileSync(path.join(stage, artifact), 'utf8'), 'new build')
-  })
-
-  // Its own fixture: the retained-fixture guard refuses removing the symlink the
-  // first case leaves behind, so each case owns one destructive-safe tree.
-  test('a symlinked final trash directory is refused without moving installers', t => {
-    const { root, dist, trash, stage } = fixture(t)
-    fs.writeFileSync(path.join(stage, artifact), 'new build')
-    const outside = path.join(root, 'outside')
-    fs.mkdirSync(outside)
+    fs.unlinkSync(path.join(dist, artifact))
     fs.rmdirSync(trash)
     fs.symlinkSync(outside, trash)
     assert.throws(() => promoteDmgBuild(stage, dist, trash, artifact), /real directory/)
