@@ -4,13 +4,13 @@ What's new in each release. Newest first.
 
 ---
 
-## v1.4.391 — 2026-11-09
+## v1.4.392 — 2026-11-11
 
+- Channels now shows each channel’s YouTube connection beside its Gateway key — connected, needs reconnect, not connected, or unknown — and the sort menu can put YouTube-connected or not-connected channels first.
+- One switch in channel Settings, “Auto-approve thumbnail prompts”, is on by default. Turn it off and each thumbnail prompt needs approval before an image is made; an episode can still choose for itself.
 - Channel and job lists remain available when saved credentials cannot be read. Channels show “Key status unknown”, and Unlock credentials verifies the saved store before reporting success.
-- An update button is available at the top of every window, including Welcome. It shows loading and failed checks honestly, keeps installation deliberate, and fits narrow windows.
-- Publishing’s Calendar now opens a channel timeline showing accepted episodes, actual upload starts, planned releases and the last confirmed YouTube schedules or public dates. Missing dates and unchecked statuses stay explicit.
-- Compare weekly releases with an adjustable three-per-week starting target, zoom or move through upcoming weeks, expand overlapping episodes, enlarge the timeline or read the same episodes in a table. The existing Coverage view and Calendar list remain available.
-- Episode progress reuses Production Board’s cached artifact checks without delaying the overview. Opening the timeline does not upload, reschedule or change YouTube visibility.
+- An update button sits at the top of every window, including Welcome. It shows loading and failed checks honestly, keeps installation deliberate, and fits narrow windows.
+- Publishing’s Calendar opens a channel timeline with accepted episodes, actual upload starts, planned releases and the last confirmed YouTube dates, an adjustable weekly target, zoom and a table view. Opening it never uploads, reschedules or changes visibility.
 - Private remote rendering checks the paired renderer’s subtitle support and exact font and subtitle file limits before preparing a transfer.
 - Motion Review and Pipeline keep the selected model’s published video settings, including sound turned off. Longer scenes hold the final frame; unavailable choices explain why they cannot run.
 
