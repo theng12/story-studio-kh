@@ -8,6 +8,7 @@ import assert from 'node:assert/strict'
 import request from 'supertest'
 import fs from 'node:fs/promises'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { useTempDataDir } from './_helpers.js'
 import { MOCK_GENSTUDIO_FULL_KEY, startMockGenStudioService, type MockGenStudioService } from './fixtures/mock-genstudio-service.js'
 import { STARTING_SONG_FORMULA, STARTING_LYRICS, SongFormulaSchema } from '../contracts/song-formula.js'
@@ -139,7 +140,7 @@ describe('making sung songs', () => {
     await ask()
     const bodies = service.submissions.filter(s => s.operation === 'image').map(s => s.parsedBody!)
     assert.deepEqual(bodies.map(b => b.priority ?? null), ['background', null])
-    const src = (f: string) => fs.readFile(path.join(path.dirname(new URL(import.meta.url).pathname), '..', f), 'utf8')
+    const src = (f: string) => fs.readFile(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', f), 'utf8')
     for (const f of ['generators/scene-image.ts', 'generators/continuity-render.ts', 'generators/image-pool-generate.ts']) {
       assert.match(await src(f), /priority: 'background'/, `${f} sends scene pictures as background`)
     }

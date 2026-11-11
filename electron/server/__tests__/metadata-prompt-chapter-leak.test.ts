@@ -39,6 +39,7 @@ import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import {
   buildDescriptionPrompt,
   repairGeneratedDescription,
@@ -534,7 +535,7 @@ describe('repairGeneratedDescription — the failure case', () => {
 // further down.
 
 describe('generators/metadata.ts — where the repair runs', () => {
-  const here = path.dirname(new URL(import.meta.url).pathname)
+  const here = path.dirname(fileURLToPath(import.meta.url))
   const source = fs.readFileSync(path.resolve(here, '..', 'generators', 'metadata.ts'), 'utf-8')
 
   test('repairs the generated description before the finalizer writes the real timeline', () => {

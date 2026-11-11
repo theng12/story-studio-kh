@@ -25,6 +25,7 @@ import { after, before, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'fs/promises'
 import path from 'path'
+import { fileURLToPath } from 'url'
 import os from 'os'
 
 import { assertSubtitleFileBelongsToEpisode, resolveEpisodeSubtitleFile } from '../generators/video.js'
@@ -139,7 +140,7 @@ describe('subtitle file ownership at Video Assembly preflight', () => {
     // the /generate/video-assembly preflight route both funnel through
     // `prepareUnifiedVideoAssemblyInputs`, so that is where it has to sit.
     const source = await fs.readFile(
-      path.join(path.dirname(new URL(import.meta.url).pathname), '..', 'generators', 'video.ts'),
+      path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'generators', 'video.ts'),
       'utf-8',
     )
     const prepare = source.slice(source.indexOf('export async function prepareUnifiedVideoAssemblyInputs'))

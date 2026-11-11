@@ -17,6 +17,7 @@ import { cp, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/pr
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
+import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 
 import JSZip from 'jszip'
@@ -35,7 +36,7 @@ import {
 
 const execFileAsync = promisify(execFile)
 
-const REPOSITORY_ROOT = new URL('../../../', import.meta.url).pathname
+const REPOSITORY_ROOT = fileURLToPath(new URL('../../../', import.meta.url))
 const DONOR_PACK = 'content-packs/production-looks/style/anime-cel'
 const FIXTURE_PACK_ID = 'com.storystudio.pack.style.ship-fixture'
 const FIXTURE_ITEM_ID = 'com.storystudio.style.ship-fixture'

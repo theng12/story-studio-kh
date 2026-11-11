@@ -495,7 +495,8 @@ test('published video switches are carried through, and a lane with none carries
         modes: ['image-to-video'], aspect_ratios: ['16:9'], generates_audio: true,
         controls: [
           { name: 'audio', type: 'boolean', default: true, note: 'the lane its own sentence' },
-          // Neither of these is a switch a caller could render or send a value for.
+          // An unsupported type stays visible so Motion Review can refuse with an update notice;
+          // the nameless and typeless rows below could not be rendered or sent at all.
           { name: 'seed', type: 'integer', default: -1 },
           { name: '   ', type: 'boolean', default: false },
           { type: 'boolean', default: true },
@@ -511,8 +512,11 @@ test('published video switches are carried through, and a lane with none carries
     const models = await listVideoModels('video-switch-key')
     const withSwitch = models.find(model => model.id === 'video-switch')
     assert.deepEqual(withSwitch?.controls, [
-      // Name, type and the lane's own default and note — nothing coerced, nothing added.
+      // Name, type and the lane's own default and note — nothing coerced, nothing added. The
+      // unsupported `integer` is kept (type intact, default coerced to null because it is not a
+      // boolean), which is what makes Motion Review refuse the model rather than silently ignore it.
       { name: 'audio', type: 'boolean', default: true, note: 'the lane its own sentence' },
+      { name: 'seed', type: 'integer', default: null, note: null },
     ])
     // Absent is not an empty list: a lane that publishes no switch must be
     // distinguishable from one whose switches were all unreadable, because a

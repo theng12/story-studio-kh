@@ -18,6 +18,7 @@
 import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { afterEach, test } from 'node:test'
 
 import request from 'supertest'
@@ -29,7 +30,7 @@ import { setGenStudioUrl } from '../services/app-settings.js'
 import { useTempDataDir } from './_helpers.js'
 import { startMockGenStudioService, type MockGenStudioService } from './fixtures/mock-genstudio-service.js'
 
-const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..', '..', '..')
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..')
 const STARTERS = path.join(ROOT, 'content-packs', 'free-starters')
 const KEY = 'gsk_free_upgrade_account'
 const ACCOUNT = 'acct_free_upgrade'

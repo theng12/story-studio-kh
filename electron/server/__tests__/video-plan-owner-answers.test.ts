@@ -13,6 +13,7 @@ import { after, before, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'fs/promises'
 import path from 'path'
+import { fileURLToPath } from 'url'
 import request from 'supertest'
 import { useTempDataDir } from './_helpers.js'
 
@@ -180,7 +181,7 @@ describe('the planner suggests key moments; the customer’s own mark wins', () 
 
 describe('the dead AI-video generator is deleted, not renamed', () => {
   test('nothing imports or registers it any more', async () => {
-    const root = new URL('..', import.meta.url).pathname
+    const root = fileURLToPath(new URL('..', import.meta.url))
     const walk = async (dir: string): Promise<string[]> => {
       const out: string[] = []
       for (const entry of await fs.readdir(dir, { withFileTypes: true })) {

@@ -420,7 +420,8 @@ describe('caller integration contract (source-level pin)', () => {
   test('generators/video.ts wires the sleep title through the existing machinery', async () => {
     const fs = await import('node:fs')
     const path = await import('node:path')
-    const here = path.dirname(new URL(import.meta.url).pathname)
+    const { fileURLToPath } = await import('node:url')
+    const here = path.dirname(fileURLToPath(import.meta.url))
     const videoPath = path.resolve(here, '..', 'generators', 'video.ts')
     const source = fs.readFileSync(videoPath, 'utf8')
     // The existing sites the integration rides on:
@@ -441,7 +442,8 @@ describe('caller integration contract (source-level pin)', () => {
   test('frontend/pages/projects/[slug]/video-assembly.vue exposes title controls', async () => {
     const fs = await import('node:fs')
     const path = await import('node:path')
-    const here = path.dirname(new URL(import.meta.url).pathname)
+    const { fileURLToPath } = await import('node:url')
+    const here = path.dirname(fileURLToPath(import.meta.url))
     const pagePath = path.resolve(here, '..', '..', '..', 'frontend', 'pages', 'projects', '[slug]', 'video-assembly.vue')
     const source = fs.readFileSync(pagePath, 'utf8')
     assert.match(source, /titleMotion\.timeline\.title_image\.enabled/, 'title image toggle exists')
