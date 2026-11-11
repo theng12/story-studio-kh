@@ -52,6 +52,7 @@ import { withLock, writeJsonAtomic } from '../lib/atomic-store.js'
 import { singleImagePromptOutputContract } from '../lib/story-output-contracts.js'
 import { ThumbnailOptionUpdateSchema, type ThumbnailOptionSettings } from '../contracts/thumbnail-options.js'
 import {
+  effectiveThumbnailAutoApprove,
   mergeThumbnailOption,
   readThumbnailOptionSettings,
   thumbnailOptionApproved,
@@ -655,20 +656,30 @@ async function currentThumbnailPromptHashes(
 function presentThumbnailOptions(
   settings: ThumbnailOptionSettings,
   promptHashes: Record<string, string>,
+  autoApprove: { auto_approve: boolean; inherited: boolean },
 ): {
   schema: number
   auto_approve: boolean
+  auto_approve_inherited: boolean
   options: Record<string, Record<string, unknown>>
 } {
+  // The effective switch, not the stored one: an episode with no explicit
+  // choice shows what it will actually do (the channel default).
+  const effective = { ...settings, auto_approve: autoApprove.auto_approve }
   const options: Record<string, Record<string, unknown>> = {}
   for (const [key, stored] of Object.entries(settings.options)) {
     const { approved_prompt_sha256: _approval, ...fields } = stored ?? {}
     options[key] = {
       ...fields,
-      approved: thumbnailOptionApproved(settings, Number(key), promptHashes[key] ?? null),
+      approved: thumbnailOptionApproved(effective, Number(key), promptHashes[key] ?? null),
     }
   }
-  return { schema: settings.schema, auto_approve: settings.auto_approve, options }
+  return {
+    schema: settings.schema,
+    auto_approve: autoApprove.auto_approve,
+    auto_approve_inherited: autoApprove.inherited,
+    options,
+  }
 }
 
 router.get(
@@ -680,7 +691,7 @@ router.get(
       if (!project) return res.status(404).json({ detail: 'Project not found' })
       const settings = await readThumbnailOptionSettings(slug, episodeId)
       const hashes = await currentThumbnailPromptHashes(slug, episodeId)
-      res.json(presentThumbnailOptions(settings, hashes))
+      res.json(presentThumbnailOptions(settings, hashes, await effectiveThumbnailAutoApprove(slug, settings)))
     } catch (e: any) {
       res.status(500).json({ detail: e?.message || 'Failed to read thumbnail option settings' })
     }
@@ -724,7 +735,7 @@ router.put(
       })
 
       const hashes = await currentThumbnailPromptHashes(slug, episodeId)
-      res.json(presentThumbnailOptions(next, hashes))
+      res.json(presentThumbnailOptions(next, hashes, await effectiveThumbnailAutoApprove(slug, next)))
     } catch (e: any) {
       res.status(500).json({ detail: e?.message || 'Failed to save thumbnail option settings' })
     }

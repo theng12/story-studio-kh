@@ -55,11 +55,42 @@ export interface ChannelRow {
   formula_id?: unknown
   /** The stored (possibly legacy) Formula id. */
   niche_id?: unknown
+  /** The assigned YouTube channel's state, from `GET /projects`. Absent on an
+   *  older build or a registry that could not be read — read as unknown. */
+  youtube_connection?: unknown
+}
+
+// ── YouTube connection ──────────────────────────────────────────────────────
+
+export type YouTubeConnectionState = 'connected' | 'needs_reconnect' | 'not_connected' | 'unknown'
+
+/**
+ * The channel's YouTube state, read defensively. Anything the server did not
+ * send — an older build, an unreadable registry — is UNKNOWN, never "not
+ * connected": absence of an answer is not an answer (AGENTS §6).
+ */
+export function youtubeConnectionState(row: ChannelRow | null | undefined): YouTubeConnectionState {
+  const value = row?.youtube_connection
+  if (value === 'connected' || value === 'needs_reconnect' || value === 'not_connected') return value
+  return 'unknown'
+}
+
+/** What the channel card says about its YouTube channel. Deliberately worded
+ *  apart from the Gateway API Key badge: the two answer different questions. */
+export function youtubeBadgeText(row: ChannelRow | null | undefined): string {
+  switch (youtubeConnectionState(row)) {
+    case 'connected': return 'YouTube connected'
+    case 'needs_reconnect': return 'YouTube needs reconnect'
+    case 'not_connected': return 'YouTube not connected'
+    default: return 'YouTube status unknown'
+  }
 }
 
 // ── sorting ─────────────────────────────────────────────────────────────────
 
-export const CHANNEL_SORTS = ['recent', 'name', 'newest', 'oldest'] as const
+export const CHANNEL_SORTS = [
+  'recent', 'name', 'newest', 'oldest', 'youtube-connected', 'youtube-not-connected',
+] as const
 export type ChannelSort = typeof CHANNEL_SORTS[number]
 
 /** What the sort select says. `recent` is first because it is the default. */
@@ -68,6 +99,8 @@ export const CHANNEL_SORT_LABELS: Readonly<Record<ChannelSort, string>> = {
   name: 'Name A–Z',
   newest: 'Newest',
   oldest: 'Oldest',
+  'youtube-connected': 'YouTube connected first',
+  'youtube-not-connected': 'YouTube not connected first',
 }
 export const DEFAULT_CHANNEL_SORT: ChannelSort = 'recent'
 
@@ -82,6 +115,8 @@ export const CHANNEL_SORT_HINTS: Readonly<Record<ChannelSort, string>> = {
   name: 'Alphabetical by channel name.',
   newest: 'Channels created most recently first.',
   oldest: 'Channels created longest ago first.',
+  'youtube-connected': 'Channels whose YouTube channel is connected first; needs reconnect and not connected follow; unknown last.',
+  'youtube-not-connected': 'Channels with no YouTube channel connected first; needs reconnect and connected follow; unknown last.',
 }
 
 export function isChannelSort(value: unknown): value is ChannelSort {
@@ -111,6 +146,18 @@ export function sortChannels<T extends ChannelRow>(rows: readonly T[], sort: Cha
   const out = [...rows]
   const byName = (a: T, b: T) => channelName(a).localeCompare(channelName(b), undefined, { numeric: true })
   if (sort === 'name') return out.sort(byName)
+  if (sort === 'youtube-connected' || sort === 'youtube-not-connected') {
+    // Needs-reconnect sits between the two ends: it has a link, but it cannot
+    // upload until the owner signs in again. Unknown is LAST in both sorts —
+    // an unreadable registry is not evidence of a connection either way.
+    const rank: Readonly<Record<YouTubeConnectionState, number>> = sort === 'youtube-connected'
+      ? { connected: 0, needs_reconnect: 1, not_connected: 2, unknown: 3 }
+      : { not_connected: 0, needs_reconnect: 1, connected: 2, unknown: 3 }
+    return out.sort((a, b) => {
+      const difference = rank[youtubeConnectionState(a)] - rank[youtubeConnectionState(b)]
+      return difference === 0 ? byName(a, b) : difference
+    })
+  }
   const field = sort === 'recent' ? 'last_worked_at' : 'created_at'
   const direction = sort === 'oldest' ? 1 : -1
   return out.sort((a, b) => {

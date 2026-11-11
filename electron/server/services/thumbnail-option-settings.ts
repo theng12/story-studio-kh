@@ -3,7 +3,7 @@
  * numbered `*_Thumbnail_Prompts.md`.
  *
  *   <episode>/thumbnail_options.json
- *     { "schema": 1, "auto_approve": false,
+ *     { "schema": 1, "auto_approve": false,   // optional: absent = channel default
  *       "options": { "1": { "thumbnail_template_id": "...", ...,
  *                           "approved_prompt_sha256": "<sha256 of the prompt text>" } } }
  *
@@ -28,6 +28,7 @@ import { createHash } from 'crypto'
 import { withLock, writeJsonAtomic } from '../lib/atomic-store.js'
 import { resolveEpisodePathsByCodeWithSidecar } from './utils.js'
 import { EpisodeSettingFileUnreadable } from './episode-sketch-pen.js'
+import { getConfig } from './project-manager.js'
 import {
   THUMBNAIL_OPTIONS_SCHEMA,
   ThumbnailOptionSettingsSchema,
@@ -37,9 +38,37 @@ import {
 
 export const THUMBNAIL_OPTIONS_FILENAME = 'thumbnail_options.json'
 
-/** An episode that has never saved option metadata. Read-only default. */
+/** An episode that has never saved option metadata. Read-only default: no
+ *  per-episode choice, so the channel's reusable setting applies. */
 export function emptyThumbnailOptionSettings(): ThumbnailOptionSettings {
-  return { schema: THUMBNAIL_OPTIONS_SCHEMA, auto_approve: false, options: {} }
+  return { schema: THUMBNAIL_OPTIONS_SCHEMA, options: {} }
+}
+
+/**
+ * The channel's reusable "Auto-approve thumbnail prompts" switch, read from
+ * `config.auto_approve_thumbnail_prompts` (owner-approved 2026-11-08). ON
+ * unless explicitly false. A config that cannot be read also reads ON: this is
+ * the existing permissive workflow, and a read failure must not start refusing
+ * renders nobody switched off.
+ */
+export async function thumbnailPromptsAutoApproveDefault(slug: string): Promise<boolean> {
+  const config = await getConfig(slug).catch(() => null)
+  return (config as any)?.auto_approve_thumbnail_prompts !== false
+}
+
+/**
+ * What this episode will actually do. An explicit per-episode choice wins;
+ * otherwise the channel's saved default is inherited. `inherited` lets the UI
+ * say so honestly rather than presenting the default as an episode choice.
+ */
+export async function effectiveThumbnailAutoApprove(
+  slug: string,
+  settings: ThumbnailOptionSettings,
+): Promise<{ auto_approve: boolean; inherited: boolean }> {
+  if (typeof settings.auto_approve === 'boolean') {
+    return { auto_approve: settings.auto_approve, inherited: false }
+  }
+  return { auto_approve: await thumbnailPromptsAutoApproveDefault(slug), inherited: true }
 }
 
 /** The episode's own folder, resolved so a renamed folder carrying the sidecar is found. */
@@ -138,14 +167,15 @@ export async function initializeThumbnailOptions(
   })
 }
 
-/** Legacy episodes without metadata retain their existing render workflow. */
+/** Legacy episodes without metadata inherit the channel default like any other. */
 export async function assertThumbnailOptionsApproved(
   slug: string,
   episodeId: string,
   prompts: Array<{ number: number; prompt: string }>,
 ): Promise<void> {
-  if (!existsSync(path.join(await episodeDir(slug, episodeId), THUMBNAIL_OPTIONS_FILENAME))) return
   const settings = await readThumbnailOptionSettings(slug, episodeId)
+  const { auto_approve } = await effectiveThumbnailAutoApprove(slug, settings)
+  if (auto_approve) return
   const pending = prompts.filter(item => !thumbnailOptionApproved(settings, item.number, thumbnailPromptSha256(item.prompt.trim())))
   if (pending.length) throw new Error(`Approve thumbnail prompt(s) ${pending.map(item => item.number).join(', ')} in Thumbnail Prompts before rendering, or deliberately turn on automatic prompt approval for this episode. No image request was submitted.`)
 }

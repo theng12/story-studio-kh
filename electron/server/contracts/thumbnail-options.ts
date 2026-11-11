@@ -48,8 +48,14 @@ export const ThumbnailOptionStoredSchema = z.object({
 /** The sidecar file itself. */
 export const ThumbnailOptionSettingsSchema = z.object({
   schema: z.literal(THUMBNAIL_OPTIONS_SCHEMA),
-  /** Skip prompt approval entirely. Off by default: a new prompt needs approval. */
-  auto_approve: z.boolean(),
+  /**
+   * Skip prompt approval entirely. ABSENT means inherit the channel's saved
+   * default (`config.auto_approve_thumbnail_prompts`, ON by default); an
+   * explicit true/false is this episode's own choice and wins over it.
+   * Optional so a sidecar written before the channel setting existed keeps
+   * working without being rewritten.
+   */
+  auto_approve: z.boolean().optional(),
   /** Keyed by the option's prompt number as it appears in the Markdown file. */
   options: z.record(z.string().regex(/^[1-9][0-9]*$/), ThumbnailOptionStoredSchema),
 })

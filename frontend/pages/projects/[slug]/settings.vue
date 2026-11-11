@@ -757,6 +757,29 @@
         </p>
         <span v-if="thumbnailAutoPickSaveMessage" class="text-muted" style="font-size: var(--font-xs)">{{ thumbnailAutoPickSaveMessage }}</span>
       </div>
+
+      <!-- Auto-approve thumbnail prompts — owner-approved 2026-11-08. ON by
+           default. One reusable choice for this channel: new episodes and the
+           native Pipeline inherit it, and an episode's own switch in Thumbnail
+           Prompts wins over it. -->
+      <div class="form-group" data-setting="thumbnail-prompt-auto-approve">
+        <label>Auto-approve thumbnail prompts</label>
+        <label class="thumbnail-text-toggle">
+          <input
+            v-model="thumbnailPromptAutoApprove"
+            type="checkbox"
+            :disabled="thumbnailPromptAutoApproveSaving"
+          />
+          Use thumbnail prompts without approving each one
+        </label>
+        <p class="settings-hint">
+          New episodes and the Pipeline use this. When it is off, each thumbnail prompt must be
+          approved in Thumbnail Prompts before an image is made, and editing a prompt after
+          approval asks for approval again. An episode's own switch in Thumbnail Prompts wins
+          over this one.
+        </p>
+        <span v-if="thumbnailPromptAutoApproveMessage" class="text-muted" style="font-size: var(--font-xs)">{{ thumbnailPromptAutoApproveMessage }}</span>
+      </div>
           </section>
 
           <CollapsibleCard title="Writing instructions" description="Channel guidance and intro rules, with reusable presets" data-setting="writing-instructions">
@@ -3195,6 +3218,52 @@ async function chooseThumbnailAutoPickModel(modelId: string): Promise<void> {
 
 onMounted(() => { void loadThumbnailAutoPickModels() })
 watch(slug, () => { void loadThumbnailAutoPickModels() })
+
+// ── Auto-approve thumbnail prompts (owner-approved 2026-11-08) ───────────
+//
+// One reusable switch for this channel, ON by default. New episodes and the
+// native Pipeline inherit it; an episode's own saved choice wins. While it is
+// OFF the existing manual approval and prompt-hash validation are unchanged.
+const thumbnailPromptAutoApprove = ref(true)
+const thumbnailPromptAutoApproveSaving = ref(false)
+const thumbnailPromptAutoApproveMessage = ref('')
+let thumbnailPromptAutoApproveInitialized = false
+let thumbnailPromptAutoApproveRollback = false
+
+watch(() => (config.value as any)?.auto_approve_thumbnail_prompts, value => {
+  if (thumbnailPromptAutoApproveSaving.value) return
+  thumbnailPromptAutoApproveRollback = true
+  thumbnailPromptAutoApprove.value = value !== false
+  thumbnailPromptAutoApproveInitialized = true
+}, { immediate: true })
+
+watch(thumbnailPromptAutoApprove, async next => {
+  if (thumbnailPromptAutoApproveRollback) { thumbnailPromptAutoApproveRollback = false; return }
+  if (!thumbnailPromptAutoApproveInitialized || thumbnailPromptAutoApproveSaving.value) return
+  await saveThumbnailPromptAutoApprove(next)
+})
+
+async function saveThumbnailPromptAutoApprove(next: boolean): Promise<void> {
+  const targetSlug = slug.value
+  thumbnailPromptAutoApproveSaving.value = true
+  thumbnailPromptAutoApproveMessage.value = 'Saving…'
+  try {
+    await put(`/projects/${targetSlug}/settings/config`, { auto_approve_thumbnail_prompts: next })
+    if (slug.value !== targetSlug) return
+    await refreshConfig(targetSlug)
+    thumbnailPromptAutoApproveMessage.value = next
+      ? 'Thumbnail prompts are approved automatically for this channel.'
+      : 'Thumbnail prompts need your approval for this channel.'
+    setTimeout(() => { thumbnailPromptAutoApproveMessage.value = '' }, 2500)
+  } catch (e: any) {
+    if (slug.value !== targetSlug) return
+    thumbnailPromptAutoApproveMessage.value = e?.data?.detail || e?.message || 'Failed to save the thumbnail prompt approval setting'
+    thumbnailPromptAutoApproveRollback = true
+    thumbnailPromptAutoApprove.value = !next
+  } finally {
+    thumbnailPromptAutoApproveSaving.value = false
+  }
+}
 
 // Confirmation preferences
 // `group: 'generation'` → action-only dialogs before generation begins.

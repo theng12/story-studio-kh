@@ -1026,6 +1026,47 @@ export async function unassignProjectYouTubeChannel(input: {
   })
 }
 
+/**
+ * The Channels list's view of each project's YouTube link, in the same four
+ * honest states the Connections screen already distinguishes:
+ *
+ *   connected          a channel is assigned and its current token + status are good
+ *   needs_reconnect    assigned, but the grant expired, a scope is missing, or
+ *                      the assigned channel is no longer in the registry
+ *   not_connected      no channel assigned
+ *   unknown            the registry could not be read (caller decides; see below)
+ *
+ * Unassigned projects are absent from the map — the caller reads absence as
+ * "not_connected". This function THROWS on an unreadable registry so a caller
+ * can render "unknown" rather than inventing "not connected" (AGENTS §6).
+ */
+export type ProjectYouTubeConnectionState = 'connected' | 'needs_reconnect' | 'not_connected'
+
+export async function readProjectYouTubeConnectionStates(): Promise<Record<string, ProjectYouTubeConnectionState>> {
+  const registry = await readYouTubeConnectionRegistry()
+  const bucket = (await readAppSecrets()).youtube
+  const oauthClient = registry.application
+    && bucket?.oauth_client?.application_id === registry.application.application_id
+    ? bucket.oauth_client
+    : null
+  const states: Record<string, ProjectYouTubeConnectionState> = {}
+  for (const assignment of Object.values(registry.assignments)) {
+    const channel = registry.channels[assignment.channel_id]
+    // An assignment to a channel the registry no longer holds cannot upload;
+    // it is a reconnect, never a silent "connected".
+    if (!channel) {
+      states[assignment.project_slug] = 'needs_reconnect'
+      continue
+    }
+    const token = bucket?.channel_tokens?.[channel.channel_id]
+    const hasCurrentToken = !!oauthClient && token?.application_id === registry.application?.application_id
+    states[assignment.project_slug] = hasCurrentToken && channel.status === 'connected'
+      ? 'connected'
+      : 'needs_reconnect'
+  }
+  return states
+}
+
 export async function authorizeProjectYouTubeAction(input: {
   project_slug: string
   expected_channel_id?: string

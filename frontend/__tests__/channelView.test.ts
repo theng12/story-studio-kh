@@ -42,6 +42,8 @@ import {
   sameLabel,
   sortChannels,
   writeChannelViewPrefs,
+  youtubeBadgeText,
+  youtubeConnectionState,
 } from '../utils/channel-view.ts'
 
 type Row = {
@@ -55,6 +57,7 @@ type Row = {
   formula_name?: string
   formula_id?: string
   niche_id?: string
+  youtube_connection?: string
 }
 
 function row(name: string, extra: Partial<Row> = {}): Row {
@@ -263,6 +266,53 @@ describe('sorting', () => {
     assert.equal(isChannelSort('recent'), true)
     assert.equal(isChannelSort('sideways'), false)
     assert.equal(isChannelSort(undefined), false)
+  })
+
+  test('the two YouTube sorts are remembered view values too', () => {
+    assert.equal(isChannelSort('youtube-connected'), true)
+    assert.equal(isChannelSort('youtube-not-connected'), true)
+  })
+})
+
+describe('YouTube connection state', () => {
+  test('connected first, needs-reconnect next, not connected, and unknown LAST', () => {
+    const rows = [
+      row('Mystery'),
+      row('No YouTube', { youtube_connection: 'not_connected' }),
+      row('Reconnect me', { youtube_connection: 'needs_reconnect' }),
+      row('Connected', { youtube_connection: 'connected' }),
+    ]
+    assert.deepEqual(names(sortChannels(rows, 'youtube-connected')), ['Connected', 'Reconnect me', 'No YouTube', 'Mystery'])
+    assert.deepEqual(names(sortChannels(rows, 'youtube-not-connected')), ['No YouTube', 'Reconnect me', 'Connected', 'Mystery'])
+  })
+
+  test('ties are alphabetical, so the list never reorders itself between renders', () => {
+    const rows = [
+      row('Zeta', { youtube_connection: 'connected' }),
+      row('Alpha', { youtube_connection: 'connected' }),
+      row('Beta', { youtube_connection: 'not_connected' }),
+      row('Able', { youtube_connection: 'not_connected' }),
+    ]
+    assert.deepEqual(names(sortChannels(rows, 'youtube-connected')), ['Alpha', 'Zeta', 'Able', 'Beta'])
+    assert.deepEqual(names(sortChannels(rows, 'youtube-not-connected')), ['Able', 'Beta', 'Alpha', 'Zeta'])
+  })
+
+  test('badge states are honest, distinct from the Gateway key badge, and never invent one', () => {
+    assert.equal(youtubeConnectionState({ youtube_connection: 'connected' }), 'connected')
+    assert.equal(youtubeConnectionState({ youtube_connection: 'needs_reconnect' }), 'needs_reconnect')
+    assert.equal(youtubeConnectionState({ youtube_connection: 'not_connected' }), 'not_connected')
+    // Missing (older build) and anything unrecognised are UNKNOWN, never "not connected".
+    assert.equal(youtubeConnectionState({}), 'unknown')
+    assert.equal(youtubeConnectionState({ youtube_connection: 'maybe' }), 'unknown')
+    assert.equal(youtubeConnectionState(null), 'unknown')
+
+    assert.equal(youtubeBadgeText({ youtube_connection: 'connected' }), 'YouTube connected')
+    assert.equal(youtubeBadgeText({ youtube_connection: 'needs_reconnect' }), 'YouTube needs reconnect')
+    assert.equal(youtubeBadgeText({ youtube_connection: 'not_connected' }), 'YouTube not connected')
+    assert.equal(youtubeBadgeText({}), 'YouTube status unknown')
+    for (const state of ['connected', 'needs_reconnect', 'not_connected', 'unknown']) {
+      assert.notEqual(youtubeBadgeText({ youtube_connection: state }), credentialBadgeText(state === 'connected'), 'the YouTube badge must not read as the Gateway key badge')
+    }
   })
 })
 

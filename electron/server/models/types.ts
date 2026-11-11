@@ -1840,6 +1840,13 @@ export interface ProjectSummary {
    * not the same answer).
    */
   has_api_keys: boolean | null
+  /**
+   * The assigned YouTube channel's real state, read from the central
+   * connection registry (the same one the Connections screen uses).
+   * Absent in older builds — the home page reads that as `unknown`, never
+   * as "not connected".
+   */
+  youtube_connection?: 'connected' | 'needs_reconnect' | 'not_connected' | 'unknown'
   // (Removed from new responses: portable. Optional field stays in the
   // type so old client builds parsing the response don't break.)
   portable?: boolean
@@ -2338,6 +2345,12 @@ export interface ProjectConfig {
     enabled?: boolean
     model?: string
   }
+  /**
+   * Reusable thumbnail prompt approval (owner, 2026-11-08). ON unless
+   * explicitly false. New episodes and the native Pipeline inherit it; an
+   * episode's own saved `auto_approve` wins when set.
+   */
+  auto_approve_thumbnail_prompts?: boolean
   /** 1.4.300 — per-channel Off / Warn / Block for each safety check; only changed rows are saved. */
   safety_checks?: Record<string, 'off' | 'warn' | 'block'>
   /**

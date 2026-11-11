@@ -187,18 +187,27 @@
                   <span :class="{ 'project-counts-warn': part.warn }">{{ part.text }}</span>
                 </template>
               </span>
-              <span
-                v-if="isFolderUnreadable(project) || project.output_root_exists === false"
-                class="project-row-key"
-                data-ready="false"
-              >{{ isFolderUnreadable(project) ? 'Can’t read this channel’s folder' : 'Folder missing' }}</span>
-              <!-- has_api_keys null = the credential store could not be read
-                   here (unknown). Unknown must never claim "needs key" (AGENTS §6). -->
-              <span v-else-if="project.has_api_keys == null" class="project-row-key" data-ready="unknown">
-                {{ credentialBadgeText(project.has_api_keys) }}
-              </span>
-              <span v-else class="project-row-key" :data-ready="Boolean(project.has_api_keys)">
-                {{ credentialBadgeText(project.has_api_keys) }}
+              <span class="project-row-badges">
+                <span
+                  v-if="isFolderUnreadable(project) || project.output_root_exists === false"
+                  class="project-row-key"
+                  data-ready="false"
+                >{{ isFolderUnreadable(project) ? 'Can’t read this channel’s folder' : 'Folder missing' }}</span>
+                <!-- has_api_keys null = the credential store could not be read
+                     here (unknown). Unknown must never claim "needs key" (AGENTS §6). -->
+                <span v-else-if="project.has_api_keys == null" class="project-row-key" data-ready="unknown">
+                  {{ credentialBadgeText(project.has_api_keys) }}
+                </span>
+                <span v-else class="project-row-key" :data-ready="Boolean(project.has_api_keys)">
+                  {{ credentialBadgeText(project.has_api_keys) }}
+                </span>
+                <!-- The assigned YouTube channel, from the central connection
+                     registry. A different question from the Gateway key above,
+                     so it is worded and coloured apart. Unknown stays muted and
+                     never reads as "not connected" (AGENTS §6). -->
+                <span class="project-row-key project-row-youtube" :data-state="youtubeConnectionState(project)">
+                  {{ youtubeBadgeText(project) }}
+                </span>
               </span>
             </NuxtLink>
             <div class="project-row-actions">
@@ -247,6 +256,11 @@
                 </span>
                 <span v-else class="project-status" :data-ready="Boolean(project.has_api_keys)">
                   {{ credentialBadgeText(project.has_api_keys) }}
+                </span>
+                <!-- YouTube is its own connection, separate from the Gateway
+                     key. Same four honest states as the Connections screen. -->
+                <span class="project-status project-youtube" :data-state="youtubeConnectionState(project)">
+                  {{ youtubeBadgeText(project) }}
                 </span>
               </span>
               <span class="project-copy">
@@ -660,6 +674,8 @@ import {
   sortChannels,
   type ChannelSort,
   writeChannelViewPrefs,
+  youtubeBadgeText,
+  youtubeConnectionState,
 } from '~/utils/channel-view'
 
 useAppTitle()
@@ -1576,6 +1592,12 @@ onMounted(async () => {
   font-weight: 650;
 }
 .project-status[data-ready='true'] { border-color: color-mix(in srgb, var(--success) 35%, var(--border)); color: var(--success); }
+/* YouTube state, deliberately independent of the Gateway key pill above:
+   connected is good, needs-reconnect warns, and plain "not connected" is a
+   normal resting state — muted, not alarming. Unknown is muted too. */
+.project-youtube[data-state='connected'] { border-color: color-mix(in srgb, var(--success) 35%, var(--border)); color: var(--success); }
+.project-youtube[data-state='not_connected'],
+.project-youtube[data-state='unknown'] { border-color: var(--border); color: var(--text-muted); }
 /* v1.4.2 — a project whose episodes folder cannot be found. Deliberately the
    loudest state on the card: everything else is cosmetic until it is fixed. */
 .project-status-missing {
@@ -1684,6 +1706,9 @@ onMounted(async () => {
 .project-row-stats { overflow: hidden; color: var(--text-secondary); font-size: var(--font-xs); text-overflow: ellipsis; white-space: nowrap; }
 .project-row-key { color: var(--text-muted); font-size: var(--font-xs); white-space: nowrap; }
 .project-row-key[data-ready="false"] { color: var(--warning); }
+.project-row-badges { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
+.project-row-youtube[data-state='connected'] { color: var(--success); }
+.project-row-youtube[data-state='needs_reconnect'] { color: var(--warning); }
 .project-row-actions { display: flex; flex: none; gap: 10px; }
 @media (max-width: 1080px) {
   .project-row-main { grid-template-columns: 30px minmax(120px, 1fr) minmax(110px, 1fr) minmax(140px, 1.2fr) auto; }

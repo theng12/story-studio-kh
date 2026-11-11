@@ -448,6 +448,10 @@ export interface ProjectSummaryResponse {
   episode_prefix: string
   created_at: string
   has_api_keys: boolean | null
+  /** The assigned YouTube channel's real state, read from the central
+   *  connection registry: connected, needs_reconnect, not_connected, or
+   *  unknown when the registry could not be read. Distinct from has_api_keys. */
+  youtube_connection?: 'connected' | 'needs_reconnect' | 'not_connected' | 'unknown'
   /** v1.0.302 — raw configured format id; the home page maps it to a label. */
   format_id?: string
 }
@@ -584,6 +588,12 @@ export const UpdateConfigSchema = z.object({
     model: z.string().trim().max(240).optional(),
   }).optional(),
   /**
+   * 1.4.392 — the channel's reusable "Auto-approve thumbnail prompts" switch
+   * (owner-approved 2026-11-08). ON unless explicitly false; a new episode
+   * inherits it, and an episode's own saved choice wins over it.
+   */
+  auto_approve_thumbnail_prompts: z.boolean().optional(),
+  /**
    * 1.4.375 — scene import clip preset and allowed lengths for outside video/image tools
    * (owner, 2026-11-02: "scene import is for ANY outside video or image tool").
    */
@@ -700,6 +710,8 @@ export interface SafeProjectConfigResponse {
     enabled?: boolean
     model?: string
   }
+  /** 1.4.392 — reusable thumbnail prompt approval default. Absent = ON. */
+  auto_approve_thumbnail_prompts?: boolean
   image_models: Record<string, any>
   voice_presets: Array<{
     name: string

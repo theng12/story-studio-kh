@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
-import { after, before, test } from 'node:test'
+import { after, before, describe, test } from 'node:test'
 import express from 'express'
 import fs from 'node:fs/promises'
 import path from 'node:path'
@@ -40,6 +40,10 @@ before(async () => {
   const { resolveEpisodePaths } = await import('../services/utils.js')
   const project = await pm.createProject({ name: 'Thumbnail option settings' })
   slug = project.slug
+  // These cases pin the PER-EPISODE gate exactly as it was. The channel's
+  // reusable default is ON unless set, so turn it off here; the inheritance
+  // cases below turn it back on for their own fresh project.
+  await pm.updateConfig(slug, { auto_approve_thumbnail_prompts: false } as any)
   const paths = await resolveEpisodePaths(slug, code, '')
   episodeDir = paths.episode_dir
   promptsPath = paths.thumb_prompts_docx
@@ -59,7 +63,7 @@ const readDisk = async (file: string) => JSON.parse(await fs.readFile(file, 'utf
 test('roundtrip: one option writes its selections and reads them back, approval required by default', async () => {
   const beforeGet = await request(app).get(optionsEndpoint(code))
   assert.equal(beforeGet.status, 200)
-  assert.deepEqual(beforeGet.body, { schema: 1, auto_approve: false, options: {} })
+  assert.deepEqual(beforeGet.body, { schema: 1, auto_approve: false, auto_approve_inherited: true, options: {} })
   await assert.rejects(fs.access(sidecarFile()), 'a read must not create the sidecar')
 
   const put = await request(app).put(optionsEndpoint(code)).send({
@@ -86,7 +90,7 @@ test('roundtrip: one option writes its selections and reads them back, approval 
   })
   const disk = await readDisk(sidecarFile())
   assert.equal(disk.schema, 1)
-  assert.equal(disk.auto_approve, false)
+  assert.equal(disk.auto_approve, undefined, 'no per-episode choice is written; the channel default applies')
   assert.equal(typeof disk.options['1'].thumbnail_template_id, 'string')
   assert.equal(disk.options['1'].approved_prompt_sha256, undefined, 'approval is only stored on approve')
 })
@@ -194,7 +198,12 @@ test('render approval checks current prompts and preserves legacy behavior', asy
   await assertThumbnailOptionsApproved(slug, code, prompts)
   assert.equal(thumbnailOptionApproved({ ...emptyThumbnailOptionSettings(), auto_approve: true }, 1, null), false)
   await request(app).put(optionsEndpoint(code)).send({ number: 1, auto_approve: false })
-  await assertThumbnailOptionsApproved(slug, legacyCode, [{ number: 1, prompt: PROMPT_1 }])
+  // An episode with no saved choice inherits the channel default. It is OFF
+  // here, so the gate applies to the legacy episode too.
+  await assert.rejects(
+    assertThumbnailOptionsApproved(slug, legacyCode, [{ number: 1, prompt: PROMPT_1 }]),
+    /Approve thumbnail prompt/,
+  )
 })
 
 test('duplication is independent, unapproved and idempotent', async () => {
@@ -223,7 +232,7 @@ test('duplication is independent, unapproved and idempotent', async () => {
 test('legacy episode: reads empty defaults and never gets written', async () => {
   const get = await request(app).get(optionsEndpoint(legacyCode))
   assert.equal(get.status, 200)
-  assert.deepEqual(get.body, { schema: 1, auto_approve: false, options: {} })
+  assert.deepEqual(get.body, { schema: 1, auto_approve: false, auto_approve_inherited: true, options: {} })
 
   const put = await request(app).put(optionsEndpoint(legacyCode)).send({ number: 1, style_tag: 'x' })
   assert.equal(put.status, 404, 'no prompts file means there is no option to write')
@@ -290,4 +299,68 @@ test('regression: approved style longer than 1000 characters roundtrips through 
   assert.equal(get.status, 200)
   assert.equal(get.body.options[1].style_tag, longStyle, 'GET must return exact style bytes')
   assert.equal(get.body.options[1].style_tag.length, longStyle.length)
+})
+
+describe('reusable Auto-approve thumbnail prompts (owner-approved 2026-11-08)', () => {
+  test('a new episode inherits the channel default, which is ON', async () => {
+    const { assertThumbnailOptionsApproved } = await import('../services/thumbnail-option-settings.js')
+    const pm = await import('../services/project-manager.js')
+    const { resolveEpisodePaths } = await import('../services/utils.js')
+    const fresh = await pm.createProject({ name: 'Thumbnail auto approve default' })
+    const code = 'EP0100'
+    const paths = await resolveEpisodePaths(fresh.slug, code, '')
+    await fs.mkdir(paths.episode_dir, { recursive: true })
+
+    // No config key, no sidecar: the product default is ON.
+    await assertThumbnailOptionsApproved(fresh.slug, code, [{ number: 1, prompt: 'anything' }])
+
+    await pm.updateConfig(fresh.slug, { auto_approve_thumbnail_prompts: false } as any)
+    await assert.rejects(
+      assertThumbnailOptionsApproved(fresh.slug, code, [{ number: 1, prompt: 'anything' }]),
+      /Approve thumbnail prompt/,
+      'with the channel switch OFF a new episode needs approval',
+    )
+
+    // An explicit per-episode choice wins over the channel default, both ways.
+    await fs.writeFile(
+      path.join(paths.episode_dir, 'thumbnail_options.json'),
+      JSON.stringify({ schema: 1, auto_approve: true, options: {} }),
+      'utf8',
+    )
+    await assertThumbnailOptionsApproved(fresh.slug, code, [{ number: 1, prompt: 'anything' }])
+
+    await pm.updateConfig(fresh.slug, { auto_approve_thumbnail_prompts: true } as any)
+    await fs.writeFile(
+      path.join(paths.episode_dir, 'thumbnail_options.json'),
+      JSON.stringify({ schema: 1, auto_approve: false, options: {} }),
+      'utf8',
+    )
+    await assert.rejects(
+      assertThumbnailOptionsApproved(fresh.slug, code, [{ number: 1, prompt: 'anything' }]),
+      /Approve thumbnail prompt/,
+      'an explicit episode OFF wins over a channel default that is ON',
+    )
+  })
+
+  test('an edited prompt still requires approval when the gate is on', async () => {
+    const { assertThumbnailOptionsApproved } = await import('../services/thumbnail-option-settings.js')
+    const { parseImagePromptsDocx } = await import('../lib/docx-parser.js')
+    const put = await request(app).put(optionsEndpoint(code)).send({ number: 1, auto_approve: false })
+    assert.equal(put.status, 200)
+    assert.equal(put.body.auto_approve, false)
+    assert.equal(put.body.auto_approve_inherited, false, 'an explicit choice is not reported as inherited')
+
+    await fs.writeFile(promptsPath, promptsFile(PROMPT_1), 'utf8')
+    assert.equal((await request(app).put(optionsEndpoint(code)).send({ number: 1, approve: true })).status, 200)
+    const approved = (await parseImagePromptsDocx(promptsPath)).thumbnails
+    await assertThumbnailOptionsApproved(slug, code, [approved[0]!])
+
+    await fs.writeFile(promptsPath, promptsFile('An edited prompt after approval. Storybook style.'), 'utf8')
+    const edited = (await parseImagePromptsDocx(promptsPath)).thumbnails
+    await assert.rejects(
+      assertThumbnailOptionsApproved(slug, code, [edited[0]!]),
+      /Approve thumbnail prompt/,
+      'the SHA-256 no longer matches the edited prompt',
+    )
+  })
 })

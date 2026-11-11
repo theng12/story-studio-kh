@@ -1665,6 +1665,12 @@ export async function getSafeConfig(slug: string): Promise<any | null> {
     thumbnail_auto_pick: ((config as any).thumbnail_auto_pick && typeof (config as any).thumbnail_auto_pick === 'object')
       ? (config as any).thumbnail_auto_pick
       : undefined,
+    // Reusable thumbnail prompt approval (owner, 2026-11-08). Echoed for the
+    // same allow-list reason: absent means ON, so only an explicit false is
+    // worth sending, and it must survive the round trip to Settings.
+    auto_approve_thumbnail_prompts: typeof (config as any).auto_approve_thumbnail_prompts === 'boolean'
+      ? (config as any).auto_approve_thumbnail_prompts
+      : undefined,
     branded_opening_duration_sec: typeof (config as any).branded_opening_duration_sec === 'number'
       ? (config as any).branded_opening_duration_sec
       : undefined,

@@ -24,6 +24,7 @@ import { loadNiche, withFormulaLabels } from '../services/niche-loader.js'
 import { seedFormulaStartingDefaults } from '../services/formula-starting-defaults.js'
 import { getIdeas } from '../services/idea-manager.js'
 import { readYouTubeProjectPublishingState } from '../services/youtube-project-publishing-store.js'
+import { readProjectYouTubeConnectionStates } from '../services/youtube-connection-store.js'
 import { episodeStepJobStates, STEP_JOB_TYPES } from '../contracts/episode-step-jobs.js'
 
 export const router = Router()
@@ -62,7 +63,24 @@ router.get('/projects', async (_req, res) => {
   // this is the ONE route whose screen sorts by it (the start page's "Recently
   // worked on"), and computing it for every other caller only re-walked the
   // episode tree on top of whatever that caller already read.
-  res.json(await withFormulaLabels(await pm.listProjects({ recency: true })))
+  const rows = await withFormulaLabels(await pm.listProjects({ recency: true }))
+  // The channel's YouTube link, from the SAME central registry the Connections
+  // screen reads — one read for the whole list, never one per card. An
+  // unreadable registry is UNKNOWN for every row, not "not connected" (§6). A
+  // readable registry with no assignment for this project is genuinely not
+  // connected.
+  let youtubeStates: Awaited<ReturnType<typeof readProjectYouTubeConnectionStates>> | null = null
+  try {
+    youtubeStates = await readProjectYouTubeConnectionStates()
+  } catch {
+    console.warn('[projects] YouTube connection registry unreadable — youtube_connection reported as unknown for the list')
+  }
+  res.json(rows.map(row => ({
+    ...row,
+    youtube_connection: youtubeStates === null
+      ? 'unknown'
+      : youtubeStates[row.slug] ?? 'not_connected',
+  })))
 })
 
 //
