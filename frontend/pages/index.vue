@@ -1596,6 +1596,7 @@ onMounted(async () => {
    connected is good, needs-reconnect warns, and plain "not connected" is a
    normal resting state — muted, not alarming. Unknown is muted too. */
 .project-youtube[data-state='connected'] { border-color: color-mix(in srgb, var(--success) 35%, var(--border)); color: var(--success); }
+.project-youtube[data-state='needs_reconnect'] { border-color: color-mix(in srgb, var(--warning) 35%, var(--border)); color: var(--warning); }
 .project-youtube[data-state='not_connected'],
 .project-youtube[data-state='unknown'] { border-color: var(--border); color: var(--text-muted); }
 /* v1.4.2 — a project whose episodes folder cannot be found. Deliberately the
