@@ -1849,6 +1849,9 @@ async function resolvePipelineMotionParams(
       throw new Error('The saved Motion Review preset has invalid switches. Open Motion Review and save the preset again.')
     }
     const switches: Record<string, unknown> = { ...(savedSwitches || {}) }
+    if (Object.hasOwn(switches, 'audio') && !publishesAudio) {
+      throw new Error('The selected model does not publish a supported audio control. Refresh its capabilities or update Story Studio.')
+    }
     const audio = switches.audio !== undefined ? switches.audio : saved.audio
     if (audio !== undefined && typeof audio !== 'boolean') {
       throw new Error('The saved Motion Review preset has a non-boolean audio setting. Open Motion Review and save the preset again.')

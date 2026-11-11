@@ -561,6 +561,52 @@ describe('run-batch — v1.0.363 audio-paced wiring', () => {
     }
   })
 
+  test('Motion Review Pipeline refuses removed structured audio and preserves legacy flat-field compatibility', async () => {
+    const service = await startMockGenStudioService()
+    let restoreVideoCatalog: (() => void) | undefined
+    try {
+      assert.equal((await request(app).put('/api/app-settings/genstudio').send({ url: service.baseUrl })).status, 200)
+      assert.equal((await request(app).put('/api/app-settings/api-keys/genstudio').send({ apiKey: MOCK_GENSTUDIO_FULL_KEY })).status, 200)
+      const { clearGenStudioCatalogCache } = await import('../lib/genstudio-client.js')
+      clearGenStudioCatalogCache()
+      restoreVideoCatalog = enableMockVideoCatalog(service, [{ name: 'generate_audio', type: 'boolean', default: true }])
+      const jq = await import('../services/job-queue.js')
+      const cases = [
+        { name: 'removed-audio', values: { switches: { audio: false } }, status: 400 },
+        { name: 'legacy-audio', values: { audio: false }, status: 201 },
+        { name: 'published-generate-audio', values: { switches: { generate_audio: false } }, status: 201 },
+      ]
+      for (const entry of cases) {
+        const project = await seedProjectWithAcceptedIdea()
+        await pm.updateConfig(project.slug, {
+          motion_review_presets: [{ id: entry.name, name: entry.name, data: {
+            model: 'mock-video-v1', aspect_ratio: '16:9', operation: 'image-to-video', duration_seconds: 8, resolution: '1080p',
+            ...entry.values,
+          } }],
+          'motion_review_last_preset_motion-review': entry.name,
+        } as any)
+        const response = await request(app)
+          .post(`/api/projects/${project.slug}/pipeline/run-batch`)
+          .send({ episode_ids: [project.episodeId], steps: ['motion_review'] })
+        assert.equal(response.status, entry.status, entry.name)
+        if (entry.status === 400) {
+          assert.match(response.body.detail, /does not publish a supported audio control/)
+          assert.equal((await jq.getJobs(project.slug)).length, 0, 'a removed silent choice must refuse before enqueue')
+        } else {
+          const job = jq.getJob(response.body.jobs[0].job_id)
+          assert.equal(job?.params.audio, undefined, 'generate_audio must never be translated into audio')
+          assert.deepEqual(job?.params.video_controls,
+            entry.name === 'published-generate-audio' ? { generate_audio: false } : undefined,
+            'a published choice keeps its wire name; the legacy flat-field fallback stays compatible')
+        }
+      }
+      assert.equal(service.submissions.filter(entry => entry.operation === 'video').length, 0)
+    } finally {
+      restoreVideoCatalog?.()
+      await service.close()
+    }
+  })
+
   test('subtitles rejects an unsupported preset language before enqueueing a job', async () => {
     const service = await startMockGenStudioService()
     try {
