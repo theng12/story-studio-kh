@@ -149,12 +149,23 @@ function checkPackageInputs() {
     const file = path.join(root, relative)
     if (!fs.existsSync(file)) fail(`${relative}: required offline FFmpeg input is missing`)
   }
-  // Sketch Draw requires the bundled helper; it has no FFmpeg fallback.
-  for (const relative of ['bundled/scene-clip/scene-clip', 'bundled/scene-clip/MANIFEST.json', 'bundled/LICENSE-SKETCH-DRAW.txt']) {
+  // Sketch Draw requires the bundled helper; it has no FFmpeg fallback. One bundle carries both
+  // helpers, and every visible name is "Story Studio KH Helper" (owner naming rule, 2026-11-11).
+  for (const relative of [
+    'bundled/Story Studio KH Helper.app/Contents/Info.plist',
+    'bundled/Story Studio KH Helper.app/Contents/MacOS/Story Studio KH Helper',
+    'bundled/Story Studio KH Helper.app/Contents/Resources/Story Studio KH Helper',
+    'bundled/Story Studio KH Helper.app/Contents/Resources/MANIFEST.json',
+    'bundled/LICENSE-SKETCH-DRAW.txt',
+  ]) {
     const file = path.join(root, relative)
-    if (!fs.existsSync(file)) fail(`${relative}: native scene-clip helper is missing (run npm run build:scene-clip)`)
+    if (!fs.existsSync(file)) fail(`${relative}: Story Studio KH Helper.app is missing (run npm run build:scene-clip)`)
   }
-  for (const relative of ['bundled/ffmpeg/ffmpeg', 'bundled/ffmpeg/ffprobe', 'bundled/scene-clip/scene-clip']) {
+  for (const relative of [
+    'bundled/ffmpeg/ffmpeg', 'bundled/ffmpeg/ffprobe',
+    'bundled/Story Studio KH Helper.app/Contents/MacOS/Story Studio KH Helper',
+    'bundled/Story Studio KH Helper.app/Contents/Resources/Story Studio KH Helper',
+  ]) {
     const file = path.join(root, relative)
     if (fs.existsSync(file) && (fs.statSync(file).mode & 0o111) === 0) fail(`${relative}: binary is not executable`)
   }

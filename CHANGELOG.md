@@ -4,7 +4,7 @@ What's new in each release. Newest first.
 
 ---
 
-## v1.4.392 — 2026-11-11
+## v1.4.392 — 2026-11-12
 
 - Channels now shows each channel’s YouTube connection beside its Gateway key — connected, needs reconnect, not connected, or unknown — and the sort menu can put YouTube-connected or not-connected channels first.
 - One switch in channel Settings, “Auto-approve thumbnail prompts”, is on by default. Turn it off and each thumbnail prompt needs approval before an image is made; an episode can still choose for itself.
@@ -13,6 +13,7 @@ What's new in each release. Newest first.
 - Publishing’s Calendar opens a channel timeline with accepted episodes, actual upload starts, planned releases and the last confirmed YouTube dates, an adjustable weekly target, zoom and a table view. Opening it never uploads, reschedules or changes visibility.
 - Private remote rendering checks the paired renderer’s subtitle support and exact font and subtitle file limits before preparing a transfer.
 - Motion Review and Pipeline keep the selected model’s published video settings, including sound turned off. Longer scenes hold the final frame; unavailable choices explain why they cannot run.
+- The native render helper and the update helper now run from one signed “Story Studio KH Helper” app, so Activity Monitor, Login Items and Background Activity show the proper app name instead of a script or slug.
 
 ## v1.4.390 — 2026-11-09
 

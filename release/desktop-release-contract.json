@@ -32,8 +32,8 @@
       "to": "ffmpeg"
     },
     {
-      "from": "bundled/scene-clip",
-      "to": "scene-clip"
+      "from": "bundled/Story Studio KH Helper.app",
+      "to": "Story Studio KH Helper.app"
     },
     {
       "from": "bundled/LICENSE-FFMPEG.txt",
@@ -55,7 +55,9 @@
     "ffmpeg/MANIFEST.json",
     "ffmpeg/ffmpeg",
     "ffmpeg/ffprobe",
-    "scene-clip/scene-clip",
+    "Story Studio KH Helper.app/Contents/Info.plist",
+    "Story Studio KH Helper.app/Contents/MacOS/Story Studio KH Helper",
+    "Story Studio KH Helper.app/Contents/Resources/Story Studio KH Helper",
     "formats/continuity-chain.json",
     "niches/sleep.json",
     "templates/blank/config.json",

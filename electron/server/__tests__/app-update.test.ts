@@ -6,19 +6,40 @@
 
 import { test, describe, beforeEach, afterEach, type TestContext } from 'node:test'
 import assert from 'node:assert/strict'
-import { execFileSync, spawn, type ChildProcess } from 'node:child_process'
+import { execFileSync, spawn, spawnSync, type ChildProcess } from 'node:child_process'
 import { createHash, generateKeyPairSync, randomUUID, sign } from 'node:crypto'
 import fs from 'node:fs'
 import { createRequire, syncBuiltinESMExports } from 'node:module'
 import os from 'node:os'
 import path from 'node:path'
 import { clearTimeout as clearRealTimeout, setTimeout as realSetTimeout } from 'node:timers'
+import { fileURLToPath } from 'node:url'
 
 import { useTempDataDir } from './_helpers.js'
 import { diagnosticPhase, installDiagnosticHooks } from './_diagnostic-phases.js'
 import { sleep, waitFor } from './_timing.js'
 import * as updater from '../services/app-update.js'
 import { __setFinalCheckRunnerForTests, runningFinalChecks, startFinalCheck } from '../lib/final-video-check.js'
+
+const REPO_ROOT = fileURLToPath(new URL('../../../', import.meta.url))
+
+/**
+ * The swap helper is the Story Studio KH Helper.app executable now, so the tests compile its Swift
+ * source once and drive that binary. Same contract as the retired shell script (SU_* env, the same
+ * result/log files); no shell script exists any more, by the owner's naming rule (2026-11-11).
+ */
+let compiledHelper: string | null = null
+function swapHelperBinary(): string {
+  if (compiledHelper) return compiledHelper
+  const output = path.join(os.tmpdir(), `story-swap-helper-${process.pid}`)
+  const built = spawnSync('swiftc', [
+    '-O', '-target', 'arm64-apple-macos13.0', '-suppress-warnings',
+    '-o', output, path.join(REPO_ROOT, 'native', 'story-helper', 'main.swift'),
+  ], { encoding: 'utf8' })
+  if (built.status !== 0) throw new Error(`could not build Story Studio KH Helper: ${built.stderr || built.stdout}`)
+  compiledHelper = output
+  return output
+}
 
 /**
  * The swap helper `install()` spawns is detached and unref'd, so a test has no handle on it: it
@@ -36,7 +57,7 @@ type HelperProcess = {
 
 function captureHelperSpawns(
   t: TestContext,
-  script: string,
+  helper: string,
 ): { processes: HelperProcess[]; restore: () => void } {
   const childProcess = createRequire(import.meta.url)('node:child_process') as {
     spawn: (...args: any[]) => ChildProcess
@@ -46,7 +67,7 @@ function captureHelperSpawns(
   const mocked = t.mock.method(childProcess, 'spawn', (...args: any[]) => {
     const child = Reflect.apply(original, childProcess, args) as ChildProcess
     const [command, argv] = args as [string, string[]]
-    if (command === '/bin/bash' && Array.isArray(argv) && argv.length === 1 && argv[0] === script) {
+    if (command === helper && Array.isArray(argv) && argv.length === 0) {
       let failure: Error | undefined
       const exited = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>(resolve => {
         child.once('exit', (code, signal) => resolve({ code, signal }))
@@ -161,6 +182,7 @@ function options(queue: any, extra: Partial<updater.UpdaterOptions> = {}): updat
     saveSettings: async (p) => { settings = { ...settings, ...p } },
     gateway: async () => ({ url: 'http://gateway.test', key: 'k' }),
     channels: async () => 4,
+    get helperPath() { return swapHelperBinary() },
     ...extra,
   }
 }
@@ -403,16 +425,15 @@ describe('install promptly (owner, 2026-10-09)', () => {
    * after the helper that started it, so each helper's own relaunch is accounted for and not just
    * the first one.
    *
-   * The name is the helper's PROCESS GROUP id, not `$PPID`. A helper that relaunches and then exits
-   * at once (the two "could not move the app" paths, and the rollback that ends the script) is gone
-   * before the relaunch starts, so the orphan is reparented to PID 1 and `$PPID` reads 1: the
-   * relaunch then writes its marker as `1` and the helper's own marker never appears. The helper is
-   * spawned detached, so it leads its own session and process group: its group id is its own pid,
-   * and that does not change when it exits.
+   * The name is the helper's own pid, passed in `SU_HELPER_PID`, not `$PPID`: a helper that
+   * relaunches and then exits at once (the two "could not move the app" paths, and the rollback
+   * that ends the script) is gone before the relaunch starts, so the orphan is reparented to PID 1
+   * and `$PPID` reads 1. A process-group id cannot identify it either: Foundation's `Process`
+   * starts the relaunch in a group of its own, so the group id is not the helper's pid.
    */
   function relaunchCommand(markers: string): string {
     const state = path.join(updater.updateDir(), 'state.json')
-    const helperPid = 'name=$(ps -o pgid= -p $$ 2>/dev/null | tr -d \'[:space:]\'); [ -n "$name" ] || { echo "no helper identity for the relaunch" >&2; exit 1; }'
+    const helperPid = 'name=$SU_HELPER_PID; [ -n "$name" ] || { echo "no helper identity for the relaunch" >&2; exit 1; }'
     return `printf '{"phase":"installed","release":{"version":"1.4.258"}}' > ${JSON.stringify(state)}; ${helperPid}; printf relaunched > ${JSON.stringify(markers)}/$name`
   }
   /**
@@ -429,7 +450,7 @@ describe('install promptly (owner, 2026-10-09)', () => {
   ): Promise<T> {
     const markers = path.join(os.tmpdir(), `story-app-update-relaunch-${process.pid}-${randomUUID()}`)
     fs.mkdirSync(markers)
-    const capture = captureHelperSpawns(t, path.join(updater.updateDir(), 'swap-app.sh'))
+    const capture = captureHelperSpawns(t, swapHelperBinary())
     const standIn = spawn('/bin/sleep', ['3600'])
     const standInGone = new Promise<void>(resolve => {
       standIn.once('exit', () => resolve())
@@ -526,19 +547,6 @@ describe('install promptly (owner, 2026-10-09)', () => {
     return fs.existsSync(log)
       ? fs.readFileSync(log, 'utf8').split('\n').filter(line => line.includes('waiting for pid')).length
       : 0
-  }
-  /**
-   * `install()` writes swap-app.sh from scratch every time, so a marker appended after one hand-off
-   * survives exactly one hand-off: a second one rewrites the file and drops it. The marker is a
-   * comment, so a helper that reads the script after the append still runs it normally.
-   */
-  const HANDOFF_MARKER = '# one-hand-off'
-  function markedOnce(script: string): boolean {
-    fs.appendFileSync(script, `\n${HANDOFF_MARKER}\n`)
-    return true
-  }
-  function stillMarked(script: string): boolean {
-    return fs.existsSync(script) && fs.readFileSync(script, 'utf8').includes(HANDOFF_MARKER)
   }
   /**
    * Use this live process as the stand-in app: an unowned sleeper would keep the test worker alive.
@@ -830,12 +838,9 @@ describe('install promptly (owner, 2026-10-09)', () => {
       await waitFor(() => releases.length === 2, { label: 'both presses waiting on the queue' })
       releases[0]!()
       await waitFor(() => updater.readState().phase === 'installing', { label: 'the first press committing' })
-      const script = path.join(updater.updateDir(), 'swap-app.sh')
-      markedOnce(script)
       releases[1]!()
       await presses
       assert.equal(updater.readState().phase, 'installing', 'the second press did not write draining over installing')
-      assert.equal(stillMarked(script), true, 'no second hand-off: a second install() would have rewritten swap-app.sh')
       await waitFor(() => handoffs() >= 1, { label: 'the helper to start' })
       assert.equal(handoffs(), 1, 'the helper itself saw one hand-off')
     })
@@ -856,14 +861,11 @@ describe('install promptly (owner, 2026-10-09)', () => {
       await waitFor(() => gated, { label: 'the drain tick asking the queue' })
       await updater.installNow(true)
       assert.equal(updater.readState().phase, 'installing', 'the immediate press commits at once')
-      const script = path.join(updater.updateDir(), 'swap-app.sh')
-      markedOnce(script)
       releaseGate()
       // One macrotask hop: the resumed tick's continuation is a microtask, so it has run by then.
       await sleep(0)
       // The resumed tick sees `installing`: it neither installs again nor writes `draining` back.
       assert.equal(updater.readState().phase, 'installing', 'the resumed tick did not write draining over installing')
-      assert.equal(stillMarked(script), true, 'the resumed tick did not start a second helper')
       assert.equal(checks, 1, 'the suspended drain looked at the queue once, before the immediate press committed')
       await waitFor(() => handoffs() >= 1, { label: 'the helper to start' })
       assert.equal(handoffs(), 1, 'the helper itself saw one hand-off')
@@ -882,12 +884,9 @@ describe('install promptly (owner, 2026-10-09)', () => {
       await waitFor(() => updater.readState().phase === 'failed', { label: 'the did-not-quit failure' })
       // The second hand-off must not be called off while this test watches it.
       updater._setQuitDeadlineForTesting(60 * 60_000)
-      const script = path.join(updater.updateDir(), 'swap-app.sh')
-      markedOnce(script)
       updater.writeState({ ...updater.readState(), phase: 'ready', immediate: true, install_requested: true, error: null })
       await updater.maybeInstall()
       assert.equal(updater.readState().phase, 'installing', 'the claim was freed with the failure')
-      assert.equal(stillMarked(script), false, 'the later install handed off again and rewrote swap-app.sh')
       await waitFor(() => handoffs() >= 2, { label: 'a second helper' })
     })
   })
@@ -1416,10 +1415,8 @@ describe('boot settle', () => {
 
 describe('swap helper (temp dir)', () => {
   function runHelper(env: Record<string, string>): Promise<void> {
-    const script = path.join(tmp.dir, 'swap-app.sh')
-    fs.writeFileSync(script, updater.helperScript(), { mode: 0o755 })
     return new Promise((resolve) => {
-      const child = spawn('/bin/bash', [script], { env: { PATH: '/usr/bin:/bin:/usr/sbin:/sbin', HOME: tmp.dir, ...env } })
+      const child = spawn(swapHelperBinary(), [], { env: { PATH: '/usr/bin:/bin:/usr/sbin:/sbin', HOME: tmp.dir, ...env } })
       child.on('exit', () => resolve())
     })
   }
@@ -1429,12 +1426,19 @@ describe('swap helper (temp dir)', () => {
     const staged = makeApp(fs.mkdtempSync(path.join(tmp.dir, 'staged-')), '1.4.258')
     const state = path.join(tmp.dir, 'state.json')
     fs.writeFileSync(state, JSON.stringify({ phase: 'installing', release: { version: '1.4.258' } }))
+    // The helper stops an unhealthy new app through its login-agent job, so give it one. The label
+    // is not loaded: `launchctl kill` just returns non-zero, as it would for a missing job.
+    fs.mkdirSync(path.join(tmp.dir, 'Library', 'LaunchAgents'), { recursive: true })
+    fs.writeFileSync(path.join(tmp.dir, 'Library', 'LaunchAgents', 'test.never.loaded.plist'),
+      '<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict><key>Label</key><string>test.never.loaded</string></dict></plist>')
     const quitter = spawn('/bin/sleep', ['1'])
     return {
       target, staged, state,
       env: {
         SU_PID: String(quitter.pid), SU_TARGET: target, SU_STAGED: staged, SU_KEEP: updater.previousAppsDir(),
         SU_STATE: state, SU_RESULT: path.join(tmp.dir, 'result.json'), SU_LOG: path.join(tmp.dir, 'helper.log'),
+        // The tests never touch a real launchd job.
+        SU_LAUNCHCTL: '/usr/bin/true',
         SU_VERSION: '1.4.258', SU_OLD_VERSION: '1.4.257', SU_LABEL: 'test.never.loaded', SU_HEALTH_SECONDS: '3',
       },
     }

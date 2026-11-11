@@ -45,7 +45,7 @@
  *    **Install now (don't wait)** (`immediate`) pauses intake and installs at once, interrupting
  *    running jobs: the boot scan resumes what it can, retries free work, and leaves paid work that
  *    cannot resume for Retry.
- * 5. **Swap** with a detached helper (`helperScript`) after this app quits normally: the installed
+ * 5. **Swap** with the detached `Story Studio KH Helper.app` after this app quits normally: the installed
  *    bundle goes to `<data>/previous-apps/`; the new one moves into place, and the app is relaunched
  *    (through the login agent when it is installed, so it stays supervised). Story keeps the last
  *    two previous versions there and MOVES older ones into Story's Trash
@@ -68,11 +68,15 @@ import path from 'node:path'
 import { pipeline } from 'node:stream/promises'
 import { Readable, Transform } from 'node:stream'
 import { promisify } from 'node:util'
+import { fileURLToPath } from 'node:url'
 
 import { machineName, STORY_CALLER } from '../lib/machine-name.js'
 import { markPackRemovalReportsSent, pendingPackRemovalReports } from '../content-packs/removal.js'
 import { isServerMode, resolveAppSettingsPath } from '../lib/server-mode.js'
 import { APP_TRASH, libraryTrashDir, moveToTrashSync } from '../lib/trash-move.js'
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
+const REPO_ROOT = path.resolve(__dirname, '..', '..', '..')
 
 const execFileAsync = promisify(execFile)
 /**
@@ -315,85 +319,22 @@ export function compareVersions(a: string, b: string): number {
 }
 
 /**
- * The detached swap helper. Inputs arrive as `SU_*` environment variables, so nothing is quoted
- * into the script. The replaced app and a failed new one go to `SU_KEEP` (`previous-apps`) by a
- * same-volume rename only, or wait beside the app when that folder is on another volume. The
- * helper never deletes anything; `keepPreviousApps` moves the surplus into Story's Trash.
+ * The detached `Story Studio KH Helper.app` executable. Its visible name on every surface is
+ * exactly "Story Studio KH Helper" (owner naming rule, 2026-11-11); it is never a shell script.
+ * Inputs arrive as `SU_*` environment variables. The replaced app and a failed new one go to
+ * `SU_KEEP` (`previous-apps`) by a same-volume rename only, or wait beside the app when that
+ * folder is on another volume. The helper never deletes anything; `keepPreviousApps` moves the
+ * surplus into Story's Trash.
  */
-export function helperScript(): string {
-  return `#!/bin/bash
-# Story Studio update helper, written by app-update.ts. Swaps the .app once Story Studio has quit,
-# relaunches it, and puts the old app back if the new one never reports healthy.
-set -u
-log() { echo "$(date '+%Y-%m-%d %H:%M:%S') $*" >> "$SU_LOG"; }
-result() {
-  printf '{"outcome":"%s","detail":"%s","at":%s}\\n' "$1" "$2" "$(date +%s)" > "$SU_RESULT.tmp" && mv "$SU_RESULT.tmp" "$SU_RESULT"
-  log "$1: $2"
-}
-relaunch() {
-  if [ -n "\${SU_RELAUNCH:-}" ]; then
-    /bin/bash -c "$SU_RELAUNCH" _ "$SU_TARGET" >> "$SU_LOG" 2>&1 &
-    return
-  fi
-  local plist="$HOME/Library/LaunchAgents/$SU_LABEL.plist"
-  if [ -f "$plist" ]; then
-    launchctl bootstrap "gui/$(id -u)" "$plist" >/dev/null 2>&1
-    launchctl kickstart "gui/$(id -u)/$SU_LABEL" >/dev/null 2>&1 && { log "relaunched by the login agent"; return; }
-  fi
-  env -u ELECTRON_RUN_AS_NODE open "$SU_TARGET" && log "relaunched with open"
-}
-healthy() {
-  [ "$(plutil -extract phase raw -o - "$SU_STATE" 2>/dev/null)" = installed ] \\
-    && [ "$(plutil -extract release.version raw -o - "$SU_STATE" 2>/dev/null)" = "$SU_VERSION" ]
-}
-
-case "$SU_TARGET" in *.app) ;; *) exit 2 ;; esac
-[ -d "$SU_STAGED" ] && [ -n "$SU_KEEP" ] && [ -n "$SU_VERSION" ] || exit 2
-log "update $SU_OLD_VERSION -> $SU_VERSION: waiting for pid $SU_PID to quit"
-for _ in $(seq 1 "\${SU_QUIT_WAIT:-300}"); do kill -0 "$SU_PID" 2>/dev/null || break; sleep 1; done
-if kill -0 "$SU_PID" 2>/dev/null; then result failed "Story Studio did not quit, so nothing was replaced."; exit 1; fi
-
-if ! mkdir -p "$SU_KEEP"; then result failed "Could not create $SU_KEEP; nothing was replaced."; relaunch; exit 1; fi
-KEEP="$SU_KEEP/Story Studio KH.app-$SU_OLD_VERSION"
-FAILED="$SU_KEEP/Story Studio KH.app-$SU_VERSION-failed-$(date +%Y%m%d%H%M%S)"
-# A previous-apps folder on another volume than the app would make every mv here a multi-GB copy.
-# Then the old app (and a failed new one) waits beside the target instead, hidden; it is never
-# deleted here. Story moves it into its Trash once it is no longer one of the last two versions.
-if [ "$(stat -f %d "$(dirname "$SU_TARGET")")" != "$(stat -f %d "$SU_KEEP")" ]; then
-  KEEP="$(dirname "$SU_TARGET")/.Story Studio KH.app-$SU_OLD_VERSION-previous"
-  FAILED="$(dirname "$SU_TARGET")/.Story Studio KH.app-$SU_VERSION-failed-$(date +%Y%m%d%H%M%S)"
-  log "previous-apps is on another volume; the previous app stays at $KEEP"
-fi
-[ -e "$KEEP" ] && KEEP="$KEEP-$(date +%Y%m%d%H%M%S)"
-if ! mv "$SU_TARGET" "$KEEP"; then
-  result failed "Could not move the installed app aside (macOS may need App Management allowed for Story Studio KH); nothing was replaced."
-  relaunch; exit 1
-fi
-if ! mv "$SU_STAGED" "$SU_TARGET"; then
-  mv "$KEEP" "$SU_TARGET"
-  result failed "Could not move the new app into place; the previous app is back."
-  relaunch; exit 1
-fi
-log "swapped; the previous app is kept at $KEEP"
-relaunch
-for _ in $(seq 1 "\${SU_HEALTH_SECONDS:-${HEALTH_SECONDS}}"); do
-  if healthy; then
-    result installed "$SU_VERSION is running."; exit 0
-  fi
-  sleep 1
-done
-
-log "$SU_VERSION never reported healthy; putting $SU_OLD_VERSION back"
-pkill -TERM -f "$SU_TARGET/Contents/MacOS/" 2>/dev/null
-for _ in $(seq 1 60); do pgrep -f "$SU_TARGET/Contents/MacOS/" >/dev/null || break; sleep 1; done
-pkill -KILL -f "$SU_TARGET/Contents/MacOS/" 2>/dev/null
-if mv "$SU_TARGET" "$FAILED" && mv "$KEEP" "$SU_TARGET"; then
-  result rolled_back "$SU_VERSION did not start within \${SU_HEALTH_SECONDS:-${HEALTH_SECONDS}} seconds; $SU_OLD_VERSION is back."
-else
-  result failed "$SU_VERSION did not start and the previous app could not be put back; it is at $KEEP."
-fi
-relaunch
-`
+export function helperExecutablePath(): string {
+  const override = process.env.STORY_STUDIO_HELPER_BIN
+  if (override) return override
+  const name = 'Story Studio KH Helper'
+  const resources = process.env.STORY_STUDIO_RESOURCES_DIR || process.resourcesPath
+  if (resources && typeof resources === 'string') {
+    return path.join(resources, `${name}.app`, 'Contents', 'MacOS', name)
+  }
+  return path.join(REPO_ROOT, 'bundled', `${name}.app`, 'Contents', 'MacOS', name)
 }
 
 // ── State ──────────────────────────────────────────────────────────────────
@@ -485,6 +426,8 @@ export interface UpdaterOptions {
   now?: () => number
   /** Test hook: the helper's relaunch command (`$1` is the app path). */
   relaunchCommand?: string
+  /** Test hook: the compiled Story Studio KH Helper executable used for the hand-off. */
+  helperPath?: string
   helperEnv?: Record<string, string>
 }
 
@@ -1169,14 +1112,19 @@ export async function install(): Promise<boolean> {
   if (!state.release || !state.staged_app || !fs.existsSync(state.staged_app)) {
     throw new Error('The staged update is missing; it is downloaded again on the next check.')
   }
-  const script = path.join(updateDir(), 'swap-app.sh')
-  fs.writeFileSync(script, helperScript(), { mode: 0o755 })
+  const helper = o.helperPath ?? helperExecutablePath()
+  if (!fs.existsSync(helper)) {
+    throw new Error('The update helper is missing from this build; install Story Studio again.')
+  }
   // The hand-off clears the display flag but KEEPS the owner token: a new build releases via the
   // token, while a build from before the token existed reads `we_paused` false and so cannot lift a
   // pause the owner set himself (bounded rollback mitigation). A genuinely updater-paused queue
   // then stays paused for the owner to Resume — the safe direction, documented in the handoff.
+  // Written before any await, so a caller returning from `installNow` sees `installing`.
   writeState({ ...state, phase: 'installing', from_version: o.currentVersion, error: null, installing_at: Date.now(), we_paused: false })
-  const child = spawn('/bin/bash', [script], {
+  // The old bash helper is inert now: retire it once, recoverably, without holding the hand-off.
+  void toTrash(path.join(updateDir(), 'swap-app.sh'), 'app-update').catch(() => {})
+  const child = spawn(helper, [], {
     detached: true,
     stdio: 'ignore',
     env: {
@@ -1192,6 +1140,7 @@ export async function install(): Promise<boolean> {
       SU_VERSION: state.release.version,
       SU_OLD_VERSION: o.currentVersion,
       SU_LABEL: AGENT_LABEL,
+      SU_HEALTH_SECONDS: String(HEALTH_SECONDS),
       ...(o.relaunchCommand ? { SU_RELAUNCH: o.relaunchCommand } : {}),
       ...(o.helperEnv || {}),
     },

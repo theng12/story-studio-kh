@@ -15,8 +15,8 @@ frontend/frontend/
 # bundled/ffmpeg is fetched by scripts/fetch-ffmpeg.mjs and shipped as an
 # electron-builder extraResource (~250MB) — not source.
 bundled/ffmpeg/
-# bundled/scene-clip is compiled from native/scene-clip by scripts/build-scene-clip.mjs
-bundled/scene-clip/
+# Story Studio KH Helper.app is compiled from native/ by scripts/build-scene-clip.mjs
+bundled/Story Studio KH Helper.app/
 
 # Runtime data + generated caches — user content / secrets, never source.
 # .story-studio-data holds project files + configs (where API keys live).

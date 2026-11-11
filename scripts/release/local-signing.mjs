@@ -121,12 +121,17 @@ export function localSigningConfig({
  * proof that the identity stayed stable; this inventory is the reusable seam.
  */
 export function persistentHelperBundles(appPath) {
+  const bundles = []
   const frameworks = path.join(appPath, 'Contents', 'Frameworks')
-  if (!fs.existsSync(frameworks)) return []
-  return fs.readdirSync(frameworks, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory() && entry.name.endsWith('.app'))
-    .map((entry) => path.join(frameworks, entry.name))
-    .sort()
+  if (fs.existsSync(frameworks)) {
+    bundles.push(...fs.readdirSync(frameworks, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && entry.name.endsWith('.app'))
+      .map((entry) => path.join(frameworks, entry.name)))
+  }
+  // One bundle carries the update and render helpers (owner naming rule, 2026-11-11).
+  const named = path.join(appPath, 'Contents', 'Resources', 'Story Studio KH Helper.app')
+  if (fs.existsSync(named)) bundles.push(named)
+  return bundles.sort()
 }
 
 /**

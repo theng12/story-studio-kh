@@ -58,8 +58,12 @@ export function resolveSceneClipHelperPath(): string | null {
   const candidates: string[] = []
   if (process.env.STORY_STUDIO_SCENE_CLIP_BIN) candidates.push(process.env.STORY_STUDIO_SCENE_CLIP_BIN)
   const resources = process.env.STORY_STUDIO_RESOURCES_DIR || process.resourcesPath
-  if (resources && typeof resources === 'string') candidates.push(path.join(resources, 'scene-clip', 'scene-clip'))
-  candidates.push(path.join(REPO_ROOT, 'bundled', 'scene-clip', 'scene-clip'))
+  // One bundle, one visible name: the render helper is the same "Story Studio KH Helper"
+  // executable name inside the signed helper app (owner naming rule, 2026-11-11).
+  if (resources && typeof resources === 'string') {
+    candidates.push(path.join(resources, 'Story Studio KH Helper.app', 'Contents', 'Resources', 'Story Studio KH Helper'))
+  }
+  candidates.push(path.join(REPO_ROOT, 'bundled', 'Story Studio KH Helper.app', 'Contents', 'Resources', 'Story Studio KH Helper'))
   for (const candidate of candidates) {
     try {
       if (!existsSync(candidate)) continue
