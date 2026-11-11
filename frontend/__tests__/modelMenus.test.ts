@@ -78,7 +78,9 @@ describe('shared model menus', () => {
     assert.match(modelSelector, /genStudioModelLockReason\(model\)/)
     assert.match(imagePicker, /model\.locked === true/)
     assert.match(modelSurfaces.audio, /model\.locked === true/)
-    assert.match(modelSurfaces.motion, /model\.locked === true/)
+    // Motion Review asks the shared lock-reason helper instead of reading the field itself.
+    assert.match(modelSurfaces.motion, /genStudioModelLockReason\(model\)/)
+    assert.match(source('../utils/live-genstudio-model-selection.ts'), /if \(model\.locked !== true\) return ''/)
     assert.match(transcriptionCatalog, /model\.locked === true/)
     for (const catalog of [imageCatalog, mediaCatalog, voiceCatalog, transcriptionCatalog]) {
       assert.match(catalog, /locked\?: boolean/)

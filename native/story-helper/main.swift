@@ -148,8 +148,8 @@ func healthy() -> Bool {
 /// Returns true when the agent job was stopped.
 func stopNewApp() -> Bool {
     let plist = "\(home)/Library/LaunchAgents/\(label).plist"
-    if fileManager.fileExists(atPath: plist) {
-        _ = run(launchctl, ["bootout", "gui/\(getuid())/\(label)"])
+    if fileManager.fileExists(atPath: plist)
+        && run(launchctl, ["bootout", "gui/\(getuid())/\(label)"]) == 0 {
         sleep(2)
         return true
     }

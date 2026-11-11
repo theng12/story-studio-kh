@@ -19,6 +19,7 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { beforeEach, test } from 'node:test'
+import { fileURLToPath } from 'node:url'
 import { createApp, defineComponent, h, nextTick, ref } from 'vue'
 import { compileScript, compileTemplate, parse } from '@vue/compiler-sfc'
 import { transform } from 'esbuild'
@@ -26,7 +27,7 @@ import { transform } from 'esbuild'
 let mountSequence = 0
 
 async function component() {
-  const filename = new URL('../pages/publishing.vue', import.meta.url).pathname
+  const filename = fileURLToPath(new URL('../pages/publishing.vue', import.meta.url))
   const { descriptor } = parse(readFileSync(filename, 'utf8'), { filename })
   const script = compileScript(descriptor, { id: 'publishing' })
   const template = compileTemplate({

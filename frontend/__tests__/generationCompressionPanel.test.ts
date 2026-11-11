@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
+import { fileURLToPath } from 'node:url'
 import { createApp, defineComponent, h, nextTick, ref } from 'vue'
 import { parse, compileScript, compileTemplate } from '@vue/compiler-sfc'
 import { transform } from 'esbuild'
 
 async function component() {
-  const filename = new URL('../components/GenerationCompressionPanel.vue', import.meta.url).pathname
+  const filename = fileURLToPath(new URL('../components/GenerationCompressionPanel.vue', import.meta.url))
   const { descriptor } = parse(readFileSync(filename, 'utf8'), { filename })
   const script = compileScript(descriptor, { id: 'compression' })
   const template = compileTemplate({ source: descriptor.template!.content, filename, id: 'compression', compilerOptions: { bindingMetadata: script.bindings } })

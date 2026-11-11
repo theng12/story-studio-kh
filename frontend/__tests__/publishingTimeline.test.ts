@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
+import { fileURLToPath } from 'node:url'
 import { createApp, defineComponent, h, nextTick } from 'vue'
 import { compileScript, compileTemplate, parse } from '@vue/compiler-sfc'
 import { transform } from 'esbuild'
@@ -59,7 +60,7 @@ test('windows retain exact upload/release positions and exclude outside episodes
 })
 
 async function mount(channels: PublishingOverviewChannel[]) {
-  const filename = new URL('../components/PublishingTimeline.vue', import.meta.url).pathname
+  const filename = fileURLToPath(new URL('../components/PublishingTimeline.vue', import.meta.url))
   const { descriptor } = parse(readFileSync(filename, 'utf8'), { filename })
   const script = compileScript(descriptor, { id: 'timeline' })
   const template = compileTemplate({ source: descriptor.template!.content, filename, id: 'timeline', compilerOptions: { bindingMetadata: script.bindings } })

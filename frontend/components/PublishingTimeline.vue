@@ -146,7 +146,7 @@ function onTimelineWheel(event: WheelEvent) { if (!event.ctrlKey && !event.metaK
 .week-axis > span:not(.today-tick) { box-sizing: border-box; flex-shrink: 0; padding: 0 12px; font-size: 12px; font-variant-numeric: tabular-nums; }
 .today-tick { position: absolute; top: 30px; font-size: 12px; font-weight: 600; background: var(--bg-tertiary); color: var(--text-primary); border-left: 1px solid var(--text-primary); padding: 0 4px; }
 .timeline-channel { border-bottom: 1px solid var(--border); }
-.channel-track { flex-shrink: 0; min-height: 160px; background-image: repeating-linear-gradient(to right, transparent 0, transparent calc(var(--week-width) - 1px), var(--border) calc(var(--week-width) - 1px), var(--border) var(--week-width)); }
+.channel-track { flex-shrink: 0; min-height: 160px; background-image: repeating-linear-gradient(to right, transparent 0, transparent calc(var(--week-width, 168px) - 1px), var(--border) calc(var(--week-width, 168px) - 1px), var(--border) var(--week-width, 168px)); }
 .week-comparisons { display: flex; min-height: 48px; }
 .week-comparisons > div { flex-shrink: 0; box-sizing: border-box; padding: 8px 12px; font-size: 12px; line-height: 1.5; color: var(--text-secondary); }
 .gap-label { font-weight: 600; }

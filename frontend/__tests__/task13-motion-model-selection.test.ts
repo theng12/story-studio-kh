@@ -21,6 +21,7 @@ async function setupWith(models: ReturnType<typeof ref<any[]>>) {
     // Mirrors the real policy: empty takes the first usable row, a name must match.
     const selectLiveImageToVideoModel = (id, rows) => (id ? rows.find(row => row.id === id) || null : rows[0] || null)
     const genStudioModelLockReason = () => ''
+    const videoCapabilityRefusal = () => ''
     const describeVideoModelRate = () => ''
     const formatCredits = value => String(value)
     const hasPriceTruth = () => false
