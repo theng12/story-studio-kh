@@ -271,4 +271,13 @@ function openWhatsNew() { _whatsNew.open() }
     scrollbar-width: auto;
   }
 }
+
+/* At the window sizes the app actually runs in (1440 and the 1400 default),
+   seven tabs plus the right-hand controls overflowed the nav and clipped
+   "Settings" to "Set". Tighten the gaps and padding only below 1500 px, so a
+   wide window keeps the roomy spacing the owner asked for. */
+@media (max-width: 1499px) {
+  .app-header-nav { gap: 8px; padding-left: 12px; }
+  .app-header-link { padding: 7px 10px; }
+}
 </style>

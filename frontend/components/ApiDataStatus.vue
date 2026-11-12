@@ -187,9 +187,13 @@ async function onRetry(): Promise<void> {
 }
 
 .api-data-status__line--error {
-  color: #ffcf87;
+  /* Primary text, not a fixed amber: the bar sits on the page surface, and a
+     fixed light amber measured about 1.2:1 in dark and 2:1 in light. The dot
+     carries the warning colour instead. */
+  color: var(--text-primary);
 }
 
+.api-data-status__line--error .api-data-status__dot { background: var(--warning); }
 .api-data-status__dot {
   width: 7px;
   height: 7px;

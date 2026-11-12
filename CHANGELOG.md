@@ -4,6 +4,14 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.394 — 2026-11-12
+
+- A deleted preset now goes to the project's Trash and can be undone, instead of being removed for good.
+- Channel status badges stay on one line, an empty episode list cannot be opened, and "Draw Songs" says when an episode must be picked first.
+- Motion Review and Scene Review no longer mark earlier steps complete when no episode is selected.
+- Updates no longer say "Up to date" when the check could not run, and the refresh error is readable in both themes.
+- The Settings tab is no longer cut off in the window, and "Open Channel Settings" goes to the section it names.
+
 ## v1.4.393 — 2026-11-12
 
 - Opening Story Studio a second time no longer brings the running window to the front. The second copy exits and the window stays exactly where it was.
