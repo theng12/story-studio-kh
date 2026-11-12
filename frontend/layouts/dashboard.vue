@@ -651,15 +651,15 @@ onUnmounted(() => {
   position: absolute;
   top: -2px;
   right: -2px;
-  min-width: 13px;
-  height: 13px;
+  min-width: 16px;
+  height: 16px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   border-radius: 999px;
   background: var(--accent, var(--warning));
   color: var(--bg, #fff);
-  font-size: 9px;
+  font-size: var(--font-xs);
   line-height: 1;
 }
 .footer-status-line { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
