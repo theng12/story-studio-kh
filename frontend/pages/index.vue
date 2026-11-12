@@ -90,6 +90,7 @@
                 :class="{ active: viewMode === 'cards' }"
                 :aria-pressed="viewMode === 'cards'"
                 title="Show channels as cards"
+                aria-label="Show channels as cards"
                 @click="viewMode = 'cards'"
               >
                 <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="1.5" y="1.5" width="5.5" height="5.5" rx="1" stroke="currentColor" stroke-width="1.3"/><rect x="9" y="1.5" width="5.5" height="5.5" rx="1" stroke="currentColor" stroke-width="1.3"/><rect x="1.5" y="9" width="5.5" height="5.5" rx="1" stroke="currentColor" stroke-width="1.3"/><rect x="9" y="9" width="5.5" height="5.5" rx="1" stroke="currentColor" stroke-width="1.3"/></svg>
@@ -100,6 +101,7 @@
                 :class="{ active: viewMode === 'list' }"
                 :aria-pressed="viewMode === 'list'"
                 title="Show channels as a list"
+                aria-label="Show channels as a list"
                 @click="viewMode = 'list'"
               >
                 <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="1.5" y="2" width="13" height="3" rx="1" stroke="currentColor" stroke-width="1.3"/><rect x="1.5" y="6.5" width="13" height="3" rx="1" stroke="currentColor" stroke-width="1.3"/><rect x="1.5" y="11" width="13" height="3" rx="1" stroke="currentColor" stroke-width="1.3"/></svg>
@@ -290,7 +292,7 @@
                   <code>{{ project.output_root }}</code>
                 </span>
                 <template v-else>
-                  <span>Episode codes: {{ project.episode_prefix || 'EP' }}… · Created {{ formatDate(project.created_at) }}</span>
+                  <span :title="`Episodes are numbered ${project.episode_prefix || 'EP'}0001, ${project.episode_prefix || 'EP'}0002…`">Episode codes: {{ project.episode_prefix || 'EP' }}0001+ · Created {{ formatDate(project.created_at) }}</span>
                   <!-- Counts come from a cheap per-channel read (no episode folders
                        are scanned) and arrive after the list, so each card says what
                        it is doing instead of showing a number that might be a guess. -->
