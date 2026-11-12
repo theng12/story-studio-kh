@@ -6,6 +6,7 @@ import {
   formatDevApiProxyLog,
   formatDevApiProxyWarning,
 } from '../electron/server/lib/dev-backend'
+import tailwindcss from '@tailwindcss/vite'
 
 // ESM equivalent of __dirname. Nuxt config runs before the repo root
 // module-resolution chain kicks in, so we compute the shared path manually.
@@ -45,6 +46,14 @@ export default defineNuxtConfig({
   compatibilityDate: '2025-05-15',
   ssr: false,
   devtools: { enabled: false },
+
+  modules: ['shadcn-nuxt'],
+  shadcn: {
+    // Ui prefix keeps generic names like Button from colliding with the
+    // app's own auto-imported components.
+    prefix: 'Ui',
+    componentDir: '@/components/ui',
+  },
 
   runtimeConfig: {
     public: {
@@ -130,8 +139,15 @@ export default defineNuxtConfig({
   // ships locally at /fonts/inter/ — no CDN round-trip, no bandwidth
   // hit after first build, and the UI renders correctly offline.
   css: [
+    // Tailwind first: its preflight is overridden by the app's own unlayered
+    // CSS below, and its utilities are used only by the new ui/ components.
+    '~/assets/css/tailwind.css',
     '~/assets/css/fonts.css',
     '~/assets/css/main.css',
     '~/assets/css/design-system.css',
   ],
+
+  vite: {
+    plugins: [tailwindcss()],
+  },
 })
