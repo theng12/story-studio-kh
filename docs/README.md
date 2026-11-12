@@ -7,7 +7,7 @@ Documentation for Story Studio KH. Everything except `README.md` (install instru
 | Folder | Use when you need… |
 |---|---|
 | [`architecture/`](architecture/) | …to understand how the system is built. Still-true specs: overview, format contract, server mode, offline behaviour. |
-| [`operations/`](operations/) | …to *do* something. Checklists, runbooks, manual procedures. |
+| [`operations/`](operations/) | …to *do* something. Checklists, runbooks, manual procedures — including [test and release procedure](operations/test-and-release-procedure.md) (how to run the checks and land a release; the rules it serves are in `AGENTS.md`). |
 | [`planning/`](planning/) | …to see what's coming or in flight. Living backlogs with open/in-progress/done flags. |
 | [`refactors/`](refactors/) | …to read an in-flight refactor plan. Bigger than a backlog item, narrower than an audit. |
 
