@@ -417,9 +417,11 @@ run `npm run check:changelog`; the release is incomplete if the runtime version,
 What's New details differ.
 
 **The whole cycle, every time — owner, 2026-09-26.** Every change is merged, committed, pushed and
-built into a DMG, and the latest two verified released installers stay in canonical `dist/` (owner,
-2026-11-10) — nothing ships un-gated, un-built or un-pushed. **A change is not finished while
-any step below is missing.**
+built into a DMG, and the latest three verified released installers stay in canonical `dist/` (owner,
+2026-11-12, raised from two) — nothing ships un-gated, un-built or un-pushed. An older DMG leaves
+`dist/` only after the reference checks: never one named by `release.json`, `previous-release.json`,
+the retention ledger or a running job, and every move logs its version, SHA-256 and destination.
+**A change is not finished while any step below is missing.**
 
 The order is **prebuild → release verification → rebuild from `main`**, and it is not optional:
 
