@@ -8,6 +8,7 @@
 import './boot-env.js'
 import { app as electronApp, BrowserWindow, Menu, Notification, dialog, shell } from 'electron'
 import { app as expressApp } from './server/app.js'
+import { buildMenuTemplate } from './menu-template.js'
 import http from 'http'
 import path from 'path'
 import fs from 'fs'
@@ -334,45 +335,30 @@ async function createWindow(port: number) {
 
 function buildMenu() {
   const logsDir = path.join(electronApp.getPath('userData'), 'logs')
-  const template: Electron.MenuItemConstructorOptions[] = [
-    { role: 'appMenu' },
-    { role: 'editMenu' },
-    { role: 'viewMenu' },
-    { role: 'windowMenu' },
-    {
-      role: 'help',
-      submenu: [
-        ...(process.platform === 'darwin' ? [{
-          label: 'Unlock credentials…',
-          click: () => {
-            // Success is reported only after existing ciphertext really
-            // decrypts — availability alone never proved that. The failure
-            // text is fixed: a raw message could carry a path or native
-            // diagnostic (stage codes live on /api/health, not on screen).
-            try {
-              if (unlockCredentials(verifyStoredCredentialsDecrypt)) {
-                void dialog.showMessageBox({ type: 'info', message: 'Keychain access is available.', detail: 'You can retry the action that needed your credentials.' })
-                return
-              }
-            } catch { /* unlock reports a boolean; nothing raw to surface */ }
-            void dialog.showMessageBox({ type: 'error', message: 'Credentials are still unavailable.', detail: 'Your saved credentials are unchanged. Choose Always Allow in the Keychain dialog when you are ready. Nothing was replaced.' })
-          },
-        }] : []),
-        {
-          label: 'Show Logs',
-          click: () => {
-            try { fs.mkdirSync(logsDir, { recursive: true }) } catch {}
-            void shell.openPath(logsDir)
-          },
-        },
-        {
-          label: 'Show User Data',
-          click: () => { void shell.openPath(electronApp.getPath('userData')) },
-        },
-      ],
+  Menu.setApplicationMenu(Menu.buildFromTemplate(buildMenuTemplate({
+    appName: 'Story Studio KH',
+    platform: process.platform,
+    logsDir,
+    quit: () => electronApp.quit(),
+    unlockCredentials: () => {
+      // Success is reported only after existing ciphertext really decrypts —
+      // availability alone never proved that. The failure text is fixed: a raw
+      // message could carry a path or native diagnostic (stage codes live on
+      // /api/health, not on screen).
+      try {
+        if (unlockCredentials(verifyStoredCredentialsDecrypt)) {
+          void dialog.showMessageBox({ type: 'info', message: 'Keychain access is available.', detail: 'You can retry the action that needed your credentials.' })
+          return
+        }
+      } catch { /* unlock reports a boolean; nothing raw to surface */ }
+      void dialog.showMessageBox({ type: 'error', message: 'Credentials are still unavailable.', detail: 'Your saved credentials are unchanged. Choose Always Allow in the Keychain dialog when you are ready. Nothing was replaced.' })
     },
-  ]
-  Menu.setApplicationMenu(Menu.buildFromTemplate(template))
+    showLogs: () => {
+      try { fs.mkdirSync(logsDir, { recursive: true }) } catch {}
+      void shell.openPath(logsDir)
+    },
+    showUserData: () => { void shell.openPath(electronApp.getPath('userData')) },
+  })))
 }
 
 // ── OS notifications on job / batch completion ─────────────────────────────
