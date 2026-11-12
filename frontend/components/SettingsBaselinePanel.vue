@@ -597,12 +597,14 @@ async function restoreSnapshot(snapshot: SettingsSnapshot): Promise<void> {
       { restore_point_id: snapshot.id, channel_slug: snapshot.channel_slug },
     )
     const changed = preview.diffs.filter(d => d.status !== 'unchanged').map(d => d.key)
-    const confirmed = window.confirm(
-      `Restore "${snapshot.channel_slug}" to snapshot ${snapshot.id}? ` +
-      (changed.length ? `Changes: ${changed.join(', ')}. ` : 'No differences. ') +
-      `Current config hash ${preview.current_sha256.slice(0, 12)}\u2026. ` +
-      'A pre-restore undo snapshot is saved first.',
-    )
+    const confirmed = await useConfirm().ask({
+      title: `Restore "${snapshot.channel_slug}"?`,
+      message: `Back to snapshot ${snapshot.id}. ` +
+        (changed.length ? `Changes: ${changed.join(', ')}. ` : 'No differences. ') +
+        `Current config hash ${preview.current_sha256.slice(0, 12)}\u2026. ` +
+        'A pre-restore undo snapshot is saved first.',
+      confirmLabel: 'Restore',
+    })
     if (!confirmed) return
 
     const res = await post<{ success: boolean; readback: { status: string } }>('/settings-baselines/restore', {

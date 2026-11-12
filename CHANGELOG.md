@@ -4,6 +4,11 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.397 — 2026-11-13
+
+- Every job row has a **Discard** button that removes it for good, with a confirm that says it cannot be undone; **Discard Finished…** does the same for finished history in bulk.
+- Two dialogs that still used the system confirm now use the app's own: reusing a still from another episode in this channel, and restoring a channel's settings baseline.
+
 ## v1.4.396 — 2026-11-13
 
 - The footer pill says what it does — version and What's New — instead of hiding that in a tooltip, and shows an update waiting as soon as the app knows, not only after a click.

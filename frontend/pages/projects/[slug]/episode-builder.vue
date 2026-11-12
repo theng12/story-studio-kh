@@ -804,7 +804,11 @@ async function loadStills() {
 async function useStill(filename: string, usedBy?: string | null) {
   const scene = selectedScene.value
   if (!scene) return
-  if (usedBy && !window.confirm(`${filename} was used in ${usedBy}, inside this channel's stills window. Use it again anyway?`)) return
+  if (usedBy && !await useConfirm().ask({
+    title: 'Use this image again?',
+    message: `${filename} was used in ${usedBy}, inside this channel's stills window. Use it again anyway?`,
+    confirmLabel: 'Use it again',
+  })) return
   stillPicker.value = false
   await act('Saving', () => post<View>(`/projects/${slug.value}/music-episodes/${code.value}/scenes/${scene.id}/use-still`, {
     pool_id: stillPoolId.value, filename, ...(usedBy ? { allow_repeat: true } : {}),

@@ -2188,7 +2188,7 @@ function canHideJob(job: RJob): boolean { return ['done', 'recovered', 'skipped'
 async function discardJob(job: RJob) {
   const ok = await useConfirm().ask({
     title: 'Discard this job?',
-    message: 'It cannot be undone. The job record and its output list go away; files already written stay on disk.',
+    message: 'It cannot be undone. The job record and its output list go away; files already written stay on disk. If the row is stuck behind a remote-render fence, this overrides that.',
     confirmLabel: 'Discard',
     danger: true,
   })
@@ -3653,8 +3653,8 @@ async function discardHistory(status: 'finished' | 'failed') {
   const promised = status === 'finished' ? finishedCount.value : failedCount.value
   if (!promised) return
   if (!await useConfirm().ask({
-    title: `Discard ${promised} ${status} job row(s)?`,
-    message: 'They are removed for good and cannot be undone. Files already written stay on disk.',
+    title: `Discard ${promised} ${status} jobs? It cannot be undone.`,
+    message: 'They are removed for good and cannot be undone. Files already written stay on disk. Stuck rows carrying a remote-render fence are overridden too.',
     confirmLabel: 'Discard',
     danger: true,
   })) return
