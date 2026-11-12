@@ -17,10 +17,9 @@
 -->
 <template>
   <span class="episode-import">
-    <UiButton
+    <button
       type="button"
-      variant="secondary"
-      size="sm"
+      class="btn btn-secondary btn-sm"
       :disabled="!episodeCode"
       :title="episodeCode
         ? `Import an existing ${tabNoun} file for ${episodeCode} (e.g. one you rendered elsewhere) into this episode — no project-wide scan.`
@@ -28,7 +27,7 @@
       @click="open = true"
     >
       <span aria-hidden="true">⬆</span> {{ label }}
-    </UiButton>
+    </button>
     <AssetImportDialog
       :visible="open"
       :slug="slug"

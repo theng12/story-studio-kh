@@ -132,14 +132,10 @@
   --shadow-lg: 0 4px 20px rgba(15, 17, 23, 0.14);
 }
 
-/* In a cascade layer so Tailwind utilities (also layered) can set padding.
-   Unlayered, this reset beat every utility class no matter the order. */
-@layer base {
-  * {
-    margin: 0;
-    padding: 0;
-    box-sizing: border-box;
-  }
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
 }
 
 body {
