@@ -4,6 +4,11 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.393 — 2026-11-12
+
+- Opening Story Studio a second time no longer brings the running window to the front. The second copy exits and the window stays exactly where it was.
+- A new uninstall removes the app, its helper, the Start at Login job and the login item together, and keeps every channel, episode and setting.
+
 ## v1.4.392 — 2026-11-12
 
 - Channels now shows each channel’s YouTube connection beside its Gateway key — connected, needs reconnect, not connected, or unknown — and the sort menu can put YouTube-connected or not-connected channels first.
