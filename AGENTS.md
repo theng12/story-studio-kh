@@ -407,8 +407,8 @@ live fixtures.
   UI/API/runtime behaviour, dependency updates, migrations): bump the version in **both**
   `package.json` and `package-lock.json` in the same change set.
 - **Content-only** — a standalone Content Pack whose kind and schema are already supported ships as
-  its own `.sspack`: no app version bump, changelog entry, DMG, deploy or restart. Use the released
-  compatibility floor in `content-packs/release-floor.json`.
+  its own `.sspack`: no application version bump, no changelog entry, no DMG, no deploy, no restart.
+  Use the released compatibility floor in `content-packs/release-floor.json`.
 - **Mixed** follows the application path only for the runtime behaviour it changes; do not force
   unrelated compatible packs into an app release.
 

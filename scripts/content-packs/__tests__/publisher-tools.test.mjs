@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { test } from 'node:test'
+import { fileURLToPath } from 'node:url'
 
 import JSZip from 'jszip'
 
@@ -18,7 +19,7 @@ function sha256(bytes) {
 }
 
 function run(command, args, options = {}) {
-  return spawnSync(process.execPath, [command.pathname, ...args], {
+  return spawnSync(process.execPath, [fileURLToPath(command), ...args], {
     cwd: REPOSITORY_ROOT,
     encoding: 'utf8',
     env: { ...process.env, ...options.env },

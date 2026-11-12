@@ -4,6 +4,7 @@ import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
+import { fileURLToPath } from 'node:url'
 
 import JSZip from 'jszip'
 
@@ -41,8 +42,8 @@ test('the pack builds byte-identically twice and validates with an ephemeral key
 
   const firstPath = join(root, 'human-origins-first.sspack')
   const secondPath = join(root, 'human-origins-second.sspack')
-  const first = await buildContentPack({ sourceDirectory: SOURCE_DIRECTORY.pathname, privateKeyPath, outputPath: firstPath, minAppVersion: '2.3.4', keyId: KEY_ID })
-  const second = await buildContentPack({ sourceDirectory: SOURCE_DIRECTORY.pathname, privateKeyPath, outputPath: secondPath, minAppVersion: '2.3.4', keyId: KEY_ID })
+  const first = await buildContentPack({ sourceDirectory: fileURLToPath(SOURCE_DIRECTORY), privateKeyPath, outputPath: firstPath, minAppVersion: '2.3.4', keyId: KEY_ID })
+  const second = await buildContentPack({ sourceDirectory: fileURLToPath(SOURCE_DIRECTORY), privateKeyPath, outputPath: secondPath, minAppVersion: '2.3.4', keyId: KEY_ID })
 
   assert.equal(first.sha256, second.sha256, 'two builds of one source must produce one archive')
   assert.deepEqual(await readFile(firstPath), await readFile(secondPath), 'the archives must be byte-identical, not merely equal in digest')
@@ -64,7 +65,7 @@ test('the built archive carries the 100 x 20 the wave proposal sells', async (t)
   const privateKeyPath = join(root, 'ephemeral-private.pem')
   await writeFile(privateKeyPath, privateKey.export({ type: 'pkcs8', format: 'pem' }))
   const archivePath = join(root, 'human-origins.sspack')
-  await buildContentPack({ sourceDirectory: SOURCE_DIRECTORY.pathname, privateKeyPath, outputPath: archivePath, minAppVersion: '2.3.4', keyId: KEY_ID })
+  await buildContentPack({ sourceDirectory: fileURLToPath(SOURCE_DIRECTORY), privateKeyPath, outputPath: archivePath, minAppVersion: '2.3.4', keyId: KEY_ID })
 
   const zip = await JSZip.loadAsync(await readFile(archivePath))
   const entry = Object.keys(zip.files).find(name => name.endsWith('.json') && name.includes('content/'))

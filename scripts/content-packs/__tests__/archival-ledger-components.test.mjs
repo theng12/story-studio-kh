@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promis
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
+import { fileURLToPath } from 'node:url'
 
 import JSZip from 'jszip'
 
@@ -209,7 +210,7 @@ function sourceDirectory(component) {
   return new URL(`${component.kind}/${component.slug}/`, PAID_SOURCE)
 }
 
-async function discoverComponentSourceDirectories(root = PAID_SOURCE.pathname) {
+async function discoverComponentSourceDirectories(root = fileURLToPath(PAID_SOURCE)) {
   const discovered = []
   for (const kind of COMPONENT_SOURCE_KINDS) {
     const entries = await readdir(join(root, kind), { withFileTypes: true }).catch(error => {
@@ -352,8 +353,8 @@ test('each Archival Ledger component source and successor builds deterministical
       const source = await readComponentSource(component)
       const firstPath = join(root, `${component.kind}-${component.slug}-first.sspack`)
       const secondPath = join(root, `${component.kind}-${component.slug}-second.sspack`)
-      const first = await buildContentPack({ sourceDirectory: source.directory.pathname, privateKeyPath, outputPath: firstPath, minAppVersion: RELEASE_VERSION })
-      const second = await buildContentPack({ sourceDirectory: source.directory.pathname, privateKeyPath, outputPath: secondPath, minAppVersion: RELEASE_VERSION })
+      const first = await buildContentPack({ sourceDirectory: fileURLToPath(source.directory), privateKeyPath, outputPath: firstPath, minAppVersion: RELEASE_VERSION })
+      const second = await buildContentPack({ sourceDirectory: fileURLToPath(source.directory), privateKeyPath, outputPath: secondPath, minAppVersion: RELEASE_VERSION })
       const verified = await validateContentPack({
         archivePath: firstPath,
         keyId: source.manifest.key_id,
