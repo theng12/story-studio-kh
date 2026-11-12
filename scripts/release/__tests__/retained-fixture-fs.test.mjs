@@ -2446,3 +2446,68 @@ test('hardlink compatibility: a rename of a hardlinked source onto an existing d
   assert.deepEqual(receipt.sourceHardlinkProof.aliases, ['library/sibling.txt', 'library/target.txt'])
   assert.deepEqual(await fs.readFile(await snapshotPayload(fixture, receipt)), previousBytes)
 })
+
+test('a leaf symlink unlink is allowed inside the sandbox and never follows the link', async () => {
+  const fixture = await makeCase('leaf-symlink-unlink')
+  const target = path.join(fixture.sandbox, 'target.txt')
+  const link = path.join(fixture.sandbox, 'link')
+  const bytes = Buffer.from('target bytes must survive\n')
+  await fs.writeFile(target, bytes)
+  await fs.symlink(target, link)
+
+  const result = await runChild(fixture, `
+    import fs from 'node:fs/promises'
+    await fs.unlink(${JSON.stringify(link)})
+    console.log(JSON.stringify({ ok: true }))
+  `)
+
+  assert.equal(result.exitCode, 0, result.stderr || result.stdout)
+  assert.deepEqual(lastJson(result.stdout), { ok: true })
+  await assertMissing(link)
+  assert.deepEqual(await fs.readFile(target), bytes)
+  const receipts = (await records(fixture)).filter(record => record.phase === 'leaf-symlink-unlink')
+  assert.equal(receipts.length, 1)
+  assert.equal(receipts[0].target, 'link')
+  assert.equal(receipts[0].linkTarget, target)
+})
+
+test('an intermediate symlink component is still refused for unlink', async () => {
+  const fixture = await makeCase('intermediate-symlink-unlink')
+  const outside = path.join(fixture.root, 'outside')
+  const victim = path.join(outside, 'victim.txt')
+  const bytes = Buffer.from('outside bytes must survive\n')
+  await fs.mkdir(outside)
+  await fs.writeFile(victim, bytes)
+  await fs.symlink(outside, path.join(fixture.sandbox, 'link'), 'dir')
+  const target = path.join(fixture.sandbox, 'link', 'victim.txt')
+
+  const result = await runChild(fixture, `
+    import fs from 'node:fs/promises'
+    try { await fs.unlink(${JSON.stringify(target)}); console.log(JSON.stringify({ ok: true })) }
+    catch (error) { console.log(JSON.stringify({ ok: false, code: error.code })) }
+  `)
+
+  assert.equal(result.exitCode, 0, result.stderr || result.stdout)
+  assert.deepEqual(lastJson(result.stdout), { ok: false, code: 'ERR_STORY_STUDIO_RETAINED_FS_REFUSED' })
+  assert.deepEqual(await fs.readFile(victim), bytes)
+})
+
+test('a .. escape is still refused for unlink', async () => {
+  const fixture = await makeCase('dotdot-escape-unlink')
+  const outside = path.join(fixture.root, 'outside')
+  const victim = path.join(outside, 'victim.txt')
+  const bytes = Buffer.from('escaped bytes must survive\n')
+  await fs.mkdir(outside)
+  await fs.writeFile(victim, bytes)
+  const target = `${fixture.sandbox}${path.sep}sub${path.sep}..${path.sep}..${path.sep}outside${path.sep}victim.txt`
+
+  const result = await runChild(fixture, `
+    import fs from 'node:fs/promises'
+    try { await fs.unlink(${JSON.stringify(target)}); console.log(JSON.stringify({ ok: true })) }
+    catch (error) { console.log(JSON.stringify({ ok: false, code: error.code })) }
+  `)
+
+  assert.equal(result.exitCode, 0, result.stderr || result.stdout)
+  assert.deepEqual(lastJson(result.stdout), { ok: false, code: 'ERR_STORY_STUDIO_RETAINED_FS_REFUSED' })
+  assert.deepEqual(await fs.readFile(victim), bytes)
+})

@@ -267,7 +267,7 @@ function samePath(left, right) {
   return asBuffer(left).equals(asBuffer(right))
 }
 
-function assertRawComponentsOwned(value, label) {
+function assertRawComponentsOwned(value, label, allowLeafSymlink = false) {
   if (value instanceof URL) return
   const input = asBuffer(value)
   const absolute = input[0] === 47
@@ -295,7 +295,11 @@ function assertRawComponentsOwned(value, label) {
     }
     current = joinPath(current, component)
     const stat = lstatIfPresent(current)
-    if (stat?.isSymbolicLink()) throw refused(`${label} raw path refuses a symbolic-link component`)
+    // Only the leaf may be a link, and only for unlink/rmdir: removing a link
+    // destroys the link, never the bytes it names. Intermediate links stay refused.
+    if (stat?.isSymbolicLink() && !(allowLeafSymlink && index === suffix.length)) {
+      throw refused(`${label} raw path refuses a symbolic-link component`)
+    }
   }
 }
 
@@ -347,10 +351,10 @@ function canonicalPath(value) {
   return native.realpathSync(value, { encoding: Buffer.isBuffer(value) ? 'buffer' : 'utf8' })
 }
 
-function resolveContained(value, label) {
+function resolveContained(value, label, { allowLeafSymlink = false } = {}) {
   const kind = pathKind(value)
   if (!kind || hasNullByte(value)) throw refused(`${label} is not a supported filesystem path`)
-  assertRawComponentsOwned(value, label)
+  assertRawComponentsOwned(value, label, allowLeafSymlink)
   const absolute = absolutePath(value)
   if (!isWithin(Buffer.isBuffer(absolute) ? sandboxBuffer : sandbox.path, absolute)) {
     throw refused(`${label} is outside STORY_STUDIO_TEST_HARNESS_ROOT`)
@@ -495,7 +499,13 @@ function assertRenameSourceProof(sourceExisting) {
 function assertExistingAllowed(resolved, label, operation, args = []) {
   const stat = lstatIfPresent(resolved.absolute)
   if (!stat) return null
-  if (stat.isSymbolicLink()) throw refused(`${label} refuses a symbolic link`)
+  if (stat.isSymbolicLink()) {
+    // The leaf was already proven to be the removable object itself, so only
+    // unlink/rmdir may proceed: the link goes, its target is never followed.
+    if (operation !== 'unlink' && operation !== 'rmdir') throw refused(`${label} refuses a symbolic link`)
+    if (stat.dev !== sandbox.device) throw refused(`${label} refuses a device escape`)
+    return { stat, identity: identityOf(stat), hardlinkProof: null, leafSymlink: true }
+  }
   if (!stat.isFile() && !stat.isDirectory()) throw refused(`${label} refuses a special file`)
   if (stat.dev !== sandbox.device) throw refused(`${label} refuses a device escape`)
   const canonical = canonicalPath(resolved.absolute)
@@ -877,7 +887,11 @@ function captureLocked(operation, api, args, release) {
   try {
     assertRoots()
     const sourceResolved = operation === 'rename' ? resolveContained(args[0], 'Rename source') : null
-    const targetResolved = resolveContained(args[operation === 'rename' ? 1 : 0], 'Destructive target')
+    const targetResolved = resolveContained(
+      args[operation === 'rename' ? 1 : 0],
+      'Destructive target',
+      { allowLeafSymlink: operation === 'unlink' || operation === 'rmdir' },
+    )
     targetRelative = targetResolved.relative
     const sourceExisting = sourceResolved
       ? assertExistingAllowed(sourceResolved, 'Rename source', 'rename-source')
@@ -908,6 +922,23 @@ function captureLocked(operation, api, args, release) {
       // never settle into durable, reconcilable evidence.
       release()
       throw refused('Retained fixture destructive operations are unsupported in a worker thread')
+    }
+
+    if (targetExisting.leafSymlink) {
+      // No bytes are destroyed: removing a link leaves its target untouched, so
+      // the record names the link and where it pointed instead of a snapshot.
+      appendRecord({
+        receiptId,
+        phase: 'leaf-symlink-unlink',
+        operation,
+        api,
+        target: targetRelative,
+        argumentKind: targetResolved.kind,
+        options: sanitizeOptions(operation, args),
+        sourceIdentity: targetExisting.identity,
+        linkTarget: native.readlinkSync(targetResolved.absolute, { encoding: 'utf8' }),
+      })
+      return { receiptId, release }
     }
 
     const sourceInventory = inventoryTree(
