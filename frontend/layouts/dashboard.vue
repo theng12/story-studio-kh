@@ -167,7 +167,7 @@
           <!-- Owner 2026-11-12: one tidy column — Support row, then the version
                pill and the update control on one centred line, then one status
                line; equal insets and even rhythm, pinned to the bottom. -->
-          <a class="footer-support" :href="SUPPORT_URL" target="_blank" rel="noopener noreferrer">
+          <a class="footer-support" :href="SUPPORT_URL" target="_blank" rel="noopener noreferrer" title="Opens the donation page in your browser">
             <span aria-hidden="true">&#9829;</span> Support this app
           </a>
           <div class="footer-controls">
