@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.395 — 2026-11-12
+
+- The sidebar footer is one tidy column: a Support this app row, the version and What's New pill beside an icon-only Check for Updates, and a single status line, with even spacing and the pill on one line.
+
 ## v1.4.394 — 2026-11-12
 
 - A deleted preset now goes to the project's Trash and can be undone, instead of being removed for good.
