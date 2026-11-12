@@ -40,5 +40,5 @@ What's new in each release. Newest first.
 - Restart recovery leaves an older Scene Plan alone after a newer audio-only run. Recovery records when each step was admitted and what triggered it, so unexpected work can be traced.
 
 
-Older entries are in `git log` — this file keeps the releases a customer can still be
-running, newest first, because it is the source of in-app **What's New**.
+<!-- Older releases live in git log. This file keeps only what a customer can still be running,
+     newest first, because What's New renders it; prose here must never read as a release entry. -->

@@ -15,6 +15,12 @@
 
     <div v-if="error" class="text-danger mt-2" style="font-size: 13px;">{{ error }}</div>
 
+    <!-- Undo a delete: a copy also goes to the project's Trash, but the quickest restore is here. -->
+    <div v-if="lastDeleted" class="preset-undo card mt-2" role="status">
+      <span>Deleted “{{ lastDeleted.preset.name }}”.</span>
+      <button type="button" class="btn btn-sm btn-secondary" :disabled="hasSavingGroups" @click="undoDelete">Undo</button>
+    </div>
+
     <!-- Empty state -->
     <EmptyState
       v-if="!loading && !totalCount"
@@ -83,7 +89,7 @@ definePageMeta({ layout: 'dashboard' })
 
 const route = useRoute()
 const slug = computed(() => route.params.slug as string)
-const { get, put } = useApi()
+const { get, put, post } = useApi()
 const { project } = useProject()
 const { ask } = useConfirm()
 const { success, error: showError } = useToast()
@@ -490,11 +496,14 @@ async function duplicate(groupKey: string, p: PresetRecord) {
 }
 
 // ── Delete ──
+/** The last delete, kept so Undo can put it back where it was (owner rule: nothing deleted for good). */
+const lastDeleted = ref<{ groupKey: string; preset: PresetRecord; index: number } | null>(null)
+
 async function remove(groupKey: string, p: PresetRecord) {
   if (isGroupSaving(groupKey)) return
   const ok = await ask({
     title: `Delete preset "${p.name}"?`,
-    message: `This removes the preset from the project. Any content you generated using it stays on disk.`,
+    message: `The preset leaves this project, and a copy goes to its Trash so it can be restored. Any content you generated with it stays on disk.`,
     confirmLabel: 'Delete Preset',
     danger: true,
   })
@@ -502,16 +511,34 @@ async function remove(groupKey: string, p: PresetRecord) {
   const g = groups.value.find(x => x.key === groupKey)
   if (!g) return
   const prior = g.items
+  const index = prior.findIndex(x => x.id === p.id)
   g.items = g.items.filter(x => x.id !== p.id)
   try {
+    // A recoverable copy first: the config write below is what actually forgets the preset.
+    await post(`/projects/${slug.value}/presets/trash`, { group: groupKey, preset: p }).catch(() => null)
     if (!await saveGroup(groupKey, g.items)) {
       g.items = prior
       return
     }
-    success(`Deleted "${p.name}"`)
+    lastDeleted.value = { groupKey, preset: p, index: Math.max(0, index) }
+    success(`Deleted "${p.name}" — a copy is in this project's Trash`)
   } catch {
     g.items = prior
   }
+}
+
+async function undoDelete() {
+  const last = lastDeleted.value
+  if (!last) return
+  const g = groups.value.find(x => x.key === last.groupKey)
+  if (!g) { lastDeleted.value = null; return }
+  const next = [...g.items]
+  next.splice(Math.min(last.index, next.length), 0, last.preset)
+  const prior = g.items
+  g.items = next
+  if (!await saveGroup(last.groupKey, next)) { g.items = prior; return }
+  lastDeleted.value = null
+  success(`Restored "${last.preset.name}"`)
 }
 
 // ── Export JSON ──
@@ -534,6 +561,13 @@ onMounted(loadAll)
 </script>
 
 <style scoped>
+.preset-undo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  font-size: var(--font-sm);
+}
 .presets-header {
   display: flex; align-items: center; justify-content: space-between;
   padding-top: 16px;

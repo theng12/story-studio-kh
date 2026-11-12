@@ -368,6 +368,29 @@ router.post('/projects', validateBody(CreateProjectSchema), async (req, res) => 
  * made is unregistered again (non-destructively — its folder stays on disk)
  * rather than left behind as a channel that claims to be a copy and is not.
  */
+// Presets are removed from the project config, so a copy goes to the project's Trash first:
+// the owner's rule is nothing deleted for good. The page offers Undo; this file is the later
+// restore path for anything missed.
+router.post('/projects/:slug/presets/trash', async (req, res) => {
+  const slug = req.params.slug
+  const group = typeof req.body?.group === 'string' ? req.body.group.replace(/[^\w.-]/g, '') : ''
+  const preset = req.body?.preset
+  if (!group || !preset || typeof preset !== 'object') {
+    return res.status(400).json({ detail: 'A preset and the group it belongs to are required.' })
+  }
+  const dir = pm.getProjectDir(slug)
+  if (!dir) return res.status(404).json({ detail: 'Project not found.' })
+  const fs = await import('node:fs')
+  const path = await import('node:path')
+  const { trashRootFor } = await import('../lib/trash-move.js')
+  const dest = path.join(trashRootFor(dir, dir, slug), 'presets')
+  fs.mkdirSync(dest, { recursive: true })
+  const id = String((preset as { id?: unknown }).id ?? 'preset').replace(/[^\w.-]/g, '')
+  const file = path.join(dest, `${new Date().toISOString().replace(/[:.]/g, '-')}-${group}-${id}.json`)
+  fs.writeFileSync(file, JSON.stringify({ slug, group, deleted_at: new Date().toISOString(), preset }, null, 2))
+  res.json({ ok: true, path: file })
+})
+
 router.post('/projects/:slug/duplicate-settings', async (req, res) => {
   const sourceSlug = req.params.slug
   const source = await pm.getProject(sourceSlug)
