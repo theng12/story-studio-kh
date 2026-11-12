@@ -74,11 +74,11 @@ if (!gotLock) {
   electronApp.commandLine.appendSwitch('js-flags', `--max-old-space-size=${mb}`)
 }
 electronApp.on('second-instance', () => {
-  if (mainWindow) {
-    if (mainWindow.isMinimized()) mainWindow.restore()
-    mainWindow.show()
-    mainWindow.focus()
-  }
+  // Owner 2026-11-12: a second launch must never take the desktop. Showing or
+  // focusing the existing window would drag it in front of whatever the owner
+  // is doing, so this only records the refusal — the window stays exactly as
+  // it is, and the second process exits without starting a server or helpers.
+  console.log('[single-instance] refused a second launch; the running window was left alone')
 })
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
