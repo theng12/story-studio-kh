@@ -20,9 +20,11 @@
             <button type="button" class="btn btn-secondary" :disabled="!code || !!busy" @click="redraw">
               {{ songs.length ? 'Re-draw Unlocked' : 'Draw Songs' }}
             </button>
-            <span class="eb-hint">{{ songs.length
-              ? (lockedCount ? `Keeps the ${lockedCount} locked song${lockedCount === 1 ? '' : 's'} where they are.` : 'Replaces every song. Lock a song to keep it.')
-              : 'Picks songs from the pools to fill the target. Makes nothing new.' }}</span>
+            <span class="eb-hint">{{ !code
+              ? 'Pick an episode first.'
+              : songs.length
+                ? (lockedCount ? `Keeps the ${lockedCount} locked song${lockedCount === 1 ? '' : 's'} where they are.` : 'Replaces every song. Lock a song to keep it.')
+                : 'Picks songs from the pools to fill the target. Makes nothing new.' }}</span>
           </div>
           <div class="eb-btnhint">
             <button type="button" class="btn btn-primary" :disabled="!canSend" @click="sendToVideoAssembly">
@@ -37,7 +39,7 @@
     <!-- Episode choice -->
     <section class="card workspace-section eb-episode-bar">
       <label class="eb-label" for="eb-episode">Episode</label>
-      <select id="eb-episode" v-model="code" class="select eb-episode-select" :disabled="listLoading">
+      <select id="eb-episode" v-model="code" class="select eb-episode-select" :disabled="listLoading || !episodes.length">
         <option value="" disabled>{{ episodes.length ? 'Pick an episode…' : 'No episodes yet' }}</option>
         <option v-for="ep in episodes" :key="ep.code" :value="ep.code">
           {{ ep.code }} · {{ ep.title }}{{ ep.has_plan ? ` · ${ep.songs} songs` : ' · not built yet' }}
@@ -47,7 +49,7 @@
         <input v-model="newTitle" class="input" placeholder="New episode title, e.g. Snowy Cabin Evenings" aria-label="New episode title">
         <button type="submit" class="btn btn-secondary" :disabled="!newTitle.trim() || !!busy">New Episode</button>
       </form>
-      <p class="eb-hint eb-wide">Each episode gets its own code and folder. Building one never makes or buys songs.</p>
+      <p class="eb-hint eb-wide">Each episode gets its own code and folder.</p>
       <form v-if="channelTargetMinutes !== null" class="eb-channel-target eb-wide" @submit.prevent="saveChannelTarget">
         <label class="eb-label" for="eb-channel-target">Future mix target</label>
         <input id="eb-channel-target" v-model.number="channelTargetMinutes" type="number" min="1" max="360" step="1" required class="input eb-num" :disabled="channelTargetSaving">

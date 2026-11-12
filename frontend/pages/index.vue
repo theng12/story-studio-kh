@@ -1584,6 +1584,10 @@ onMounted(async () => {
 }
 .project-mark img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .project-status {
+  /* One line inside the pill: "Needs Gateway API Key" used to break after
+     "API", leaving "Key" alone on a second line inside the oval. The row may
+     wrap between pills; a pill never wraps inside itself. */
+  white-space: nowrap;
   padding: 4px 8px;
   border: 1px solid color-mix(in srgb, var(--warning) 35%, var(--border));
   border-radius: 999px;
@@ -1592,6 +1596,8 @@ onMounted(async () => {
   font-weight: 650;
 }
 .project-status[data-ready='true'] { border-color: color-mix(in srgb, var(--success) 35%, var(--border)); color: var(--success); }
+/* The YouTube pill sits beside it and is the same oval: one line there too. */
+.project-status.project-youtube { white-space: nowrap; }
 /* YouTube state, deliberately independent of the Gateway key pill above:
    connected is good, needs-reconnect warns, and plain "not connected" is a
    normal resting state — muted, not alarming. Unknown is muted too. */

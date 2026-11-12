@@ -47,7 +47,7 @@
         :disabled="saving"
         @click="chooseGeneric"
       >Generic — no Formula</button>
-      <NuxtLink :to="`/projects/${slug}/settings#channel`" class="nmb-link">
+      <NuxtLink :to="`/projects/${slug}/settings#formula`" class="nmb-link">
         Open Channel Settings
       </NuxtLink>
     </div>

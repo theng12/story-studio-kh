@@ -7,9 +7,11 @@
     >
       <template #aside>
         <div class="motion-hero-route" aria-label="Review workflow">
-          <span class="is-complete">1</span><b>Plan</b><i />
-          <span class="is-complete">2</span><b>Images</b><i />
-          <span class="is-current">3</span><b>Motion</b>
+          <!-- No episode picked means nothing is complete: a green step 1 and 2 beside
+               "Pick an episode first" is a false progress claim. -->
+          <span :class="episodeId ? 'is-complete' : ''">1</span><b>Plan</b><i />
+          <span :class="episodeId ? 'is-complete' : ''">2</span><b>Images</b><i />
+          <span :class="episodeId ? 'is-current' : ''">3</span><b>Motion</b>
         </div>
       </template>
     </WorkspaceHero>

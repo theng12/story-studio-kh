@@ -9,7 +9,7 @@
     <template v-else>
       <p class="settings-hint" role="status">
         <strong>{{ headline }}</strong>
-        <template v-if="status.last_check_at"> · checked {{ ago(status.last_check_at) }}</template>
+        <template v-if="status.last_check_at && !status.last_check_error"> · checked {{ ago(status.last_check_at) }}</template>
       </p>
       <p v-if="status.error && ['failed', 'rolled_back'].includes(status.phase)" class="error-box">{{ status.error }}</p>
       <p v-else-if="status.last_check_error" class="text-muted">{{ status.last_check_error }}</p>
@@ -103,7 +103,8 @@ const headline = computed(() => {
     case 'installed': return `Up to date: ${s.current_version} was installed remotely.`
     case 'rolled_back': return `${version.value} did not start, so ${s.current_version} was put back.`
     case 'failed': return `The update to ${version.value} did not complete.`
-    default: return `Up to date: ${s.current_version}.`
+    // A check that could not run must never read as a passed one (owner: "not checked" ≠ "passed").
+    default: return s.last_check_error ? 'Update not checked.' : `Up to date: ${s.current_version}.`
   }
 })
 
