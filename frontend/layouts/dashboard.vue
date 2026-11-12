@@ -177,7 +177,7 @@
               :title="`Story Studio KH v${appVersion} · built ${buildDate} — click for What's New`"
               @click="openWhatsNew"
             >
-              <span class="version-pill-text">v{{ appVersion }} · {{ buildDate }}</span>
+              <span class="version-pill-text">v{{ appVersion }} · What&rsquo;s New</span>
             </button>
             <button
               type="button"
@@ -188,7 +188,7 @@
               @click="checkForUpdates"
             >
               <span aria-hidden="true">&#8635;</span>
-              <span v-if="updateAvailable" class="footer-update-dot" aria-hidden="true" />
+              <span v-if="updateAvailable" class="footer-update-badge" aria-hidden="true">&#10515;</span>
             </button>
           </div>
           <!-- Signed-in browser host and sign-out sit with the connection status
@@ -263,6 +263,15 @@ const checkingUpdate = ref(false)
 const updateAvailable = ref(false)
 
 /** Icon-only control, so the state has to live in the icon: a dot when an update is waiting. */
+// The app already knows whether an update is waiting (header control reads the same status); the
+// footer must not claim otherwise, so it reads that state at mount rather than only after a click.
+void (async () => {
+  try {
+    const status = await apiGet('/app-update/status')
+    updateAvailable.value = Boolean(status?.version)
+  } catch { /* stays quiet; the header reports failures */ }
+})()
+
 async function checkForUpdates() {
   if (checkingUpdate.value) return
   checkingUpdate.value = true
@@ -603,7 +612,7 @@ onUnmounted(() => {
 .footer-support {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   gap: 6px;
   min-height: 24px;
   color: var(--text-muted);
@@ -615,7 +624,7 @@ onUnmounted(() => {
   display: flex;
   min-width: 0;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   gap: 8px;
 }
 /* One line, truncated rather than wrapped. */
@@ -638,23 +647,30 @@ onUnmounted(() => {
 }
 .footer-update:hover { color: var(--text-primary); }
 .footer-update:disabled { cursor: progress; opacity: 0.6; }
-.footer-update-dot {
+.footer-update-badge {
   position: absolute;
-  top: 2px;
-  right: 2px;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
+  top: -2px;
+  right: -2px;
+  min-width: 13px;
+  height: 13px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
   background: var(--accent, var(--warning));
+  color: var(--bg, #fff);
+  font-size: 9px;
+  line-height: 1;
 }
 .footer-status-line { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .network-status {
   display: flex;
   min-height: 32px;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 8px;
-  padding: 6px 8px;
+  /* No inner padding: the support row and the pill+update row sit at this same edge. */
+  padding: 6px 0;
   border-radius: var(--radius-sm);
   color: var(--text-secondary);
   font-size: var(--font-xs);
