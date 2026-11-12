@@ -164,26 +164,40 @@
         </nav>
 
         <footer class="sidebar-credits" aria-label="Story Studio status">
-          <div class="network-status" :class="connection.tone" role="status">
-            <span class="network-dot" aria-hidden="true" />
-            <span>{{ connection.label }}</span>
+          <!-- Owner 2026-11-12: one tidy column — Support row, then the version
+               pill and the update control on one centred line, then one status
+               line; equal insets and even rhythm, pinned to the bottom. -->
+          <a class="footer-support" :href="SUPPORT_URL" target="_blank" rel="noopener noreferrer">
+            <span aria-hidden="true">&#9829;</span> Support this app
+          </a>
+          <div class="footer-controls">
+            <button
+              type="button"
+              class="version-badge"
+              :title="`Story Studio KH v${appVersion} · built ${buildDate} — click for What's New`"
+              @click="openWhatsNew"
+            >
+              <span class="version-pill-text">v{{ appVersion }} · {{ buildDate }}</span>
+            </button>
+            <button
+              type="button"
+              class="footer-update"
+              title="Check for Updates"
+              aria-label="Check for Updates"
+              :disabled="checkingUpdate"
+              @click="checkForUpdates"
+            >
+              <span aria-hidden="true">&#8635;</span>
+              <span v-if="updateAvailable" class="footer-update-dot" aria-hidden="true" />
+            </button>
           </div>
-          <p v-if="connection.hint" class="network-hint">{{ connection.hint }}</p>
           <!-- Signed-in browser host and sign-out sit with the connection status
                they belong to, in normal flow — never a floating pill over the page. -->
           <ServerModeBanner />
-          <!-- Project pages had no version anywhere. The standing strip moved
-               up to the top bar; the running build takes its place here, with
-               the same content and title behaviour as default.vue's badge. -->
-          <button
-            type="button"
-            class="version-badge"
-            :title="`Story Studio KH v${appVersion} · built ${buildDate} — click for What's New`"
-            @click="openWhatsNew"
-          >
-            v{{ appVersion }}
-            <span class="version-build">· {{ buildDate }}</span>
-          </button>
+          <div class="network-status" :class="connection.tone" role="status">
+            <span class="network-dot" aria-hidden="true" />
+            <span class="footer-status-line">{{ connection.label }}<template v-if="connection.hint"> · {{ connection.hint }}</template></span>
+          </div>
         </footer>
       </aside>
 
@@ -242,8 +256,23 @@ const { jobs, stats, startPolling: startJobPolling, stopPolling: stopJobPolling 
 const { stats: allJobStats, start: startAllJobs, stop: stopAllJobs } = useAllJobs()
 const { refreshReadiness } = useNotifications()
 const { connection } = useConnectionStatus()
-const { get: apiGet } = useApi()
+const { get: apiGet, post: apiPost } = useApi()
 const { public: pubCfg } = useRuntimeConfig()
+const SUPPORT_URL = 'https://nowpayments.io/donation/studiokh'
+const checkingUpdate = ref(false)
+const updateAvailable = ref(false)
+
+/** Icon-only control, so the state has to live in the icon: a dot when an update is waiting. */
+async function checkForUpdates() {
+  if (checkingUpdate.value) return
+  checkingUpdate.value = true
+  try {
+    const status = await apiPost('/app-update/check')
+    updateAvailable.value = Boolean(status?.version)
+  } catch { /* stays quiet: the header control already reports failures */ }
+  finally { checkingUpdate.value = false }
+}
+
 const appVersion = computed(() => (pubCfg.appVersion as string | undefined) || '0.0.0')
 const buildDate = computed(() => (pubCfg.buildDate as string | undefined) || '')
 const whatsNewModal = useWhatsNewModal()
@@ -563,10 +592,62 @@ onUnmounted(() => {
 
 .sidebar-credits {
   display: grid;
-  gap: 6px;
-  padding: 10px;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+  /* Equal left/right insets (owner 2026-11-12) and a steady rhythm; the
+     sidebar column pins this to the bottom. */
+  padding: 12px;
   border-top: 1px solid var(--border);
+  margin-top: auto;
 }
+.footer-support {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 24px;
+  color: var(--text-muted);
+  font-size: var(--font-xs);
+  text-decoration: none;
+}
+.footer-support:hover { color: var(--text-primary); text-decoration: underline; }
+.footer-controls {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+/* One line, truncated rather than wrapped. */
+.footer-controls .version-badge { min-width: 0; flex: 0 1 auto; max-width: 100%; }
+.version-pill-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.footer-update {
+  display: inline-flex;
+  flex: none;
+  position: relative;
+  min-height: 26px;
+  min-width: 26px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: var(--font-sm);
+}
+.footer-update:hover { color: var(--text-primary); }
+.footer-update:disabled { cursor: progress; opacity: 0.6; }
+.footer-update-dot {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent, var(--warning));
+}
+.footer-status-line { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .network-status {
   display: flex;
   min-height: 32px;
