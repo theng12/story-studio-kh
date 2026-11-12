@@ -1105,6 +1105,23 @@ router.post('/projects/:slug/jobs/:jobId/abandon', async (req, res, next) => {
 })
 
 // Hide, never delete — see the `/jobs/all` sibling for why.
+// Discard, unlike Hide: the row is removed for good (owner 2026-11-13, "i need the button to
+// discard the job"). `force` is deliberate — the rows people actually want gone are the stuck ones
+// carrying a final-render fence, which the guarded removal refuses.
+router.delete('/projects/:slug/jobs/:jobId', async (req, res) => {
+  const removed = await jq.removeTerminalJobRow(req.params.slug, req.params.jobId, { force: req.query.force === 'true' })
+  if (!removed) return res.status(404).json({ detail: 'Job not found, or it is still running.' })
+  res.json({ ok: true, discarded: req.params.jobId })
+})
+
+// Bulk discard: the "make it all go away" control for finished history.
+router.delete('/projects/:slug/jobs', async (req, res) => {
+  const parsed = parseHistoryClearQuery(req.query)
+  if ('error' in parsed) return res.status(400).json({ detail: parsed.error })
+  const count = await jq.discardFinished(req.params.slug, parsed.value.status)
+  res.json({ ok: true, discarded: count })
+})
+
 router.post('/projects/:slug/jobs/:jobId/hide', async (req, res) => {
   const existing = (await jq.findJobs(req.params.slug, job => job.job_id === req.params.jobId))[0]
   if (!existing || existing.project_slug !== req.params.slug) {

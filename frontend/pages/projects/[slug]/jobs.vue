@@ -138,6 +138,7 @@
             <div class="jobs-more-action">
               <button class="btn btn-sm btn-secondary" :disabled="bulkActionBusy || failedCount === 0"
                 @click="clearFailed()">{{ clearingHistory === 'failed' ? 'Hiding…' : `Hide Failed From List (${failedCount})` }}</button>
+              <button type="button" class="btn btn-ghost btn-sm" :disabled="!finishedCount || !!bulkActionBusy" @click="discardHistory('finished')">Discard Finished…</button>
               <small>{{ failedCount ? MORE_ACTION_HINTS.clearFailed : 'No settled failed rows to hide.' }}</small>
             </div>
           </div>
@@ -815,6 +816,12 @@
                 title="Hide this completed card from Jobs. Work, receipts, and settlement checks continue."
                 @click="hideJob(job)"
               >Hide From Jobs</button>
+              <button
+                v-if="canHideJob(job)"
+                class="btn btn-xs btn-ghost"
+                title="Remove this job for good. It cannot be undone."
+                @click="discardJob(job)"
+              >Discard</button>
             </div>
           </div>
           <EpisodeRecoveryStatus :job="job" :verified-recovered="isVerifiedRecoveredSubtitleJob(job)" />
@@ -1066,7 +1073,7 @@ useAppTitle('Jobs')
 const route = useRoute()
 const router = useRouter()
 const slug = computed(() => route.params.slug as string)
-const { get, post } = useApi()
+const { get, post, del } = useApi()
 const projectQueue = useJobs()
 const universalQueue = useAllJobs()
 const genStudioModels = useGenStudioModelDisplay()
@@ -2173,6 +2180,28 @@ const projectScopedJobs = computed(() => {
  */
 function isJobHidden(job: RJob): boolean { return Boolean(job.hidden_at) }
 function canHideJob(job: RJob): boolean { return ['done', 'recovered', 'skipped'].includes(jobDisplayStatus(job)) }
+/**
+ * Discard removes the row for good (owner 2026-11-13: "i need the button to discard the job").
+ * `force` is deliberate: the rows people want gone are the stuck ones carrying a final-render
+ * fence, which the guarded removal refuses. Hide stays the reversible option beside it.
+ */
+async function discardJob(job: RJob) {
+  const ok = await useConfirm().ask({
+    title: 'Discard this job?',
+    message: 'It cannot be undone. The job record and its output list go away; files already written stay on disk.',
+    confirmLabel: 'Discard',
+    danger: true,
+  })
+  if (!ok) return
+  try {
+    await del(`${jobQueuePath(job)}?force=true`)
+    success('Job discarded.')
+    await loadJobHistory()
+  } catch (e: any) {
+    showError(customerJobText(e?.data?.detail || 'Failed to discard this job', job))
+  }
+}
+
 async function hideJob(job: RJob) {
   if (isJobHidden(job) || !canHideJob(job)) return
   try {
@@ -3615,6 +3644,33 @@ async function autoRepairScenePrompts(job: RJob) {
     const next = new Set(controlBusy.value)
     next.delete(job.job_id)
     controlBusy.value = next
+  }
+}
+
+/** Bulk Discard: the owner's "make it all go away" — finished history removed, not hidden. */
+async function discardHistory(status: 'finished' | 'failed') {
+  if (bulkActionBusy.value) return
+  const promised = status === 'finished' ? finishedCount.value : failedCount.value
+  if (!promised) return
+  if (!await useConfirm().ask({
+    title: `Discard ${promised} ${status} job row(s)?`,
+    message: 'They are removed for good and cannot be undone. Files already written stay on disk.',
+    confirmLabel: 'Discard',
+    danger: true,
+  })) return
+  const project = isUniversal.value ? projectFilter.value : slug.value
+  const endpoint = isUniversal.value && project === 'all' ? '/jobs/all'
+    : project === '_app_' ? '/jobs/app' : `/projects/${project}/jobs`
+  clearingHistory.value = status
+  history.invalidate()
+  try {
+    const result = await del<{ discarded?: number }>(`${endpoint}?status=${status}`)
+    success(`Discarded ${result?.discarded ?? promised} row(s). They are gone for good.`)
+    await loadJobHistory()
+  } catch (e: any) {
+    showError(e?.data?.detail || 'Failed to discard those jobs')
+  } finally {
+    clearingHistory.value = null as any
   }
 }
 

@@ -10497,7 +10497,11 @@ async function savedHistoryRows(projectSlug: string): Promise<Job[]> {
  * row from wherever it still lives. Files, provider evidence and billing
  * records are never touched — only the list entry goes.
  */
-export async function removeTerminalJobRow(projectSlug: string, jobId: string): Promise<boolean> {
+export async function removeTerminalJobRow(
+  projectSlug: string,
+  jobId: string,
+  opts: { force?: boolean } = {},
+): Promise<boolean> {
   const live = jobs.get(jobId)
   if (live) {
     if (live.project_slug !== projectSlug) return false
@@ -10510,8 +10514,13 @@ export async function removeTerminalJobRow(projectSlug: string, jobId: string): 
   } catch { return false }
   if (!durable || durable.project_slug !== projectSlug) return false
   if (!TERMINAL_JOB_STATUSES.has(durable.status)) return false
-  if (hasFinalRenderFence(durable)) return false
-  if (!durable.force_abandoned && (hasUnsettledProviderEvidence(durable) || durable.music_results_awaiting_import?.length)) return false
+  // Owner 2026-11-13: "discard the job" is the named escape hatch for a row that is stuck —
+  // including one carrying a final-render fence, which is exactly why such rows could never be
+  // cleared. `force` skips the fence and evidence guards; the caller confirms it cannot be undone.
+  if (!opts.force) {
+    if (hasFinalRenderFence(durable)) return false
+    if (!durable.force_abandoned && (hasUnsettledProviderEvidence(durable) || durable.music_results_awaiting_import?.length)) return false
+  }
   await persistProjectMutation(projectSlug, { kind: 'delete', jobId })
   emitCleared(projectSlug, [jobId])
   return true
@@ -10645,6 +10654,22 @@ export async function clearFinished(projectSlug: string, status?: JobHistoryClea
  * fire-and-forget the clear used, so an iCloud-backed project cannot freeze the
  * button.
  */
+export async function discardFinished(projectSlug: string, status?: JobHistoryClearStatus): Promise<number> {
+  await loadPersistedJobs(projectSlug)
+  const doomed: string[] = []
+  for (const [id, job] of jobs.entries()) {
+    if (job.project_slug !== projectSlug) continue
+    if (!TERMINAL_JOB_STATUSES.has(job.status)) continue
+    if (!matchesHistoryClearStatus(job, status)) continue
+    doomed.push(id)
+  }
+  let count = 0
+  for (const id of doomed) {
+    if (await removeTerminalJobRow(projectSlug, id, { force: true })) count++
+  }
+  return count
+}
+
 export async function hideFinished(projectSlug: string, status?: JobHistoryClearStatus): Promise<number> {
   await loadPersistedJobs(projectSlug)
   let count = 0
