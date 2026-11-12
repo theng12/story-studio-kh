@@ -1,5 +1,13 @@
 # HANDOFF — Story Studio KH
 
+### Release 1.4.393 — a second launch stays behind, clean uninstall (2026-11-12)
+
+- Built from `main` at `7bb72b831`; `dist/Story Studio KH 1.4.393-arm64.dmg` sha256 `18df8441ad9240e8cfbf4ce6666cd2eb328f184d7a933fcd55cfd38e00a0bf1f`, 264,410,523 bytes, signed `KH Studio Local Signing`, isolated launch smoke healthy in 4.2 s. `dist/` now holds 1.4.390, 1.4.392 and 1.4.393 — the three-version retention rule.
+- Checks: `check:changelog`, `check:typography`, `check:security`, `check:model-drift`, `typecheck:electron`, lint (0 errors), release lane 103/103 (13/13 files), focused `app-update` 77/77, uninstaller fixtures 2/2. Full regression not run: the reach is bounded to the `second-instance` handler in `electron/main.ts` and a repo-only release script; no shared queue, storage or generator code changed.
+- Published to the Story feed: `story` 1.4.393, previous 1.4.392, artifact hash and byte count read back identical to the DMG.
+- Lifecycle proved on a copy of the built bundle (never the real install): quit freed its port in 0.8 s with no process and no listener; `uninstall-local.sh` moved the app (helper inside) and the login-job plist into a dated trash folder, kept `~/Documents/Story Studio KH` byte-identical, and left zero helper processes.
+- Not done: `/Applications` still runs 1.4.392 (the install relaunches in front, so it waits for a word); nothing is pushed.
+
 ### Evidence root moved local (2026-11-12)
 
 - From 2026-11-12 the Story evidence root is local: `/build/Developer/_orchestra/story-lead/atlas-evidence-story-studio-kh`, a byte-identical copy of the former `/Volumes/KH-STUDIO-ATLAS/KH-Evidence/story-studio-kh` (175 files, tree hash `48b951bc7f06f6072a4d38497f5ca682b1b273a3dda6f849eb8fbc95b951da6d`, receipt `MOVE-RECEIPT-2026-11-12.json` inside it). ATLAS is backup only — no active worktree, gate or build lives there. Entries below still name the ATLAS path because that is where the files were when those runs happened; that is evidence, not a stale link, and the ATLAS copy carries `MOVED-TO-LOCAL-2026-11-12.txt` for anyone following an old citation.
