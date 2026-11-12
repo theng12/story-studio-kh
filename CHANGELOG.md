@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.398 — 2026-11-13
+
+- The Gateway address accepts a bare IP: no scheme becomes http://, a missing port becomes :8787, and the field shows the address it actually became instead of refusing it.
+
 ## v1.4.397 — 2026-11-13
 
 - Every job row has a **Discard** button that removes it for good, with a confirm that says it cannot be undone; **Discard Finished…** does the same for finished history in bulk.
