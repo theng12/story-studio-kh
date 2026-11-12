@@ -1,5 +1,10 @@
 #!/bin/bash
-# Publish Story Studio KH to the UPDATER HOST's feed — never to this Mac's mirror.
+# Host-side publish guard for Story Studio KH — never run from a Story session.
+#
+# A Story session cannot publish: ssh to the updater host is refused by its key policy (2026-11-12).
+# Story's step ends at the artifact — build, verify, publish nothing, hand the Developer the DMG path
+# with its sha256 and byte count. The Developer runs this (or khu directly) on the host and returns the
+# served-feed readback, which Story records as attributed to them.
 #
 # `~/Library/KHUpdater/feed` is a mirror. Writing it makes `khu publish` say "published", changes
 # nothing any Mac reads, and is indistinguishable from success — 1.4.393 was first "published" that

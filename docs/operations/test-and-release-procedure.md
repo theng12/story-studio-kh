@@ -90,14 +90,27 @@ to `_trash/test-fixtures/` (or `STORY_STUDIO_RETAINED_FIXTURES_ROOT`) only after
 evidence is reconciled; removing the retained root mid-run is safe, but removing a live work directory
 fails the run loudly and stops its process group. Never use Trash for a test's own live fixtures.
 
-## Publishing — only the host's served feed counts
+## Publishing — the Developer publishes from the host; Story hands over the artifact
 
-`khu publish` runs against the **host's** feed directory (the machine that serves `release.json`),
-never this Mac's `~/Library/KHUpdater/feed`. That local folder is a mirror: writing it reports
-"published", changes nothing anyone reads, and looks exactly like success. A publish is done only when
-the served feed changes — read `release.json` back **from the host** and match the advertised version,
-`sha256` and byte count against the DMG. `scripts/release/publish-story.sh` refuses a local feed path
-for this reason.
+A Story session **cannot** publish. ssh to the updater host is refused by its key policy (confirmed
+2026-11-12), and this Mac's `~/Library/KHUpdater/feed` is a **mirror**: writing it makes `khu` say
+"published", changes nothing anyone reads, and is indistinguishable from success. That is how 1.4.393
+was first reported as published while the host still served 1.4.392.
+
+The split, the same one Gateway and Relay use:
+
+- **Story's step ends at the artifact.** Build, verify, publish nothing, and hand the Developer the
+  DMG path with its `sha256` and byte count.
+- **The Developer publishes from the host** with `khu publish --app story --version <v>` and returns
+  the served-feed readback. Record that readback **attributed to the Developer**, never as Story's own
+  action.
+- **"Published" is only true when the host's served feed changes** — `release.json` read from the host,
+  advertising that version with a `sha256` and byte count matching the artifact.
+
+`scripts/release/publish-story.sh` is the host-side guard, for whoever runs it there: it refuses a
+feed path inside `$HOME`, refuses a missing `--host-feed` rather than defaulting, and with `--readback
+<served release.json URL>` exits non-zero unless the served version and hash match the artifact. A
+Story session does not run it.
 
 ## Releases — classification
 
