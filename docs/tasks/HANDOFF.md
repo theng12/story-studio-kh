@@ -1,5 +1,9 @@
 # HANDOFF — Story Studio KH
 
+### Evidence root moved local (2026-11-12)
+
+- From 2026-11-12 the Story evidence root is local: `/build/Developer/_orchestra/story-lead/atlas-evidence-story-studio-kh`, a byte-identical copy of the former `/Volumes/KH-STUDIO-ATLAS/KH-Evidence/story-studio-kh` (175 files, tree hash `48b951bc7f06f6072a4d38497f5ca682b1b273a3dda6f849eb8fbc95b951da6d`, receipt `MOVE-RECEIPT-2026-11-12.json` inside it). ATLAS is backup only — no active worktree, gate or build lives there. Entries below still name the ATLAS path because that is where the files were when those runs happened; that is evidence, not a stale link, and the ATLAS copy carries `MOVED-TO-LOCAL-2026-11-12.txt` for anyone following an old citation.
+
 ### Release 1.4.392 batch — channels YouTube state, thumbnail prompt auto-approve (2026-11-11)
 
 - One batched release. It carries the never-shipped 1.4.391 work (update control in every window, honest failed update checks, unreadable-credential handling, channel timeline, published video controls and scene duration, motion-control narrowing) plus two new owner-approved items. `package.json` and `package-lock.json` are 1.4.392; the CHANGELOG heading for the unshipped 1.4.391 entry was re-headed to 1.4.392 so What's New matches the version that actually ships.
