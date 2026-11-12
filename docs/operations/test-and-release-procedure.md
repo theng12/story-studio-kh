@@ -90,6 +90,15 @@ to `_trash/test-fixtures/` (or `STORY_STUDIO_RETAINED_FIXTURES_ROOT`) only after
 evidence is reconciled; removing the retained root mid-run is safe, but removing a live work directory
 fails the run loudly and stops its process group. Never use Trash for a test's own live fixtures.
 
+## Publishing — only the host's served feed counts
+
+`khu publish` runs against the **host's** feed directory (the machine that serves `release.json`),
+never this Mac's `~/Library/KHUpdater/feed`. That local folder is a mirror: writing it reports
+"published", changes nothing anyone reads, and looks exactly like success. A publish is done only when
+the served feed changes — read `release.json` back **from the host** and match the advertised version,
+`sha256` and byte count against the DMG. `scripts/release/publish-story.sh` refuses a local feed path
+for this reason.
+
 ## Releases — classification
 
 - **Application release** — any code shipped inside Story Studio (fixes, reliability, UI/API/runtime
