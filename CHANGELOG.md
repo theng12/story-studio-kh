@@ -4,6 +4,11 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.396 — 2026-11-13
+
+- The footer pill says what it does — version and What's New — instead of hiding that in a tooltip, and shows an update waiting as soon as the app knows, not only after a click.
+- Channel cards say what an episode code is (EP0001+) instead of showing "EP…", and the grid/list buttons have names for assistive technology.
+
 ## v1.4.395 — 2026-11-12
 
 - The sidebar footer is one tidy column: a Support this app row, the version and What's New pill beside an icon-only Check for Updates, and a single status line, with even spacing and the pill on one line.
