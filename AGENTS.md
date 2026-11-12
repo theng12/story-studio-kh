@@ -301,6 +301,14 @@ instance **and must not bring the existing window forward** — it reports and s
 removes the app, the helper, the launchd job and the login item and keeps the user's data:
 `scripts/release/uninstall-local.sh`, which moves the app and the plist to a dated trash folder.
 
+**Background runners live inside the bundle (owner 2026-11-12).** Never a loose copy: the render and
+swap helpers ship in `Contents/Resources/Story Studio KH Helper.app`, ffmpeg and ffprobe in
+`Contents/Resources/ffmpeg/`, so deleting the app deletes them and an install replaces them in place.
+Nothing Story starts may point outside the bundle or outlive it — children are tracked and SIGTERM'd
+on quit, and a boot reap clears anything a crash left behind. A runner that has to be downloaded or
+pointed at a path outside the bundle is a recovery path, never the normal one, and it belongs in the
+app's own data folder.
+
 **Removals and history — Story-specific.** Every removal goes to this project's `_trash/` — never
 `rm` — keeping any sub-structure, and say where it went. `_trash/` itself is the owner's: never delete
 or tidy anything *inside* it. A Git branch or remote ref is not a file: record its name and SHA in a
