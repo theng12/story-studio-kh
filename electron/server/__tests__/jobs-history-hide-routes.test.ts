@@ -80,19 +80,20 @@ before(async () => {
 
 after(async () => { await cleanup() })
 
-test('the delete routes are gone: a terminal job has no DELETE any more', async () => {
-  const project = await pm.createProject({ name: 'Hide: no delete' })
-  await seed(project.slug, [historyRow('no-delete-done', project.slug, 'done')])
+test('Discard removes a finished row for good; the all-jobs family still has no DELETE', async () => {
+  const project = await pm.createProject({ name: 'Discard: remove for good' })
+  await seed(project.slug, [historyRow('discard-done', project.slug, 'done')])
 
-  await request(app).delete(`/api/jobs/all/no-delete-done`).expect(404)
+  await request(app).delete(`/api/jobs/all/discard-done`).expect(404)
   await request(app).delete(`/api/jobs/all`).expect(404)
   await request(app).delete(`/api/jobs/app`).expect(404)
-  await request(app).delete(`/api/projects/${project.slug}/jobs/no-delete-done`).expect(404)
-  await request(app).delete(`/api/projects/${project.slug}/jobs`).expect(404)
 
-  assert.ok(jq.getJob('no-delete-done'), 'nothing deleted the record')
+  const discarded = await request(app).delete(`/api/projects/${project.slug}/jobs/discard-done`).expect(200)
+  assert.equal(discarded.body.discarded, 'discard-done')
+  assert.equal(jq.getJob('discard-done'), null, 'Discard removes the record')
+
   const listed = await request(app).get(`/api/projects/${project.slug}/jobs/history?all=1`).expect(200)
-  assert.deepEqual(visibleIds(listed.body), ['no-delete-done'])
+  assert.deepEqual(visibleIds(listed.body), [])
 })
 
 test('hide takes the row off the list and keeps every piece of evidence on it', async () => {

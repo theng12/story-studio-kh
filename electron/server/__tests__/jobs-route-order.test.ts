@@ -30,11 +30,12 @@ describe('jobs router registration order', () => {
 
     assert.ok(hasRoute('/projects/:slug/jobs/:jobId/cancel', 'post'))
     assert.ok(hasRoute('/jobs/all/:jobId/cancel', 'post'))
-    // `From List` is a restorable hide since 2026-11-02 (AGENTS.md: nothing is
-    // deleted for good), so no route may delete a terminal job.
+    // `From List` is a restorable hide; Discard is the owner's explicit
+    // "remove this row for good" (2026-11-13), so the project-scoped DELETE is
+    // deliberate. The all-jobs family still has no DELETE.
     assert.ok(hasRoute('/projects/:slug/jobs/:jobId/hide', 'post'))
     assert.ok(hasRoute('/jobs/all/:jobId/hide', 'post'))
-    assert.ok(!hasTerminalDelete('/projects/:slug/jobs/:jobId'))
+    assert.ok(hasTerminalDelete('/projects/:slug/jobs/:jobId'))
     assert.ok(!hasTerminalDelete('/jobs/all/:jobId'))
   })
 
