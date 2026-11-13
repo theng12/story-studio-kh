@@ -1,5 +1,48 @@
 # HANDOFF — Story Studio KH
 
+### Release 1.4.399 — Launcher-only updates, no Keychain, named Gateway address (2026-11-13)
+
+- Source: branch `release/1.4.399` from `main` at `8ef6e4a5b` (1.4.398); commits `2c0202453`
+  (main change), `2baaf72be` (release contract: one helper executable), `7a55021b3` (compact version
+  pill), `d224768b9` + `05f704826` (stale test repairs), `a1492a39d` (content-only classification).
+  Not merged to main, not pushed, not published.
+- Artifact: `dist/Story Studio KH 1.4.399-arm64.dmg`, sha256
+  `c532769b3647dbacde4fd2810a6ecc542621bf497f939731d634cafbbb957db1`, 264,403,460 bytes, signed
+  `KH Studio Local Signing`; `npm run dist:smoke` verified the DMG and its isolated launch (hidden).
+- **No in-app self-update at all** (owner 2026-11-13, extended by the Developer the same day): feed
+  check, check-in, release-descriptor verification, publisher-key pin/trust, download/mount/stage/
+  swap, install routes, the Updates panel and the header banner are removed. Settings/header/
+  sidebar/welcome show a version pill and, in Settings/Welcome, *Updates are installed by Studio
+  Launcher KH.* Open at Login moved to Settings → Performance & recovery. Story reads Gateway release
+  descriptors for nothing else.
+- **No Keychain** (owner 2026-11-13): `app-secrets.json` and per-project `secrets.json` are plain
+  `0600` files written atomically; the one-time migration probes the Keychain without interaction,
+  copies only when macOS would not ask, always removes the `<App> Safe Storage` items, and leaves an
+  unreadable encrypted file untouched (renamed aside on first save). Chromium runs with
+  `--use-mock-keychain`. Unlock credentials menu and the Credentials-unavailable state are gone; an
+  empty store reads "not set"; no dot row in the key field.
+- Gateway connection errors name the resolved address. The launch smoke now runs hidden
+  (`STORY_STUDIO_HIDDEN=1`, window and dock hidden).
+- Checks: `check:changelog`, `check:typography`, `check:security`, `check:model-drift`,
+  `typecheck:electron` + frontend typecheck, lint (0 errors), `npm run build`, release lane 17/17
+  files (108 adapted tests, exit 0). Backend full run: 1041/1041 files completed, 1038 green; the 3
+  failing files were stale 1.4.397 Discard assertions plus the package.json escaped em-dash, repaired
+  and rerun alone (16/16). Frontend full run: 406/406 files completed, 3585/3590 tests green; the 5
+  failing files were stale pre-existing expectations (niche-banner link, home-page label, an old
+  `window.confirm` test, and the new address test's import), repaired and rerun alone (42/42).
+  Content-packs: 45/45 files completed, 430/431; the one failing file was a missing content-only
+  release classification in AGENTS.md, restored and rerun alone (1/1).
+- Acceptance on the built app, hidden with an isolated `STORY_STUDIO_DATA_DIR`: `/api/health`
+  `{status:ok, version:1.4.399, boot_complete:true}`; `api-keys` reports `hasKey:false`; `GET
+  /api/projects` 200; `/app-update/*` and `/app-update/install-now` all 404; the Keychain item's
+  cdat/mdat were byte-identical before and after (no touch, no dialog); no keychain mention in the
+  app log. The stale `<App> Safe Storage` item from the previous install was removed afterwards
+  (`security find-generic-password -s "Story Studio KH Safe Storage"` now prints nothing); the old
+  encrypted `app-secrets.json` is left in place, unreadable, and the owner pastes the Gateway key
+  again.
+- Not done: no install into `/Applications`, no publish, no merge to main; `dist/` still carries
+  older DMGs (rotation is the Developer's `dist:retain` step after acceptance).
+
 ### Release 1.4.393 — a second launch stays behind, clean uninstall (2026-11-12)
 
 - Built from `main` at `7bb72b831`; `dist/Story Studio KH 1.4.393-arm64.dmg` sha256 `18df8441ad9240e8cfbf4ce6666cd2eb328f184d7a933fcd55cfd38e00a0bf1f`, 264,410,523 bytes, signed `KH Studio Local Signing`, isolated launch smoke healthy in 4.2 s. `dist/` now holds 1.4.390, 1.4.392 and 1.4.393 — the three-version retention rule.
