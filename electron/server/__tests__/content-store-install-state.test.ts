@@ -224,13 +224,12 @@ describe('Store-attested verification memo is keyed on the resolved signing key'
     assert.equal(second, first, 'same resolved key + same tree must reuse the verification')
     assert.ok(calls >= 2, 'the key is resolved on every check, so rotation is seen immediately')
 
-    // Rotated/revoked: a different key misses the memo and fails verification.
+    // A rotated key misses the memo and re-verifies the installed bytes; the key is a delivery
+    // gate, so an installed copy still serves (owner 2026-11-13: installed is done).
     key = publicKeyBase64(generateKeyPairSync('ed25519'))
-    await assert.rejects(verifyInstalledContentPackVersion(record, policy, resolver))
-    // A resolver that throws (revoked) never serves the memo either.
-    key = commercePublicKey
     await verifyInstalledContentPackVersion(record, policy, resolver)
-    await assert.rejects(verifyInstalledContentPackVersion(record, policy, async () => { throw new Error('revoked') }), /revoked/)
+    // A resolver that throws (revoked or unknown) also cannot refuse an installed copy.
+    await verifyInstalledContentPackVersion(record, policy, async () => { throw new Error('revoked') })
   })
 })
 

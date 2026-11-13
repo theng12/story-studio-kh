@@ -93,14 +93,23 @@ async function verifyArchiveForRequest(
         }))
   } catch (error) {
     // Installed content is trusted by its own verified bytes and the archive hash recorded when it
-    // was accepted; the Store key only gates a NEW delivery (owner 2026-11-13: "as long as it's
-    // installed. it's done. nothing to check again unless it's an update"). A missing or unreadable
-    // local anchor must never block serving an installed pack — but a caller that supplied its own
-    // resolver asked for that key, so its refusal is kept.
-    if (!installedCopy || resolveSigningKey) throw error
+    // was accepted; the Store key and its recorded origin only gate a NEW delivery (owner
+    // 2026-11-13: "as long as it's installed. it's done. nothing to check again unless it's an
+    // update"). A missing/unreadable anchor, a rotated key or an origin recorded before a credential
+    // reset must never block serving an installed pack — not even through a caller's resolver.
+    if (!installedCopy) throw error
     key = null
   }
-  if (key !== null) verifyGenStudioDeliveryAttestation(evidence, verified.manifest, sha256(archiveBytes), archiveBytes.byteLength, key)
+  if (key !== null) {
+    try {
+      verifyGenStudioDeliveryAttestation(evidence, verified.manifest, sha256(archiveBytes), archiveBytes.byteLength, key)
+    } catch (error) {
+      // Same rule for an installed copy: the attestation is delivery-time provenance, so a key
+      // rotated or an origin recorded before a credential reset cannot refuse bytes that are already
+      // installed and match their recorded hash. A NEW delivery still fails here.
+      if (!installedCopy) throw error
+    }
+  }
   return verified
 }
 

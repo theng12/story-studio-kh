@@ -153,15 +153,19 @@ describe('Content Store commerce routes', () => {
     await waitForJobs(jobs.map(job => job.job_id))
   })
 
-  test('an installed pack is not gated on the Gateway account or origin', async () => {
+  test('an installed pack serves when its recorded origin and account differ after a credential reset', async () => {
     const { project } = await setupPinnedOwnedPack()
     await fs.rm(contentStoreAnchorsPath())
     forgetVerifiedContentPackVersions()
     const requestsBefore = mock.requests.length
     const purchasesBefore = mock.contentPurchasePostCount
     const downloadsBefore = mock.contentDownloadPostCount
+    // The Production state: the pack was installed under an earlier account/origin; both now differ.
+    const recorded = (await readContentPackState()).packs['com.storystudio.pack.free-recovery-test'].versions['1.0.0']
+    const recordedOrigin = recorded.delivery_attestation.genstudio_origin
     await setApiKey('genstudio', KEY_B)
     await setGenStudioUrl('http://127.0.0.1:9')
+    assert.notEqual(recordedOrigin, 'http://127.0.0.1:9')
     jobQueue.registerExecutor('chapter-only', async () => {})
     const job = await jobQueue.enqueue({
       project_slug: project.slug, type: 'chapter-only', episode_id: 'EP003', params: {},
