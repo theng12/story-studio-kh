@@ -2,12 +2,9 @@
 /**
  * build-scene-clip.mjs — compiles and assembles Story Studio KH Helper.app.
  *
- *   native/story-helper/main.swift  ->  Contents/MacOS/Story Studio KH Helper      (update swap helper)
- *   native/scene-clip/*.swift       ->  Contents/Resources/Story Studio KH Helper  (render helper)
+ *   native/scene-clip/*.swift -> Contents/MacOS/Story Studio KH Helper
  *
- * One signed bundle, one user-visible name: "Story Studio KH Helper" (owner naming rule, 2026-11-11).
- * Both executables carry that exact name so Activity Monitor, App Background Activity and Login
- * Items never show a slug, a repo name or a shell.
+ * One render executable, one user-visible name: "Story Studio KH Helper".
  *
  * Why a render helper at all: an Apple-silicon Mac renders a Ken-Burns scene clip with Metal and
  * encodes it on the media engine for about 1 CPU-second, where FFmpeg's `zoompan` chain costs
@@ -19,7 +16,7 @@
  * has the Command Line Tools. Output lands in `bundled/` beside ffmpeg.
  *
  *   node scripts/build-scene-clip.mjs            build the bundle (always rebuilds)
- *   node scripts/build-scene-clip.mjs --check    compile both helpers into a temp dir, run
+ *   node scripts/build-scene-clip.mjs --check    compile the render helper into a temp dir, run
  *                                                `--version`, retire to _trash
  *   node scripts/build-scene-clip.mjs --output-dir /abs/path   retain an isolated render-helper
  *                                                proof build (the old scene-clip binary only)
@@ -39,7 +36,6 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const APP_NAME = 'Story Studio KH Helper'
 const bundle = path.join(root, 'bundled', `${APP_NAME}.app`)
 const renderSources = ['main.swift', 'SketchDraw.swift'].map(file => path.join(root, 'native', 'scene-clip', file))
-const swapSources = [path.join(root, 'native', 'story-helper', 'main.swift')]
 const packageVersion = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).version
 const check = process.argv.includes('--check')
 const outputArg = process.argv.indexOf('--output-dir')
@@ -85,11 +81,10 @@ if (isolated) {
 
 if (check) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'story-helper-'))
-  compile(path.join(dir, APP_NAME), swapSources, 'update helper')
-  compile(path.join(dir, 'scene-clip'), renderSources, 'render helper')
-  const swapVersion = versionOf(path.join(dir, APP_NAME), /^Story Studio KH Helper \d+/, 'update helper')
-  const renderVersion = versionOf(path.join(dir, 'scene-clip'), /^scene-clip \d+/, 'render helper')
-  console.log(`build-scene-clip: ${swapVersion}; ${renderVersion} (checked)`)
+  const binary = path.join(dir, APP_NAME)
+  compile(binary, renderSources, 'render helper')
+  const renderVersion = versionOf(binary, /^scene-clip \d+/, 'render helper')
+  console.log(`build-scene-clip: ${renderVersion} (checked)`)
   const trash = path.join(root, '_trash', 'scene-clip-build-checks')
   fs.mkdirSync(trash, { recursive: true })
   fs.renameSync(dir, path.join(trash, path.basename(dir)))
@@ -99,13 +94,20 @@ if (check) {
 const contents = path.join(bundle, 'Contents')
 const macos = path.join(contents, 'MacOS')
 const resources = path.join(contents, 'Resources')
-const swapBinary = path.join(macos, APP_NAME)
-const renderBinary = path.join(resources, APP_NAME)
-
-compile(swapBinary, swapSources, 'update helper')
+const renderBinary = path.join(macos, APP_NAME)
+// Retire both old executables recoverably before replacing the swap helper.
+const oldBinaries = [renderBinary, path.join(resources, APP_NAME)].filter(file => fs.existsSync(file))
+if (oldBinaries.length) {
+  const retired = path.join(root, '_trash', 'story-helper-swap-20261113', `binaries-${Date.now()}`)
+  for (const file of oldBinaries) {
+    const target = path.join(retired, path.basename(path.dirname(file)), APP_NAME)
+    fs.mkdirSync(path.dirname(target), { recursive: true })
+    fs.renameSync(file, target)
+  }
+}
 compile(renderBinary, renderSources, 'render helper')
-const swapVersion = versionOf(swapBinary, /^Story Studio KH Helper \d+/, 'update helper')
 const renderVersion = versionOf(renderBinary, /^scene-clip \d+/, 'render helper')
+fs.mkdirSync(resources, { recursive: true })
 
 fs.copyFileSync(path.join(root, 'build', 'icon.icns'), path.join(resources, 'AppIcon.icns'))
 fs.writeFileSync(path.join(contents, 'Info.plist'), `<?xml version="1.0" encoding="UTF-8"?>
@@ -129,13 +131,11 @@ fs.writeFileSync(path.join(contents, 'Info.plist'), `<?xml version="1.0" encodin
 
 const swiftVersion = spawnSync('swiftc', ['--version'], { encoding: 'utf8' }).stdout.split('\n')[0]
 const manifest = {
-  helper: swapVersion,
-  render_helper: renderVersion,
-  source_sha256: createHash('sha256').update(Buffer.concat([...swapSources, ...renderSources].map(source => fs.readFileSync(source)))).digest('hex'),
-  swap_binary_sha256: createHash('sha256').update(fs.readFileSync(swapBinary)).digest('hex'),
-  render_binary_sha256: createHash('sha256').update(fs.readFileSync(renderBinary)).digest('hex'),
+  helper: renderVersion,
+  source_sha256: createHash('sha256').update(Buffer.concat(renderSources.map(source => fs.readFileSync(source)))).digest('hex'),
+  binary_sha256: createHash('sha256').update(fs.readFileSync(renderBinary)).digest('hex'),
   toolchain: swiftVersion,
   target: 'arm64-apple-macos13.0',
 }
 fs.writeFileSync(path.join(resources, 'MANIFEST.json'), JSON.stringify(manifest, null, 2) + '\n')
-console.log(`build-scene-clip: ${swapVersion}; ${renderVersion} -> ${path.relative(root, bundle)}`)
+console.log(`build-scene-clip: ${renderVersion} -> ${path.relative(root, bundle)}`)

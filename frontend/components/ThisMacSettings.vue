@@ -86,8 +86,8 @@
           <button class="btn btn-secondary btn-sm" :disabled="busy !== '' || (!keyDraft.trim() && !savedKey?.hasKey)" @click="testKey">{{ busy === 'test' ? 'Testing…' : 'Test Connection' }}</button>
           <button v-if="savedKey?.hasKey" class="btn btn-ghost btn-sm" :disabled="busy !== ''" @click="removeKey">Remove</button>
         </div>
-        <p v-if="savedKey?.hasKey && !keyDraft" class="masked">Saved key: {{ savedKey.keyMasked || '••••' }}</p>
-        <p v-else-if="!savedKey?.hasKey" class="masked">No key saved.</p>
+        <p v-if="savedKey?.hasKey && !keyDraft" class="masked">Saved key: {{ savedKey.keyMasked }}</p>
+        <p v-else-if="!savedKey?.hasKey" class="masked">Not set — paste the key from Gateway → Settings → Gateway API Key.</p>
         <p v-if="result" :class="['result', result.kind]">{{ result.message }}</p>
         <p v-if="result?.contentStore" class="masked">
           Studio Library: {{ result.contentStore.readScope === 'verified' ? 'can browse and install packs' : result.contentStore.readScope === 'not_connected' ? 'not connected on this Gateway (generation is unaffected)' : 'not confirmed' }}.

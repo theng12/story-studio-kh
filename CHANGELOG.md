@@ -4,6 +4,12 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.399 — 2026-11-13
+
+- Story Studio no longer checks for or installs its own updates. Settings shows the version and one line — **Updates are installed by Studio Launcher KH** — and nothing in the app can update itself.
+- Saved keys and YouTube/social sign-ins live in one owner-only file in Story Studio's own data folder instead of the macOS Keychain, so they keep working after an update and Story never asks for Keychain access. An old Keychain copy is moved across once, if macOS allows it without asking; otherwise the old state is left untouched and you can paste the key again.
+- A Gateway connection error now names the address Story tried, and a key field with nothing saved is empty with a hint instead of a row of dots.
+
 ## v1.4.398 — 2026-11-13
 
 - The Gateway address accepts a bare IP: no scheme becomes http://, a missing port becomes :8787, and the field shows the address it actually became instead of refusing it.

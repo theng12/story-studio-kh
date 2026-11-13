@@ -20,7 +20,7 @@ let tmp: { dir: string; cleanup: () => Promise<void> }
 let pm: typeof import('../services/project-manager.js')
 let trash: typeof import('../services/trash.js')
 let move: typeof import('../lib/trash-move.js')
-let updater: typeof import('../services/app-update.js')
+let updater: typeof import('../lib/app-paths.js')
 let app: express.Express
 /** What the app's own window sends (main.ts adds it); a request without it is not the owner. */
 let OWNER: Record<string, string>
@@ -30,7 +30,7 @@ before(async () => {
   pm = await import('../services/project-manager.js')
   trash = await import('../services/trash.js')
   move = await import('../lib/trash-move.js')
-  updater = await import('../services/app-update.js')
+  updater = await import('../lib/app-paths.js')
   const auth = await import('../lib/auth-session.js')
   OWNER = { [auth.OWNER_WINDOW_HEADER]: auth.ownerWindowSecret() }
   const { router } = await import('../routes/trash.js')

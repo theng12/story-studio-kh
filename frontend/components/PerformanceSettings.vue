@@ -36,6 +36,21 @@
       </AdvancedDisclosure>
     </section>
 
+    <section class="perf-card" data-setting="open-at-login" aria-labelledby="perf-login-title">
+      <header class="perf-card-head">
+        <div>
+          <h4 id="perf-login-title">Startup & recovery</h4>
+          <p>A deliberate Quit, Force Quit or macOS low-memory stop never restarts Story Studio.</p>
+        </div>
+        <label class="perf-checkbox">
+          <input name="open-at-login" type="checkbox" :checked="loginEnabled" :disabled="!loginLoaded || loginSaving" @change="setLogin(($event.target as HTMLInputElement).checked)">
+          Open at Login, and restart after a crash
+        </label>
+      </header>
+      <p v-if="loginError" class="perf-error" role="alert">{{ loginError }}</p>
+      <p v-else class="perf-muted" role="status">{{ loginSaving ? 'Saving…' : loginLoaded ? loginMessage : 'Loading…' }}</p>
+    </section>
+
     <section class="perf-card manual-redo" data-setting="manual-generation-redo" aria-labelledby="perf-manual-redo-title">
       <header class="perf-card-head">
         <div>
@@ -214,6 +229,41 @@ interface BestRenderStatus {
 }
 
 const { get, put } = useApi()
+
+const loginEnabled = ref(false)
+const loginLoaded = ref(false)
+const loginSaving = ref(false)
+const loginError = ref('')
+const loginMessage = ref('')
+
+async function loadLogin(): Promise<void> {
+  try {
+    const setting = await get<{ enabled: boolean }>('/app-settings/open-at-login')
+    if (typeof setting.enabled !== 'boolean') throw new Error('Open at Login returned an invalid state')
+    loginEnabled.value = setting.enabled
+    loginLoaded.value = true
+  } catch (error: any) {
+    loginError.value = error?.data?.detail || error?.message || 'Could not read Open at Login'
+  }
+}
+async function setLogin(enabled: boolean): Promise<void> {
+  const previous = loginEnabled.value
+  loginEnabled.value = enabled
+  loginSaving.value = true
+  loginError.value = ''
+  loginMessage.value = ''
+  try {
+    const setting = await put<{ enabled: boolean }>('/app-settings/open-at-login', { enabled })
+    if (typeof setting.enabled !== 'boolean') throw new Error('Open at Login returned an invalid state')
+    loginEnabled.value = setting.enabled
+    loginMessage.value = 'Open at Login saved.'
+  } catch (error: any) {
+    loginEnabled.value = previous
+    loginError.value = error?.data?.detail || error?.message || 'Could not change Open at Login'
+    await loadLogin()
+  } finally { loginSaving.value = false }
+}
+onMounted(() => { void loadLogin() })
 
 // ── one row of the throughput table (local so the table stays one component) ──
 const PerfRow = defineComponent({

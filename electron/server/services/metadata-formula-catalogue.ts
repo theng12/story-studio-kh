@@ -197,9 +197,8 @@ export async function metadataFormulaCatalogue(
   const rows = [...await builtIns()]
   const taken = new Set(rows.map(row => row.id))
   // A pack store that cannot be read must never take metadata generation down
-  // with it. Signature verification reaches the OS keychain, which is exactly
-  // the kind of thing that fails on a machine mid-recovery — and the five
-  // built-ins are enough to keep the Finalizer working while it does.
+  // with it. The five built-ins keep the Finalizer working while saved
+  // signing-key anchors or pack files are unavailable.
   let installed: Awaited<ReturnType<typeof listCatalogEntries>> = []
   try {
     installed = await listCatalogEntries('metadata-formula', options)

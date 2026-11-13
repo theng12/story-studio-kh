@@ -15,7 +15,7 @@ import {
   signatureErrors,
 } from '../local-signing.mjs'
 
-// Pure logic and a mocked process boundary only: no keychain write, no build,
+// Pure logic and a mocked process boundary only: no signing-certificate write, no build,
 // no network, no signing. Temporary directories are left in place because this
 // project never rm's files.
 

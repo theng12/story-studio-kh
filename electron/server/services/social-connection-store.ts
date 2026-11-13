@@ -3,7 +3,7 @@
  *
  * Mirrors `youtube-connection-store.ts` deliberately: one application per OAuth
  * provider, a map of connected accounts, and a per-project assignment. The
- * public file holds identity only; every secret lives in the encrypted
+ * public file holds identity only; every secret lives in the owner-only
  * `app-secrets.json` bucket (`SocialSecretBucket`) and never crosses this
  * boundary.
  *
@@ -18,7 +18,6 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 
 import { writeJsonAtomic, withCrossProcessLock } from '../lib/atomic-store.js'
-import { isEncryptionAvailable } from '../lib/safe-storage.js'
 import {
   PLATFORM_PROVIDER,
   SOCIAL_PLATFORMS,
@@ -40,7 +39,6 @@ export interface SocialConnectionRegistryV1 {
 }
 
 const REGISTRY_CORRUPT = 'The Facebook, Instagram and TikTok connection registry is corrupt.'
-const SAFE_STORAGE_ERROR = 'This Mac cannot store Facebook, Instagram or TikTok credentials securely right now, so Story Studio did not save them. Sign in to macOS normally and reopen Story Studio, then try again.'
 
 export function socialConnectionsPath(): string {
   return path.join(getUserDataDir(), 'social', 'connections.json')
@@ -58,9 +56,6 @@ function corrupt(): SocialError {
   return new SocialError(500, 'SOCIAL_CONNECTION_REGISTRY_CORRUPT', REGISTRY_CORRUPT)
 }
 
-function requireSafeStorage(): void {
-  if (!isEncryptionAvailable()) throw new SocialError(409, 'SOCIAL_SECRET_RECOVERY_REQUIRED', SAFE_STORAGE_ERROR)
-}
 
 export function socialAccountKey(platform: SocialPlatform, remoteId: string): string {
   return `${platform}:${remoteId}`
@@ -161,7 +156,6 @@ export async function configureSocialApplication(input: {
   client_secret: string
   redirect_uri: string
 }): Promise<{ application: SocialApplicationRecord; invalidated_accounts: number }> {
-  requireSafeStorage()
   const clientId = input.client_id.trim()
   const clientSecret = input.client_secret.trim()
   const redirectUri = input.redirect_uri.trim()
@@ -241,7 +235,6 @@ export async function saveSocialAccountGrant(input: {
   page_id?: string
   tokens: SocialAccountTokenSecret
 }): Promise<SocialAccountRecord> {
-  requireSafeStorage()
   const key = socialAccountKey(input.platform, input.remote_id)
   await writeAppSecrets((secrets) => {
     const social = secrets.social ?? {}
@@ -280,7 +273,6 @@ export async function readSocialAccountTokens(platform: SocialPlatform, remoteId
 
 /** Persist a refreshed token bundle without touching the public record. */
 export async function updateSocialAccountTokens(platform: SocialPlatform, remoteId: string, tokens: SocialAccountTokenSecret): Promise<void> {
-  requireSafeStorage()
   const key = socialAccountKey(platform, remoteId)
   await writeAppSecrets((secrets) => {
     const social = secrets.social ?? {}

@@ -19,7 +19,7 @@ import { DEFAULT_THUMBNAIL_COUNT } from '../contracts/thumbnail-counts.js'
 import { normalizeProjectLabels } from '../contracts/project-labels.js'
 import { writeJsonAtomic, withLock } from '../lib/atomic-store.js'
 import { assertWriteIsolatedInTests } from '../lib/test-isolation.js'
-import { CredentialsUnavailableError } from '../lib/keychain-access.js'
+import { SecretsFileError } from './app-secrets-store.js'
 import type {
   AudioModelConfig, CreateProjectRequest, ProjectConfig, ProjectMeta, ProjectSummary,
   SafeProjectConfig, UpdateApiKeysRequest, UpdateConfigRequest, UpdateProjectRequest,
@@ -821,7 +821,7 @@ export async function listProjects(options: ListProjectsOptions = {}): Promise<P
       const secrets = await readSecrets(slug)
       hasApiKeys = !!secrets.genstudio_api_key
     } catch (error) {
-      if (!(error instanceof CredentialsUnavailableError)) throw error
+      if (!(error instanceof SecretsFileError)) throw error
       if (!credentialsWarned) {
         credentialsWarned = true
         console.warn('[projects] credentials unreadable on this Mac — has_api_keys reported as unknown for the list')

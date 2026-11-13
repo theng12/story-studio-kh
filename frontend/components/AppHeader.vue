@@ -26,18 +26,7 @@
       <div class="app-header-tools">
         <GenStudioStandingStrip variant="inline" class="app-header-standing" />
         <FeatureHelpCenter />
-        <!-- Update status + install actions live at the TOP of the window
-             (the old fixed bottom pill is removed from app.vue). -->
-        <AppUpdateBanner data-testid="header-update" />
-        <button
-          type="button"
-          class="version-badge"
-          :title="`Story Studio KH v${appVersion} · built ${buildDate} — click for What's New`"
-          @click="openWhatsNew"
-        >
-          v{{ appVersion }}
-          <span class="version-build">· {{ buildDate }}</span>
-        </button>
+        <AppVersionInfo />
         <slot name="actions" />
       </div>
 
@@ -54,21 +43,11 @@
       </div>
     </div>
     <DataRefreshIndicator variant="banner" />
-    <div v-if="credentialsMessage" class="credentials-error" role="alert">{{ credentialsMessage }}</div>
   </header>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
-import { useWhatsNewModal } from '~/composables/useWhatsNewModal'
-import { useNetworkStatus } from '~/composables/useNetworkStatus'
-
-const { credentialsMessage } = useNetworkStatus()
-
 const route = useRoute()
-const { public: pubCfg } = useRuntimeConfig()
-const appVersion = computed(() => (pubCfg.appVersion as string | undefined) || '0.0.0')
-const buildDate = computed(() => (pubCfg.buildDate as string | undefined) || '')
 
 /** Every non-channel destination, in one order, each a link of the same size. */
 const links = [
@@ -88,19 +67,9 @@ function isCurrent(link: { to: string }): boolean {
   return here === link.to || here.startsWith(`${link.to}/`)
 }
 
-const _whatsNew = useWhatsNewModal()
-function openWhatsNew() { _whatsNew.open() }
 </script>
 
 <style scoped>
-.credentials-error {
-  padding: 10px 16px;
-  color: var(--text-primary);
-  background: color-mix(in srgb, var(--danger) 16%, var(--bg-secondary));
-  border-top: 1px solid var(--danger);
-  font-size: var(--font-sm);
-  overflow-wrap: anywhere;
-}
 .app-header {
   position: sticky;
   top: 0;
@@ -207,28 +176,6 @@ function openWhatsNew() { _whatsNew.open() }
   -webkit-app-region: no-drag;
 }
 .app-header-standing { max-width: 180px; }
-.version-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 3px 10px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.04);
-  color: var(--text-muted);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: var(--font-xs);
-  line-height: 1.2;
-  white-space: nowrap;
-  cursor: pointer;
-  transition: background 0.15s, color 0.15s, border-color 0.15s;
-}
-.version-badge:hover { border-color: var(--accent); background: rgba(255, 255, 255, 0.08); color: var(--text-primary); }
-.version-build { color: var(--text-muted); font-size: var(--font-xs); }
-
-@media (max-width: 1500px) {
-  .version-build { display: none; }
-}
 @media (max-width: 1300px) {
   .app-header-brand span { display: none; }
 }
@@ -251,9 +198,6 @@ function openWhatsNew() { _whatsNew.open() }
 @media (max-width: 720px) {
   .app-header-bar { flex-wrap: wrap; row-gap: 7px; padding-block: 8px; }
   .app-header-tools { order: 2; margin-left: auto; }
-  /* Anchor the popover to the full header so the icon's position cannot clip it. */
-  .app-header-tools :deep(.app-update) { position: static; }
-  .app-header-tools :deep(.app-update-popover) { top: calc(100% + 8px); right: 16px; }
   /* The nav owns rows of its own here, so the refresh chip takes the first
      row beside the brand instead: it overlays nothing, and keeping the slot
      in the flow at a fixed width means the brand and the tools hold the same

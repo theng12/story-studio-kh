@@ -11,7 +11,6 @@ import path from 'node:path'
 import { after, before, test } from 'node:test'
 import request from 'supertest'
 import './_helpers.js'
-import { setTestSafeStorageAvailable } from './safe-storage-test-double.js'
 
 const paced = {
   mode: 'variable',
@@ -46,7 +45,6 @@ before(async () => {
   assert.ok(harnessRoot, 'run through scripts/testing/run-backend-tests.mjs so the data root is isolated')
   isolated = { dir: await fs.mkdtemp(path.join(harnessRoot, 'preset-authority-http-')) }
   process.env.STORY_STUDIO_DATA_DIR = isolated.dir
-  setTestSafeStorageAvailable(true)
   process.env.STORY_STUDIO_DISABLE_LISTEN = '1'
   ;[jq, pm, ideas, secrets] = await Promise.all([
     import('../services/job-queue.js'),
@@ -82,7 +80,6 @@ before(async () => {
 after(async () => {
   await jq?._waitForJobPersistenceForTesting()
   delete process.env.STORY_STUDIO_DATA_DIR
-  setTestSafeStorageAvailable(true)
 })
 
 async function setCurrentPresets(pointer = 'scene-active') {

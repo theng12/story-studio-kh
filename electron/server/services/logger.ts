@@ -9,7 +9,7 @@ import { createRequire } from 'module'
 import { redactSecrets, redactSensitiveValue } from '../lib/redact-secrets.js'
 import { assertWriteIsolatedInTests } from '../lib/test-isolation.js'
 import { moveToTrashSync, libraryTrashDir, DEFAULT_TRASH_HANDOFF_GB, TRASH_HANDOFF_GB_KEY } from '../lib/trash-move.js'
-import { trashDir } from './app-update.js'
+import { trashDir } from '../lib/app-paths.js'
 
 const require = createRequire(import.meta.url)
 
@@ -53,8 +53,7 @@ function currentLogFile(): string {
 
 /**
  * One expired log into Story's Trash. A rename cannot cross volumes, so a Library
- * on another drive falls back to the app's own `<data>/_trash/_logs` — the same
- * two-step `app-update.ts`'s `toTrash` uses.
+ * on another drive falls back to the app's own `<data>/_trash/_logs`.
  */
 function moveLogToTrash(file: string, name: string, libraryTrash: string): void {
   try {
@@ -103,7 +102,7 @@ export async function pruneOldLogs(): Promise<void> {
   try {
     const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000
     // Story's one Trash; the app's own volume takes it when the Library is on another drive
-    // (the same fallback `app-update.ts` uses). A move that fails leaves the file for the next sweep.
+    // A move that fails leaves the file for the next sweep.
     const { projectsRoot } = await import('./project-manager.js')
     const target = path.join(libraryTrashDir(projectsRoot()), '_logs')
     // Same guard as the log dir itself: a test may only sweep inside its claimed temp dir.

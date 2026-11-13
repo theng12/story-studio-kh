@@ -20,10 +20,7 @@ test('the dashboard footer keeps operational status and shows the running build'
   // top bar so credits and lanes read the same on every view; the footer now
   // carries the running build, which project pages showed nowhere before.
   assert.doesNotMatch(footer, /<GenStudioStandingStrip/)
-  assert.match(footer, /class="version-badge"/)
-  assert.match(footer, /v\{\{ appVersion \}\}/)
-  assert.match(footer, /\{\{ buildDate \}\}/)
-  assert.match(footer, /@click="openWhatsNew"/)
+  assert.match(footer, /<AppVersionInfo \/>/)
   assert.doesNotMatch(dashboard, /release-card|What’s new|buildDateLabel|copyVersion/)
 })
 
@@ -32,9 +29,11 @@ test('the footer badge reports the same build facts as the shared header', () =>
   // default layout for every non-channel page.
   const header = readFileSync(new URL('../components/AppHeader.vue', import.meta.url), 'utf8')
   const defaultLayout = readFileSync(new URL('../layouts/default.vue', import.meta.url), 'utf8')
-  const title = /:title="`Story Studio KH v\$\{appVersion\} · built \$\{buildDate\} — click for What's New`"/
-  assert.match(footer, title)
-  assert.match(header, title)
+  const version = readFileSync(new URL('../components/AppVersionInfo.vue', import.meta.url), 'utf8')
+  assert.match(footer, /<AppVersionInfo \/>/)
+  assert.match(header, /<AppVersionInfo \/>/)
+  assert.match(version, /get<\{ version: string \}>\('\/server-info'/)
+  assert.match(version, /Updates are installed by Studio Launcher KH\./)
   assert.match(defaultLayout, /<AppHeader \/>/)
 })
 
@@ -42,7 +41,7 @@ test('the signed-in browser line and sign-out live in the sidebar footer, never 
   // The old global pill floated bottom-right over page actions. It is the same
   // session line and sign-out, now in normal flow under the connection status.
   assert.doesNotMatch(app, /<ServerModeBanner/)
-  assert.match(footer, /v-if="connection\.hint"[\s\S]*<ServerModeBanner \/>[\s\S]*class="version-badge"/)
+  assert.match(footer, /<AppVersionInfo \/>[\s\S]*<ServerModeBanner \/>[\s\S]*v-if="connection\.hint"/)
   assert.doesNotMatch(banner, /position:\s*fixed/)
   assert.doesNotMatch(banner, /latency|ssm-dot|setInterval/, 'the sidebar connection row owns status truth')
   assert.match(banner, /\/api\/auth\/logout/)

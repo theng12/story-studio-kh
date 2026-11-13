@@ -89,10 +89,11 @@ const loaded = createRequire(import.meta.url)(addon)
 const shape = {
   setInteractionAllowed: typeof loaded.setInteractionAllowed,
   probe: typeof loaded.probe,
+  delete: typeof loaded.delete,
   setInteractionAllowedArity: loaded.setInteractionAllowed?.length,
   probeArity: loaded.probe?.length,
 }
-if (shape.setInteractionAllowed !== 'function' || shape.probe !== 'function') {
+if (shape.setInteractionAllowed !== 'function' || shape.probe !== 'function' || shape.delete !== 'function') {
   console.error('build-keychain-guard: built addon is missing an export:', shape)
   process.exit(1)
 }

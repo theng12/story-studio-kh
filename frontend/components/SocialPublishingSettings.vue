@@ -30,7 +30,7 @@
         <dl v-if="applications[provider.id]" class="facts">
           <div><dt>Client ID</dt><dd>{{ applications[provider.id].client_id }}</dd></div>
           <div><dt>Redirect URI</dt><dd>{{ applications[provider.id].redirect_uri }}</dd></div>
-          <div><dt>Client secret</dt><dd>{{ applications[provider.id].has_client_secret ? 'Stored, encrypted' : 'Missing' }}</dd></div>
+          <div><dt>Client secret</dt><dd>{{ applications[provider.id].has_client_secret ? 'Saved' : 'Not set' }}</dd></div>
         </dl>
 
         <div class="fields">

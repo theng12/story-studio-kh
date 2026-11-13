@@ -32,10 +32,8 @@ import {
   type FinalRenderStagingInput,
 } from '../services/final-render-staging.js'
 import type { Job } from '../models/types.js'
-import { installTestSafeStorage, setTestSafeStorageAvailable } from './safe-storage-test-double.js'
 import '../../../scripts/testing/loopback-supertest.mjs'
 
-installTestSafeStorage()
 
 const HASH_1 = '1'.repeat(64)
 const HASH_2 = '2'.repeat(64)
@@ -403,7 +401,6 @@ before(async () => {
   dataRoot = await fs.mkdtemp(path.join(harnessRoot, 'subtitle-binding-data-'))
   await fs.chmod(dataRoot, 0o700)
   process.env.STORY_STUDIO_DATA_DIR = dataRoot
-  setTestSafeStorageAvailable(true)
   const pm = await import('../services/project-manager.js')
   projectsRoot = pm.projectsRoot()
   activeDestination = path.join(dataRoot, 'destination')
@@ -415,7 +412,6 @@ before(async () => {
 })
 
 after(() => {
-  setTestSafeStorageAvailable(true)
   if (previousDataDir === undefined) delete process.env.STORY_STUDIO_DATA_DIR
   else process.env.STORY_STUDIO_DATA_DIR = previousDataDir
 })

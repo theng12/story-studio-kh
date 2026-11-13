@@ -31,7 +31,6 @@ import {
   recordContentStoreKeyAnchor,
   setApiKey,
 } from '../services/app-secrets-store.js'
-import { setTestSafeStorageAvailable } from './safe-storage-test-double.js'
 
 const SIGNATURE = Buffer.alloc(64, 7).toString('base64')
 const HASH = 'a'.repeat(64)
@@ -248,7 +247,7 @@ describe('Content Store commerce state', () => {
     assert.equal(await resolveVerifiedContentStoreSigningKey({ accountId, origin, keyId: trustedKeyId }), publicBase64(trusted.publicKey))
   })
 
-  test('rejects a 101st direct OS anchor key without changing the safeStorage envelope', async () => {
+  test('rejects a 101st direct OS anchor key without changing the saved anchor file', async () => {
     await isolate()
     const anchor = {
       origin: 'https://api.genstudio.example', account_id: 'acct_a', content_account_id: 'acct_a',
@@ -305,48 +304,7 @@ describe('Content Store commerce state', () => {
     }), /anchor|disagrees/i)
   })
 
-  test('does not bless a plaintext rogue anchor during an ordinary provider-key save', async () => {
-    await isolate()
-    const trusted = generateKeyPairSync('ed25519')
-    const rogue = generateKeyPairSync('ed25519')
-    const keyId = 'content-key-laundering'
-    const publicBase64 = (key: typeof trusted.publicKey) => {
-      const der = key.export({ format: 'der', type: 'spki' })
-      return der.subarray(der.byteLength - 32).toString('base64')
-    }
-    const payload = {
-      typ: 'genstudio.content.restore.v1', key_id: keyId, account_id: 'acct_a',
-      content_account_id: 'acct_a', entitlement_families: [],
-    }
-    const canonical = canonicalizeContentStoreObject(payload).canonicalJson
-    await recordVerifiedContentRestore({
-      account_id: 'acct_a', content_account_id: 'acct_a', genstudio_origin: 'https://api.genstudio.example', key_id: keyId,
-      public_key_base64: publicBase64(trusted.publicKey), receipt_canonical_json: canonical,
-      receipt_signature: sign(null, Buffer.from(canonical), trusted.privateKey).toString('base64'), verified_at: new Date().toISOString(),
-      key_history: [{ key_id: keyId, public_key_base64: publicBase64(trusted.publicKey) }],
-    })
-
-    await fs.writeFile(contentStoreAnchorsPath(), JSON.stringify({
-      schema_version: 1,
-      anchors: [{
-        origin: 'https://api.genstudio.example', account_id: 'acct_a', content_account_id: 'acct_a',
-        keys: [{ key_id: keyId, public_key_base64: publicBase64(rogue.publicKey) }],
-      }],
-    }))
-    await setApiKey('genstudio', 'gsk_provider_save')
-
-    const journal = JSON.parse(await fs.readFile(getContentStoreStatePath(), 'utf8'))
-    journal.verified_restores[0].public_key_base64 = publicBase64(rogue.publicKey)
-    journal.verified_restores[0].key_history = [{ key_id: keyId, public_key_base64: publicBase64(rogue.publicKey) }]
-    journal.verified_restores[0].receipt_signature = sign(null, Buffer.from(canonical), rogue.privateKey).toString('base64')
-    await fs.writeFile(getContentStoreStatePath(), `${JSON.stringify(journal)}\n`, { mode: 0o600 })
-
-    await assert.rejects(resolveVerifiedContentStoreSigningKey({
-      accountId: 'acct_a', origin: 'https://api.genstudio.example', keyId,
-    }), /OS-backed.*anchor|online revalidation|anchor/i)
-  })
-
-  test('preserves a valid encrypted anchor during an ordinary provider-key save', async () => {
+  test('preserves a valid plaintext anchor during an ordinary provider-key save', async () => {
     await isolate()
     const anchor = {
       origin: 'https://api.genstudio.example', account_id: 'acct_a', content_account_id: 'acct_a',
@@ -362,32 +320,6 @@ describe('Content Store commerce state', () => {
   test('does not expose the anchor plaintext test seam from the runtime module', async () => {
     const runtime = await import('../services/app-secrets-store.js')
     assert.equal('setContentStoreAnchorPlaintextTestSeamForTests' in runtime, false)
-  })
-
-  test('requires a decryptable safeStorage envelope for production anchor reads and writes', async () => {
-    await isolate()
-    const anchor = {
-      origin: 'https://api.genstudio.example', account_id: 'acct_a', content_account_id: 'acct_a',
-      keys: [{ key_id: 'key_anchor', public_key_base64: Buffer.alloc(32, 9).toString('base64') }],
-    }
-    const previousForce = process.env.STORY_STUDIO_FORCE_KEYCHAIN
-    process.env.STORY_STUDIO_FORCE_KEYCHAIN = '1'
-    setTestSafeStorageAvailable(false)
-    try {
-      await fs.writeFile(contentStoreAnchorsPath(), JSON.stringify({ schema_version: 1, anchors: [anchor] }))
-      await assert.rejects(readContentStoreKeyAnchor({
-        origin: anchor.origin, account_id: anchor.account_id, content_account_id: anchor.content_account_id,
-      }), /safeStorage envelope/i)
-      await assert.rejects(recordContentStoreKeyAnchor(anchor), /requires available OS safeStorage|not protected by a safeStorage envelope/i)
-      await fs.writeFile(contentStoreAnchorsPath(), JSON.stringify({ __encrypted: true, version: 1, ciphertext: 'tampered-not-a-real-envelope' }))
-      await assert.rejects(readContentStoreKeyAnchor({
-        origin: anchor.origin, account_id: anchor.account_id, content_account_id: anchor.content_account_id,
-      }), /undecryptable|tampered/i)
-    } finally {
-      if (previousForce === undefined) delete process.env.STORY_STUDIO_FORCE_KEYCHAIN
-      else process.env.STORY_STUDIO_FORCE_KEYCHAIN = previousForce
-      setTestSafeStorageAvailable(true)
-    }
   })
 
   test('persists one 0600 journal with a durable bounded idempotency key', async () => {

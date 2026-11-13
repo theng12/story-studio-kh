@@ -225,8 +225,24 @@ describe('useToast.humanizeError', () => {
 
   test('an unreachable gateway blames the gateway, not the internet', () => {
     const out = humanizeError('connect ECONNREFUSED 127.0.0.1:8787')
-    assert.match(out, /Could not reach the Gateway — is the Gateway app running\?/)
+    assert.match(out, /Gateway not reachable — is the Gateway app running\?/)
     assert.doesNotMatch(out, /internet/)
+  })
+
+  test('once the Gateway address is known, a connection error names it', async () => {
+    // The probe is the only writer of the address; drive it with a stubbed fetch.
+    const { refresh, currentGatewayUrl } = await import('../composables/useNetworkStatus.js')
+    const realFetch = globalThis.fetch
+    globalThis.fetch = (async (url: string | URL) => String(url).endsWith('/api/health')
+      ? new Response('{}', { status: 200 })
+      : new Response(JSON.stringify({ reachable: false, url: 'http://127.0.0.1:8787' }), { status: 200 })) as typeof fetch
+    try {
+      await refresh()
+      assert.equal(currentGatewayUrl(), 'http://127.0.0.1:8787')
+      assert.match(humanizeError('fetch failed'), /Gateway not reachable at http:\/\/127\.0\.0\.1:8787 — is the Gateway app running on that Mac\?/)
+    } finally {
+      globalThis.fetch = realFetch
+    }
   })
 
   test('a rewritten error keeps the raw message reachable for the tooltip', () => {

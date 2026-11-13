@@ -23,6 +23,7 @@
 
 import type { Response } from 'express'
 import { logLine } from '../services/logger.js'
+import { getGenStudioUrlSync } from '../services/app-settings.js'
 import { redactSecrets } from './redact-secrets.js'
 
 export interface HumanizedError {
@@ -114,18 +115,19 @@ export function gatewayConnectionFailure(e: unknown): HumanizedError | null {
 
 function networkSentence(code: string): HumanizedError {
   // Story Studio talks to one service, the Gateway, so a connection failure is almost always the
-  // Gateway being stopped, restarting or busy. Most screens show only `detail`, so it carries the
-  // whole sentence and the next step; `hint` repeats where to look.
+  // Gateway being stopped, restarting or busy. Naming the address this Mac actually resolved is the
+  // one fact the owner needs: a stale address and a stopped app read the same without it.
+  const url = getGenStudioUrlSync().replace(/\/+$/, '')
   if (code === 'ECONNREFUSED') {
-    return { detail: 'Could not reach the Gateway — is the Gateway app running?', hint: 'Open the Gateway app (or check its address in Settings → Connections), then try again.' }
+    return { detail: `Gateway not reachable at ${url} — is the Gateway app running on that Mac?`, hint: 'Open the Gateway app, or change the address in Settings → Connections, then try again.' }
   }
   if (code === 'ECONNRESET') {
-    return { detail: 'The connection to the Gateway dropped. Try again — this is usually a restart in progress.', hint: 'If it keeps happening, check the Gateway app is running.' }
+    return { detail: `The connection to the Gateway at ${url} dropped. Try again — this is usually a restart in progress.`, hint: 'If it keeps happening, check the Gateway app is running.' }
   }
-  if (code === 'ENOTFOUND') {
-    return { detail: 'The Gateway address could not be found.', hint: 'Check the Gateway address in Settings → Connections.' }
+  if (code === 'ENOTFOUND' || code === 'EHOSTUNREACH' || code === 'ENETUNREACH') {
+    return { detail: `The Gateway address ${url} could not be found.`, hint: 'Check the Gateway address in Settings → Connections.' }
   }
-  return { detail: 'The Gateway did not answer in time — it may be restarting or busy. Try again in a minute.', hint: 'If it keeps happening, check the Gateway app is running and its address in Settings → Connections.' }
+  return { detail: `The Gateway at ${url} did not answer in time — it may be restarting or busy. Try again in a minute.`, hint: 'If it keeps happening, check the Gateway app is running and its address in Settings → Connections.' }
 }
 
 /** Try to extract a path mentioned in the error message. */

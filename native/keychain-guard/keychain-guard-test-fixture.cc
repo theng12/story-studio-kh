@@ -23,6 +23,7 @@ enum Scenario {
   kGuardSetupFails,
   kGuardRestoreFails,
   kInteractiveSetFails,
+  kAbsent,
 };
 
 Scenario scenario = kSuccess;
@@ -45,11 +46,13 @@ static OSStatus StubSetInteractionAllowed(Boolean state) {
 static OSStatus StubFindGenericPassword(CFTypeRef, UInt32 serviceLength, const char* service,
                                         UInt32 accountLength, const char* account,
                                         UInt32* passwordLength, void** passwordData,
-                                        SecKeychainItemRef*) {
+                                        SecKeychainItemRef* item) {
   Record("find:" + std::string(service, serviceLength) + "/" +
          std::string(account, accountLength));
+  if (scenario == kAbsent) return errSecItemNotFound;
   if (scenario == kDenied) return errSecAuthFailed;
   if (scenario == kCancelled) return errSecUserCanceled;
+  if (item != nullptr) *item = reinterpret_cast<SecKeychainItemRef>(1);
   if (passwordData != nullptr) {
     *passwordData = std::malloc(4);
     std::memcpy(*passwordData, "sec!", 4);
@@ -64,10 +67,18 @@ static OSStatus StubFreeContent(SecKeychainAttributeList*, void* data) {
   return noErr;
 }
 
+static OSStatus StubDelete(SecKeychainItemRef) {
+  Record("delete");
+  return scenario == kDenied ? errSecAuthFailed : noErr;
+}
+static void StubRelease(CFTypeRef) { Record("release"); }
+
 // Redirect only the production source's calls; Security.h was included above under real names.
 #define SecKeychainSetUserInteractionAllowed StubSetInteractionAllowed
 #define SecKeychainFindGenericPassword StubFindGenericPassword
 #define SecKeychainItemFreeContent StubFreeContent
+#define SecKeychainItemDelete StubDelete
+#define CFRelease StubRelease
 #undef NAPI_MODULE_INIT
 #define NAPI_MODULE_INIT() static napi_value RegisterProduction(napi_env env, napi_value exports)
 #include "keychain-guard.cc"
@@ -75,6 +86,8 @@ static OSStatus StubFreeContent(SecKeychainAttributeList*, void* data) {
 #undef SecKeychainSetUserInteractionAllowed
 #undef SecKeychainFindGenericPassword
 #undef SecKeychainItemFreeContent
+#undef SecKeychainItemDelete
+#undef CFRelease
 
 namespace {
 
@@ -94,6 +107,8 @@ napi_value Reset(napi_env env, napi_callback_info info) {
   const std::string value(name, length);
   if (value == "success") {
     scenario = kSuccess;
+  } else if (value == "absent") {
+    scenario = kAbsent;
   } else if (value == "denied") {
     scenario = kDenied;
   } else if (value == "cancelled") {

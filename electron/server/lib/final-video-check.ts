@@ -1293,9 +1293,7 @@ export function finalCheckProgress(videoPath: string): FinalCheckProgress {
 /**
  * How many files are being measured right now.
  *
- * A check is local ffmpeg work that a restart kills mid-decode and that cannot pick up where it
- * stopped, so an install waits for it exactly as it waits for a running job that would not resume
- * (`services/app-update.ts`'s drain, wired in `routes/app-update.ts`).
+ * A check is local ffmpeg work that a restart kills mid-decode and cannot resume.
  */
 export function runningFinalChecks(): number {
   let running = 0

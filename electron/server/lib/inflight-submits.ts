@@ -1,7 +1,6 @@
 /**
  * Gateway submissions that have been sent and not yet answered (1.4.265). The answer carries the
- * task id that makes a request recoverable after a restart, so a prompt update waits for this to
- * reach 0 before it quits (services/app-update.ts). Counted where the POST is physically sent.
+ * task id that makes a request recoverable after a restart. Counted where the POST is physically sent.
  */
 let inFlight = 0
 

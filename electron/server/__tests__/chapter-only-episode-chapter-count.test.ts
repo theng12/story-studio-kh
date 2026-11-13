@@ -21,7 +21,6 @@ import fs from 'fs/promises'
 import path from 'path'
 import request from 'supertest'
 import { useTempDataDir } from './_helpers.js'
-import { setTestSafeStorageAvailable } from './safe-storage-test-double.js'
 import type { Job } from '../models/types.js'
 import {
   MOCK_GENSTUDIO_FULL_KEY,
@@ -57,7 +56,6 @@ before(async () => {
   const fixture = await useTempDataDir()
   fixtureRoot = fixture.dir
   fixtureCleanup = fixture.cleanup
-  setTestSafeStorageAvailable(true)
   await fs.mkdir(path.join(fixtureRoot, 'projects'), { recursive: true })
   process.env.STORY_STUDIO_DISABLE_LISTEN = '1'
 
@@ -102,7 +100,6 @@ after(async () => {
     else process.env.STORY_STUDIO_DATA_DIR = previousDataDir
     if (previousDisableListen === undefined) delete process.env.STORY_STUDIO_DISABLE_LISTEN
     else process.env.STORY_STUDIO_DISABLE_LISTEN = previousDisableListen
-    setTestSafeStorageAvailable(true)
   }
 })
 

@@ -1,17 +1,3 @@
-/**
- * Credential state on metadata-only reads (AGENTS §6, §8).
- *
- * A credential store this Mac cannot decrypt must not take the channel list or
- * the jobs list down with it. `has_api_keys` becomes null — UNKNOWN, never
- * false ("needs key") — while every other metadata field stays exact and the
- * ciphertext on disk stays untouched. True (present) and false (confirmed
- * absent) remain distinguishable from that unknown.
- *
- * WHAT IT CANNOT CATCH: the real Keychain/OS refusal — this runs against the
- * safeStorage test double. The native guard, interaction denial, encrypt and
- * decrypt categorisation without leaks is pinned by keychain-access.test.ts
- * and safe-storage-guarded.test.ts.
- */
 import assert from 'node:assert/strict'
 import fs from 'fs/promises'
 import path from 'path'
@@ -21,8 +7,7 @@ import express from 'express'
 import request from 'supertest'
 
 import { useTempDataDir } from './_helpers.js'
-import { encryptToBase64 } from '../lib/safe-storage.js'
-import { CREDENTIALS_UNAVAILABLE, CredentialsUnavailableError } from '../lib/keychain-access.js'
+import { SecretsFileError } from '../services/app-secrets-store.js'
 import { appSecretsPath, readAppSecrets } from '../services/app-secrets-store.js'
 
 let tmp: { dir: string; cleanup: () => Promise<void> }
@@ -49,11 +34,7 @@ test('present (true) and confirmed-absent (false) stay distinguishable from unkn
   const [fresh] = await pm.listProjects()
   assert.equal(fresh.has_api_keys, false, 'a missing store is a real "no key configured", not unknown')
 
-  const envelope = {
-    __encrypted: true,
-    version: 1,
-    ciphertext: encryptToBase64(JSON.stringify({ schema_version: 3, providers: { genstudio: { apiKey: 'gsk_list_probe' } } })),
-  }
+  const envelope = { schema_version: 3, providers: { genstudio: { apiKey: 'gsk_list_probe' } } }
   await fs.writeFile(appSecretsPath(), JSON.stringify(envelope), { mode: 0o600 })
 
   const [readable] = await pm.listProjects()
@@ -61,13 +42,9 @@ test('present (true) and confirmed-absent (false) stay distinguishable from unkn
   assert.equal(readable.name, 'Cred Distinctions')
 })
 
-test('an unreadable credential store leaves the channel list usable with unknown keys, ciphertext untouched', async () => {
+test('an invalid credential store leaves the channel list usable with unknown keys, bytes untouched', async () => {
   const project = await pm.createProject({ name: 'Locked Channel' })
-  const ciphertext = Buffer.from(JSON.stringify({
-    __encrypted: true,
-    version: 1,
-    ciphertext: Buffer.from('not-really-ciphertext').toString('base64'),
-  }))
+  const ciphertext = Buffer.from('{ invalid json')
   await fs.writeFile(appSecretsPath(), ciphertext, { mode: 0o600 })
 
   const rows = await pm.listProjects() // must not throw: metadata survives an unreadable store
@@ -78,8 +55,8 @@ test('an unreadable credential store leaves the channel list usable with unknown
 
   // The credential read itself stays loud and typed.
   await assert.rejects(readAppSecrets(), (error: unknown) => {
-    assert.ok(error instanceof CredentialsUnavailableError)
-    assert.equal(error.message, CREDENTIALS_UNAVAILABLE)
+    assert.ok(error instanceof SecretsFileError)
+    assert.match(error.message, /file is invalid/i)
     return true
   })
   assert.deepEqual(await fs.readFile(appSecretsPath()), ciphertext, 'a failed read preserves every ciphertext byte')
@@ -102,7 +79,7 @@ test('a malformed credential store also leaves metadata usable with unknown keys
   assert.equal(rows.length, 1)
   assert.equal(rows[0].has_api_keys, null, 'a corrupt store is unknown, never false')
   assert.deepEqual(await fs.readFile(appSecretsPath()), bytes)
-  await assert.rejects(readAppSecrets(), (error: unknown) => error instanceof CredentialsUnavailableError && error.stage === 'store-invalid')
+  await assert.rejects(readAppSecrets(), (error: unknown) => error instanceof SecretsFileError && error.stage === 'store-invalid')
 })
 
 test('an IO-unreadable credential store also leaves metadata usable with unknown keys', async () => {

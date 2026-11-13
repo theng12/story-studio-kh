@@ -33,11 +33,11 @@
           <h4>Google Cloud OAuth application</h4>
           <p v-if="!application" class="hint">
             A one-time setup. Create an OAuth client of type “Desktop app” in your Google Cloud project,
-            then paste its client ID and client secret here. Story Studio stores the secret encrypted on
+            then paste its client ID and client secret here. Story Studio stores the secret locally on
             this Mac and never shows it again.
           </p>
           <p v-else-if="!application.has_client_secret" class="hint">
-            The saved application no longer has an available encrypted client secret. Enter its client ID
+            The saved application no longer has a saved client secret. Enter its client ID
             and secret again before reconnecting channels.
           </p>
           <p v-else class="hint">
@@ -51,7 +51,7 @@
           <div v-if="application.google_cloud_project_id">
             <dt>Cloud project</dt><dd>{{ application.google_cloud_project_id }}</dd>
           </div>
-          <div><dt>Client secret</dt><dd>{{ application.has_client_secret ? 'Stored, encrypted' : 'Missing' }}</dd></div>
+          <div><dt>Client secret</dt><dd>{{ application.has_client_secret ? 'Saved' : 'Not set' }}</dd></div>
           <div><dt>Configured</dt><dd>{{ formatWhen(application.configured_at) }}</dd></div>
         </dl>
 

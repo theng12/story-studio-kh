@@ -22,13 +22,11 @@ import type {
 import { resolveJobAutoRetryPolicy } from '../services/job-retry-policy.js'
 import { assertProjectJobsSafeToRemove } from '../services/project-job-removal-guard.js'
 import { waitFor } from './_timing.js'
-import { installTestSafeStorage, setTestSafeStorageAvailable } from './safe-storage-test-double.js'
 import {
   attemptId, COMMITTED_AT, intentId, STORY_ID, writeV2PrivateSnapshot,
 } from './fixtures/final-render-v2-snapshot.js'
 import '../../../scripts/testing/loopback-supertest.mjs'
 
-installTestSafeStorage()
 
 const TEST_DIR = path.dirname(fileURLToPath(import.meta.url))
 const SERVER_ROOT = path.resolve(TEST_DIR, '..')
@@ -113,7 +111,6 @@ before(async () => {
   const root = await fs.mkdtemp(path.join(harnessRoot, 'video-assembly-intent-staged-retained-'))
   await fs.chmod(root, 0o700)
   process.env.STORY_STUDIO_DATA_DIR = root
-  setTestSafeStorageAvailable(true)
   retained = { dir: root, runRoot: root }
   queue = await import('../services/job-queue.js')
 })
@@ -122,7 +119,6 @@ after(async () => {
   try {
     await settle()
   } finally {
-    setTestSafeStorageAvailable(true)
     for (const [key, value] of previousEnvironment) {
       if (value === undefined) delete process.env[key]
       else process.env[key] = value

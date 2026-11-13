@@ -10,7 +10,7 @@
  * thousands of async fs calls. Those share ONE libuv threadpool with everything
  * else in the process, and on the production Mac mini (2026-10-18) an in-flight
  * upload reading 2–4 GB through that pool at 32-wide fan-out turned the whole
- * app unresponsive: GET /projects 49 s, /thumbnails 22 s, /app-update/status
+ * app unresponsive: GET /projects 49 s, /thumbnails 22 s, status reads
  * 45 s, preview-media streams stalled.
  *
  * ── What is pinned ──

@@ -22,7 +22,7 @@ import path from 'node:path'
 import { createInterface } from 'node:readline'
 
 import * as pm from './project-manager.js'
-import { dataDir, trashDir } from './app-update.js'
+import { dataDir, trashDir } from '../lib/app-paths.js'
 import { dirSize } from './storage-audit.js'
 import {
   APP_TRASH, libraryTrashDir, moveToTrashSync, TRASH_DIRNAME, TRASH_INDEX, trashRootFor, type TrashIndexEntry,

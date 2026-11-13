@@ -1,8 +1,6 @@
 import fs from 'node:fs/promises'
 
-import { installTestSafeStorage } from '../safe-storage-test-double.js'
 
-installTestSafeStorage()
 const { recordContentStoreKeyAnchor, setApiKey } = await import('../../services/app-secrets-store.js')
 const { configureYouTubeApplication } = await import('../../services/youtube-connection-store.js')
 

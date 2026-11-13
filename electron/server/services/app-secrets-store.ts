@@ -1,10 +1,8 @@
 /**
  * App-level secrets store.
  *
- * One file per Mac at `<userData>/app-secrets.json` (mode 0600, encrypted via
- * Electron safeStorage by default. Provider keys retain the existing
- * owner-only plaintext fallback for development/recovery; YouTube OAuth
- * credentials are accepted and written only with OS encryption available.
+ * One plaintext file per Mac at `<userData>/app-secrets.json`, mode 0600,
+ * written atomically. Legacy encryption is handled only by the boot migration.
  *
  * Replaces the per-project `secrets.json` model. Project folders may live
  * in iCloud Drive across multiple Macs, so secrets stored inside them got
@@ -26,13 +24,9 @@
  * writers are small enough to migrate.)
  */
 import { randomUUID } from 'node:crypto'
-import { readFileSync } from 'node:fs'
 import fs from 'fs/promises'
 import path from 'path'
 import { writeJsonAtomic, withCrossProcessLock } from '../lib/atomic-store.js'
-import { isEncryptionAvailable, encryptToBase64, decryptFromBase64 } from '../lib/safe-storage.js'
-import { CredentialsUnavailableError } from '../lib/keychain-access.js'
-import type { CredentialsStage } from '../lib/keychain-access.js'
 import { registerSecretForRedaction } from '../lib/redact-secrets.js'
 import { assertWriteIsolatedInTests } from '../lib/test-isolation.js'
 import { resolveStoryStudioVersion } from '../lib/app-version.js'
@@ -120,7 +114,7 @@ export interface SocialAccountTokenSecret extends OAuthTokenBundle {
 
 /**
  * Facebook, Instagram and TikTok credentials. Same rule as YouTube: the whole
- * bucket is server-only, lives in the OS-protected envelope, and every secret
+ * bucket is server-only, lives in the owner-only file, and every secret
  * in it is registered for log redaction on read.
  */
 export interface SocialSecretBucket {
@@ -128,12 +122,6 @@ export interface SocialSecretBucket {
   applications?: Partial<Record<'meta' | 'tiktok', SocialOAuthClientSecret>>
   /** Keyed by `${platform}:${remote_id}`. */
   account_tokens?: Record<string, SocialAccountTokenSecret>
-}
-
-interface EncryptedEnvelope {
-  __encrypted: true
-  version: 1
-  ciphertext: string
 }
 
 interface ContentStoreAnchorState {
@@ -144,8 +132,7 @@ interface ContentStoreAnchorState {
 type SecretRead =
   | { kind: 'missing' }
   | { kind: 'plaintext'; value: unknown }
-  | { kind: 'encrypted'; value: unknown }
-  | { kind: 'undecryptable'; stage?: CredentialsStage }
+  | { kind: 'legacy-encrypted' }
   | { kind: 'invalid' }
   | { kind: 'io-error'; error: unknown }
 
@@ -159,9 +146,11 @@ async function logSecretMutation(meta: Record<string, unknown>): Promise<void> {
   } catch { /* preserve the mutation result even if diagnostics cannot be written */ }
 }
 
-function isEnvelope(raw: any): raw is EncryptedEnvelope {
-  return !!raw && typeof raw === 'object' && raw.__encrypted === true
-    && raw.version === 1 && typeof raw.ciphertext === 'string'
+export class SecretsFileError extends Error {
+  constructor(public readonly stage: 'store-invalid' | 'store-unreadable') {
+    super(stage === 'store-invalid' ? 'The saved credentials file is invalid.' : 'The saved credentials file could not be read.')
+    this.name = 'SecretsFileError'
+  }
 }
 
 function emptyV3(): AppSecretsV3 {
@@ -344,16 +333,8 @@ async function readSecretFile(filePath: string): Promise<SecretRead> {
   }
   let raw: unknown
   try { raw = JSON.parse(text) } catch { return { kind: 'invalid' } }
-  if (raw && typeof raw === 'object' && '__encrypted' in raw) {
-    if (!isEnvelope(raw)) return { kind: 'invalid' }
-    let plain: string
-    try { plain = decryptFromBase64(raw.ciphertext) } catch (error) {
-      // Keep the finite stage (access-denied vs decrypt-failed); a caller that
-      // needs to refuse rethrows it instead of flattening to a bare class.
-      return { kind: 'undecryptable', stage: error instanceof CredentialsUnavailableError ? error.stage : 'decrypt-failed' }
-    }
-    try { return { kind: 'encrypted', value: JSON.parse(plain) } } catch { return { kind: 'invalid' } }
-  }
+  if (isRecord(raw) && raw.__encrypted === true) return { kind: 'legacy-encrypted' }
+  if (isRecord(raw) && '__encrypted' in raw) return { kind: 'invalid' }
   return { kind: 'plaintext', value: raw }
 }
 
@@ -382,45 +363,28 @@ function parseV3Base(raw: unknown): AppSecretsV3 | null {
   return out
 }
 
-function parseV3(raw: unknown, allowSecretBuckets = false): AppSecretsV3 | null {
+export function parseV3(raw: unknown): AppSecretsV3 | null {
   const out = parseV3Base(raw)
   if (!out) return null
   const record = raw as Record<string, unknown>
-  // YouTube grants are accepted only from an OS-protected envelope. Validate
-  // any present bucket even in a plaintext file so malformed nested state can
-  // never be silently discarded by a later rewrite.
   if (Object.hasOwn(record, 'youtube')) {
     const youtube = parseYouTubeSecretBucket(record.youtube)
     if (!youtube) return null
-    if (allowSecretBuckets) out.youtube = youtube
+    out.youtube = youtube
   }
-  // Same rule for social credentials: the bucket is accepted only from an
-  // OS-protected envelope, but a malformed one in a plaintext file still
-  // invalidates the read rather than being silently discarded by a rewrite.
   if (Object.hasOwn(record, 'social')) {
     const social = parseSocialSecretBucket(record.social)
     if (!social) return null
-    if (allowSecretBuckets) out.social = social
+    out.social = social
   }
   return out
 }
 
-async function writeRaw(filePath: string, value: AppSecretsV3, requireEncryption: boolean): Promise<void> {
-  const plain = JSON.stringify(value)
-  if (isEncryptionAvailable()) {
-    const envelope: EncryptedEnvelope = {
-      __encrypted: true,
-      version: 1,
-      ciphertext: encryptToBase64(plain),
-    }
-    await writeJsonAtomic(filePath, envelope, { mode: 0o600 })
-    return
-  }
-  if (requireEncryption) throw new CredentialsUnavailableError('encryption-unavailable')
+async function writeRaw(filePath: string, value: AppSecretsV3): Promise<void> {
   await writeJsonAtomic(filePath, value, { mode: 0o600 })
 }
 
-function parseAnchorState(raw: unknown): ContentStoreAnchorState | null {
+export function parseAnchorState(raw: unknown): ContentStoreAnchorState | null {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
   const value = raw as Record<string, unknown>
   if (value.schema_version !== 1 || !Array.isArray(value.anchors) || value.anchors.length > MAX_CONTENT_STORE_ANCHORS) return null
@@ -451,12 +415,9 @@ function parseAnchorState(raw: unknown): ContentStoreAnchorState | null {
 }
 
 function decodeAnchorState(read: SecretRead): ContentStoreAnchorState {
-  if (read.kind === 'missing') return { schema_version: 1, anchors: [] }
-  if (read.kind === 'io-error') throw read.error
-  if (read.kind === 'plaintext') throw new Error('Content Store key anchor is not protected by a safeStorage envelope')
-  if (read.kind === 'invalid' || read.kind === 'undecryptable') {
-    throw new Error('Content Store key anchor safeStorage envelope is undecryptable, malformed, or tampered')
-  }
+  if (read.kind === 'missing' || read.kind === 'legacy-encrypted') return { schema_version: 1, anchors: [] }
+  if (read.kind === 'io-error') throw new SecretsFileError('store-unreadable')
+  if (read.kind === 'invalid') throw new SecretsFileError('store-invalid')
   const parsed = parseAnchorState(read.value)
   if (!parsed) throw new Error('Content Store key anchor payload is malformed or tampered')
   return parsed
@@ -467,11 +428,7 @@ async function readAnchorState(): Promise<ContentStoreAnchorState> {
 }
 
 async function writeAnchorState(filePath: string, state: ContentStoreAnchorState): Promise<void> {
-  if (!isEncryptionAvailable()) throw new Error('Content Store key anchor requires available OS safeStorage')
-  const envelope: EncryptedEnvelope = {
-    __encrypted: true, version: 1, ciphertext: encryptToBase64(JSON.stringify(state)),
-  }
-  await writeJsonAtomic(filePath, envelope, { mode: 0o600 })
+  await writeJsonAtomic(filePath, state, { mode: 0o600 })
 }
 
 async function mutateContentStoreAnchorState(
@@ -481,6 +438,7 @@ async function mutateContentStoreAnchorState(
   assertWriteIsolatedInTests(filePath, 'content-store-key-anchors')
   const operationId = randomUUID()
   let inputState: SecretRead['kind'] | 'not-read' = 'not-read'
+  let backupOutcome = 'not-needed'
   let before: number | 'unavailable' = 'unavailable'
   let after: number | 'unavailable' = 'unavailable'
   try {
@@ -491,80 +449,53 @@ async function mutateContentStoreAnchorState(
       before = state.anchors.reduce((count, anchor) => count + anchor.keys.length, 0)
       await mutate(state)
       after = state.anchors.reduce((count, anchor) => count + anchor.keys.length, 0)
+      if (read.kind === 'legacy-encrypted') {
+        await fs.rename(filePath, `${filePath}.legacy-encrypted-${Date.now()}`)
+        backupOutcome = 'moved-aside'
+      }
       await writeAnchorState(filePath, state)
     })
   } catch (error) {
     await logSecretMutation({
       operation: 'anchor-update', input_state: inputState, result: 'refused',
-      safe_storage_available: isEncryptionAvailable(), anchor_key_count_before: before, anchor_key_count_after: before,
-      backup_outcome: 'not-needed', operation_id: operationId,
+      anchor_key_count_before: before, anchor_key_count_after: before,
+      backup_outcome: backupOutcome, operation_id: operationId,
     })
     throw error
   }
   await logSecretMutation({
     operation: 'anchor-update', input_state: inputState, result: 'written',
-    safe_storage_available: true, anchor_key_count_before: before, anchor_key_count_after: after,
-    backup_outcome: 'not-needed', operation_id: operationId,
+    anchor_key_count_before: before, anchor_key_count_after: after,
+    backup_outcome: backupOutcome, operation_id: operationId,
   })
 }
 
-/** Only a missing store is empty; unreadable ciphertext must remain recoverable in place. */
+/** Missing and retired legacy files have no current values; corrupt plaintext stays unknown. */
 export async function readAppSecrets(): Promise<AppSecretsV3> {
   const read = await readSecretFile(appSecretsPath())
-  if (read.kind === 'missing') return emptyV3()
-  if (read.kind === 'undecryptable') throw new CredentialsUnavailableError(read.stage)
-  if (read.kind === 'io-error') throw new CredentialsUnavailableError('store-unreadable')
-  if (read.kind === 'invalid') throw new CredentialsUnavailableError('store-invalid')
-  const parsed = parseV3(read.value, read.kind === 'encrypted')
-  if (!parsed) throw new CredentialsUnavailableError('store-invalid')
+  if (read.kind === 'missing' || read.kind === 'legacy-encrypted') return emptyV3()
+  if (read.kind === 'io-error') throw new SecretsFileError('store-unreadable')
+  if (read.kind === 'invalid') throw new SecretsFileError('store-invalid')
+  const parsed = parseV3(read.value)
+  if (!parsed) throw new SecretsFileError('store-invalid')
   return parsed
 }
 
 /**
- * Attended-unlock verification, called only from the native Help menu: the
- * existing ciphertext must really decrypt before success is announced.
- * `isEncryptionAvailable()` alone never proved that. A missing store is a
- * distinct state; every existing payload must validate before unlock succeeds.
- * Failures are finite stages only: no path, no native text, no ciphertext.
- */
-export function verifyStoredCredentialsDecrypt(): void {
-  let text: string
-  try {
-    text = readFileSync(appSecretsPath(), 'utf8')
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return // no store yet: distinct from unreadable
-    throw new CredentialsUnavailableError('operation-failed')
-  }
-  let raw: unknown
-  try { raw = JSON.parse(text) } catch { throw new CredentialsUnavailableError('store-invalid') }
-  if (!isEnvelope(raw)) {
-    // Plaintext is readable legacy state; it must still hold a valid payload.
-    if (!parseV3(raw, false)) throw new CredentialsUnavailableError('store-invalid')
-    return
-  }
-  const plain = decryptFromBase64(raw.ciphertext) // coded failure (decrypt-failed / access-denied) propagates as-is
-  let value: unknown
-  try { value = JSON.parse(plain) } catch { throw new CredentialsUnavailableError('store-invalid') }
-  if (!parseV3(value, true)) throw new CredentialsUnavailableError('store-invalid')
-}
-
-/**
  * Whether the YouTube-only credential bucket can be deliberately removed.
- * General provider corruption and an undecryptable envelope remain separate,
- * non-recoverable states; this never treats them as an empty configuration.
+ * General provider corruption remains separate from a malformed YouTube bucket.
+ * Legacy envelopes are retired on the next explicit save.
  */
 export async function youtubeSecretRecoveryRequired(): Promise<boolean> {
   const read = await readSecretFile(appSecretsPath())
-  if (read.kind === 'missing') return false
+  if (read.kind === 'missing' || read.kind === 'legacy-encrypted') return false
   if (read.kind === 'io-error') throw read.error
-  if (read.kind === 'invalid' || read.kind === 'undecryptable') {
-    throw new Error('App secrets file is invalid or unavailable')
-  }
+  if (read.kind === 'invalid') throw new SecretsFileError('store-invalid')
   const base = parseV3Base(read.value)
   if (!base) throw new Error('App secrets provider payload is invalid')
   const record = read.value as Record<string, unknown>
   if (!Object.hasOwn(record, 'youtube')) return false
-  return read.kind === 'plaintext' || parseYouTubeSecretBucket(record.youtube) === null
+  return parseYouTubeSecretBucket(record.youtube) === null
 }
 
 /**
@@ -576,26 +507,30 @@ export async function stageYouTubeSecretRecovery(
 ): Promise<void> {
   const filePath = appSecretsPath()
   assertWriteIsolatedInTests(filePath, 'app-secrets')
-  if (!isEncryptionAvailable()) throw new Error('YouTube credential recovery requires available OS safeStorage')
   await withCrossProcessLock(filePath, async () => {
     const read = await readSecretFile(filePath)
     if (read.kind === 'io-error') throw read.error
-    if (read.kind === 'missing' || read.kind === 'invalid' || read.kind === 'undecryptable') {
+    if (read.kind === 'missing' || read.kind === 'invalid' || read.kind === 'legacy-encrypted') {
       throw new Error('YouTube credentials are not eligible for scoped recovery')
     }
     const base = parseV3Base(read.value)
     if (!base) throw new Error('App secrets provider payload is invalid')
     const record = read.value as Record<string, unknown>
+    if (Object.hasOwn(record, 'social')) {
+      const social = parseSocialSecretBucket(record.social)
+      if (!social) throw new SecretsFileError('store-invalid')
+      base.social = social
+    }
     const hasYouTube = Object.hasOwn(record, 'youtube')
-    const eligible = hasYouTube && (read.kind === 'plaintext' || parseYouTubeSecretBucket(record.youtube) === null)
+    const eligible = hasYouTube && parseYouTubeSecretBucket(record.youtube) === null
     if (!eligible) throw new Error('YouTube credentials are not eligible for scoped recovery')
     base.youtube = { pending_registry: pending }
     await fs.mkdir(path.dirname(filePath), { recursive: true })
-    await writeRaw(filePath, base, true)
+    await writeRaw(filePath, base)
   })
   await logSecretMutation({
     operation: 'youtube-secret-recovery', input_state: 'recoverable', result: 'written',
-    safe_storage_available: true, anchor_key_count_before: 'not-read', anchor_key_count_after: 'not-read',
+    anchor_key_count_before: 'not-read', anchor_key_count_after: 'not-read',
     backup_outcome: 'not-needed', operation_id: pending.transaction_id,
   })
 }
@@ -609,55 +544,48 @@ export async function writeAppSecrets(
   let result = emptyV3()
   const operationId = randomUUID()
   let inputState: SecretRead['kind'] = 'missing'
-  const backupOutcome = 'not-needed'
-  const encryptionAvailable = isEncryptionAvailable()
+  let backupOutcome = 'not-needed'
   try {
     await withCrossProcessLock(filePath, async () => {
       const read = await readSecretFile(filePath)
       inputState = read.kind
-      if (read.kind === 'io-error') throw read.error
-      if (read.kind === 'invalid') throw new Error('App secrets file or encrypted envelope is invalid')
-      if (read.kind === 'plaintext' && isRecord(read.value) && Object.hasOwn(read.value, 'youtube')) {
-        throw new Error('Plaintext YouTube secrets cannot be rewritten. In Settings → YouTube, remove unusable YouTube credentials, then reconnect.')
-      }
-      if (read.kind === 'undecryptable') throw new CredentialsUnavailableError(read.stage)
-      const v3 = read.kind === 'missing' ? emptyV3() : parseV3(read.value, read.kind === 'encrypted')
-      if (!v3) throw new Error('App secrets payload is invalid')
+      if (read.kind === 'io-error') throw new SecretsFileError('store-unreadable')
+      if (read.kind === 'invalid') throw new SecretsFileError('store-invalid')
+      const v3 = read.kind === 'missing' || read.kind === 'legacy-encrypted' ? emptyV3() : parseV3(read.value)
+      if (!v3) throw new SecretsFileError('store-invalid')
       await mutate(v3)
       registerYouTubeSecrets(v3.youtube)
       registerSocialSecrets(v3.social)
-      if (v3.youtube && !isEncryptionAvailable()) {
-        throw new Error('YouTube secrets require encrypted safeStorage')
-      }
-      if (v3.social && !isEncryptionAvailable()) {
-        throw new Error('Facebook, Instagram and TikTok secrets require encrypted safeStorage')
-      }
       // Drop providers with empty keys.
       for (const pid of SECRET_PROVIDERS) {
         const bucket = v3.providers[pid]
         if (bucket && !bucket.apiKey) delete v3.providers[pid]
       }
       try { await fs.mkdir(path.dirname(filePath), { recursive: true }) } catch { /* race-safe */ }
-      await writeRaw(filePath, v3, read.kind === 'encrypted' || !!v3.youtube || !!v3.social)
+      if (read.kind === 'legacy-encrypted') {
+        await fs.rename(filePath, `${filePath}.legacy-encrypted-${Date.now()}`)
+        backupOutcome = 'moved-aside'
+      }
+      await writeRaw(filePath, v3)
       result = v3
     })
   } catch (error) {
     await logSecretMutation({
       operation: 'provider-update', input_state: inputState, result: 'refused',
-      safe_storage_available: encryptionAvailable, anchor_key_count_before: 'not-read', anchor_key_count_after: 'not-read',
+      anchor_key_count_before: 'not-read', anchor_key_count_after: 'not-read',
       backup_outcome: backupOutcome, operation_id: operationId,
     })
     throw error
   }
   await logSecretMutation({
     operation: 'provider-update', input_state: inputState, result: 'written',
-    safe_storage_available: encryptionAvailable, anchor_key_count_before: 'not-read', anchor_key_count_after: 'not-read',
+    anchor_key_count_before: 'not-read', anchor_key_count_after: 'not-read',
     backup_outcome: backupOutcome, operation_id: operationId,
   })
   return result
 }
 
-/** Insert-only OS-protected key mapping; a named GenStudio key can never repoint. */
+/** Insert-only owner-only key mapping; a named GenStudio key can never repoint. */
 export async function recordContentStoreKeyAnchor(anchor: ContentStoreKeyAnchor): Promise<void> {
   if (!anchor.origin || !anchor.account_id || !anchor.content_account_id || !anchor.keys.length || anchor.keys.length > MAX_CONTENT_STORE_ANCHOR_KEYS) {
     throw new Error('GenStudio Content Store key anchor is invalid')
@@ -675,11 +603,11 @@ export async function recordContentStoreKeyAnchor(anchor: ContentStoreKeyAnchor)
     for (const key of anchor.keys) {
       const pinned = existing.keys.find(candidate => candidate.key_id === key.key_id)
       if (pinned && pinned.public_key_base64 !== key.public_key_base64) {
-        throw new Error(`GenStudio Content Store signing key ${key.key_id} was repointed in the OS key anchor`)
+        throw new Error(`GenStudio Content Store signing key ${key.key_id} was repointed in the saved key anchor`)
       }
       const pending = additions.get(key.key_id)
       if (pending && pending.public_key_base64 !== key.public_key_base64) {
-        throw new Error(`GenStudio Content Store signing key ${key.key_id} was repointed in the OS key anchor`)
+        throw new Error(`GenStudio Content Store signing key ${key.key_id} was repointed in the saved key anchor`)
       }
       if (!pinned) additions.set(key.key_id, { ...key })
     }
@@ -690,7 +618,7 @@ export async function recordContentStoreKeyAnchor(anchor: ContentStoreKeyAnchor)
   })
 }
 
-/** Returns only the OS-protected mapping for one exact Store account/origin. */
+/** Returns only the owner-only mapping for one exact Store account/origin. */
 export async function readContentStoreKeyAnchor(input: {
   origin: string
   account_id: string
@@ -767,11 +695,8 @@ export interface ProviderKeySummary {
 
 function maskKey(k: string): string {
   if (!k) return ''
-  // Below 12 chars: full mask. The first4+last4 form leaks too much of
-  // a short key (eg an 8-char test key would be 100% exposed). Real
-  // provider keys are 30+ chars, so 12 is a safe lower bound that
-  // still gives identifying chars on every realistic key.
-  if (k.length < 12) return '••••'
+  // Short keys have no preview: first4+last4 would expose too much.
+  if (k.length < 12) return ''
   return `${k.slice(0, 4)}…${k.slice(-4)}`
 }
 

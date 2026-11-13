@@ -631,10 +631,10 @@ test('the pool deals every file to exactly one worker, and one worker is the old
   const files = [
     '/s/__tests__/a.test.ts',
     '/s/__tests__/youtube-upload-center-route.test.ts',
-    '/s/__tests__/app-update.test.ts',
+    '/s/__tests__/slow-timer.test.ts',
     ...Array.from({ length: 20 }, (_, index) => `/s/__tests__/z${String(index).padStart(2, '0')}.test.ts`),
   ]
-  const serialNames = ['app-update.test.ts']
+  const serialNames = ['slow-timer.test.ts']
 
   const single = planInvocations(files, { workers: 1, serialNames })
   assert.equal(single.length, 1, 'one worker is one invocation')

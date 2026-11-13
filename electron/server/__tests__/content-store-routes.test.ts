@@ -214,7 +214,7 @@ describe('Content Store commerce routes', () => {
   test('tampered dedicated anchor fails closed without online restore or job creation', async () => {
     const { project } = await setupPinnedOwnedPack()
     await fs.writeFile(contentStoreAnchorsPath(), JSON.stringify({
-      __encrypted: true, version: 1, ciphertext: 'tampered',
+      schema_version: 1, anchors: [{ invalid: true }],
     }))
     forgetVerifiedContentPackVersions()
     const requestsBefore = mock.requests.length
@@ -371,7 +371,7 @@ describe('Content Store commerce routes', () => {
     assert.equal(response.body.account, null, 'a refused question is not an empty ownership list')
     assert.equal(response.body.sections.account.status, 'unavailable')
     assert.equal(response.body.sections.account.code, 'GATEWAY_UNREACHABLE')
-    assert.match(response.body.sections.account.reason, /Could not reach the Gateway/)
+    assert.match(response.body.sections.account.reason, /Gateway not reachable at http:\/\//)
     assert.equal(response.body.sections.catalog.status, 'unavailable')
     assert.equal(response.body.sections.receipts.status, 'unavailable')
     assert.deepEqual(response.body.products, [])

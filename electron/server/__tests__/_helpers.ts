@@ -8,18 +8,12 @@ import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 
-import {
-  getTestSafeStorageAvailable,
-  installTestSafeStorage,
-  setTestSafeStorageAvailable,
-} from './safe-storage-test-double.js'
 // The backend runner preloads this via NODE_OPTIONS; anything else that drives Story's routes
 // with supertest (a single `node --test` file, the Gateway's Story content-delivery round trip)
 // only imports this helper, and without it a local daemon on 127.0.0.1 could answer instead
 // (seen 2026-10-03: "Story series-formula install refusal: HTTP 404 no-code"). Idempotent.
 import '../../../scripts/testing/loopback-supertest.mjs'
 
-installTestSafeStorage()
 
 type LegacyTempDataDir = { dir: string; cleanup: () => Promise<void> }
 type RetainedRegistrationKind = 'work-dir' | 'snapshot'
@@ -322,12 +316,10 @@ export async function useTempDataDir(options?: RetainedTempOptions): Promise<Leg
   if (options?.retain) return useRetainedTempDataDir(options)
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'story-studio-test-'))
   process.env.STORY_STUDIO_DATA_DIR = dir
-  setTestSafeStorageAvailable(true)
   return {
     dir,
     cleanup: async () => {
       delete process.env.STORY_STUDIO_DATA_DIR
-      setTestSafeStorageAvailable(true)
       await fs.rm(dir, { recursive: true, force: true }).catch(() => {})
     },
   }
@@ -476,7 +468,6 @@ async function useRetainedTempDataDir(options: RetainedTempOptions): Promise<Ret
     const previousEnv = Object.fromEntries(RETAINED_ENV_KEYS.map(key => [key, process.env[key]])) as Record<
       (typeof RETAINED_ENV_KEYS)[number], string | undefined
     >
-    const previousSafeStorage = getTestSafeStorageAvailable()
     // From this point on, a failure must retain the claim and bindings. There are no awaits between
     // binding and returning the fixture to its caller.
     claim.bindingEstablished = true
@@ -484,7 +475,6 @@ async function useRetainedTempDataDir(options: RetainedTempOptions): Promise<Ret
     process.env.TMPDIR = tmpDir
     process.env.TMP = tmpDir
     process.env.TEMP = tmpDir
-    setTestSafeStorageAvailable(true)
 
     const register = async (target: string, kind: RetainedRegistrationKind): Promise<void> => {
       if (kind !== 'work-dir' && kind !== 'snapshot') throw new Error(`Unsupported retained registration kind: ${kind}`)
@@ -644,14 +634,13 @@ async function useRetainedTempDataDir(options: RetainedTempOptions): Promise<Ret
           throw error
         }
         // No await follows this ownership check. Another fixture cannot claim the process while
-        // this one restores the exact environment and safeStorage state it captured.
+        // this one restores the exact environment and fixture state it captured.
         assertClaimOwner()
         for (const key of RETAINED_ENV_KEYS) {
           const value = previousEnv[key]
           if (value === undefined) delete process.env[key]
           else process.env[key] = value
         }
-        setTestSafeStorageAvailable(previousSafeStorage)
         activeRetainedClaim = undefined
         completed = true
       })()

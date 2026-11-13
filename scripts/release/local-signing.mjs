@@ -4,7 +4,7 @@ import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 
 // One shared local identity, proven on Library 0.7.5 (SIGNING.md). It is a
-// name, not a credential: the private key stays in this Mac's login Keychain.
+// build-time signing identity, independent of application credential storage.
 export const DEFAULT_LOCAL_SIGNING_IDENTITY = 'KH Studio Local Signing'
 export const LOCAL_SIGNING_IDENTITY_ENV = 'STORY_LOCAL_SIGNING_IDENTITY'
 export const LOCAL_SIGNING_HOOK_PATH = fileURLToPath(new URL('./sign-mac.cjs', import.meta.url))
@@ -83,7 +83,7 @@ export function localSigningStatus({ identity = localSigningIdentity(), exec = d
     identities,
     reason: matches.length
       ? `more than one code-signing identity named "${identity}"${detail}. Remove the duplicate; no identity is chosen for you.`
-      : `no code-signing identity named "${identity}"${detail}. Create it once in this Mac's login Keychain; a self-signed certificate is fine. No ad-hoc fallback is used.`,
+      : `no code-signing identity named "${identity}"${detail}. Configure the build signing certificate once; a self-signed certificate is fine. No ad-hoc fallback is used.`,
   }
 }
 

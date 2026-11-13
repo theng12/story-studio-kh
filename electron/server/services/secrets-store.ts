@@ -36,7 +36,6 @@ import fs from 'fs/promises'
 import path from 'path'
 import { getProjectDir, projectsRoot } from './project-manager.js'
 import { writeJsonAtomic, readJsonOr, withLock } from '../lib/atomic-store.js'
-import { isEncryptionAvailable, encryptToBase64, decryptFromBase64 } from '../lib/safe-storage.js'
 import {
   SECRET_PROVIDERS,
   type ProviderId,
@@ -68,26 +67,10 @@ export interface SecretsV2 {
   providers: Partial<Record<ProviderId, ProviderAccounts>>
 }
 
-// Unreadable project credentials must refuse mutations, preserving the encrypted file.
-export class SecretsDecryptError extends Error {
-  readonly __tag = 'SecretsDecryptError' as const
-  constructor(public readonly filePath: string, public readonly cause?: unknown) {
-    super(`Failed to decrypt secrets at ${filePath}`)
-    this.name = 'SecretsDecryptError'
-  }
-}
-
-// ── Per-project file (OAuth/upload state only, no provider keys) ────────────
-
-interface EncryptedEnvelope {
-  __encrypted: true
-  version: 1
-  ciphertext: string
-}
-
-function isEnvelope(raw: any): raw is EncryptedEnvelope {
-  return !!raw && typeof raw === 'object' && raw.__encrypted === true
-    && typeof raw.ciphertext === 'string'
+/** Legacy project payload parser, also used by the one-time migration. */
+export function parseProjectSecrets(raw: unknown): Record<string, any> | null {
+  return raw && typeof raw === 'object' && !Array.isArray(raw) && !('__encrypted' in raw)
+    ? raw as Record<string, any> : null
 }
 
 function projectSecretsPath(slug: string): string {
@@ -99,15 +82,7 @@ async function readProjectFile(slug: string): Promise<Record<string, any>> {
   const filePath = projectSecretsPath(slug)
   const raw = await readJsonOr<any>(filePath, null)
   if (raw == null) return {}
-  if (isEnvelope(raw)) {
-    try {
-      const plain = decryptFromBase64(raw.ciphertext)
-      const obj = JSON.parse(plain)
-      return (obj && typeof obj === 'object') ? obj : {}
-    } catch (cause) {
-      throw new SecretsDecryptError(filePath, cause)
-    }
-  }
+  if (raw?.__encrypted === true) return {}
   if (raw && typeof raw === 'object') {
     // Strip stale fields from older versions; we never want to honour
     // them again.
@@ -126,22 +101,12 @@ async function readProjectFile(slug: string): Promise<Record<string, any>> {
  */
 async function writeProjectFileLocked(slug: string, value: Record<string, any>): Promise<void> {
   const filePath = projectSecretsPath(slug)
-  const encryptionAvailable = isEncryptionAvailable()
-  if (!encryptionAvailable && isEnvelope(await readJsonOr(filePath, null))) {
-    throw new SecretsDecryptError(filePath)
+  if ((await readJsonOr<any>(filePath, null))?.__encrypted === true) {
+    await fs.rename(filePath, `${filePath}.legacy-encrypted-${Date.now()}`)
   }
-  const isEmpty = Object.keys(value).length === 0
-  if (isEmpty) {
+  if (Object.keys(value).length === 0) {
+    // Empty state holds no user content (providers live in app-secrets.json).
     await fs.rm(filePath, { force: true })
-    return
-  }
-  if (encryptionAvailable) {
-    const envelope: EncryptedEnvelope = {
-      __encrypted: true,
-      version: 1,
-      ciphertext: encryptToBase64(JSON.stringify(value)),
-    }
-    await writeJsonAtomic(filePath, envelope, { mode: 0o600 })
     return
   }
   await writeJsonAtomic(filePath, value, { mode: 0o600 })

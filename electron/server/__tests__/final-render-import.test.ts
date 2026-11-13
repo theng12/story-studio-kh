@@ -27,7 +27,6 @@ type QueueModule = typeof import('../services/job-queue.js')
 type TransportModule = typeof import('../services/final-render-transport.js')
 type SettingsModule = typeof import('../services/app-settings.js')
 type IdentityModule = typeof import('../services/private-render-identity.js')
-type SafeStorageModule = typeof import('./safe-storage-test-double.js')
 type EvidenceModule = typeof import('../lib/final-render-transport-evidence.js')
 type MediaModule = typeof import('../lib/ffmpeg-validation.js') & {
   classifyFinalRenderContainerEvidence: (input: {
@@ -123,7 +122,6 @@ let queue: QueueModule
 let transport: TransportModule
 let settings: SettingsModule
 let identity: IdentityModule
-let safeStorage: SafeStorageModule | undefined
 let evidence: EvidenceModule
 let media: MediaModule
 let importer: ImporterModule | null = null
@@ -193,8 +191,9 @@ async function installPackagedDescriptorFixture(): Promise<void> {
       qualification: null,
     },
   }), { mode: 0o600 })
+  require('electron')
   const cached = require.cache[require.resolve('electron')]
-  assert.ok(cached, 'safeStorage setup installs the test Electron cache entry')
+  assert.ok(cached, 'Electron module has a cache entry')
   const previousExports = cached.exports
   const previousResources = Object.getOwnPropertyDescriptor(process, 'resourcesPath')
   restoreElectron = () => {
@@ -668,10 +667,7 @@ before(async () => {
   await fs.writeFile(canaryPath, 'final-render-import-retained\n', { mode: 0o600 })
   for (const key of environmentKeys) process.env[key] = retainedRoot
   await import(LOOPBACK_SUPERTEST_PRELOAD)
-  safeStorage = await import('./safe-storage-test-double.js')
-  safeStorage.installTestSafeStorage()
   await installPackagedDescriptorFixture()
-  safeStorage.setTestSafeStorageAvailable(true)
   settings = await import('../services/app-settings.js')
   pm = await import('../services/project-manager.js')
   staging = await import('../services/final-render-staging.js')
@@ -710,7 +706,6 @@ after(async () => {
       globalThis.fetch = originalFetch
       try {
         restoreElectron?.()
-        if (safeStorage) safeStorage.setTestSafeStorageAvailable(true)
       } finally {
         for (const [key, value] of previousEnvironment) {
           if (value === undefined) delete process.env[key]
@@ -942,9 +937,6 @@ async function coldLoadImportQueue(acknowledged: Prepared, cancelled: Prepared, 
     import fs from 'node:fs/promises'
     const [projectSlug, parentId, cancelledSlug, cancelledId, dispatchLog] = process.argv.slice(1)
     await import(${JSON.stringify(new URL(LOOPBACK_SUPERTEST_PRELOAD, import.meta.url).href)})
-    const storage = await import(${JSON.stringify(new URL('./safe-storage-test-double.ts', import.meta.url).href)})
-    storage.installTestSafeStorage()
-    storage.setTestSafeStorageAvailable(true)
     let networkCalls = 0
     globalThis.fetch = async () => { networkCalls++; throw new Error('cold boot must not contact a provider') }
     const queue = await import(${JSON.stringify(new URL('../services/job-queue.ts', import.meta.url).href)})

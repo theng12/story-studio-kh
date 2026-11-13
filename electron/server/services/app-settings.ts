@@ -9,7 +9,7 @@
  */
 
 import fs from 'fs/promises'
-import { existsSync } from 'fs'
+import { existsSync, readFileSync } from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
 import { writeJsonAtomic, readJsonOr, withLock } from '../lib/atomic-store.js'
@@ -1532,6 +1532,22 @@ export const DEFAULT_GENSTUDIO_URL = 'http://127.0.0.1:8787'
 export async function getGenStudioUrl(): Promise<string> {
   const v = await getAppSetting(GENSTUDIO_URL_KEY)
   return typeof v === 'string' && v.trim() ? v.trim() : DEFAULT_GENSTUDIO_URL
+}
+
+/**
+ * The resolved address for error sentences. `humanizeBackendError` is synchronous and
+ * runs on a failure path, so this reads the small settings file directly instead of
+ * threading an awaited URL through every route caller. Never throws: an unreadable
+ * file falls back to the default, and the sentence then still names where we tried.
+ */
+export function getGenStudioUrlSync(): string {
+  try {
+    const raw = JSON.parse(readFileSync(resolveAppSettingsPath(), 'utf8'))
+    const v = raw?.[GENSTUDIO_URL_KEY]
+    return typeof v === 'string' && v.trim() ? v.trim() : DEFAULT_GENSTUDIO_URL
+  } catch {
+    return DEFAULT_GENSTUDIO_URL
+  }
 }
 
 export async function setGenStudioUrl(url: string): Promise<void> {

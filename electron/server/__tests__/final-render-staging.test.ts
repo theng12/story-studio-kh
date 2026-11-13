@@ -19,10 +19,8 @@ import {
   type FinalRenderStagingInput,
 } from '../services/final-render-staging.js'
 import { waitFor } from './_timing.js'
-import { installTestSafeStorage, setTestSafeStorageAvailable } from './safe-storage-test-double.js'
 import '../../../scripts/testing/loopback-supertest.mjs'
 
-installTestSafeStorage()
 
 const BASE_BYTES = Buffer.from('base-video\n')
 const AUDIO_BYTES = Buffer.from('premixed-audio\n')
@@ -125,7 +123,6 @@ before(async () => {
   const root = await fs.mkdtemp(path.join(harnessRoot, 'final-render-staging-retained-'))
   await fs.chmod(root, 0o700)
   process.env.STORY_STUDIO_DATA_DIR = root
-  setTestSafeStorageAvailable(true)
   retained = { dir: root, runRoot: root }
   queue = await import('../services/job-queue.js')
   pm = await import('../services/project-manager.js')
@@ -137,7 +134,6 @@ after(async () => {
   try {
     await settle()
   } finally {
-    setTestSafeStorageAvailable(true)
     for (const [key, value] of previousEnvironment) {
       if (value === undefined) delete process.env[key]
       else process.env[key] = value

@@ -151,6 +151,33 @@ napi_value Probe(napi_env env, napi_callback_info info) {
   return result;
 }
 
+// Returns finite OSStatus values only, including absent items and denied deletion.
+napi_value Delete(napi_env env, napi_callback_info info) {
+  napi_value argv[3];
+  size_t argc = 3;
+  std::string service;
+  std::string account;
+  if (napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr) != napi_ok || argc != 2 ||
+      !ReadName(env, argv[0], "delete service must be a non-empty string", &service) ||
+      !ReadName(env, argv[1], "delete account must be a non-empty string", &account)) {
+    return nullptr;
+  }
+  OSStatus status = SecKeychainSetUserInteractionAllowed(false);
+  if (status == noErr) {
+    SecKeychainItemRef item = nullptr;
+    status = SecKeychainFindGenericPassword(
+        nullptr, static_cast<UInt32>(service.size()), service.data(),
+        static_cast<UInt32>(account.size()), account.data(), nullptr, nullptr, &item);
+    if (status == noErr && item != nullptr) status = SecKeychainItemDelete(item);
+    if (item != nullptr) CFRelease(item);
+  }
+  const OSStatus restored = SecKeychainSetUserInteractionAllowed(false);
+  if (restored != noErr) status = restored;
+  napi_value result;
+  napi_create_int32(env, status, &result);
+  return result;
+}
+
 }  // namespace
 
 NAPI_MODULE_INIT() {
@@ -164,6 +191,11 @@ NAPI_MODULE_INIT() {
   if (napi_create_function(env, "probe", NAPI_AUTO_LENGTH, Probe, nullptr, &function) != napi_ok ||
       napi_set_named_property(env, exports, "probe", function) != napi_ok) {
     ThrowError(env, "failed to export probe");
+    return nullptr;
+  }
+  if (napi_create_function(env, "delete", NAPI_AUTO_LENGTH, Delete, nullptr, &function) != napi_ok ||
+      napi_set_named_property(env, exports, "delete", function) != napi_ok) {
+    ThrowError(env, "failed to export delete");
     return nullptr;
   }
   return exports;

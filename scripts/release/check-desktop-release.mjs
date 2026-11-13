@@ -149,12 +149,10 @@ function checkPackageInputs() {
     const file = path.join(root, relative)
     if (!fs.existsSync(file)) fail(`${relative}: required offline FFmpeg input is missing`)
   }
-  // Sketch Draw requires the bundled helper; it has no FFmpeg fallback. One bundle carries both
-  // helpers, and every visible name is "Story Studio KH Helper" (owner naming rule, 2026-11-11).
+  // Sketch Draw requires the bundled render helper; it has no FFmpeg fallback.
   for (const relative of [
     'bundled/Story Studio KH Helper.app/Contents/Info.plist',
     'bundled/Story Studio KH Helper.app/Contents/MacOS/Story Studio KH Helper',
-    'bundled/Story Studio KH Helper.app/Contents/Resources/Story Studio KH Helper',
     'bundled/Story Studio KH Helper.app/Contents/Resources/MANIFEST.json',
     'bundled/LICENSE-SKETCH-DRAW.txt',
   ]) {
@@ -164,7 +162,6 @@ function checkPackageInputs() {
   for (const relative of [
     'bundled/ffmpeg/ffmpeg', 'bundled/ffmpeg/ffprobe',
     'bundled/Story Studio KH Helper.app/Contents/MacOS/Story Studio KH Helper',
-    'bundled/Story Studio KH Helper.app/Contents/Resources/Story Studio KH Helper',
   ]) {
     const file = path.join(root, relative)
     if (fs.existsSync(file) && (fs.statSync(file).mode & 0o111) === 0) fail(`${relative}: binary is not executable`)

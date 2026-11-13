@@ -999,8 +999,8 @@ export async function restoreBackup(input: RestoreInput): Promise<RestoreResult>
             moveToTrashSync(dest, path.join(libraryTrashDir(target), APP_TRASH, 'restore', name), 'replaced-by-restore')
           } catch (e: any) {
             if (e?.code !== 'EXDEV') throw e
-            // The data folder is on another drive than the Library: the app's own trash, like app-update.
-            const { trashDir } = await import('./app-update.js')
+            // The data folder is on another drive than the Library: the app's own trash.
+            const { trashDir } = await import('../lib/app-paths.js')
             moveToTrashSync(dest, path.join(trashDir(), 'restore', name), 'replaced-by-restore')
           }
         } else {

@@ -52,6 +52,8 @@ async function flush(): Promise<void> {
 async function mount(options: {
   paid?: Record<string, any>
   failPaid?: string[]
+  openAtLogin?: boolean
+  failOpenAtLogin?: boolean
   manualRedo?: { enabled: boolean }
   failManualRedo?: boolean
   privateFleet?: { enabled: boolean }
@@ -75,6 +77,10 @@ async function mount(options: {
         private_render_enabled: privateFleetEnabled,
         best_available: false,
         reason: privateFleetEnabled ? 'Gateway qualification evidence is unavailable.' : 'Private rendering is off; Best has not been checked.',
+      }
+      if (path === '/app-settings/open-at-login') {
+        if (options.failOpenAtLogin) throw new Error('Login state is unavailable')
+        return { enabled: options.openAtLogin ?? false }
       }
       if (path === CONCURRENCY) return concurrency
       if (path === MANUAL_REDO) {
@@ -371,4 +377,36 @@ describe('Performance & recovery', () => {
       assert.equal(use.disabled, true)
     } finally { failing.app.unmount() }
   })
+})
+
+test('Open at Login lives in Performance & recovery and saves through the standalone route', async () => {
+  const m = await mount({ openAtLogin: true })
+  try {
+    const input = m.host.querySelector<HTMLInputElement>('input[name="open-at-login"]')!
+    assert.equal(input.checked, true)
+    assert.equal(input.disabled, false)
+    assert.match(input.closest('label')?.textContent || '', /Open at Login, and restart after a crash/)
+    input.checked = false
+    input.dispatchEvent(new Event('change', { bubbles: true }))
+    await flush()
+    assert.deepEqual(m.saves, [{ path: '/app-settings/open-at-login', body: { enabled: false } }])
+    assert.match(m.host.textContent || '', /Open at Login saved/)
+  } finally { m.unmount() }
+})
+
+test('an unavailable login setting is disabled; a failed write shows its detail and restores saved state', async () => {
+  let m = await mount({ failOpenAtLogin: true })
+  try {
+    assert.equal(m.host.querySelector<HTMLInputElement>('input[name="open-at-login"]')!.disabled, true)
+    assert.match(m.host.textContent || '', /Login state is unavailable/)
+  } finally { m.unmount() }
+  m = await mount({ openAtLogin: false, refuse: { '/app-settings/open-at-login': Object.assign(new Error('failed'), { data: { detail: 'The login agent could not be written' } }) } })
+  try {
+    const input = m.host.querySelector<HTMLInputElement>('input[name="open-at-login"]')!
+    input.checked = true
+    input.dispatchEvent(new Event('change', { bubbles: true }))
+    await flush()
+    assert.equal(input.checked, false)
+    assert.match(m.host.textContent || '', /The login agent could not be written/)
+  } finally { m.unmount() }
 })

@@ -15,6 +15,7 @@
 // components — they still resolve `ref` and `readonly` without this line,
 // just like before.
 import { ref, readonly } from 'vue'
+import { currentGatewayUrl } from './useNetworkStatus.js'
 import { customerSafeJobText } from '../utils/job-presentation.js'
 
 export interface Toast {
@@ -102,9 +103,13 @@ function humanizeError(raw: string): string {
   if (!raw) return 'Something went wrong. Please try again.'
   const s = String(raw)
 
-  // Network / connectivity
-  if (/network|fetch failed|ECONNREFUSED|ENOTFOUND|ETIMEDOUT/i.test(s)) {
-    return 'Could not reach the Gateway — is the Gateway app running?'
+  // Network / connectivity. Name the address this app actually tried — a stale address and a
+  // stopped Gateway read the same without it (owner, 2026-11-13).
+  if (/network|fetch failed|ECONNREFUSED|ENOTFOUND|ETIMEDOUT|EHOSTUNREACH|ENETUNREACH/i.test(s)) {
+    const address = currentGatewayUrl()
+    return address
+      ? `Gateway not reachable at ${address} — is the Gateway app running on that Mac?`
+      : 'Gateway not reachable — is the Gateway app running?'
   }
 
   // Missing API key (backend's standard message format).

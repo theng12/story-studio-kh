@@ -107,7 +107,7 @@ describe('humanizeBackendError — what Node fetch actually throws (shell audit 
     const wrapped = new Error('Gateway account data could not be reached after automatic reconnect attempts.', {
       cause: Object.assign(new TypeError('fetch failed'), { cause: Object.assign(new Error('x'), { code: 'ECONNREFUSED' }) }),
     })
-    assert.match(humanizeBackendError(wrapped).detail, /Could not reach the Gateway/)
+    assert.match(humanizeBackendError(wrapped).detail, /Gateway not reachable at http:\/\/127\.0\.0\.1:8787/)
   })
 
   test('AbortSignal.timeout is "did not answer in time", not "The operation was aborted due to timeout"', () => {

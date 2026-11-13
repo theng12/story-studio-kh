@@ -1511,7 +1511,7 @@ async function finalizeSettledProviderJob(jobId: string): Promise<void> {
 // The hold is a boolean plus an OWNER token. `job_queue_paused` stays a boolean
 // so a build from before this owner existed still reads the hold on rollback
 // (an object there would read as "not true" and unpause). `job_queue_pause_owner`
-// names the updater token that took the hold, or null for the owner's own pause.
+// names the operation token that took the hold, or null for the owner's own pause.
 // The two move in ONE atomic settings write (see setQueuePausedUnlocked), so a
 // crash never leaves a paused queue owned by a token that no longer holds it.
 let queuePaused = false
@@ -5645,7 +5645,7 @@ let bootJobsLoaded = false
 /**
  * True once the boot scan has loaded every project's saved jobs (or given up
  * trying). Until then the in-memory queue can look empty while queued work is
- * still on disk, so the updater must not read that as idle.
+ * still on disk, so callers must not read that as idle.
  */
 export function areBootJobsLoaded(): boolean { return bootJobsLoaded }
 
@@ -5673,8 +5673,8 @@ export function listFinalRenderReconcileCandidates(
 
 /**
  * How a job found `running` at boot is picked up again, or null when it is not (it ends
- * "Interrupted by app restart" or waits for a provider reconcile). Shared by the boot scan and the
- * prompt updater (`runningJobsThatWouldNotResume`), so the two can never disagree.
+ * "Interrupted by app restart" or waits for a provider reconcile). Shared with the running-job
+ * recovery inspection, so it agrees with the boot scan.
  */
 async function bootRecoveryKind(j: Job): Promise<'merge' | 'upload' | 'chat' | 'video' | 'image' | 'genstudio' | null> {
   const genStudioRecovery = j.params?.genstudio_recovery
@@ -5740,8 +5740,7 @@ async function bootRecoveryKind(j: Job): Promise<'merge' | 'upload' | 'chat' | '
 }
 
 /**
- * 1.4.265 — running jobs that a restart would NOT continue where they stopped. A prompt update
- * (services/app-update.ts) waits for these to finish instead of interrupting them. Paid image
+ * Running jobs that a restart would NOT continue where they stopped. Paid image
  * waits and commits are counted here too: their own boot branches are careful, not seamless.
  */
 export async function runningJobsThatWouldNotResume(): Promise<Job[]> {
@@ -5753,7 +5752,7 @@ export async function runningJobsThatWouldNotResume(): Promise<Job[]> {
       const parsed = parseFinalRenderRemoteWaitReceipt(disk?.final_render_remote_wait, j.job_id)
       // A durable parked row has no local worker and boot reloads it; an unreadable hold cannot prove that.
       // Acknowledged is settled evidence too: the boot repair restores it, so an in-process hold on it
-      // must not make the prompt updater wait for work that is not running.
+      // must not count as work that is running.
       const parked = !!disk && finalRenderNotExecuting(disk)
       if (!disk || !hasFinalRenderRemoteWaitMarker(disk) || !parsed.ok
         || (finalRenderRecoveryHolds.has(finalRenderStateKey(j.project_slug, j.job_id)) && !parked)) left.push(j)
@@ -7131,7 +7130,7 @@ export function _resetQueuePauseStateForTesting(): void {
 
 /**
  * The owner's own Pause or Resume (Jobs workspace). It is authoritative and takes ownership of the
- * hold: it clears any updater token, so a stale token can never lift a pause the owner set
+ * hold: it clears any operation token, so a stale token can never lift a pause the owner set
  * afterwards. Works even when the queue is already paused (a second Pause still drops the token).
  */
 export function setQueuePaused(paused: boolean): Promise<void> {
@@ -7143,7 +7142,7 @@ export function setQueuePaused(paused: boolean): Promise<void> {
 }
 
 /**
- * Take (or confirm) the updater's own hold on the queue, under the SAME transition lock a manual
+ * Take (or confirm) the operation's own hold on the queue, under the SAME transition lock a manual
  * Pause/Resume takes — so a manual intent already queued ahead of this call is applied first and
  * this reads its result. Returns true only when `token` holds the pause afterwards: idempotent for
  * the same token, and a refusal (no write) for a hold owned by anyone else — the owner's own pause.
@@ -7158,7 +7157,7 @@ export function acquireQueuePauseOwned(token: string): Promise<boolean> {
 }
 
 /**
- * Release the updater's own hold, and only its own. The token is checked against the pause actually
+ * Release the operation's own hold, and only its own. The token is checked against the pause actually
  * in force, inside the lock, so a token left over from an owner Resume (followed by his own
  * re-pause) can never lift the owner's hold. A token with no pause of its own behind it is dropped
  * without touching any foreign pause.

@@ -56,7 +56,7 @@ describe('one helper for every removal', () => {
     // Places that READ old locations (migration, sizes) or are the app's own fallback.
     const allowed = new Map<string, RegExp>([
       ['services/storage-audit.ts', /path\.join\(projectDir, '_trash'\)/],
-      ['services/app-update.ts', /export function trashDir\(\)/],
+      ['lib/app-paths.ts', /export function trashDir\(\)/],
       ['services/channel-self-contained.ts', /e(ntry)?\.name !== '_trash'/],
     ])
     const offenders: string[] = []

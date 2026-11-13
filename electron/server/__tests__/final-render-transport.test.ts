@@ -19,10 +19,8 @@ import {
   privateFinalRenderBoundsViolation,
 } from '../services/final-render-transport.js'
 import { getOrCreatePrivateRenderIdentity, pinGatewayBinding } from '../services/private-render-identity.js'
-import { installTestSafeStorage, setTestSafeStorageAvailable } from './safe-storage-test-double.js'
 import '../../../scripts/testing/loopback-supertest.mjs'
 
-installTestSafeStorage()
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const VIDEO_SOURCE = path.resolve(HERE, '../generators/video.ts')
@@ -182,7 +180,6 @@ before(async () => {
   await fs.chmod(retainedRoot, 0o700)
   process.env.STORY_STUDIO_DATA_DIR = retainedRoot
   await installPackagedDescriptorFixture()
-  setTestSafeStorageAvailable(true)
   queue = await import('../services/job-queue.js')
 
   await setGenStudioUrl(ORIGIN)
@@ -210,7 +207,6 @@ after(async () => {
   } finally {
     globalThis.fetch = originalFetch
     restoreElectron?.()
-    setTestSafeStorageAvailable(true)
     for (const [key, value] of previousEnvironment) {
       if (value === undefined) delete process.env[key]
       else process.env[key] = value
@@ -570,7 +566,6 @@ async function isolatedBuildPrepare(
     import { pathToFileURL } from 'node:url';
     const input = JSON.parse(process.argv[1]);
     const url = name => pathToFileURL(path.join(input.server, name)).href;
-    await import(url('__tests__/safe-storage-test-double.ts')).then(m => m.installTestSafeStorage());
     const require = createRequire(pathToFileURL(path.join(input.server, '__tests__/final-render-transport.test.ts')));
     const ep = require.resolve('electron');
     const resourcesPath = path.join(input.fixture, 'resources');
@@ -581,8 +576,8 @@ async function isolatedBuildPrepare(
       ...(input.provenance === undefined ? {} : {storyRenderProvenance:input.provenance})
     }));
     process.resourcesPath = resourcesPath;
-    require.cache[ep].exports = {...require.cache[ep].exports,
-      app:{isPackaged:input.mode !== 'development',getAppPath:()=>appPath}};
+    require.cache[ep] = {exports:{...require.cache[ep]?.exports,
+      app:{isPackaged:input.mode !== 'development',getAppPath:()=>appPath}}};
     const calls=[];
     globalThis.fetch=async (url,init={})=>{
       calls.push({url:String(url),method:init.method ?? 'GET',body:init.body ?? null});

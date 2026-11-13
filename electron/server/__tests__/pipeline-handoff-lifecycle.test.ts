@@ -12,11 +12,9 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import type { Job, JobType } from '../models/types.js'
-import { installTestSafeStorage, setTestSafeStorageAvailable } from './safe-storage-test-double.js'
 import { waitFor } from './_timing.js'
 import '../../../scripts/testing/loopback-supertest.mjs'
 
-installTestSafeStorage()
 
 let tempDir = ''
 let jq: typeof import('../services/job-queue.js')
@@ -56,7 +54,6 @@ before(async () => {
   tempDir = await fs.mkdtemp(path.join(harnessRoot, 'pipeline-handoff-lifecycle-retained-'))
   await fs.chmod(tempDir, 0o700)
   process.env.STORY_STUDIO_DATA_DIR = tempDir
-  setTestSafeStorageAvailable(true)
   pm = await import('../services/project-manager.js')
   jq = await import('../services/job-queue.js')
   wasQueuePaused = jq.isQueuePaused()
@@ -78,7 +75,6 @@ after(async () => {
     await jq.setQueuePaused(wasQueuePaused)
     await jq._waitForJobPersistenceForTesting()
   } finally {
-    setTestSafeStorageAvailable(true)
     restoreEnvironment()
   }
 })

@@ -35,7 +35,6 @@ type GatewayClientModule = typeof import('../lib/final-render-gateway-client.js'
 type EvidenceModule = typeof import('../lib/final-render-transport-evidence.js')
 type SettingsModule = typeof import('../services/app-settings.js')
 type IdentityModule = typeof import('../services/private-render-identity.js')
-type SafeStorageModule = typeof import('./safe-storage-test-double.js')
 type WireCall = {
   method: string
   url: string
@@ -59,7 +58,6 @@ let gatewayClient: GatewayClientModule
 let evidence: EvidenceModule
 let settings: SettingsModule
 let identity: IdentityModule
-let safeStorage: SafeStorageModule
 let serial = 0
 const trackedJobIds = new Set<string>()
 const fixtureParent = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../_trash/test-fixtures')
@@ -128,8 +126,9 @@ async function installPackagedDescriptorFixture(): Promise<void> {
       qualification: null,
     },
   }), { mode: 0o600 })
+  require('electron')
   const cached = require.cache[require.resolve('electron')]
-  assert.ok(cached, 'safeStorage setup installs the test Electron cache entry')
+  assert.ok(cached, 'Electron module has a cache entry')
   const previousExports = cached.exports
   const previousResources = Object.getOwnPropertyDescriptor(process, 'resourcesPath')
   restoreElectron = () => {
@@ -354,10 +353,7 @@ before(async () => {
   process.env.TMPDIR = retainedRoot
   process.env.TMP = retainedRoot
   process.env.TEMP = retainedRoot
-  safeStorage = await import('./safe-storage-test-double.js')
-  safeStorage.installTestSafeStorage()
   await installPackagedDescriptorFixture()
-  safeStorage.setTestSafeStorageAvailable(true)
   settings = await import('../services/app-settings.js')
   identity = await import('../services/private-render-identity.js')
   transport = await import('../services/final-render-transport.js')
@@ -378,7 +374,6 @@ after(async () => {
   } finally {
     globalThis.fetch = originalFetch
     restoreElectron?.()
-    safeStorage.setTestSafeStorageAvailable(true)
     for (const [key, value] of previousEnvironment) {
       if (value === undefined) delete process.env[key]
       else process.env[key] = value

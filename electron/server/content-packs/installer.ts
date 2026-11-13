@@ -25,7 +25,7 @@ import { withContentPackCoordinationLock, withContentPackStateTransaction } from
 import { assertWriteIsolatedInTests } from '../lib/test-isolation.js'
 import { moveToTrashSync, libraryTrashDir, APP_TRASH } from '../lib/trash-move.js'
 import { resolveStoryStudioVersion } from '../lib/app-version.js'
-import { trashDir } from '../services/app-update.js'
+import { trashDir } from '../lib/app-paths.js'
 import { logLine } from '../services/logger.js'
 import { projectsRoot } from '../services/project-manager.js'
 
@@ -538,7 +538,7 @@ export async function quarantineContentPackBytes(
  * Every removal goes to Story's Trash (owner rule, 2026-10-18: generated files
  * age out by themselves; nothing is hard-deleted). The target is the Library's
  * one Trash, or — a rename cannot cross volumes — the app's own `<data>/_trash`
- * when the Library is on another drive, the same two-step `app-update.ts` uses.
+ * when the Library is on another drive, the same app-data fallback used by other recoverable moves.
  * `relativeTarget` keeps the provenance: `staging/<id>`, `removed/<id>`,
  * `quarantine/<file>`.
  */

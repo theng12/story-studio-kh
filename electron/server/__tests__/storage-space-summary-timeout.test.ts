@@ -5,9 +5,7 @@ import path from 'node:path'
 import { after, before, describe, test, type TestContext } from 'node:test'
 
 import { useTempDataDir, type RetainedTempDataDir } from './_helpers.js'
-import { installTestSafeStorage, setTestSafeStorageAvailable } from './safe-storage-test-double.js'
 
-installTestSafeStorage()
 
 interface Deferred {
   promise: Promise<void>
@@ -117,11 +115,10 @@ describe('storage space summary timeout boundaries', () => {
     retained = await useTempDataDir({ retain: true, settle: async () => {} })
     fixtureRoot = retained.dir
     process.env.STORY_STORAGE_SUMMARY_TIMEOUT_MS = '30'
-    setTestSafeStorageAvailable(true)
 
     const pm = await import('../services/project-manager.js')
     const storage = await import('../services/storage-audit.js')
-    const updater = await import('../services/app-update.js')
+    const updater = await import('../lib/app-paths.js')
     const project = await pm.createProject({ name: 'Space timeout fixture' })
     const secondProject = await pm.createProject({ name: 'Second space timeout fixture' })
     slug = project.slug
@@ -145,7 +142,6 @@ describe('storage space summary timeout boundaries', () => {
     } finally {
       if (savedTimeout === undefined) delete process.env.STORY_STORAGE_SUMMARY_TIMEOUT_MS
       else process.env.STORY_STORAGE_SUMMARY_TIMEOUT_MS = savedTimeout
-      setTestSafeStorageAvailable(true)
     }
     // Owner contract: retained fixtures in `_trash` are never deleted or tidied by automation.
   })

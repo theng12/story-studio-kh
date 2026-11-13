@@ -467,12 +467,8 @@ async function snapshotConfiguredProjects(root) {
 export const SERIAL_TEST_FILES = [
   // MEASURED, 2026-11-04 — ordinary subtitle recovery timed out in the pooled 379 gate; passed alone (1/1, exit 0, 15.9 s).
   'audio-subtitle-explicit-regeneration.test.ts',
-  // MEASURED, 2026-10-31 — "a dropped connection keeps its part" failed in the 1.4.373 pooled gate; passed alone 3 of 3.
-  'app-update-resume.test.ts',
   // MEASURED, 2026-10-31 — "serialises quote saves across Node processes" timed out on the persistence lock in the 1.4.372 pooled gate; passes alone.
   'content-store-commerce-state.test.ts',
-  // MEASURED — "download aborted part way" holds a real child process and a real timer open.
-  'app-update.test.ts',
   // MEASURED — bulk evidence is timed against wall clock, not a mocked one.
   'publishing-overview-bulk-evidence.test.ts',
   // MEASURED, 2026-08-28 — "Cannot read properties of undefined (reading 'watchedMtimes')" under load.
@@ -499,7 +495,7 @@ export const SERIAL_TEST_FILES = [
   'job-queue-genstudio-resume.test.ts',
   // MEASURED, 2026-11-04 — "returns measured Trash totals while free-space measurement remains in flight" failed in the pooled 380 gate (30 ms timeout, expected 24/24, got null/null); passed alone (6/6, exit 0, 1/1 file).
   'storage-space-summary-timeout.test.ts',
-  // MEASURED, 2026-11-05 — "concurrent child processes retain both a provider update and a dedicated anchor append" timed out in the pooled 382 R3 gate: the parent polled 217 times over 2625 ms wall clock (test frame 3586 ms) against a 2586 ms scheduled-time budget waiting for a cold node+tsx child to boot, which waitFor's budget cannot credit — it measures the WAITING process's scheduling, not the child's. The same file then passed 5 of 5 alone (33/33, exit 0, ~12 s each). It holds two real child processes, like app-update.test.ts.
+  // MEASURED, 2026-11-05 — "concurrent child processes retain both a provider update and a dedicated anchor append" timed out in the pooled 382 R3 gate: the parent polled 217 times over 2625 ms wall clock (test frame 3586 ms) against a 2586 ms scheduled-time budget waiting for a cold node+tsx child to boot, which waitFor's budget cannot credit — it measures the WAITING process's scheduling, not the child's. The same file then passed 5 of 5 alone (33/33, exit 0, ~12 s each). It holds two real child processes.
   'app-secrets-store-hardening.test.ts',
   // MEASURED, 2026-11-06 — flushProjectNow hydration failed in pooled 383 R3; unchanged file passed alone (29/29, 1/1 file, exit 0).
   'episode-status-cache.test.ts',
@@ -519,7 +515,7 @@ export const SERIAL_TEST_FILES = [
  * can never make it less. A variable that could empty this list would be a way
  * to quietly undo a measured decision, which is exactly what the list exists to
  * prevent — and it is also how the harness proves the split path without paying
- * for `app-update.test.ts`.
+ * for a slow process-and-timer fixture.
  */
 export const SERIAL_TEST_FILES_ENV = 'STORY_STUDIO_BACKEND_SERIAL_TESTS'
 export function serialTestFileNames(env = process.env) {
@@ -571,7 +567,6 @@ export const SLOW_FILE_HINT_MS = {
   'youtube-upload-generator.test.ts': 60_200,
   'scene-effect-preview-render.test.ts': 58_800,
   'youtube-publication-cache.test.ts': 55_400,
-  'app-update.test.ts': 51_600,
   'music-episode-routes.test.ts': 48_800,
   'content-pack-project-pins.test.ts': 40_400,
   'genstudio-image-retry-identity.test.ts': 39_300,

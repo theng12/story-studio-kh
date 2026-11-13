@@ -301,6 +301,19 @@ instance **and must not bring the existing window forward** — it reports and s
 removes the app, the helper, the launchd job and the login item and keeps the user's data:
 `scripts/release/uninstall-local.sh`, which moves the app and the plist to a dated trash folder.
 
+**Only Studio Launcher KH updates Story (owner 2026-11-13).** Story has **no updater**: no feed
+check, no check-in, no release descriptors, no signature or publisher-key trust, no install route, no
+`auto_install`, no bundle swap. Its Settings page shows the version and one sentence — *Updates are
+installed by Studio Launcher KH.* Never restore any of those paths or any code here that downloads,
+mounts, unpacks or replaces the app bundle. Quit still drains Story's own work, and Open at Login
+still restarts it after a crash, so a Launcher-driven restart is safe.
+
+**No Keychain (owner 2026-11-13).** Secrets live in one plain `app-secrets.json` in Story's data
+folder, mode `0600`, written atomically. Never restore Electron `safeStorage`, the `security` CLI,
+the Keychain API or the Keychain guard on a credential read or write path. A legacy `{__encrypted}`
+file is migrated once — only when it decrypts without asking — and the Keychain items are removed;
+otherwise the old state is left untouched and an empty store reads "not set".
+
 **Background runners live inside the bundle (owner 2026-11-12).** Never a loose copy: the render and
 swap helpers ship in `Contents/Resources/Story Studio KH Helper.app`, ffmpeg and ffprobe in
 `Contents/Resources/ffmpeg/`, so deleting the app deletes them and an install replaces them in place.

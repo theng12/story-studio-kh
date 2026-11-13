@@ -8,7 +8,6 @@ function handlers(overrides: Partial<MenuHandlers> = {}): MenuHandlers {
     platform: 'darwin',
     logsDir: '/tmp/logs',
     quit: () => {},
-    unlockCredentials: () => {},
     showLogs: () => {},
     showUserData: () => {},
     ...overrides,
@@ -40,17 +39,16 @@ describe('application menu Quit item', () => {
     }
   })
 
-  test('Help keeps the credential unlock on macOS only, and its items call their handlers', () => {
+  test('Help items call their handlers', () => {
     const calls: string[] = []
     const help = buildMenuTemplate(handlers({
-      unlockCredentials: () => calls.push('unlock'),
       showLogs: () => calls.push('logs'),
       showUserData: () => calls.push('userdata'),
     })).at(-1)!
     const items = help.submenu as any[]
-    assert.deepEqual(items.map(item => item.label), ['Unlock credentials…', 'Show Logs', 'Show User Data'])
+    assert.deepEqual(items.map(item => item.label), ['Show Logs', 'Show User Data'])
     for (const item of items) item.click()
-    assert.deepEqual(calls, ['unlock', 'logs', 'userdata'])
+    assert.deepEqual(calls, ['logs', 'userdata'])
 
     const linux = buildMenuTemplate(handlers({ platform: 'linux' })).at(-1)!
     assert.deepEqual((linux.submenu as any[]).map(item => item.label), ['Show Logs', 'Show User Data'])

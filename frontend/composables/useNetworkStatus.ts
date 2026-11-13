@@ -34,18 +34,12 @@ export type GatewayReachability = 'unknown' | 'reachable' | 'unreachable'
 const online = ref(true)
 const gateway = ref<GatewayReachability>('unknown')
 const gatewayUrl = ref('')
-const credentialsMessage = ref('')
 const lastChecked = ref<number>(Date.now())
 let started = false
 
 async function probe(): Promise<boolean> {
   try {
     const res = await fetch('/api/health', { method: 'GET', cache: 'no-store' })
-    if (res.ok) {
-      const body = await res.json() as { credentials?: { state?: unknown; message?: unknown } }
-      credentialsMessage.value = body.credentials?.state === 'unavailable' && typeof body.credentials.message === 'string'
-        ? body.credentials.message : ''
-    }
     return res.ok
   } catch {
     return false
@@ -72,6 +66,11 @@ async function refresh() {
   lastChecked.value = Date.now()
 }
 
+/** The address the last Gateway probe used, for error sentences that must name where we tried. */
+export function currentGatewayUrl(): string {
+  return gatewayUrl.value
+}
+
 export function useNetworkStatus() {
   if (!started && import.meta.client) {
     started = true
@@ -88,7 +87,6 @@ export function useNetworkStatus() {
     online: readonly(online),
     gateway: readonly(gateway),
     gatewayUrl: readonly(gatewayUrl),
-    credentialsMessage: readonly(credentialsMessage),
     lastChecked: readonly(lastChecked),
     refresh,
   }
@@ -117,8 +115,8 @@ export function connectionStatus(engineOnline: boolean, gateway: GatewayReachabi
   if (gateway === 'unreachable') {
     return {
       tone: 'offline',
-      label: 'Gateway not reachable',
-      hint: `Open the Gateway app${gatewayUrl ? ` (${gatewayUrl})` : ''}. AI work cannot start until it answers; this updates by itself.`,
+      label: gatewayUrl ? `Gateway not reachable at ${gatewayUrl}` : 'Gateway not reachable',
+      hint: 'Open the Gateway app on that Mac, or change the address in Settings → Connections. AI work cannot start until it answers; this updates by itself.',
     }
   }
   if (gateway === 'reachable') return { tone: 'online', label: 'Gateway connected', hint: '' }

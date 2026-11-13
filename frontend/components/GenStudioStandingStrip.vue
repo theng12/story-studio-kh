@@ -5,7 +5,7 @@
     type="button"
     class="genstudio-standing-strip gateway-down"
     :class="`standing-strip-${variant}`"
-    aria-label="Gateway not reachable — open connection settings"
+    :aria-label="`${connection.label} — open connection settings`"
     @click="appSettingsModal.open('connections')"
   >
     <span class="gateway-dot" aria-hidden="true" />

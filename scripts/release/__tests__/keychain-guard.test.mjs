@@ -77,9 +77,10 @@ function run(scenario, interactive = false) {
 }
 
 describe('keychain-guard native contract (stubbed Keychain)', { skip }, () => {
-  test('exports both production functions and no real Security symbol', () => {
+  test('exports the migration guard functions and no real Security symbol', () => {
     assert.equal(typeof addon.setInteractionAllowed, 'function')
     assert.equal(typeof addon.probe, 'function')
+    assert.equal(typeof addon.delete, 'function')
   })
 
   test('success reads the exact service/account, frees the secret, restores false last', () => {
@@ -87,6 +88,20 @@ describe('keychain-guard native contract (stubbed Keychain)', { skip }, () => {
     assert.deepEqual(addon.trace(), [
       'set:false', `find:${SERVICE}/${ACCOUNT}`, 'free', 'set:false',
     ])
+  })
+
+  test('delete finds the exact item without interaction, deletes and releases it', () => {
+    addon.reset('success')
+    assert.equal(addon.delete(SERVICE, ACCOUNT), 0)
+    assert.deepEqual(addon.trace(), ['set:false', `find:${SERVICE}/${ACCOUNT}`, 'delete', 'release', 'set:false'])
+  })
+
+  test('absent and denied deletion return finite status without throwing or prompting', () => {
+    for (const [scenario, status] of [['absent', -25300], ['denied', ERR_SEC_AUTH_FAILED], ['guard-setup-fails', -25308]]) {
+      addon.reset(scenario)
+      assert.equal(addon.delete(SERVICE, ACCOUNT), status)
+      assert.ok(!addon.trace().includes('set:true'))
+    }
   })
 
   test('interactive success sets true only after the guard and restores false', () => {

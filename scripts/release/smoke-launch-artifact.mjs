@@ -154,6 +154,8 @@ export async function smokeLaunch(appPath, { timeoutMs = 120_000, log = () => {}
     env: {
       ...childEnv,
       STORY_STUDIO_DATA_DIR: dataDir,
+      // Never take the owner's desktop: no window, no dock icon (owner rule 2026-11-12).
+      STORY_STUDIO_HIDDEN: '1',
       ELECTRON_ENABLE_LOGGING: '1',
       ELECTRON_NO_ATTACH_CONSOLE: '1',
     },

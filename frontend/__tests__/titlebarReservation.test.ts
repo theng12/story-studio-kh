@@ -94,7 +94,7 @@ describe('the titlebar strip reserves the traffic lights', () => {
   test('the version chip is inside that sticky bar', () => {
     // The chip needs no absolute positioning any more: it sits in the bar's
     // right-hand cluster, so it scrolls with the bar and cannot outlive it.
-    assert.match(header, /class="app-header-tools"[\s\S]{0,600}version-badge/,
+    assert.match(header, /class="app-header-tools"[\s\S]{0,600}<AppVersionInfo/,
       'the version chip lives in the header bar itself')
     assert.match(css, /\.app-header\s*\{[^}]*position:\s*sticky/)
   })

@@ -39,9 +39,6 @@ import {
   getNotifierSettings, formatQuitWarning, formatApprovalWaitMessage,
   summarizeBatchEpisodes,
 } from './server/services/job-notifier.js'
-import { isQuittingForUpdate } from './server/services/app-update.js'
-import { unlockCredentials } from './server/lib/safe-storage.js'
-import { verifyStoredCredentialsDecrypt } from './server/services/app-secrets-store.js'
 import type { Job } from './server/models/types.js'
 import type { BatchEpisodeOutcome } from './server/services/job-notifier.js'
 
@@ -73,6 +70,10 @@ if (!gotLock) {
   const mb = Math.max(1024, Number(process.env.SS_MAX_OLD_SPACE_MB) || 4096)
   electronApp.commandLine.appendSwitch('js-flags', `--max-old-space-size=${mb}`)
 }
+// Owner rule 2026-11-13: Story never touches the macOS Keychain. Left alone, Chromium
+// creates a "<App Name> Safe Storage" Keychain item for the persisted-cookie key; the
+// mock keeps that key in the app's own Local State instead, like the 0600 secrets file.
+electronApp.commandLine.appendSwitch('use-mock-keychain')
 electronApp.on('second-instance', () => {
   // Owner 2026-11-12: a second launch must never take the desktop. Showing or
   // focusing the existing window would drag it in front of whatever the owner
@@ -133,6 +134,9 @@ async function createWindow(port: number) {
     minWidth: 900,
     minHeight: 600,
     title: 'Story Studio KH',
+    // Test and acceptance runs must never take the owner's desktop (owner rule 2026-11-12):
+    // the launch smoke sets this and proves the app over HTTP without a visible window.
+    show: process.env.STORY_STUDIO_HIDDEN !== '1',
     backgroundColor: '#0f1117',
     titleBarStyle: 'hiddenInset',
     trafficLightPosition: { x: 16, y: 16 },
@@ -340,19 +344,6 @@ function buildMenu() {
     platform: process.platform,
     logsDir,
     quit: () => electronApp.quit(),
-    unlockCredentials: () => {
-      // Success is reported only after existing ciphertext really decrypts —
-      // availability alone never proved that. The failure text is fixed: a raw
-      // message could carry a path or native diagnostic (stage codes live on
-      // /api/health, not on screen).
-      try {
-        if (unlockCredentials(verifyStoredCredentialsDecrypt)) {
-          void dialog.showMessageBox({ type: 'info', message: 'Keychain access is available.', detail: 'You can retry the action that needed your credentials.' })
-          return
-        }
-      } catch { /* unlock reports a boolean; nothing raw to surface */ }
-      void dialog.showMessageBox({ type: 'error', message: 'Credentials are still unavailable.', detail: 'Your saved credentials are unchanged. Choose Always Allow in the Keychain dialog when you are ready. Nothing was replaced.' })
-    },
     showLogs: () => {
       try { fs.mkdirSync(logsDir, { recursive: true }) } catch {}
       void shell.openPath(logsDir)
@@ -689,6 +680,7 @@ function clearRunningFlag(): void {
 
 void electronApp.whenReady().then(async () => {
   try {
+    if (process.env.STORY_STUDIO_HIDDEN === '1') electronApp.dock?.hide()
     buildMenu()
     // One-time migration from legacy dev project locations. This used to run
     // as a side effect of importing project-manager.ts, which meant every
@@ -855,17 +847,7 @@ void electronApp.whenReady().then(async () => {
       logCrash('catalogue-refresh', e)
     }
 
-    // Remote updates from the Gateway (services/app-update.ts). Packaged builds only: a dev run
-    // has no bundle to replace. Not awaited: settling a previous install waits for /api/health.
-    if (electronApp.isPackaged && process.platform === 'darwin') {
-      const { startStoryUpdater } = await import('./server/routes/app-update.js')
-      void startStoryUpdater({
-        currentVersion: electronApp.getVersion(),
-        executable: process.execPath,
-        port,
-        quit: () => electronApp.quit(),
-      }).catch(e => logCrash('app-updater', e))
-    }
+
   } catch (e) {
     // Quitting cancels an in-flight window load; a modal here would block that quit.
     if (isShuttingDown) return
@@ -908,8 +890,7 @@ electronApp.on('before-quit', (event) => {
   // Stage markers for the smoke's SIGTERM-timeout report; no behavior change.
   console.log('[shutdown] before-quit event')
   // Say what happens to running jobs before they stop. Headless server mode has no window to ask in.
-  // An update quit never asks: a drain that hit its 30-minute ceiling would stall at the dialog.
-  const warning = isQuittingForUpdate() ? null : formatQuitWarning(getQueueStats().running)
+  const warning = formatQuitWarning(getQueueStats().running)
   if (warning && mainWindow && !mainWindow.isDestroyed()) {
     console.log('[shutdown] quit-warning dialog opening')
     const choice = dialog.showMessageBoxSync(mainWindow, {

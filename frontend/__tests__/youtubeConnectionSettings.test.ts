@@ -180,12 +180,12 @@ describe('Settings → YouTube', () => {
     mounted.destroy()
   })
 
-  test('requires credential re-entry when the public registry outlives its encrypted secret', async () => {
+  test('requires credential re-entry when the public registry outlives its saved secret', async () => {
     const mounted = await mount({
       application: { ...APPLICATION, has_client_secret: false },
       channels: [{ channel_id: 'UC-stale', title: 'Stale', status: 'reconnect_required', assigned_project_slug: null }],
     })
-    assert.match(mounted.el.textContent!, /no longer has an available encrypted client secret/i)
+    assert.match(mounted.el.textContent!, /no longer has a saved client secret/i)
     assert.notEqual(mounted.el.querySelector('#youtube-client-secret'), null)
     assert.equal(
       [...mounted.el.querySelectorAll('button')].some(button => button.textContent!.includes('Connect a YouTube Channel')),

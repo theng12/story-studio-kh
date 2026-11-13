@@ -31,7 +31,7 @@ import { router as authRouter } from './routes/auth.js'
 import { errorBoundary } from './lib/error-boundary.js'
 import { resolveStoryStudioVersion } from './lib/app-version.js'
 import { getApiKey } from './services/app-secrets-store.js'
-import { getCredentialsStatus } from './lib/safe-storage.js'
+import { migrateLegacyKeychain } from './services/legacy-keychain-migration.js'
 import {
   refreshGenStudioAdmission,
   describeGenStudioChatTransport,
@@ -39,6 +39,7 @@ import {
 } from './lib/genstudio-client.js'
 
 const app = express()
+void migrateLegacyKeychain().catch(() => undefined)
 const SERVER_MODE = isServerMode()
 
 // ── Middleware ─────────────────────────────────────────────────────────────
@@ -127,7 +128,6 @@ app.get('/api/health', async (_req, res) => {
     status: 'ok',
     version: await resolveStoryStudioVersion(),
     boot_complete: isBootComplete(),
-    credentials: getCredentialsStatus(),
   })
 })
 

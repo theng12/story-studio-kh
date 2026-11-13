@@ -117,7 +117,7 @@ async function gatewayRequestBytes(pathname: string): Promise<{ bytes: Buffer; c
 export const SOUND_CLIP_EXTENSIONS = ['mp3', 'wav', 'ogg', 'flac', 'm4a'] as const
 
 export async function soundClipCacheDir(): Promise<string> {
-  const { dataDir } = await import('../services/app-update.js')
+  const { dataDir } = await import('./app-paths.js')
   return path.join(dataDir(), 'sound-library')
 }
 

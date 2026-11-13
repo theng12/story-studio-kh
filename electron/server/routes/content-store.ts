@@ -23,18 +23,6 @@ import { logLine } from '../services/logger.js'
 const MAX_BODY_BYTES = 16 * 1024
 const OPAQUE_ID = z.string().min(1).max(256).regex(/^[^\u0000-\u001f\u007f]+$/)
 
-/**
- * The Mac's Keychain (Electron safeStorage) protects the pack signing keys. When it is
- * unavailable EVERY install fails the same way, and the generic fallback hid that: say it.
- */
-export function keychainFailure(error: unknown): { status: number; body: Record<string, unknown> } | null {
-  if (!/safeStorage/i.test(String((error as { message?: unknown })?.message ?? ''))) return null
-  return { status: 503, body: {
-    code: 'CONTENT_STORE_KEYCHAIN_UNAVAILABLE',
-    detail: 'This Mac\'s Keychain is not available, so Content Packs cannot be saved safely.',
-  } }
-}
-
 export interface ContentStoreRouterOptions {
   /** Test-only seam forwarded to Store delivery compatibility checks. */
   appVersion?: string
@@ -134,8 +122,6 @@ function projectFailure(
   fallback: string,
   requiredScope: 'content:read' | 'content:purchase',
 ): ContentStoreFailure {
-  const keychain = keychainFailure(error)
-  if (keychain) return keychain
   if (error instanceof GenStudioContentStoreApiError) {
     return upstreamFailure(error, requiredScope)
   }

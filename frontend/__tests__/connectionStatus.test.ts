@@ -2,11 +2,13 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { connectionStatus } from '../composables/useNetworkStatus.js'
 
-test('a stopped Gateway is named, with a visible next step and its address', () => {
+test('a stopped Gateway is named, with its resolved address and a visible next step', () => {
   const status = connectionStatus(true, 'unreachable', 'http://127.0.0.1:8787')
   assert.equal(status.tone, 'offline')
-  assert.equal(status.label, 'Gateway not reachable')
-  assert.match(status.hint, /Open the Gateway app \(http:\/\/127\.0\.0\.1:8787\)/)
+  assert.equal(status.label, 'Gateway not reachable at http://127.0.0.1:8787')
+  assert.match(status.hint, /Open the Gateway app/)
+  // No address measured yet must not invent one.
+  assert.equal(connectionStatus(true, 'unreachable').label, 'Gateway not reachable')
 })
 
 test('the local engine being down outranks anything said about the Gateway', () => {

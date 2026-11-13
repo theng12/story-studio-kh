@@ -129,11 +129,8 @@ test('simultaneous retained setup reserves one claim synchronously', async () =>
   await fulfilled[0].value.cleanup()
 })
 
-test('retained mode restores the exact environment and safeStorage state only after settle', async () => {
+test('retained mode restores the exact environment and fixture state only after settle', async () => {
   const originalEnv = saveEnv()
-  const storage = await import('./safe-storage-test-double.js')
-  assert.equal(typeof storage.getTestSafeStorageAvailable, 'function')
-  const originalSafeStorage = storage.getTestSafeStorageAvailable()
   const prior = {
     STORY_STUDIO_DATA_DIR: 'before-data',
     TMPDIR: 'before-tmpdir',
@@ -144,24 +141,20 @@ test('retained mode restores the exact environment and safeStorage state only af
 
   try {
     Object.assign(process.env, prior)
-    storage.setTestSafeStorageAvailable(false)
     const fixture = await openRetained(async () => { settled = true })
 
     assert.equal(process.env.STORY_STUDIO_DATA_DIR, fixture.dir)
     assert.equal(process.env.TMPDIR, path.join(fixture.runRoot, 'tmp'))
     assert.equal(process.env.TMP, path.join(fixture.runRoot, 'tmp'))
     assert.equal(process.env.TEMP, path.join(fixture.runRoot, 'tmp'))
-    assert.equal(storage.getTestSafeStorageAvailable(), true)
     assert.equal(settled, false)
 
     await fixture.cleanup()
 
     assert.equal(settled, true)
     assert.deepEqual(saveEnv(), prior)
-    assert.equal(storage.getTestSafeStorageAvailable(), false)
   } finally {
     restoreEnv(originalEnv)
-    storage.setTestSafeStorageAvailable(originalSafeStorage)
   }
 })
 

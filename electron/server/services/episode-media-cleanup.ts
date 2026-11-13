@@ -11,7 +11,6 @@ import { assertDecodableImage } from '../lib/image-validation.js'
 import { moveToTrashSync, trashDirOf, trashRootFor } from '../lib/trash-move.js'
 import { SCENE_ANALYSIS_DIR } from './outline-masks.js'
 import type { Job } from '../models/types.js'
-import { isUpdateHoldingForRestart } from './app-update.js'
 import * as im from './idea-manager.js'
 import * as jq from './job-queue.js'
 import * as pm from './project-manager.js'
@@ -1235,14 +1234,6 @@ async function buildPreview(
 
 function beginOperation(slug: string, kind: MediaCleanupOperation['kind'], stage: MediaCleanupOperation['stage']): MediaCleanupOperation {
   pruneState()
-  // An update that owns the Mac will restart it in a moment, and a restart kills this work mid-file:
-  // it cannot resume. Refusing here — the one place every start path routes through — closes the
-  // window between the updater's "nothing is running" check and its quit, in which a new operation
-  // would otherwise begin and then be interrupted. Nothing was started, so the caller retries after
-  // the restart. This never touches an operation already running: only new ones are refused.
-  if (isUpdateHoldingForRestart()) {
-    throw fail('Story Studio is installing an update and will restart in a moment, so nothing was started. Try again once it has restarted.', 409)
-  }
   const now = isoNow()
   const operation: MediaCleanupOperation = {
     id: randomUUID(), project_slug: slug, kind, status: 'queued', stage,

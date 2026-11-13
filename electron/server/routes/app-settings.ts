@@ -40,6 +40,7 @@ import {
 import { getGatewayBindingStatus } from '../services/private-render-identity.js'
 import { getFinalRenderOutputSettingsCapabilities } from '../lib/final-render-gateway-client.js'
 import { getGlobalCompression, setGlobalCompression, COMPRESSION_DEFAULTS } from '../services/generation-compression.js'
+import { openAtLogin, setOpenAtLogin } from '../services/open-at-login.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 import {
   listChatModelsSnapshot as listGenStudioChatModels,
@@ -62,6 +63,18 @@ import {
 } from '../lib/genstudio-client.js'
 
 export const router = Router()
+router.get('/app-settings/open-at-login', (_req, res) => {
+  res.json({ enabled: openAtLogin() })
+})
+router.put('/app-settings/open-at-login', async (req, res) => {
+  try {
+    await setOpenAtLogin(req.body?.enabled === true, process.execPath)
+    res.json({ enabled: openAtLogin() })
+  } catch (error: any) {
+    res.status(400).json(humanizeBackendError(error, 'Could not change Open at Login'))
+  }
+})
+
 const CUSTOMER_SECRET_PROVIDERS = ['genstudio'] as const
 
 const requirePrivateRenderOwner = buildRequireSession(

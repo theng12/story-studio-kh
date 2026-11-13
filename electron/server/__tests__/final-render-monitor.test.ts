@@ -28,7 +28,6 @@ type ReconcilerModule = {
 }
 type SettingsModule = typeof import('../services/app-settings.js')
 type IdentityModule = typeof import('../services/private-render-identity.js')
-type SafeStorageModule = typeof import('./safe-storage-test-double.js')
 type WireCall = { method: string; url: string; body: Buffer; headers: Headers }
 type BlobState = { sha256: string; size_bytes: number; offset: number }
 type LookupMode =
@@ -67,7 +66,6 @@ let evidence: EvidenceModule
 let reconciler: ReconcilerModule | null = null
 let settings: SettingsModule
 let identity: IdentityModule
-let safeStorage: SafeStorageModule | undefined
 let serial = 0
 const trackedJobIds = new Set<string>()
 
@@ -135,8 +133,9 @@ async function installPackagedDescriptorFixture(): Promise<void> {
       qualification: null,
     },
   }), { mode: 0o600 })
+  require('electron')
   const cached = require.cache[require.resolve('electron')]
-  assert.ok(cached, 'safeStorage setup installs the test Electron cache entry')
+  assert.ok(cached, 'Electron module has a cache entry')
   const previousExports = cached.exports
   const previousResources = Object.getOwnPropertyDescriptor(process, 'resourcesPath')
   restoreElectron = () => {
@@ -461,10 +460,7 @@ before(async () => {
   await fs.writeFile(canaryPath, 'final-render-monitor-retained\n', { mode: 0o600 })
   for (const key of environmentKeys) process.env[key] = retainedRoot
   await import(LOOPBACK_SUPERTEST_PRELOAD)
-  safeStorage = await import('./safe-storage-test-double.js')
-  safeStorage.installTestSafeStorage()
   await installPackagedDescriptorFixture()
-  safeStorage.setTestSafeStorageAvailable(true)
   settings = await import('../services/app-settings.js')
   identity = await import('../services/private-render-identity.js')
   transport = await import('../services/final-render-transport.js') as TransportModule
@@ -490,14 +486,13 @@ after(async () => {
   } catch (error) {
     teardownError = error
   } finally {
-    // Setup can fail before safeStorage or queue assignment. Restore in that
+    // Setup can fail before Electron fixture or queue assignment. Restore in that
     // case, and after ordinary settlement, but never move an active writer to
     // another HOME/TMP/data root merely to make teardown finish.
     if (physicallySettled || !queue) {
       globalThis.fetch = originalFetch
       try {
         restoreElectron?.()
-        if (safeStorage) safeStorage.setTestSafeStorageAvailable(true)
       } finally {
         for (const [key, value] of previousEnvironment) {
           if (value === undefined) delete process.env[key]

@@ -708,3 +708,26 @@ through `npm run dist:retain -- <trusted-story-pins.json>`, which runs the share
 (`portfolio/tools/release-dist.py`); it manages only the pair it recorded, and unmanaged historical
 aliases need their own recoverable retirement after dependency and active-job checks. Never rotate
 an artifact some build or release is still using. See `scripts/release/orchestration/README.md`.
+
+**Only Studio Launcher KH updates Story — owner, 2026-11-13.** Every trace of in-app self-update was
+removed (Developer scope addition, same day): the `install-now` and `auto_install` path, the
+drain-then-swap flow, the detached bundle-swap helper, the update feed check and check-in, the
+release-descriptor signature check and the pinned publisher key with its "Trust the New App Update
+Key" flow, the Updates panel and the header banner. Story's Settings page keeps a version pill and
+one sentence — *Updates are installed by Studio Launcher KH.* — and nothing that looks like Story can
+update itself. Story reads Gateway release descriptors for nothing else. The queue drain on quit and
+Open at Login stay: the Launcher replaces the bundle while Story is stopped, and Story must resume its
+saved jobs and come back healthy. Do not restore any download/mount/unpack/swap/check code here — the
+Launcher verifies and installs the artifact itself.
+
+**No Keychain — owner, 2026-11-13.** Every secret Story keeps now lives in one plain
+`app-secrets.json` (mode `0600`, atomic write: temp file, fsync, rename) in the app's data folder;
+per-project `secrets.json` files are plaintext `0600` too. Electron `safeStorage` is the macOS
+Keychain and was removed from every credential read and write path, along with the Keychain guard
+wrapper, the Help → Unlock credentials menu (whose only job was granting Keychain access) and the
+"Credentials unavailable" state. The one exception is a one-time migration of an older
+`{__encrypted: true}` file: it probes the Keychain without interaction, copies values only when the
+probe says macOS would not ask, then deletes the Keychain items; when the probe says a prompt would
+be needed it skips silently, leaves the encrypted file untouched, and still removes the items so no
+safeStorage key is left behind. An empty store reads "not set". This follows Relay, Gateway and Hub,
+which already keep secrets in owner-only files.

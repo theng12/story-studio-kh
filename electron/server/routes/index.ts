@@ -21,7 +21,6 @@ import { router as ideasRouter } from './ideas.js'
 import { router as pipelineRouter } from './pipeline.js'
 import { router as healthRouter } from './health.js'
 import { router as systemRouter } from './system.js'
-import { router as appUpdateRouter } from './app-update.js'
 import { router as visionRouter } from './vision.js'
 import { router as uploadRouter } from './upload.js'
 import { router as youtubeConnectionsRouter } from './youtube-connections.js'
@@ -94,7 +93,6 @@ export function mountRoutes(app: Express): void {
   app.use('/api', appSettingsRouter)
   // Optional, in-app duplicate screening (owner 2026-10-27). Warns; gates nothing.
   app.use('/api', localScreeningRouter)
-  app.use('/api', appUpdateRouter)
   app.use('/api', lastSessionRouter)
   app.use('/api', jobsRouter)
   app.use('/api', scriptsRouter)

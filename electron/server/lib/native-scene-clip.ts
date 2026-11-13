@@ -61,9 +61,9 @@ export function resolveSceneClipHelperPath(): string | null {
   // One bundle, one visible name: the render helper is the same "Story Studio KH Helper"
   // executable name inside the signed helper app (owner naming rule, 2026-11-11).
   if (resources && typeof resources === 'string') {
-    candidates.push(path.join(resources, 'Story Studio KH Helper.app', 'Contents', 'Resources', 'Story Studio KH Helper'))
+    candidates.push(path.join(resources, 'Story Studio KH Helper.app', 'Contents', 'MacOS', 'Story Studio KH Helper'))
   }
-  candidates.push(path.join(REPO_ROOT, 'bundled', 'Story Studio KH Helper.app', 'Contents', 'Resources', 'Story Studio KH Helper'))
+  candidates.push(path.join(REPO_ROOT, 'bundled', 'Story Studio KH Helper.app', 'Contents', 'MacOS', 'Story Studio KH Helper'))
   for (const candidate of candidates) {
     try {
       if (!existsSync(candidate)) continue

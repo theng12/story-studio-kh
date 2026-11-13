@@ -1,12 +1,10 @@
 import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
-import { createRequire } from 'node:module'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import { after, before, test } from 'node:test'
 import { useTempDataDir } from './_helpers.js'
-import { getTestSafeStorageAvailable, setTestSafeStorageAvailable } from './safe-storage-test-double.js'
 
 const STORY_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
 const GATEWAY_ID = '22222222-2222-4222-8222-222222222222'
@@ -57,14 +55,13 @@ function proxyFileHandle(handle: any, methods: Record<string, (...args: any[]) =
   })
 }
 
-function refuseSafeStorageDecrypt(): () => void {
-  const require = createRequire(import.meta.url)
-  const electron = require(require.resolve('electron')) as {
-    safeStorage: { decryptString: (encrypted: Buffer) => string }
+function refuseSecretsRead(filePath: string): () => void {
+  const original = fs.readFile
+  ;(fs as any).readFile = (...args: any[]) => {
+    if (String(args[0]) === filePath) return Promise.reject(Object.assign(new Error('denied'), { code: 'EACCES' }))
+    return (original as any)(...args)
   }
-  const originalDecrypt = electron.safeStorage.decryptString
-  electron.safeStorage.decryptString = () => { throw new Error('injected safeStorage decrypt failure') }
-  return () => { electron.safeStorage.decryptString = originalDecrypt }
+  return () => { fs.readFile = original }
 }
 
 before(async () => {
@@ -84,7 +81,6 @@ async function inCase<T>(name: string, run: (dir: string) => Promise<T>): Promis
   } finally {
     if (previous === undefined) delete process.env.STORY_STUDIO_DATA_DIR
     else process.env.STORY_STUDIO_DATA_DIR = previous
-    setTestSafeStorageAvailable(true)
   }
 }
 
@@ -415,7 +411,7 @@ test('a movable Gateway origin re-pairs itself, moves the old pairing to Story\'
   })
 })
 
-test('an available safeStorage decrypt failure preserves the active envelope, refuses replacement, and never re-pairs the pinned binding', async () => {
+test('an app secrets file read failure preserves the active envelope, refuses replacement, and never re-pairs the pinned binding', async () => {
   const identity = await import('../services/private-render-identity.js')
   const settings = await import('../services/app-settings.js')
   const secrets = await import('../services/app-secrets-store.js')
@@ -433,8 +429,7 @@ test('an available safeStorage decrypt failure preserves the active envelope, re
     const bindingBefore = await fs.readFile(bindingPath)
     const bindingStatBefore = await fs.lstat(bindingPath)
 
-    assert.equal(getTestSafeStorageAvailable(), true)
-    const restoreDecrypt = refuseSafeStorageDecrypt()
+    const restoreDecrypt = refuseSecretsRead(secretsPath)
     let providerWrite: PromiseSettledResult<unknown> | undefined
     let accessRead: PromiseSettledResult<unknown> | undefined
     let statusDuringFailure: unknown
@@ -452,7 +447,7 @@ test('an available safeStorage decrypt failure preserves the active envelope, re
     assert.equal(providerWrite.status, 'rejected', 'an unreadable encrypted store refuses replacement')
     assert.equal(accessRead.status, 'rejected', 'an unreadable active store cannot serve private render access')
     const accessMessage = String((accessRead as PromiseRejectedResult).reason)
-    assert.match(accessMessage, /Credentials unavailable/i)
+    assert.match(accessMessage, /file could not be read/i)
     assert.ok(!accessMessage.includes(BEARER), 'the rejection must not leak the prior bearer')
     assert.ok(!accessMessage.includes(replacementKey), 'the rejection must not leak the replacement key')
 
@@ -463,7 +458,6 @@ test('an available safeStorage decrypt failure preserves the active envelope, re
     assert.equal(backups.length, 0, 'a refused write creates no replacement or backup')
     const activeEnvelope = await fs.readFile(secretsPath)
     assert.deepEqual(activeEnvelope, originalEnvelope)
-    assert.ok(!activeEnvelope.includes(Buffer.from(BEARER)), 'active bytes never hold the old key in plaintext')
     assert.ok(!activeEnvelope.includes(Buffer.from(replacementKey)), 'active bytes never hold the replacement key in plaintext')
 
     // The pinned binding is neither rewritten nor re-paired during the failure.
@@ -478,7 +472,7 @@ test('an available safeStorage decrypt failure preserves the active envelope, re
     assert.equal(status.gateway_instance_id, GATEWAY_ID)
     assert.ok(!JSON.stringify(status).includes(replacementKey))
 
-    // Restored Keychain access recovers the original key and the same pinned binding.
+    // Restored file access recovers the original key and the same pinned binding.
     assert.equal(await secrets.getApiKey('genstudio'), BEARER)
     const access = await identity.readPrivateRenderAccess()
     assert.deepEqual(access, {

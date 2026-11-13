@@ -1,5 +1,5 @@
 /**
- * Dreamlands E2E: "Install all missing" with the Keychain unavailable failed all 168 packs one by one
+ * Dreamlands E2E: "Install all missing" with the Gateway unavailable failed all 168 packs one by one
  * and ended with "168 installs failed. Open the pack and try again." A failure every pack would share
  * now stops the batch with one plain message; one bad pack still lets the rest install.
  */
@@ -17,7 +17,7 @@ test('a systematic failure stops the batch; the rest are not attempted', async (
   let stop = false
   const queue = useInstallQueue(async (id) => {
     tried.push(id)
-    if (id === 'a') { stop = true; throw new Error('keychain') }
+    if (id === 'a') { stop = true; throw new Error('gateway') }
   }, () => stop)
   queue.enqueueAll(['a', 'b', 'c'])
   for (let i = 0; i < 10; i++) await settle()
@@ -36,7 +36,7 @@ test('a one-pack failure keeps going', async () => {
 })
 
 test('which failures are systematic, in plain words', () => {
-  assert.match(systematicInstallFailure({ code: 'CONTENT_STORE_KEYCHAIN_UNAVAILABLE' })!, /Keychain is not available/)
+  assert.match(systematicInstallFailure({ code: 'GATEWAY_UNREACHABLE' })!, /Gateway is not answering/)
   assert.match(systematicInstallFailure({ code: 'CONTENT_STORE_SCOPE_REQUIRED', status: 401 })!, /Gateway did not accept/)
   assert.match(systematicInstallFailure({ code: 'CONTENT_STORE_UNAVAILABLE', status: 401 })!, /Gateway did not accept/)
   assert.match(systematicInstallFailure({ code: 'GATEWAY_UNREACHABLE', status: 503 })!, /not answering/)

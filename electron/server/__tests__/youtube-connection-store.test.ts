@@ -4,8 +4,6 @@ import path from 'node:path'
 import { afterEach, describe, test } from 'node:test'
 
 import { useTempDataDir } from './_helpers.js'
-import { setTestSafeStorageAvailable } from './safe-storage-test-double.js'
-import { encryptToBase64 } from '../lib/safe-storage.js'
 import {
   assignProjectYouTubeChannel,
   authorizeProjectYouTubeAction,
@@ -38,7 +36,6 @@ let cleanup: (() => Promise<void>) | undefined
 afterEach(async () => {
   await cleanup?.()
   cleanup = undefined
-  setTestSafeStorageAvailable(true)
 })
 
 async function isolate() {
@@ -85,12 +82,12 @@ async function saveConnectedChannel(channelId: string, title = channelId): Promi
   })
 }
 
-function encrypted(value: unknown): string {
-  return JSON.stringify({ __encrypted: true, version: 1, ciphertext: encryptToBase64(JSON.stringify(value)) })
+function stored(value: unknown): string {
+  return JSON.stringify(value)
 }
 
 describe('youtube-connection-store', () => {
-  test('scoped recovery removes a malformed encrypted YouTube bucket and preserves public and immutable evidence', async () => {
+  test('scoped recovery removes a malformed YouTube bucket and preserves public and immutable evidence', async () => {
     const temp = await isolate()
     const project = await createAssignmentProject('YouTube Scoped Secret Recovery')
     await writeAppSecrets(v3 => {
@@ -114,9 +111,10 @@ describe('youtube-connection-store', () => {
     await fs.writeFile(sidecarPath, sidecarBefore)
     const publicBefore = await readYouTubeConnectionRegistry()
 
-    await fs.writeFile(appSecretsPath(), encrypted({
+    await fs.writeFile(appSecretsPath(), stored({
       schema_version: 3,
       providers: { genstudio: { apiKey: 'gsk_recovery_provider', userSet: true, generation: 'gen-recovery' } },
+      social: { applications: { meta: { application_id: 'meta-app', client_secret: 'meta-secret-preserved' } } },
       youtube: { oauth_client: { application_id: publicBefore.application!.application_id } },
     }))
     assert.equal(await youtubeSecretRecoveryRequired(), true)
@@ -128,6 +126,7 @@ describe('youtube-connection-store', () => {
     assert.deepEqual(recovered.assignment_history, publicBefore.assignment_history)
     assert.deepEqual(recovered.application_history, publicBefore.application_history)
     assert.equal((await readAppSecrets()).youtube, undefined)
+    assert.equal((await readAppSecrets()).social?.applications?.meta?.client_secret, 'meta-secret-preserved')
     assert.deepEqual((await readAppSecrets()).providers.genstudio, {
       apiKey: 'gsk_recovery_provider', userSet: true, generation: 'gen-recovery',
     })
@@ -136,42 +135,17 @@ describe('youtube-connection-store', () => {
     assert.equal(await youtubeSecretRecoveryRequired(), false)
   })
 
-  test('scoped recovery removes a readable plaintext YouTube bucket without promoting its credentials', async () => {
-    await isolate()
-    await fs.writeFile(appSecretsPath(), JSON.stringify({
-      schema_version: 3,
-      providers: { genstudio: { apiKey: 'gsk_plain_recovery', userSet: true, generation: 'plain-generation' } },
-      youtube: {
-        oauth_client: { application_id: 'plaintext-app', client_secret: 'plaintext-secret-never-reused' },
-        channel_tokens: {
-          plaintext_channel: {
-            application_id: 'plaintext-app', access_token: 'plaintext-access-never-reused',
-            refresh_token: 'plaintext-refresh-never-reused', expires_at: 1_900_000_000_000,
-          },
-        },
-      },
-    }))
-    assert.equal(await youtubeSecretRecoveryRequired(), true)
-    await recoverYouTubeCredentialAuthority()
-    const recovered = await readAppSecrets()
-    assert.deepEqual(recovered.providers.genstudio, {
-      apiKey: 'gsk_plain_recovery', userSet: true, generation: 'plain-generation',
-    })
-    assert.equal(recovered.youtube, undefined)
-    const disk = await fs.readFile(appSecretsPath(), 'utf8')
-    assert.equal(JSON.parse(disk).__encrypted, true)
-    assert.equal(disk.includes('plaintext-secret-never-reused'), false)
-  })
+
 
   test('scoped recovery refuses healthy, undecryptable, and provider-corrupt stores byte-for-byte', async () => {
     for (const [label, payload] of [
-      ['healthy', encrypted({ schema_version: 3, providers: {}, youtube: {} })],
-      ['undecryptable', JSON.stringify({ __encrypted: true, version: 1, ciphertext: 'not-test-safe-storage' })],
-      ['provider-corrupt', encrypted({ schema_version: 3, providers: { genstudio: [] }, youtube: { broken: true } })],
-      ['unknown-provider', encrypted({ schema_version: 3, providers: { future: { apiKey: 'keep' } }, youtube: { broken: true } })],
-      ['extra-provider-field', encrypted({ schema_version: 3, providers: { genstudio: { apiKey: 'keep', future: true } }, youtube: { broken: true } })],
-      ['invalid-user-set', encrypted({ schema_version: 3, providers: { genstudio: { apiKey: 'keep', userSet: 'yes' } }, youtube: { broken: true } })],
-      ['invalid-generation', encrypted({ schema_version: 3, providers: { genstudio: { apiKey: 'keep', generation: '' } }, youtube: { broken: true } })],
+      ['healthy', stored({ schema_version: 3, providers: {}, youtube: {} })],
+      ['undecryptable', JSON.stringify({ __encrypted: true, version: 1, ciphertext: 'invalid-legacy-ciphertext' })],
+      ['provider-corrupt', stored({ schema_version: 3, providers: { genstudio: [] }, youtube: { broken: true } })],
+      ['unknown-provider', stored({ schema_version: 3, providers: { future: { apiKey: 'keep' } }, youtube: { broken: true } })],
+      ['extra-provider-field', stored({ schema_version: 3, providers: { genstudio: { apiKey: 'keep', future: true } }, youtube: { broken: true } })],
+      ['invalid-user-set', stored({ schema_version: 3, providers: { genstudio: { apiKey: 'keep', userSet: 'yes' } }, youtube: { broken: true } })],
+      ['invalid-generation', stored({ schema_version: 3, providers: { genstudio: { apiKey: 'keep', generation: '' } }, youtube: { broken: true } })],
     ] as const) {
       await cleanup?.(); cleanup = undefined
       await isolate()
@@ -221,8 +195,8 @@ describe('youtube-connection-store', () => {
       client_secret: CLIENT_SECRET,
     })
     const rawAppSecrets = await fs.readFile(appSecretsPath(), 'utf8')
-    assert.equal(JSON.parse(rawAppSecrets).__encrypted, true)
-    assert.equal(rawAppSecrets.includes(CLIENT_SECRET), false)
+    assert.equal(JSON.parse(rawAppSecrets).__encrypted, undefined)
+    assert.equal(rawAppSecrets.includes(CLIENT_SECRET), true)
   })
 
   test('saves immutable channel metadata publicly and token bundles only in app secrets', async () => {
@@ -281,35 +255,9 @@ describe('youtube-connection-store', () => {
     assert.equal((await readYouTubeChannelTokensForServer('UC-refresh-cas'))?.access_token, 'winning-refresh-token')
   })
 
-  test('rejects YouTube-secret writes when safeStorage is unavailable', async () => {
-    await isolate()
-    setTestSafeStorageAvailable(false)
-    await assert.rejects(
-      configureYouTubeApplication({ client_id: CLIENT_ID, client_secret: CLIENT_SECRET }),
-      // A refusal the owner can actually read and act on, with a stable code —
-      // not the internal phrase "encrypted safeStorage".
-      (error: unknown) => (error as { code?: string }).code === 'YOUTUBE_SECRET_STORAGE_UNAVAILABLE'
-        && /try again/i.test((error as Error).message)
-        && !/safeStorage/i.test((error as Error).message),
-    )
-    assert.equal(await fs.access(youtubeConnectionsPath()).then(() => true, () => false), false)
-    assert.equal(await fs.access(appSecretsPath()).then(() => true, () => false), false)
-  })
 
-  test('safeStorage loss leaves existing secret and public registry bytes unchanged', async () => {
-    await isolate()
-    await configureYouTubeApplication({ client_id: CLIENT_ID, client_secret: CLIENT_SECRET })
-    const secretBytes = await fs.readFile(appSecretsPath())
-    const registryBytes = await fs.readFile(youtubeConnectionsPath())
-    setTestSafeStorageAvailable(false)
 
-    await assert.rejects(
-      configureYouTubeApplication({ client_id: 'replacement.apps.googleusercontent.com', client_secret: 'replacement-secret' }),
-      (error: unknown) => (error as { code?: string }).code === 'YOUTUBE_SECRET_STORAGE_UNAVAILABLE',
-    )
-    assert.deepEqual(await fs.readFile(appSecretsPath()), secretBytes)
-    assert.deepEqual(await fs.readFile(youtubeConnectionsPath()), registryBytes)
-  })
+
 
   test('marks existing grants reconnect_required on application replacement and preserves assignments/history', async () => {
     await isolate()
@@ -485,7 +433,7 @@ describe('youtube-connection-store', () => {
     })
   })
 
-  test('keeps an encrypted pending replacement transaction when the public registry write fails and recovers it on retry', async () => {
+  test('keeps a pending replacement transaction when the public registry write fails and recovers it on retry', async () => {
     await isolate()
     const first = await configureYouTubeApplication({ client_id: CLIENT_ID, client_secret: CLIENT_SECRET })
     await saveConnectedChannel('channel-journal-replaced')
@@ -506,8 +454,8 @@ describe('youtube-connection-store', () => {
     assert.equal(pendingRegistry?.application?.client_id, replacementClientId)
     assert.deepEqual(pendingSecrets.youtube?.channel_tokens, {})
     const pendingAppSecretsBytes = await fs.readFile(appSecretsPath(), 'utf8')
-    assert.equal(JSON.parse(pendingAppSecretsBytes).__encrypted, true)
-    assert.equal(pendingAppSecretsBytes.includes(replacementClientSecret), false)
+    assert.equal(JSON.parse(pendingAppSecretsBytes).__encrypted, undefined)
+    assert.equal(pendingAppSecretsBytes.includes(replacementClientSecret), true)
     const registryBytesAfterFailure = JSON.parse(await fs.readFile(youtubeConnectionsPath(), 'utf8'))
     assert.equal(registryBytesAfterFailure.application.application_id, first.application_id)
     assert.equal(await readYouTubeOAuthClientForServer().then((value) => value?.client_secret), replacementClientSecret)
@@ -515,7 +463,7 @@ describe('youtube-connection-store', () => {
     assert.equal(await readYouTubeChannelTokensForServer('channel-journal-replaced'), null)
   })
 
-  test('keeps a pending channel-grant transaction with encrypted tokens when the public registry write fails and recovers it on retry', async () => {
+  test('keeps a pending channel-grant transaction with private tokens when the public registry write fails and recovers it on retry', async () => {
     await isolate()
     const application = await configureYouTubeApplication({ client_id: CLIENT_ID, client_secret: CLIENT_SECRET })
     const channelId = 'channel-journal-grant-test'
@@ -536,9 +484,9 @@ describe('youtube-connection-store', () => {
     assert.equal(pendingRegistry?.channels[channelId]?.application_id, application.application_id)
     assert.equal(pendingSecrets.youtube?.channel_tokens?.[channelId]?.access_token, accessToken)
     const pendingAppSecretsBytes = await fs.readFile(appSecretsPath(), 'utf8')
-    assert.equal(JSON.parse(pendingAppSecretsBytes).__encrypted, true)
-    assert.equal(pendingAppSecretsBytes.includes(accessToken), false)
-    assert.equal(pendingAppSecretsBytes.includes(refreshToken), false)
+    assert.equal(JSON.parse(pendingAppSecretsBytes).__encrypted, undefined)
+    assert.equal(pendingAppSecretsBytes.includes(accessToken), true)
+    assert.equal(pendingAppSecretsBytes.includes(refreshToken), true)
     const registryBytesAfterFailure = JSON.parse(await fs.readFile(youtubeConnectionsPath(), 'utf8'))
     assert.equal(registryBytesAfterFailure.channels[channelId], undefined)
 

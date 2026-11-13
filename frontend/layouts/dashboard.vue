@@ -164,33 +164,10 @@
         </nav>
 
         <footer class="sidebar-credits" aria-label="Story Studio status">
-          <!-- Owner 2026-11-12: one tidy column — Support row, then the version
-               pill and the update control on one centred line, then one status
-               line; equal insets and even rhythm, pinned to the bottom. -->
           <a class="footer-support" :href="SUPPORT_URL" target="_blank" rel="noopener noreferrer" title="Opens the donation page in your browser">
             <span aria-hidden="true">&#9829;</span> Support this app
           </a>
-          <div class="footer-controls">
-            <button
-              type="button"
-              class="version-badge"
-              :title="`Story Studio KH v${appVersion} · built ${buildDate} — click for What's New`"
-              @click="openWhatsNew"
-            >
-              <span class="version-pill-text">v{{ appVersion }} · What&rsquo;s New</span>
-            </button>
-            <button
-              type="button"
-              class="footer-update"
-              title="Check for Updates"
-              aria-label="Check for Updates"
-              :disabled="checkingUpdate"
-              @click="checkForUpdates"
-            >
-              <span aria-hidden="true">&#8635;</span>
-              <span v-if="updateAvailable" class="footer-update-badge" aria-hidden="true">&#10515;</span>
-            </button>
-          </div>
+          <AppVersionInfo />
           <!-- Signed-in browser host and sign-out sit with the connection status
                they belong to, in normal flow — never a floating pill over the page. -->
           <ServerModeBanner />
@@ -220,7 +197,6 @@
 
 <script setup lang="ts">
 import { FLOW_PHASES, visualSourceFromFormat, type FlowStep, type VisualSource } from '~/composables/useProjectFlow'
-import { useWhatsNewModal } from '~/composables/useWhatsNewModal'
 import { projectSlug } from '~/utils/project-slug'
 import ContentInstallStrip from '~/components/content-store/ContentInstallStrip.vue'
 
@@ -256,36 +232,8 @@ const { jobs, stats, startPolling: startJobPolling, stopPolling: stopJobPolling 
 const { stats: allJobStats, start: startAllJobs, stop: stopAllJobs } = useAllJobs()
 const { refreshReadiness } = useNotifications()
 const { connection } = useConnectionStatus()
-const { get: apiGet, post: apiPost } = useApi()
-const { public: pubCfg } = useRuntimeConfig()
+const { get: apiGet } = useApi()
 const SUPPORT_URL = 'https://nowpayments.io/donation/studiokh'
-const checkingUpdate = ref(false)
-const updateAvailable = ref(false)
-
-/** Icon-only control, so the state has to live in the icon: a dot when an update is waiting. */
-// The app already knows whether an update is waiting (header control reads the same status); the
-// footer must not claim otherwise, so it reads that state at mount rather than only after a click.
-void (async () => {
-  try {
-    const status = await apiGet('/app-update/status')
-    updateAvailable.value = Boolean(status?.version)
-  } catch { /* stays quiet; the header reports failures */ }
-})()
-
-async function checkForUpdates() {
-  if (checkingUpdate.value) return
-  checkingUpdate.value = true
-  try {
-    const status = await apiPost('/app-update/check')
-    updateAvailable.value = Boolean(status?.version)
-  } catch { /* stays quiet: the header control already reports failures */ }
-  finally { checkingUpdate.value = false }
-}
-
-const appVersion = computed(() => (pubCfg.appVersion as string | undefined) || '0.0.0')
-const buildDate = computed(() => (pubCfg.buildDate as string | undefined) || '')
-const whatsNewModal = useWhatsNewModal()
-function openWhatsNew(): void { whatsNewModal.open() }
 
 const visualSource = ref<VisualSource | null>(null)
 const formatError = ref('')
@@ -620,48 +568,6 @@ onUnmounted(() => {
   text-decoration: none;
 }
 .footer-support:hover { color: var(--text-primary); text-decoration: underline; }
-.footer-controls {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  justify-content: flex-start;
-  gap: 8px;
-}
-/* One line, truncated rather than wrapped. */
-.footer-controls .version-badge { min-width: 0; flex: 0 1 auto; max-width: 100%; }
-.version-pill-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.footer-update {
-  display: inline-flex;
-  flex: none;
-  position: relative;
-  min-height: 26px;
-  min-width: 26px;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: transparent;
-  color: var(--text-muted);
-  cursor: pointer;
-  font-size: var(--font-sm);
-}
-.footer-update:hover { color: var(--text-primary); }
-.footer-update:disabled { cursor: progress; opacity: 0.6; }
-.footer-update-badge {
-  position: absolute;
-  top: -2px;
-  right: -2px;
-  min-width: 16px;
-  height: 16px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 999px;
-  background: var(--accent, var(--warning));
-  color: var(--bg, #fff);
-  font-size: var(--font-xs);
-  line-height: 1;
-}
 .footer-status-line { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .network-status {
   display: flex;
@@ -669,7 +575,7 @@ onUnmounted(() => {
   align-items: center;
   justify-content: flex-start;
   gap: 8px;
-  /* No inner padding: the support row and the pill+update row sit at this same edge. */
+  /* No inner padding: the support row and the version row sit at this same edge. */
   padding: 6px 0;
   border-radius: var(--radius-sm);
   color: var(--text-secondary);

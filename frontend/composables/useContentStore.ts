@@ -411,7 +411,6 @@ export function contentStoreErrorPresentation(error: ContentStoreUiError): Conte
     case 'CONTENT_STORE_LOCAL_STATE_UNAVAILABLE': return failure('This Mac’s Studio Library records could not be read', 'Check that the disk has space and Story Studio can write its data folder, then restart Story Studio.')
     case 'CONTENT_STORE_KEY_REQUIRED':
     case 'CONTENT_STORE_SCOPE_REQUIRED': return failure('Studio Library access is needed', 'Open Settings and test the Studio Library scope, then refresh.', true)
-    case 'CONTENT_STORE_KEYCHAIN_UNAVAILABLE': return failure('This Mac\u2019s Keychain is not available', 'Sign in to macOS and unlock the Keychain, restart Story Studio, then try again.')
     case 'CONTENT_STORE_SIGNING_KEY_MISSING': return failure('Studio Library access is needed', 'GenStudio did not publish the signing key this Mac needs. Refresh later.')
     case 'CONTENT_PRODUCT_NOT_AVAILABLE': return failure('This product is not available', 'Refresh the Library to see currently published products.')
     case 'CONTENT_PRODUCT_ALREADY_OWNED': return failure('This is already available to this Mac', 'Refresh the Library to see its current install state.')

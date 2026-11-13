@@ -350,7 +350,7 @@ router.post('/system/upload-file',
       if (!base || base === '.' || base === '..') return res.status(400).json({ detail: 'filename is required' })
       const bytes = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0)
       if (bytes.length === 0) return res.status(400).json({ detail: 'The uploaded file is empty.' })
-      const { dataDir } = await import('../services/app-update.js')
+      const { dataDir } = await import('../lib/app-paths.js')
       const dir = path.join(dataDir(), 'uploads')
       await fs.mkdir(dir, { recursive: true })
       const stamp = new Date().toISOString().replace(/[:.]/g, '-')

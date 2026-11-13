@@ -3,7 +3,6 @@ import path from 'node:path'
 import { createHash, randomUUID } from 'node:crypto'
 
 import { writeJsonAtomic, withCrossProcessLock } from '../lib/atomic-store.js'
-import { isEncryptionAvailable } from '../lib/safe-storage.js'
 import { registerSecretForRedaction } from '../lib/redact-secrets.js'
 import type {
   YouTubeApplicationRecord,
@@ -44,7 +43,6 @@ const CHANNEL_STATUSES = ['connected', 'reconnect_required', 'scope_upgrade_requ
 type YouTubeChannelStatus = typeof CHANNEL_STATUSES[number]
 
 const CORRUPT_REGISTRY_ERROR = 'YouTube connection registry is corrupt'
-const SAFE_STORAGE_ERROR = 'This Mac cannot store YouTube credentials securely right now, so Story Studio did not save them. Sign in to macOS normally and reopen Story Studio, then try again.'
 const CORRUPT_REGISTRY_CODE = 'YOUTUBE_CONNECTION_REGISTRY_CORRUPT'
 const REGISTRY_IO_CODE = 'YOUTUBE_CONNECTION_REGISTRY_IO'
 const PENDING_RECOVERY_ERROR = 'YouTube connection registry pending transaction could not be recovered'
@@ -347,11 +345,6 @@ function normalizeChannelGrant(input: unknown): NormalizedYouTubeChannelGrant {
   }
 }
 
-function requireSafeStorage(): void {
-  // A user-facing refusal, so it carries a stable code and a recovery action
-  // rather than the internal phrase 'encrypted safeStorage'.
-  if (!isEncryptionAvailable()) throw foundationError('YOUTUBE_SECRET_STORAGE_UNAVAILABLE', SAFE_STORAGE_ERROR)
-}
 
 function applicationFingerprint(applicationId: string, clientId: string): string {
   return createHash('sha256').update(`${applicationId}:${clientId}`).digest('hex')
@@ -506,7 +499,6 @@ export async function readYouTubeConnectionRegistry(): Promise<YouTubeConnection
  * remain; the application is cleared and each retained channel must reconnect.
  */
 export async function recoverYouTubeCredentialAuthority(): Promise<YouTubeConnectionRegistryV1> {
-  requireSafeStorage()
   const filePath = youtubeConnectionsPath()
   return withCrossProcessLock(filePath, async () => {
     const registry = await readRegistryUnlocked(filePath)
@@ -535,7 +527,6 @@ export async function configureYouTubeApplication(input: {
 }): Promise<YouTubeApplicationRecord> {
   const clientId = requireCredential(input.client_id, 'client_id')
   const clientSecret = requireCredential(input.client_secret, 'client_secret')
-  requireSafeStorage()
   const filePath = youtubeConnectionsPath()
   let result: YouTubeApplicationRecord | undefined
   await withCrossProcessLock(filePath, async () => {
@@ -633,7 +624,6 @@ export async function saveYouTubeChannelGrant(input: {
         'The YouTube OAuth application changed while Google sign-in was open. Start the connection again.',
       )
     }
-    requireSafeStorage()
     const now = new Date().toISOString()
     const nextRegistry = cloneRegistry(registry)
     const existing = nextRegistry.channels[grant.channelId]

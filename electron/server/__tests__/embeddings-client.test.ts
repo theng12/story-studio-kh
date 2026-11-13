@@ -18,7 +18,7 @@ import { readEmbeddingVectors } from '../lib/embeddings-client.js'
 let cleanup: () => Promise<void>
 
 before(async () => {
-  // Installs the test safe-storage double and points STORY_STUDIO_DATA_DIR at a
+  // Points STORY_STUDIO_DATA_DIR at a
   // throwaway dir before any test body runs, matching the other backend tests.
   cleanup = (await useTempDataDir()).cleanup
 })

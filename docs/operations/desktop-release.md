@@ -125,9 +125,13 @@ absent from the unsigned smoke flow:
 - App Store Connect API-key or Apple-ID notary credentials supplied only in the
   protected release environment;
 - Electron Builder signing of the app and all nested executables/frameworks;
-- Apple notarization, successful ticket stapling, and Gatekeeper validation; and
-- Electron `safeStorage` encryption, which is enabled by default. Customer
-  release environments must not set `STORY_STUDIO_DISABLE_KEYCHAIN=1`.
+- Apple notarization, successful ticket stapling, and Gatekeeper validation.
+
+Story Studio keeps no secrets in the macOS Keychain (owner rule 2026-11-13): secrets
+live in `app-secrets.json` in the app's data folder with `0600` permissions, so a
+signed release needs no Keychain entitlement or access prompt. The one-time migration
+from an older encrypted file never asks for Keychain access; when macOS would need to
+ask, it skips and leaves the old state untouched.
 
 After creating the signed/notarized candidate, verify it with Apple's tools:
 

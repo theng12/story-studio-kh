@@ -38,7 +38,7 @@ export function projectDirFor(slug: string, cache?: ProjectFactsCache): string {
  * tens of thousands of operations behind the 2–4 GB an in-flight upload was
  * reading in 10 MiB chunks, and the whole app stopped answering: measured on the
  * production Mac mini, 2026-10-18 — GET /projects 49 s, /thumbnails 22 s,
- * /app-update/status 45 s, preview-media streams stalled.
+ * status reads 45 s, preview-media streams stalled.
  *
  * Four keeps the sweep moving without monopolising the pool. The two surfaces
  * MUST share this one number: they are the same sweep, and a bound that drifts

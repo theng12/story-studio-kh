@@ -16,7 +16,6 @@ import { saveYouTubeChannelGrantForTest } from './_youtube-connection-test-helpe
 const boot = await useTempDataDir()
 const store = await import('../services/youtube-connection-store.js')
 const { appSecretsPath, writeAppSecrets } = await import('../services/app-secrets-store.js')
-const { encryptToBase64 } = await import('../lib/safe-storage.js')
 const { createProject } = await import('../services/project-manager.js')
 const { router } = await import('../routes/youtube-connections.js')
 const cadence = await import('../services/publish-cadence.js')
@@ -74,13 +73,9 @@ test('surfaces and performs only the explicit recoverable YouTube credential res
   await isolate()
   const provider = { apiKey: 'gsk_route_recovery', userSet: true, generation: 'route-generation' }
   await fs.writeFile(appSecretsPath(), JSON.stringify({
-    __encrypted: true,
-    version: 1,
-    ciphertext: encryptToBase64(JSON.stringify({
       schema_version: 3,
       providers: { genstudio: provider },
       youtube: { oauth_client: { application_id: 'broken-without-secret' } },
-    })),
   }))
 
   const listed = await request(app).get('/api/youtube/connections')

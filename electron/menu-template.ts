@@ -4,7 +4,6 @@ export interface MenuHandlers {
   appName: string
   platform: NodeJS.Platform
   logsDir: string
-  unlockCredentials: () => void
   showLogs: () => void
   showUserData: () => void
   quit: () => void
@@ -42,10 +41,6 @@ export function buildMenuTemplate(h: MenuHandlers): MenuItemConstructorOptions[]
     {
       role: 'help',
       submenu: [
-        ...(h.platform === 'darwin' ? [{
-          label: 'Unlock credentials…',
-          click: () => h.unlockCredentials(),
-        }] : []),
         {
           label: 'Show Logs',
           click: () => h.showLogs(),

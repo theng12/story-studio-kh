@@ -10,7 +10,6 @@ import path from 'node:path'
 import { after, before, describe, test } from 'node:test'
 
 import { useTempDataDir, type RetainedTempDataDir } from './_helpers.js'
-import { setTestSafeStorageAvailable } from './safe-storage-test-double.js'
 
 let tmp: RetainedTempDataDir
 let pm: typeof import('../services/project-manager.js')
@@ -34,7 +33,6 @@ after(async () => {
     // the claimed environment is restored. The tree itself is never deleted.
     await tmp.cleanup()
   } finally {
-    setTestSafeStorageAvailable(true)
   }
 })
 
@@ -113,7 +111,7 @@ describe('what is using space', () => {
     await write(path.join(p.paths.video_assets_dir, `${p.code}_Scene01_v1.mp4`), 4000)
     await write(path.join(path.dirname(p.projectDir), '_trash', path.basename(p.projectDir), p.code, 'images', 'x.png'), 700)
     await write(path.join(path.dirname(other.projectDir), '_trash', path.basename(other.projectDir), 'y.png'), 900)
-    const { previousAppsDir } = await import('../services/app-update.js')
+    const { previousAppsDir } = await import('../lib/app-paths.js')
     await write(path.join(previousAppsDir(), 'Story Studio KH.app-1.4.260', 'z'), 300)
 
     const audit = await auditProjectStorage(p.slug)
