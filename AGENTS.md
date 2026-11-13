@@ -295,6 +295,11 @@ release classification, the prebuild → verify → rebuild-from-`main` cycle, b
 That page is procedure; this file is the rules, and where they disagree about what must be true, this
 file wins.
 
+- **Content-only** — a standalone Content Pack whose kind and schema are already supported ships with
+  no application version bump, no changelog entry, no DMG, no deploy, no restart; its evidence is the
+  pack's own archive review plus `content-packs/release-floor.json`. Anything else is an application
+  release and follows the full procedure.
+
 **Lifecycle — quit and delete release everything (owner 2026-11-12).** Quit stops the helper, unloads
 the login job, frees the ports and leaves no orphan process. A second launch must not start a second
 instance **and must not bring the existing window forward** — it reports and stays behind. Uninstall
