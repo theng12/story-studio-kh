@@ -26,8 +26,13 @@
   test-only fix).
 - Acceptance on the built app (hidden, isolated data dir): health 1.4.400; api-keys `hasKey:false`;
   `/api/projects` 200; every old `/app-update/*` route 404; Keychain untouched (no item, no prompt).
-- Not done: publish is the Developer's (live feed on 1301), install on the mini and pack reinstall
-  follow the publish.
+- Published and installed: the Developer published on 1301 (signed feed serves story 1.4.400,
+  previous 1.4.399; artifact sha256 matches the DMG byte-for-byte; feed signature verifies) and
+  installed 1.4.400 on macmini-angkor (old 1.4.399 moved to `~/.kh/_trash`, codesign strict OK,
+  relaunched hidden on 8766). Live Library proof: phase `delivery_ready`, **195 installed packs, all
+  `installed_current`, zero missing dependencies, zero failed attempts** (including packs not owned by
+  the active account) — the origin/account unblock is proven on Production; no pack reinstall was
+  needed. EP0015 can retry when Production is scheduled.
 
 ### Release 1.4.399 — Launcher-only updates, no Keychain, named Gateway address (2026-11-13)
 
