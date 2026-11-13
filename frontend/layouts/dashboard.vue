@@ -167,7 +167,7 @@
           <a class="footer-support" :href="SUPPORT_URL" target="_blank" rel="noopener noreferrer" title="Opens the donation page in your browser">
             <span aria-hidden="true">&#9829;</span> Support this app
           </a>
-          <AppVersionInfo />
+          <AppVersionInfo compact />
           <!-- Signed-in browser host and sign-out sit with the connection status
                they belong to, in normal flow — never a floating pill over the page. -->
           <ServerModeBanner />

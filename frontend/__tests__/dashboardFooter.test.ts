@@ -20,7 +20,7 @@ test('the dashboard footer keeps operational status and shows the running build'
   // top bar so credits and lanes read the same on every view; the footer now
   // carries the running build, which project pages showed nowhere before.
   assert.doesNotMatch(footer, /<GenStudioStandingStrip/)
-  assert.match(footer, /<AppVersionInfo \/>/)
+  assert.match(footer, /<AppVersionInfo compact \/>/)
   assert.doesNotMatch(dashboard, /release-card|What’s new|buildDateLabel|copyVersion/)
 })
 
@@ -30,8 +30,8 @@ test('the footer badge reports the same build facts as the shared header', () =>
   const header = readFileSync(new URL('../components/AppHeader.vue', import.meta.url), 'utf8')
   const defaultLayout = readFileSync(new URL('../layouts/default.vue', import.meta.url), 'utf8')
   const version = readFileSync(new URL('../components/AppVersionInfo.vue', import.meta.url), 'utf8')
-  assert.match(footer, /<AppVersionInfo \/>/)
-  assert.match(header, /<AppVersionInfo \/>/)
+  assert.match(footer, /<AppVersionInfo compact \/>/)
+  assert.match(header, /<AppVersionInfo compact \/>/)
   assert.match(version, /get<\{ version: string \}>\('\/server-info'/)
   assert.match(version, /Updates are installed by Studio Launcher KH\./)
   assert.match(defaultLayout, /<AppHeader \/>/)
@@ -41,7 +41,7 @@ test('the signed-in browser line and sign-out live in the sidebar footer, never 
   // The old global pill floated bottom-right over page actions. It is the same
   // session line and sign-out, now in normal flow under the connection status.
   assert.doesNotMatch(app, /<ServerModeBanner/)
-  assert.match(footer, /<AppVersionInfo \/>[\s\S]*<ServerModeBanner \/>[\s\S]*v-if="connection\.hint"/)
+  assert.match(footer, /<AppVersionInfo compact \/>[\s\S]*<ServerModeBanner \/>[\s\S]*v-if="connection\.hint"/)
   assert.doesNotMatch(banner, /position:\s*fixed/)
   assert.doesNotMatch(banner, /latency|ssm-dot|setInterval/, 'the sidebar connection row owns status truth')
   assert.match(banner, /\/api\/auth\/logout/)

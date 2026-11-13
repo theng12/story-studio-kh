@@ -26,7 +26,7 @@
       <div class="app-header-tools">
         <GenStudioStandingStrip variant="inline" class="app-header-standing" />
         <FeatureHelpCenter />
-        <AppVersionInfo />
+        <AppVersionInfo compact />
         <slot name="actions" />
       </div>
 

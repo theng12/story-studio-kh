@@ -3,7 +3,7 @@
     <button class="version-badge" type="button" title="What's New" @click="whatsNew.open()">
       Story Studio KH {{ version || '—' }}
     </button>
-    <p>Updates are installed by Studio Launcher KH.</p>
+    <p v-if="!compact">Updates are installed by Studio Launcher KH.</p>
     <p v-if="error" class="version-error" role="status">{{ error }}</p>
   </div>
 </template>
@@ -11,6 +11,9 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { useWhatsNewModal } from '~/composables/useWhatsNewModal'
+
+/** `compact` keeps the pill alone in the 38px top bar and the sidebar footer; Settings and Welcome carry the sentence. */
+const { compact = false } = defineProps<{ compact?: boolean }>()
 
 const { get } = useApi()
 const whatsNew = useWhatsNewModal()
