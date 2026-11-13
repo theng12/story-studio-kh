@@ -42,7 +42,7 @@ test('paid-wave boundary policy preserves the approved admission gates', async (
   assert.deepEqual(foundations, APPROVED_FOUNDATIONS)
 
   assert.match(normalizedPolicy, /proposal[^\n]*before[^\n]*author/i)
-  assert.match(normalizedPolicy, /GenStudio[^\n]*recommend[^\n]*owner[^\n]*(?:approve|decision)/i)
+  assert.match(normalizedPolicy, /Studio Library[^\n]*recommend[^\n]*owner[^\n]*(?:approve|decision)/i)
   assert.match(normalizedPolicy, /independent[^\n]*wave[^\n]*review/i)
   assert.match(normalizedPolicy, /no automatic(?:ally)?[^\n]*(?:publication|publish)/i)
   assert.match(normalizedPolicy, /unchanged[^\n]*legacy[^\n]*(?:content|files)[^\n]*cannot[^\n]*(?:sell|rebill)/i)
