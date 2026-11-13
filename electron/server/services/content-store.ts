@@ -410,7 +410,7 @@ async function activeKey(): Promise<string> {
  * packs across eleven bundles that is far more concurrent requests than
  * GenStudio's connection pool has connections, so the surplus sat waiting for
  * one -- long enough for this client's own request timeouts to fire and turn a
- * healthy store into "the Content Store is unavailable".
+ * healthy store into "the Studio Library is unavailable".
  *
  * Six is chosen to stay comfortably inside a small server pool while still
  * being six times faster than a serial walk. It is a ceiling, not a target:
@@ -590,7 +590,7 @@ export function contentStoreSectionFailure(error: unknown): { code: string; reas
   const offline = gatewayConnectionFailure(error)
   if (offline) return { code: 'GATEWAY_UNREACHABLE', reason: offline.detail }
   if (error instanceof GenStudioContentStoreResponseError) {
-    // Answered, but not with a Content Store response: a Gateway that does not
+    // Answered, but not with a Studio Library response: a Gateway that does not
     // serve these endpoints (a catch-all page), or a contract this build cannot
     // read. The validator detail names the field and endpoint; it is a
     // description of the response, never a local path.
@@ -643,7 +643,7 @@ function sectionFailure(error: unknown, section: string): { status: 'unavailable
  * It used to be all-or-nothing: one rejection anywhere — a Gateway that does
  * not serve the content endpoints, a 200 that is not the published shape, a
  * local journal this Mac cannot read — threw, and the route answered the
- * generic `500 {"detail":"Failed to load the Content Store."}`. On 2026-10-28
+ * generic `500 {"detail":"Failed to load the Studio Library."}`. On 2026-10-28
  * the installed mini reported exactly that while its archive bank answered 216
  * archives normally, and the cause could not even be read out of the log.
  *
@@ -671,7 +671,7 @@ export async function loadContentStoreOverview(): Promise<ContentStoreOverview> 
     apiKey = await activeKey()
   } catch (error) {
     keyFailure = sectionFailure(error, 'account')
-    logLine('warn', 'Content Store overview: no usable Gateway key', { code: keyFailure.code })
+    logLine('warn', 'Studio Library overview: no usable Gateway key', { code: keyFailure.code })
   }
 
   // ── the four Gateway reads, together ───────────────────────────────────
@@ -685,7 +685,7 @@ export async function loadContentStoreOverview(): Promise<ContentStoreOverview> 
         throw new ContentStoreLocalError(
           401,
           'CONTENT_STORE_SCOPE_REQUIRED',
-          'The active GenStudio key was not accepted for required content:read access.',
+          'The active Gateway key was not accepted for required content:read access.',
         )
       }
       throw error
@@ -711,7 +711,7 @@ export async function loadContentStoreOverview(): Promise<ContentStoreOverview> 
   const noteFailure = (section: keyof ContentStoreOverviewSections, error: unknown): void => {
     const failure = sectionFailure(error, section)
     sections[section] = failure
-    logLine('warn', 'Content Store overview section unavailable', {
+    logLine('warn', 'Studio Library overview section unavailable', {
       section,
       code: failure.code,
       reason: failure.reason,
@@ -735,7 +735,7 @@ export async function loadContentStoreOverview(): Promise<ContentStoreOverview> 
     throw new ContentStoreLocalError(
       409,
       'CONTENT_STORE_ACCOUNT_MISMATCH',
-      'GenStudio returned Content Store recall state for a different account.',
+      'The Studio Library returned recall state for a different account.',
     )
   }
 
@@ -823,7 +823,7 @@ export async function loadContentStoreOverview(): Promise<ContentStoreOverview> 
         code: 'CONTENT_STORE_LOCAL_STATE_UNAVAILABLE',
         reason: 'This Mac could not read its Studio Library purchase records.',
       }
-      logLine('error', 'Content Store purchase journal unavailable', {
+      logLine('error', 'Studio Library purchase journal unavailable', {
         raw: String((error as { message?: unknown })?.message ?? error ?? ''),
       })
     }

@@ -2642,7 +2642,7 @@
            HEVC means; the helper text explains the trade-off right
            where the choice is made. -->
       <p class="text-muted text-sm mt-2">
-        Final FFmpeg assembly runs on this Mac and does not spend GenStudio credits.
+        Final FFmpeg assembly runs on this Mac and does not spend Gateway credits.
       </p>
       <div class="grid-2 mt-2">
         <!-- Resolution -->

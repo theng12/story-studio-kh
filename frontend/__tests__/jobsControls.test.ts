@@ -80,12 +80,12 @@ test('terminal visual Scene Plan rows offer explicit paid prompt repair without 
   assert.match(jobs, /regenerate_empty_motion_prompts !== true/)
   assert.match(jobs, /class="btn btn-xs btn-primary prompt-auto-repair-btn"/)
   assert.match(jobs, />\{\{ controlBusy\.has\(job\.job_id\) \? 'Starting…' : 'Auto Repair Prompts · Credits' \}\}<\/button>/)
-  assert.match(jobs, /GenStudio credits may be charged/)
+  assert.match(jobs, /Gateway credits may be charged/)
   assert.match(jobs, /submits each missing or duplicated scene alone/i)
   assert.match(jobs, /Each scene is a separate Gateway request/)
   assert.match(jobs, /Pause stops new requests after any accepted request settles/)
   assert.match(jobs, /\.job-actions \{ margin-left: 0; width: 100%; justify-content: flex-start; \}/)
-  assert.match(jobs, /:aria-label="`Auto repair missing prompts for \$\{job\.episode_id\}; GenStudio credits may be charged`"/)
+  assert.match(jobs, /:aria-label="`Auto repair missing prompts for \$\{job\.episode_id\}; Gateway credits may be charged`"/)
   assert.match(jobs, /\/auto-repair-scene-prompts`[\s\S]*\{\},/)
   assert.match(jobs, /function canRetryJob\(job: RJob\): boolean/)
   assert.match(jobs, /if \(job\.params\?\.jobs_replace_failed_items\) return canRetryManualFailedItemExactly\(job\)/)
@@ -278,7 +278,7 @@ test('the conservative capacity message wraps safely on narrow Jobs layouts', ()
 
 test('Jobs makes temporary capacity best effort and directs upgrades to the Gateway', () => {
   assert.match(jobs, /Temporary boost[\s\S]*?best effort, not guaranteed/i)
-  assert.match(jobs, /Purchase more standard capacity in GenStudio/i)
+  assert.match(jobs, /Purchase more standard capacity in Gateway/i)
   assert.match(jobs, /\.capacity-boost \{[\s\S]*?white-space: normal;[\s\S]*?overflow-wrap: anywhere;/)
 })
 

@@ -71,10 +71,12 @@ async function verifyArchiveForRequest(
   request: Pick<ContentPackInstallRequest, 'source' | 'deliveryAttestation'>,
   policy: ContentPackVerificationPolicy,
   resolveSigningKey?: ContentPackInstallOptions['resolveGenStudioSigningKey'],
+  /** True when the bytes on disk were already accepted at install time. */
+  installedCopy = false,
 ): Promise<VerifiedContentPack> {
-  // model-drift-allow: Frozen Content Store source discriminator selects receipt-attested archive verification.
+  // model-drift-allow: Frozen Studio Library source discriminator selects receipt-attested archive verification.
   if (request.source !== 'genstudio-store') {
-    if (request.deliveryAttestation) throw new Error('Only GenStudio Store archives may carry delivery attestation evidence')
+    if (request.deliveryAttestation) throw new Error('Only Studio Library archives may carry delivery attestation evidence')
     // model-drift-allow: Persisted Content Pack provenance discriminator selects local possession verification.
     return request.source === 'local-import'
       ? verifyPossessedContentPackArchive(archiveBytes, policy)
@@ -82,12 +84,23 @@ async function verifyArchiveForRequest(
   }
   const evidence = ContentPackDeliveryAttestationSchema.parse(request.deliveryAttestation)
   const verified = await verifyDeliveryAttestedContentPackArchive(archiveBytes)
-  const key = await (resolveSigningKey
-    ? resolveSigningKey(evidence)
-    : (await import('../content-store/commerce-state.js')).resolveVerifiedContentStoreSigningKey({
-        accountId: evidence.account_id, origin: evidence.genstudio_origin, keyId: evidence.key_id,
-      }))
-  verifyGenStudioDeliveryAttestation(evidence, verified.manifest, sha256(archiveBytes), archiveBytes.byteLength, key)
+  let key: string | null
+  try {
+    key = await (resolveSigningKey
+      ? resolveSigningKey(evidence)
+      : (await import('../content-store/commerce-state.js')).resolveVerifiedContentStoreSigningKey({
+          accountId: evidence.account_id, origin: evidence.genstudio_origin, keyId: evidence.key_id,
+        }))
+  } catch (error) {
+    // Installed content is trusted by its own verified bytes and the archive hash recorded when it
+    // was accepted; the Store key only gates a NEW delivery (owner 2026-11-13: "as long as it's
+    // installed. it's done. nothing to check again unless it's an update"). A missing or unreadable
+    // local anchor must never block serving an installed pack — but a caller that supplied its own
+    // resolver asked for that key, so its refusal is kept.
+    if (!installedCopy || resolveSigningKey) throw error
+    key = null
+  }
+  if (key !== null) verifyGenStudioDeliveryAttestation(evidence, verified.manifest, sha256(archiveBytes), archiveBytes.byteLength, key)
   return verified
 }
 
@@ -306,7 +319,7 @@ async function verificationIdentity(
     .join('\n')
   const limits = JSON.stringify(policy.limits ?? {})
   let signingKey = ''
-  // model-drift-allow: Frozen Content Store source discriminator selects receipt-attested archive verification.
+  // model-drift-allow: Frozen Studio Library source discriminator selects receipt-attested archive verification.
   if (resolveSigningKey && installed.source === 'genstudio-store') {
     try {
       signingKey = await resolveSigningKey(ContentPackDeliveryAttestationSchema.parse(installed.delivery_attestation))
@@ -350,7 +363,7 @@ export async function verifyInstalledContentPackVersion(
 ): Promise<VerifiedContentPack> {
   const identity = { pack_id: installed.manifest?.pack_id, version: installed.manifest?.version }
   if (installed.recalled) {
-    throw unusableVersion('recalled', 'GenStudio recalled this installed Content Pack version', 'recalled by Store reconciliation', identity)
+    throw unusableVersion('recalled', 'The Studio Library recalled this installed Content Pack version', 'recalled by Store reconciliation', identity)
   }
   if (!await existingSafeDirectory(installed.install_path)) {
     throw unusableVersion('missing-on-disk', 'Content Pack immutable version is missing on disk',
@@ -370,7 +383,7 @@ export async function verifyInstalledContentPackVersion(
   const verified = await verifyArchiveForRequest(archiveBytes, {
     source: installed.source,
     deliveryAttestation: installed.delivery_attestation,
-  }, policy, resolveSigningKey)
+  }, policy, resolveSigningKey, true)
   for (const [relativePath, bytes] of verified.files) {
     const target = resolveVerifiedPackFile(installed.install_path, relativePath)
     const info = await fs.lstat(target)
@@ -417,23 +430,23 @@ export async function verifyInstalledContentPackClosure(
     if (installed.pending_removal) throw unusableVersion('pending-removal', 'Content Pack dependency is pending removal', key, dependency)
     visiting.add(key)
     try {
-      if (installed.recalled) throw unusableVersion('recalled', 'GenStudio recalled Content Pack version', key, dependency)
+      if (installed.recalled) throw unusableVersion('recalled', 'The Studio Library recalled Content Pack version', key, dependency)
       const verified = await verifyInstalledContentPackVersion(installed, policy, resolveSigningKey)
       if (verified.manifest.pack_id !== requiredPackId || verified.manifest.version !== requiredVersion) {
         throw new Error(`Content Pack immutable archive identity does not match state: ${key}`)
       }
       await assertContentPackAppCompatible(verified.manifest.min_app_version, appVersion)
       for (const dependency of verified.manifest.dependencies ?? []) await visit(dependency.pack_id, dependency.version)
-      // model-drift-allow: Frozen Content Store source discriminator identifies persisted receipt-attested closure state.
+      // model-drift-allow: Frozen Studio Library source discriminator identifies persisted receipt-attested closure state.
       if (installed.source === 'genstudio-store' && ContentPackDeliveryAttestationSchema.parse(installed.delivery_attestation).subject === 'receipt-root') {
         const evidence = ContentPackDeliveryAttestationSchema.parse(installed.delivery_attestation)
         const closure = evidence.closure_members
         const dependencies = verified.manifest.dependencies ?? []
-        if (closure.length !== dependencies.length) throw new Error(`GenStudio delivery closure does not match Content Pack dependencies: ${key}`)
+        if (closure.length !== dependencies.length) throw new Error(`Studio Library delivery closure does not match Content Pack dependencies: ${key}`)
         for (const [index, dependency] of dependencies.entries()) {
           const pinned = closure[index]!
           const retainedDependency = state.packs[dependency.pack_id]?.versions[dependency.version]
-          // model-drift-allow: Frozen Content Store source discriminator identifies persisted receipt-attested dependency evidence.
+          // model-drift-allow: Frozen Studio Library source discriminator identifies persisted receipt-attested dependency evidence.
           const dependencyEvidence = retainedDependency?.source === 'genstudio-store'
             ? retainedDependency.delivery_attestation : undefined
           if (!dependencyEvidence || dependencyEvidence.product_id !== pinned.product_id
@@ -441,7 +454,7 @@ export async function verifyInstalledContentPackClosure(
             || dependencyEvidence.release_id !== pinned.release_id
             || dependencyEvidence.version !== pinned.version
             || dependencyEvidence.archive_sha256 !== pinned.archive_sha256) {
-            throw new Error(`GenStudio delivery closure pin does not match the installed dependency: ${key}`)
+            throw new Error(`Studio Library delivery closure pin does not match the installed dependency: ${key}`)
           }
         }
       }
@@ -738,15 +751,15 @@ export async function installContentPackLocked(
       if (existing) {
         if (existing.pending_removal) throw new Error(`Content Pack version is pending removal: ${packId}@${version}`)
         if (existing.archive_sha256 !== archiveSha) throw new Error(`Content Pack version is immutable and already has a different archive: ${packId}@${version}`)
-        if (existing.recalled) throw new Error(`GenStudio recalled Content Pack version: ${packId}@${version}`)
+        if (existing.recalled) throw new Error(`The Studio Library recalled Content Pack version: ${packId}@${version}`)
         let verifiedExisting: VerifiedContentPack
         try {
           verifiedExisting = await verifyInstalledContentPackVersion(existing, policy, options.resolveGenStudioSigningKey)
         } catch (error) {
           const mayRepair = options.repairCorruptExactStoreVersion === true
-            // model-drift-allow: Frozen Content Store source discriminator identifies receipt provenance, not a GenStudio catalog product ID.
+            // model-drift-allow: Frozen Studio Library source discriminator identifies receipt provenance, not a GenStudio catalog product ID.
             && request.source === 'genstudio-store'
-            // model-drift-allow: Frozen Content Store source discriminator identifies receipt provenance, not a GenStudio catalog product ID.
+            // model-drift-allow: Frozen Studio Library source discriminator identifies receipt provenance, not a GenStudio catalog product ID.
             && existing.source === 'genstudio-store'
           if (!mayRepair) throw error
           // The retained ownership evidence must independently authorize the
@@ -808,7 +821,7 @@ export async function installContentPackLocked(
         source: request.source,
         install_path: finalPath,
         manifest: verified.manifest,
-        // model-drift-allow: Frozen Content Store source discriminator controls persisted delivery-attestation state.
+        // model-drift-allow: Frozen Studio Library source discriminator controls persisted delivery-attestation state.
         ...(request.source === 'genstudio-store' ? {
           delivery_attestation: ContentPackDeliveryAttestationSchema.parse(request.deliveryAttestation),
         } : {}),

@@ -419,7 +419,7 @@ function decodeAnchorState(read: SecretRead): ContentStoreAnchorState {
   if (read.kind === 'io-error') throw new SecretsFileError('store-unreadable')
   if (read.kind === 'invalid') throw new SecretsFileError('store-invalid')
   const parsed = parseAnchorState(read.value)
-  if (!parsed) throw new Error('Content Store key anchor payload is malformed or tampered')
+  if (!parsed) throw new Error('Studio Library key anchor payload is malformed or tampered')
   return parsed
 }
 
@@ -588,14 +588,14 @@ export async function writeAppSecrets(
 /** Insert-only owner-only key mapping; a named GenStudio key can never repoint. */
 export async function recordContentStoreKeyAnchor(anchor: ContentStoreKeyAnchor): Promise<void> {
   if (!anchor.origin || !anchor.account_id || !anchor.content_account_id || !anchor.keys.length || anchor.keys.length > MAX_CONTENT_STORE_ANCHOR_KEYS) {
-    throw new Error('GenStudio Content Store key anchor is invalid')
+    throw new Error('Studio Library key anchor is invalid')
   }
   await mutateContentStoreAnchorState(state => {
     const anchors = state.anchors
     const existing = anchors.find(candidate => candidate.origin === anchor.origin
       && candidate.account_id === anchor.account_id && candidate.content_account_id === anchor.content_account_id)
     if (!existing) {
-      if (anchors.length >= 20) throw new Error('GenStudio Content Store key-anchor capacity reached')
+      if (anchors.length >= 20) throw new Error('Studio Library key-anchor capacity reached')
       anchors.push({ ...anchor, keys: anchor.keys.map(key => ({ ...key })) })
       return
     }
@@ -603,16 +603,16 @@ export async function recordContentStoreKeyAnchor(anchor: ContentStoreKeyAnchor)
     for (const key of anchor.keys) {
       const pinned = existing.keys.find(candidate => candidate.key_id === key.key_id)
       if (pinned && pinned.public_key_base64 !== key.public_key_base64) {
-        throw new Error(`GenStudio Content Store signing key ${key.key_id} was repointed in the saved key anchor`)
+        throw new Error(`Studio Library signing key ${key.key_id} was repointed in the saved key anchor`)
       }
       const pending = additions.get(key.key_id)
       if (pending && pending.public_key_base64 !== key.public_key_base64) {
-        throw new Error(`GenStudio Content Store signing key ${key.key_id} was repointed in the saved key anchor`)
+        throw new Error(`Studio Library signing key ${key.key_id} was repointed in the saved key anchor`)
       }
       if (!pinned) additions.set(key.key_id, { ...key })
     }
     if (existing.keys.length + additions.size > MAX_CONTENT_STORE_ANCHOR_KEYS) {
-      throw new Error(`GenStudio Content Store key anchor exceeds ${MAX_CONTENT_STORE_ANCHOR_KEYS} keys`)
+      throw new Error(`Studio Library key anchor exceeds ${MAX_CONTENT_STORE_ANCHOR_KEYS} keys`)
     }
     existing.keys.push(...additions.values())
   })

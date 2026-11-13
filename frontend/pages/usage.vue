@@ -165,7 +165,7 @@ async function load(): Promise<void> {
   } catch (cause: any) {
     snapshot.value = null
     usageErrorCode.value = cause?.data?.code || ''
-    error.value = cause?.data?.detail || cause?.message || 'GenStudio usage is unavailable.'
+    error.value = cause?.data?.detail || cause?.message || 'Gateway usage is unavailable.'
   } finally { loading.value = false }
 }
 

@@ -58,7 +58,7 @@ export function isUsableLiveGenStudioModel(
  */
 export function genStudioModelLockReason(model: Pick<LiveGenStudioModel, 'locked' | 'lock_reason'>): string {
   if (model.locked !== true) return ''
-  if (model.lock_reason === 'requires_paid_account') return 'Requires a paid GenStudio account.'
+  if (model.lock_reason === 'requires_paid_account') return 'Requires a paid Gateway account.'
   const published = typeof model.lock_reason === 'string' ? model.lock_reason : ''
   return published.trim() ? published : 'Temporarily unavailable.'
 }

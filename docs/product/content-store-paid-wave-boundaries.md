@@ -1,6 +1,6 @@
-# Paid Content Store wave boundaries
+# Paid Studio Library wave boundaries
 
-This document is an admission policy for later paid Content Store waves. The lanes below are
+This document is an admission policy for later paid Studio Library waves. The lanes below are
 approved directions for future proposals, not stocked products, product IDs, prices, releases,
 or permission to repackage an unchanged legacy file.
 
@@ -54,7 +54,7 @@ rewrites, or silently recharges unchanged bytes.
 
 When a component needs independent ownership, updates, withdrawal, or review, the proposal
 must define it as a separate catalog identity and entitlement family. A kit is a composition of
-exact component releases, not a disguised monolith. GenStudio assigns the eventual product,
+exact component releases, not a disguised monolith. The Studio Library assigns the eventual product,
 release, SKU, and family identities after approval; this policy invents none, and Story Studio
 must not guess or cache them.
 
@@ -77,7 +77,7 @@ manifest exists.
 ## Transparent dependency
 
 The detail view and quote must name every required component and state whether it is free,
-already owned, or included. The customer sees the exact GenStudio quote and ownership facts;
+already owned, or included. The customer sees the exact Studio Library quote and ownership facts;
 Story Studio does not calculate a price, discount, grant, or dependency value locally. Missing
 or unresolved dependency facts block admission until the proposal is corrected.
 
@@ -87,7 +87,7 @@ or unresolved dependency facts block admission until the proposal is corrected.
    above before paid-wave authoring or commercial identity assignment begins.
 2. **Evidence before merchandising.** The authored source is validated, its claims are tested,
    and its dependencies are reviewed before any shelf or detail metadata is prepared.
-3. **Owner price after GenStudio recommendation.** GenStudio recommends a price from the live
+3. **Owner price after Studio Library recommendation.** The Studio Library recommends a price from the live
    credit economy; the owner makes the final price decision and approves it only after that
    recommendation and the evidence review. No later wave price is guessed in Story Studio.
 4. **Independent wave review.** Each wave requires an independent wave review covering content
@@ -95,7 +95,7 @@ or unresolved dependency facts block admission until the proposal is corrected.
    Critical or Important findings block the wave until corrected and re-reviewed.
 5. **Explicit publication.** No automatic publication, grant, purchase, installation, or shelf
    placement follows from a passing test. Publication requires the separate owner-approved
-   release and GenStudio catalog actions; without those actions the wave remains proposal or
+   release and Studio Library catalog actions; without those actions the wave remains proposal or
    source material only.
 
 This policy creates no new product ID, SKU, release ID, entitlement family, price, discount, or

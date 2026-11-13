@@ -207,7 +207,7 @@ async function verifyInstalledAndRecover(
        *
        * `active_version` is what every catalog lookup keys on: the formula,
        * style and thumbnail registries all `continue` past a pack without one.
-       * The Content Store keys on it too — with no active version it reports a
+       * The Studio Library keys on it too — with no active version it reports a
        * pack sitting verified on disk as "not installed", which also means a
        * newer published release can never surface as an update.
        *
@@ -242,7 +242,7 @@ async function verifyInstalledAndRecover(
     const from = pack.active_version
     if (pack.versions[from]?.recalled) {
       delete pack.active_version
-      report(options, `active version disabled after GenStudio recall: ${packId}@${from}`)
+      report(options, `active version disabled after a Studio Library recall: ${packId}@${from}`)
       continue
     }
     try {

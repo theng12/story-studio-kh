@@ -246,7 +246,7 @@ describe('GenStudio Content Store 0.21 canonical parser', () => {
 
     assert.throws(
       () => parseContentStoreCatalog({ products: [{ ...product(), kind: 'unknown_kind_probe' }] }),
-      /published Content Store product kind/i,
+      /published Studio Library product kind/i,
       'an unrecognised kind must still fail the whole parse rather than be skipped',
     )
   })

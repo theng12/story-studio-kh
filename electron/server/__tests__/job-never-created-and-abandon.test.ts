@@ -370,7 +370,7 @@ test('abandoning quotes the credit releases the job already recorded, instead of
   // Story Studio's own limit is still stated honestly, and the user is pointed
   // at the only place that holds the real balance.
   assert.match(log, /Story Studio holds no balance and refunds nothing itself/)
-  assert.match(log, /GenStudio account has the final figure/)
+  assert.match(log, /Gateway account has the final figure/)
 })
 
 test('with no recorded release, abandoning says what Story Studio cannot do — and asserts nothing about the Gateway', async () => {
@@ -383,7 +383,7 @@ test('with no recorded release, abandoning says what Story Studio cannot do — 
 
   assert.doesNotMatch(log, /nothing was refunded/i)
   assert.match(log, /Story Studio holds no balance and refunds nothing itself/)
-  assert.match(log, /recorded in your GenStudio account/)
+  assert.match(log, /recorded in your Gateway account/)
   // No number is invented when the log carries no release evidence.
   assert.doesNotMatch(log, /credit\(s\) across/)
 })

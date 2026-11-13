@@ -10290,14 +10290,14 @@ export function readRecordedCreditReleases(lines: readonly string[]): { count: n
 function describeAbandonedCreditPosition(lines: readonly string[]): string {
   const released = readRecordedCreditReleases(lines)
   if (!released.count) {
-    return 'Credits: Story Studio holds no balance and refunds nothing itself. Whatever GenStudio '
-      + 'charged or released for this job is recorded in your GenStudio account — check there for the '
+    return 'Credits: Story Studio holds no balance and refunds nothing itself. Whatever Gateway '
+      + 'charged or released for this job is recorded in your Gateway account — check there for the '
       + 'final figure. Abandoning does not change it either way.'
   }
   return `Credits: this job's own log already records Gateway releasing ${released.total} credit(s) across `
     + `${released.count === 1 ? 'one settled request' : `${released.count} settled requests`}. That release happened `
-    + 'in your GenStudio account, not here, and abandoning does not undo it. Story Studio holds no balance and '
-    + 'refunds nothing itself; your GenStudio account has the final figure.'
+    + 'in your Gateway account, not here, and abandoning does not undo it. Story Studio holds no balance and '
+    + 'refunds nothing itself; your Gateway account has the final figure.'
 }
 
 /**

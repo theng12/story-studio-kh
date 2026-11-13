@@ -18,7 +18,7 @@
     class="genstudio-standing-strip"
     :class="`standing-strip-${variant}`"
     aria-label="Gateway account standing"
-    :title="usageError || 'Open GenStudio usage'"
+    :title="usageError || 'Open Gateway usage'"
   >
     <span>Gateway</span>
     <small v-if="standingSummary">{{ standingSummary }}</small>

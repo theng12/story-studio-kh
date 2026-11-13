@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { createHash, generateKeyPairSync, randomUUID, sign } from 'node:crypto'
+import fs from 'node:fs/promises'
 import { afterEach, describe, test } from 'node:test'
 
 import JSZip from 'jszip'
@@ -10,7 +11,8 @@ import { createContentPackKeyring } from '../content-packs/keyring.js'
 import { listCatalogEntries } from '../content-packs/registry.js'
 import { getContentPackRuntimePaths } from '../content-packs/runtime-paths.js'
 import { mutateContentPackState, readContentPackState } from '../content-packs/state.js'
-import { recordVerifiedContentRestore, resolveVerifiedContentStoreSigningKey } from '../content-store/commerce-state.js'
+import { ContentStoreRevalidationRequiredError, recordVerifiedContentRestore, resolveVerifiedContentStoreSigningKey } from '../content-store/commerce-state.js'
+import { contentStoreAnchorsPath } from '../services/app-secrets-store.js'
 import { canonicalizeContentStoreObject } from '../lib/genstudio-content-store.js'
 import { resolveContentStoreInstallSnapshot } from '../services/content-store-install-state.js'
 import { useTempDataDir } from './_helpers.js'
@@ -229,5 +231,55 @@ describe('Store-attested verification memo is keyed on the resolved signing key'
     key = commercePublicKey
     await verifyInstalledContentPackVersion(record, policy, resolver)
     await assert.rejects(verifyInstalledContentPackVersion(record, policy, async () => { throw new Error('revoked') }), /revoked/)
+  })
+})
+
+describe('installed packs serve without a local key anchor (owner 2026-11-13)', () => {
+  const legacyEnvelope = JSON.stringify({ __encrypted: true, version: 1, ciphertext: 'AAAA' })
+
+  test('a Store pack installed earlier still verifies with no anchor file at all', async () => {
+    const paths = await isolated()
+    const packId = 'com.storystudio.matrix.no-anchor'
+    const installed = await storeInstall(paths, packId, '1.0.0')
+    const record = (await readContentPackState(paths)).packs[packId]!.versions[installed.version]!
+    assert.equal(await fs.stat(contentStoreAnchorsPath()).then(() => true, () => false), false)
+    const verified = await verifyInstalledContentPackVersion(record, policy)
+    assert.equal(verified.manifest.pack_id, packId)
+    assert.equal(verified.manifest.version, '1.0.0')
+  })
+
+  test('an unreadable legacy anchor envelope keeps an installed pack served on a normal refresh', async () => {
+    const paths = await isolated()
+    const packId = 'com.storystudio.matrix.legacy-anchor'
+    const installed = await storeInstall(paths, packId, '1.0.0')
+    // The mini's 1.4.399 state: verified restore evidence exists, but the anchor file is the old
+    // encrypted envelope, so resolving the receipt key would demand online re-verification.
+    await recordRestore('acct_legacy', 'legacy-key', commercePair)
+    await fs.writeFile(contentStoreAnchorsPath(), legacyEnvelope, { mode: 0o600 })
+    const record = (await readContentPackState(paths)).packs[packId]!.versions[installed.version]!
+    const verified = await verifyInstalledContentPackVersion(record, policy)
+    assert.equal(verified.manifest.pack_id, packId)
+    assert.equal(verified.manifest.version, '1.0.0')
+    // The refresh path the page uses: the installed row must be current, not "incomplete".
+    const snapshot = await resolveContentStoreInstallSnapshot([
+      release(packId, '1.0.0', record.archive_sha256),
+    ], { paths, policy })
+    assert.deepEqual(snapshot.installed.map(pack => [pack.packId, pack.installState]), [[packId, 'installed_current']])
+  })
+
+  test('a NEW Store delivery still requires verified trust when the anchor is unreadable', async () => {
+    const paths = await isolated()
+    await recordRestore('acct_new', 'new-key', commercePair)
+    await fs.writeFile(contentStoreAnchorsPath(), legacyEnvelope, { mode: 0o600 })
+    const packId = 'com.storystudio.matrix.new-needs-trust'
+    const bytes = await archive(packId, '1.0.0')
+    await assert.rejects(installContentPack({
+      archiveBytes: bytes,
+      source: 'genstudio-store',
+      expectedArchiveSha256: sha(bytes),
+      expectedPackId: packId,
+      expectedVersion: '1.0.0',
+      deliveryAttestation: evidence(packId, '1.0.0', sha(bytes), bytes.byteLength, [], 'acct_new', 'new-key'),
+    }, { paths, policy }), (error: unknown) => error instanceof ContentStoreRevalidationRequiredError)
   })
 })

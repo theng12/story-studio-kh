@@ -209,7 +209,7 @@ describe('useContentStore explicit commerce state machine', () => {
     ['incompatible_story_version', 'A newer Story Studio version is needed'],
     ['quote_expired', 'This quote can no longer be used'],
     ['quote_rejected', 'This quote can no longer be used'],
-    ['CONTENT_PURCHASE_OUTCOME_UNCERTAIN', 'GenStudio’s answer is uncertain'],
+    ['CONTENT_PURCHASE_OUTCOME_UNCERTAIN', 'The Studio Library’s answer is uncertain'],
     ['signing_unavailable', 'The Studio Library is not open yet'],
     ['CONTENT_STORE_ACCOUNT_MISMATCH', 'This Mac could not confirm availability'],
     ['CONTENT_PURCHASE_ACCOUNT_MISMATCH', 'This Mac could not confirm availability'],
@@ -220,12 +220,12 @@ describe('useContentStore explicit commerce state machine', () => {
     ['CONTENT_PACK_DOWNLOAD_WITHDRAWN', 'This Content Pack can no longer be downloaded'],
     ['CONTENT_PACK_DEPENDENCY_NOT_OWNED', 'This Content Pack cannot be installed'],
     ['CONTENT_PACK_NESTED_CLOSURE_UNSUPPORTED', 'This Content Pack cannot be installed'],
-    ['CONTENT_PACK_RECEIPT_CLOSURE_MISMATCH', 'GenStudio has not attested to the versions this pack requires'],
+    ['CONTENT_PACK_RECEIPT_CLOSURE_MISMATCH', 'The Studio Library has not attested to the versions this pack requires'],
     ['CONTENT_PACK_RECEIPT_MISSING', 'This Content Pack could not be verified'],
     ['CONTENT_PACK_REMOTE_IDENTITY_MISMATCH', 'This Content Pack could not be verified'],
     ['CONTENT_STORE_REQUEST_INVALID', 'This Studio Library request is invalid'],
     ['CONTENT_STORE_REQUEST_TOO_LARGE', 'This Studio Library request is invalid'],
-    ['CONTENT_STORE_UPSTREAM_REFUSED', 'GenStudio could not complete this request'],
+    ['CONTENT_STORE_UPSTREAM_REFUSED', 'The Studio Library could not complete this request'],
     // An unclassified failure was NOT a refusal, and must not read as one.
     ['CONTENT_STORE_INSTALL_FAILED', 'This Content Pack could not be installed'],
     ['download_grant_expired', 'The download authorization expired'],
@@ -257,7 +257,7 @@ describe('useContentStore explicit commerce state machine', () => {
     const presentation = contentStoreErrorPresentation({
       status: 502,
       code: 'CONTENT_STORE_PAYLOAD_TOO_LARGE',
-      detail: 'Content Store JSON is too large to read: it holds more than 65536 JSON nodes. (GenStudio /v1/content/receipts)',
+      detail: 'Studio Library JSON is too large to read: it holds more than 65536 JSON nodes. (Gateway /v1/content/receipts)',
     })
     assert.notEqual(presentation.title, 'The Studio Library is unavailable')
     assert.match(presentation.detail, /\/v1\/content\/receipts/)
@@ -477,7 +477,7 @@ describe('useContentStore explicit commerce state machine', () => {
       error.status = 401
       error.data = {
         code: 'CONTENT_STORE_SCOPE_REQUIRED',
-        detail: 'The active GenStudio key was not accepted for required content:read access.',
+        detail: 'The active Gateway key was not accepted for required content:read access.',
       }
       throw error
     }
@@ -497,7 +497,7 @@ describe('useContentStore explicit commerce state machine', () => {
       error.status = 401
       error.data = {
         code: 'CONTENT_STORE_SCOPE_REQUIRED',
-        detail: 'The active GenStudio key was not accepted for required content:read access.',
+        detail: 'The active Gateway key was not accepted for required content:read access.',
       }
       throw error
     }

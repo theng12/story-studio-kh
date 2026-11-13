@@ -1058,7 +1058,7 @@ router.get('/app-settings/genstudio/usage', async (_req, res) => {
           'Story Studio will not estimate or reconstruct credits locally.',
       })
     }
-    res.status(502).json(humanizeBackendError(error, 'Could not load your GenStudio credit data'))
+    res.status(502).json(humanizeBackendError(error, 'Could not load your Gateway credit data'))
   }
 })
 
@@ -1320,7 +1320,7 @@ router.post('/app-settings/api-keys/:providerId/test', async (req, res) => {
         // Safe read-only proof. Phase 1 deliberately has no non-debit endpoint
         // that can prove content:purchase, so the purchase scope stays
         // required-but-unverified until the customer explicitly buys a pack.
-        { path: '/v1/content/account', scope: 'content:read', label: 'Content Store account', expected: 200 },
+        { path: '/v1/content/account', scope: 'content:read', label: 'Studio Library account', expected: 200 },
       ]
 
       // `GET /v1/voices` REQUIRES `model_id` (ADR-0016: TTS is model-first, and
@@ -1375,7 +1375,7 @@ router.post('/app-settings/api-keys/:providerId/test', async (req, res) => {
         try {
           const body = await response.clone().json() as { code?: unknown; detail?: unknown }
           return body?.code === 'CONTENT_STORE_NOT_CONNECTED'
-            || /Content Store is not connected/i.test(String(body?.detail || ''))
+            || /Studio Library is not connected/i.test(String(body?.detail || ''))
         } catch { return false }
       }
 

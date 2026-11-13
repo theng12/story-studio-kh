@@ -15,7 +15,7 @@ const ED25519_SPKI_PREFIX = Buffer.from('302a300506032b6570032100', 'hex')
 
 function matchingKey(publicKey: GenStudioContentPublicKey, keyId: string, field: string): GenStudioContentSigningKey {
   const key = publicKey.keys.find(candidate => candidate.keyId === keyId)
-  if (!key) throw new Error(`${field} key_id does not match a trusted Content Store public key`)
+  if (!key) throw new Error(`${field} key_id does not match a trusted Studio Library public key`)
   return key
 }
 
@@ -54,10 +54,10 @@ export function verifyContentStoreRestore(
   expectedAccountId: string,
 ): void {
   if (typeof expectedAccountId !== 'string' || expectedAccountId.length === 0) {
-    throw new TypeError('Expected Content Store account id is required')
+    throw new TypeError('Expected Studio Library account id is required')
   }
   if (receipts.accountId !== expectedAccountId || receipts.contentAccountId !== expectedAccountId) {
-    throw new Error('Content Store restore belongs to a different account')
+    throw new Error('Studio Library restore belongs to a different account')
   }
   verifyContentStoreRestoreReceipt(publicKey, receipts.restoreReceipt, expectedAccountId)
   for (const [index, receipt] of receipts.purchaseReceipts.entries()) {
@@ -78,7 +78,7 @@ export function verifyContentStoreRestoreReceipt(
   expectedAccountId: string,
 ): CanonicalJsonObject {
   if (typeof expectedAccountId !== 'string' || expectedAccountId.length === 0) {
-    throw new TypeError('Expected Content Store account id is required')
+    throw new TypeError('Expected Studio Library account id is required')
   }
   matchingKey(publicKey, receipt.keyId, 'Restore receipt')
   verifySignature(
@@ -100,7 +100,7 @@ export function verifyContentStorePurchase(
   purchase: GenStudioContentPurchase,
   expectedAccountId: string,
 ): CanonicalJsonObject {
-  if (purchase.accountId !== expectedAccountId) throw new Error('Content Store purchase belongs to a different account')
+  if (purchase.accountId !== expectedAccountId) throw new Error('Studio Library purchase belongs to a different account')
   matchingKey(publicKey, purchase.receipt.keyId, 'Purchase receipt')
   verifySignature(
     publicKey,

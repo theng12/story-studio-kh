@@ -14,7 +14,7 @@ const MAX_DEPTH = 32
 // dense hostile body by roughly eight times over -- it is a bound that bites,
 // not decoration.
 //
-// 4_096 was the value until 2026-08-25, when it took the Content Store down
+// 4_096 was the value until 2026-08-25, when it took the Studio Library down
 // for a day. Measured that morning against the real account: /v1/content/
 // receipts was 5_644 nodes and /v1/content/products was 3_873. Eighteen pack
 // purchases that day carried receipts from 3_908 to 5_644 and the store went
@@ -368,7 +368,7 @@ export class GenStudioContentStoreApiError extends Error {
   readonly refusal: Record<string, unknown>
 
   constructor(status: number, code: string | null, detail: string, refusal: Record<string, unknown>) {
-    super(detail || `GenStudio Content Store returned HTTP ${status}`)
+    super(detail || `The Studio Library returned HTTP ${status}`)
     this.name = 'GenStudioContentStoreApiError'
     this.status = status
     this.code = code
@@ -378,12 +378,12 @@ export class GenStudioContentStoreApiError extends Error {
 }
 
 /**
- * A Content Store payload refused for its SIZE, not its content.
+ * A Studio Library payload refused for its SIZE, not its content.
  *
  * This exists so the size refusals can be told apart from every other parse
  * failure on the way to the user. On 2026-08-25 the node cap fired on
  * /v1/content/receipts and the renderer was told only "Failed to load the
- * Content Store"; the store showed "unavailable" with every count at zero, and
+ * Studio Library"; the store showed "unavailable" with every count at zero, and
  * finding the one-line real cause took a day of reading logs. A limit that can
  * be reached must say so out loud, and name the payload that reached it.
  */
@@ -407,14 +407,14 @@ export class GenStudioContentStoreTransportError extends Error {
 }
 
 /**
- * The Gateway ANSWERED, but not with a Content Store response this build can
+ * The Gateway ANSWERED, but not with a Studio Library response this build can
  * read: a different JSON shape, an HTML page behind a catch-all route, or a
  * body that is not JSON at all.
  *
  * This is its own type because it means something specific to the customer —
- * "this Gateway does not serve the Content Store" — and because the alternative
+ * "this Gateway does not serve the Studio Library" — and because the alternative
  * was worse: an untyped `Error` here reached the renderer as the generic
- * "Failed to load the Content Store." 500, which is exactly what the installed
+ * "Failed to load the Studio Library." 500, which is exactly what the installed
  * mini reported on 2026-10-28 while its archive bank answered normally. The
  * `detail` is the field-level reason from the validator; it is safe to log.
  */
@@ -452,27 +452,27 @@ function canonicalJson(value: unknown, state: { nodes: number }, depth: number, 
   state.nodes += 1
   if (state.nodes > MAX_NODES) {
     throw new GenStudioContentStoreLimitError(
-      `Content Store JSON is too large to read: it holds more than ${MAX_NODES} JSON nodes.`,
+      `Studio Library JSON is too large to read: it holds more than ${MAX_NODES} JSON nodes.`,
     )
   }
   if (depth > MAX_DEPTH) {
-    throw new GenStudioContentStoreLimitError(`Content Store JSON exceeds the ${MAX_DEPTH}-level depth limit.`)
+    throw new GenStudioContentStoreLimitError(`Studio Library JSON exceeds the ${MAX_DEPTH}-level depth limit.`)
   }
   if (value === null || typeof value === 'boolean') return JSON.stringify(value)
   if (typeof value === 'string') {
     if (Buffer.byteLength(value, 'utf8') > MAX_STRING_BYTES) {
       throw new GenStudioContentStoreLimitError(
-        `Content Store JSON holds a single string larger than ${MAX_STRING_BYTES} bytes.`,
+        `Studio Library JSON holds a single string larger than ${MAX_STRING_BYTES} bytes.`,
       )
     }
     return JSON.stringify(value)
   }
   if (typeof value === 'number') {
-    if (!Number.isFinite(value)) throw new Error('Content Store JSON number must be finite')
+    if (!Number.isFinite(value)) throw new Error('Studio Library JSON number must be finite')
     if (numericSource !== undefined) {
       if (!/^-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?$/.test(numericSource)
         || !Object.is(Number(numericSource), value)) {
-        throw new Error('Content Store JSON number source is invalid')
+        throw new Error('Studio Library JSON number source is invalid')
       }
       return numericSource
     }
@@ -481,26 +481,26 @@ function canonicalJson(value: unknown, state: { nodes: number }, depth: number, 
   if (Array.isArray(value)) {
     const entries: string[] = []
     for (let index = 0; index < value.length; index += 1) {
-      if (!(index in value)) throw new Error('Content Store JSON arrays must not be sparse')
+      if (!(index in value)) throw new Error('Studio Library JSON arrays must not be sparse')
       entries.push(canonicalJson(value[index], state, depth + 1, numberSources.get(value)?.get(String(index))))
     }
     return `[${entries.join(',')}]`
   }
-  const record = plainObject(value, 'Content Store JSON value')
-  if (Object.getOwnPropertySymbols(record).length > 0) throw new Error('Content Store JSON contains non-JSON keys')
+  const record = plainObject(value, 'Studio Library JSON value')
+  if (Object.getOwnPropertySymbols(record).length > 0) throw new Error('Studio Library JSON contains non-JSON keys')
   const keys = Object.keys(record).sort()
   for (const key of keys) {
-    if (DANGEROUS_KEYS.has(key)) throw new Error(`Content Store JSON contains dangerous key: ${key}`)
+    if (DANGEROUS_KEYS.has(key)) throw new Error(`Studio Library JSON contains dangerous key: ${key}`)
   }
   return `{${keys.map(key => `${JSON.stringify(key)}:${canonicalJson(record[key], state, depth + 1, numberSources.get(record)?.get(key))}`).join(',')}}`
 }
 
 export function canonicalizeContentStoreObject(value: unknown): CanonicalJsonObject {
-  plainObject(value, 'Content Store JSON root')
+  plainObject(value, 'Studio Library JSON root')
   const canonical = canonicalJson(value, { nodes: 0 }, 0)
   const bytes = Buffer.from(canonical, 'utf8')
   if (bytes.byteLength > MAX_CANONICAL_BYTES) {
-    throw new GenStudioContentStoreLimitError('Content Store canonical JSON payload exceeds 1 MiB.')
+    throw new GenStudioContentStoreLimitError('Studio Library canonical JSON payload exceeds 1 MiB.')
   }
   return {
     value: value as Record<string, unknown>,
@@ -689,7 +689,7 @@ function optionalInstant(record: Record<string, unknown>, key: string): string |
 
 function kind(record: Record<string, unknown>, key = 'kind'): GenStudioContentProductKind {
   const value = text(record, key) as GenStudioContentProductKind
-  if (!PRODUCT_KINDS.has(value)) throw new Error(`${key} is not a published Content Store product kind`)
+  if (!PRODUCT_KINDS.has(value)) throw new Error(`${key} is not a published Studio Library product kind`)
   return value
 }
 
@@ -1162,16 +1162,16 @@ export function parseContentStorePublicKey(value: unknown): GenStudioContentPubl
   const raw = canonicalizeContentStoreObject(value)
   const row = raw.value
   const algorithm = text(row, 'algorithm')
-  if (algorithm !== 'ed25519') throw new Error('Content Store public-key algorithm must be ed25519')
+  if (algorithm !== 'ed25519') throw new Error('Studio Library public-key algorithm must be ed25519')
   const canonicalization = text(row, 'canonicalization')
   if (canonicalization !== CONTENT_STORE_CANONICALIZATION) {
-    throw new Error(`Content Store public-key canonicalization must be ${CONTENT_STORE_CANONICALIZATION}`)
+    throw new Error(`Studio Library public-key canonicalization must be ${CONTENT_STORE_CANONICALIZATION}`)
   }
   const payloadTypes = textArray(row, 'payload_types')
   if (new Set(payloadTypes).size !== payloadTypes.length
     || payloadTypes.length !== CONTENT_STORE_PAYLOAD_TYPES.size
     || [...CONTENT_STORE_PAYLOAD_TYPES].some(type => !payloadTypes.includes(type))) {
-    throw new Error('Content Store public-key payload_types must exactly match the published signed payload types')
+    throw new Error('Studio Library public-key payload_types must exactly match the published signed payload types')
   }
   const publicKeyBase64 = text(row, 'public_key_base64')
   const keyId = text(row, 'key_id')
@@ -1197,15 +1197,15 @@ export function parseContentStorePublicKey(value: unknown): GenStudioContentPubl
         current: true,
       }]
     : (() => {
-        if (!Array.isArray(row.keys) || row.keys.length === 0) throw new Error('Content Store public-key keys must be a non-empty array')
+        if (!Array.isArray(row.keys) || row.keys.length === 0) throw new Error('Studio Library public-key keys must be a non-empty array')
         const parsed = row.keys.map((key, index) => parseKey(key, `keys[${index}]`))
-        if (new Set(parsed.map(key => key.keyId)).size !== parsed.length) throw new Error('Content Store public-key keys contains a duplicate key_id')
+        if (new Set(parsed.map(key => key.keyId)).size !== parsed.length) throw new Error('Studio Library public-key keys contains a duplicate key_id')
         if (parsed.filter(key => key.current).length !== 1 || !parsed[0]?.current) {
-          throw new Error('Content Store public-key keys must contain exactly one current key, first')
+          throw new Error('Studio Library public-key keys must contain exactly one current key, first')
         }
         const current = parsed[0]
         if (current.keyId !== keyId || current.algorithm !== algorithm || current.publicKeyBase64 !== publicKeyBase64) {
-          throw new Error('Content Store public-key top-level fields must match the current key')
+          throw new Error('Studio Library public-key top-level fields must match the current key')
         }
         return parsed
       })()
@@ -1223,7 +1223,7 @@ export function parseContentStorePublicKey(value: unknown): GenStudioContentPubl
 }
 
 function assertRestoreCoherence(result: GenStudioContentReceipts): void {
-  if (result.accountId !== result.contentAccountId) throw new Error('Content Store restore account ids do not match')
+  if (result.accountId !== result.contentAccountId) throw new Error('Studio Library restore account ids do not match')
   const signed = result.restoreReceipt.signedReceipt.value
   if (signed.account_id !== result.accountId || signed.content_account_id !== result.contentAccountId) {
     throw new Error('Signed restore account ids do not match the response envelope')
@@ -1441,7 +1441,7 @@ interface RequestOptions<T> {
 
 function errorBody(textBody: string): Record<string, unknown> {
   if (Buffer.byteLength(textBody, 'utf8') > MAX_CANONICAL_BYTES) {
-    throw new GenStudioContentStoreLimitError('GenStudio Content Store error response exceeds 1 MiB.')
+    throw new GenStudioContentStoreLimitError('The Studio Library error response exceeds 1 MiB.')
   }
   try {
     const parsed = parseJsonPreservingNumberSources(textBody)
@@ -1453,7 +1453,7 @@ function errorBody(textBody: string): Record<string, unknown> {
 
 class ContentStoreResponseTooLargeError extends GenStudioContentStoreLimitError {
   constructor() {
-    super('GenStudio Content Store response exceeds 1 MiB.')
+    super('The Studio Library response exceeds 1 MiB.')
   }
 }
 
@@ -1503,7 +1503,7 @@ async function requestOnce<T>(options: RequestOptions<T>): Promise<T> {
       signal: AbortSignal.timeout(options.timeoutMs),
     })
   } catch (error) {
-    throw new GenStudioContentStoreTransportError('not-sent', 'The Content Store request was not sent.', error)
+    throw new GenStudioContentStoreTransportError('not-sent', 'The Studio Library request was not sent.', error)
   }
   let response: Response
   try {
@@ -1512,8 +1512,8 @@ async function requestOnce<T>(options: RequestOptions<T>): Promise<T> {
     throw new GenStudioContentStoreTransportError(
       options.purchase ? 'uncertain' : 'not-sent',
       options.purchase
-        ? 'The Content Store purchase outcome is uncertain; retry only with the same saved idempotency key.'
-        : 'The Content Store request did not receive a response.',
+        ? 'The Studio Library purchase outcome is uncertain; retry only with the same saved idempotency key.'
+        : 'The Studio Library request did not receive a response.',
       error,
     )
   }
@@ -1524,7 +1524,7 @@ async function requestOnce<T>(options: RequestOptions<T>): Promise<T> {
     if (options.purchase && response.ok) {
       throw new GenStudioContentStoreTransportError(
         'uncertain',
-        'The Content Store purchase response was interrupted; retry only with the same saved idempotency key.',
+        'The Studio Library purchase response was interrupted; retry only with the same saved idempotency key.',
         error,
       )
     }
@@ -1533,7 +1533,7 @@ async function requestOnce<T>(options: RequestOptions<T>): Promise<T> {
       throw new GenStudioContentStoreApiError(
         response.status,
         null,
-        `GenStudio Content Store returned HTTP ${response.status}, but its refusal body could not be read.`,
+        `The Studio Library returned HTTP ${response.status}, but its refusal body could not be read.`,
         {},
       )
     }
@@ -1544,7 +1544,7 @@ async function requestOnce<T>(options: RequestOptions<T>): Promise<T> {
     const code = typeof refusal.code === 'string' ? refusal.code : null
     const detail = typeof refusal.detail === 'string'
       ? refusal.detail
-      : responseText || `GenStudio Content Store returned HTTP ${response.status}`
+      : responseText || `The Studio Library returned HTTP ${response.status}`
     throw new GenStudioContentStoreApiError(response.status, code, detail, refusal)
   }
   let parsed: unknown
@@ -1554,12 +1554,12 @@ async function requestOnce<T>(options: RequestOptions<T>): Promise<T> {
     if (options.purchase) {
       throw new GenStudioContentStoreTransportError(
         'uncertain',
-        'The Content Store purchase returned an unreadable response; retry only with the same saved idempotency key.',
+        'The Studio Library purchase returned an unreadable response; retry only with the same saved idempotency key.',
         error,
       )
     }
     throw new GenStudioContentStoreResponseError(
-      `GenStudio answered ${options.path.split('?')[0]} with a body that is not JSON.`,
+      `The Gateway answered ${options.path.split('?')[0]} with a body that is not JSON.`,
       error,
     )
   }
@@ -1570,12 +1570,12 @@ async function requestOnce<T>(options: RequestOptions<T>): Promise<T> {
     // that SOMETHING from GenStudio was too big, which is what made the
     // 2026-08-25 outage a day of log-reading rather than a minute of it.
     if (error instanceof GenStudioContentStoreLimitError) {
-      error.message = `${error.message} (GenStudio ${options.path.split('?')[0]})`
+      error.message = `${error.message} (Gateway ${options.path.split('?')[0]})`
     }
     if (options.purchase) {
       throw new GenStudioContentStoreTransportError(
         'uncertain',
-        'The Content Store purchase response did not match the published contract; retry only with the same saved idempotency key.',
+        'The Studio Library purchase response did not match the published contract; retry only with the same saved idempotency key.',
         error,
       )
     }
@@ -1584,7 +1584,7 @@ async function requestOnce<T>(options: RequestOptions<T>): Promise<T> {
     // classify without guessing.
     if (error instanceof GenStudioContentStoreLimitError) throw error
     throw new GenStudioContentStoreResponseError(
-      `GenStudio answered ${options.path.split('?')[0]} with a body that is not a Content Store response: ${
+      `The Gateway answered ${options.path.split('?')[0]} with a body that is not a Studio Library response: ${
         (error as { message?: unknown })?.message ?? 'invalid shape'}`,
       error,
     )
@@ -1592,7 +1592,7 @@ async function requestOnce<T>(options: RequestOptions<T>): Promise<T> {
 }
 
 function assertApiKey(apiKey: string): void {
-  if (typeof apiKey !== 'string' || apiKey.length === 0) throw new TypeError('GenStudio API key is required')
+  if (typeof apiKey !== 'string' || apiKey.length === 0) throw new TypeError('Gateway API key is required')
 }
 
 export async function getGenStudioContentAccount(apiKey: string): Promise<GenStudioContentAccount> {
@@ -1690,16 +1690,16 @@ export async function downloadGenStudioContentArchive(
   expected: { archiveSha256: string; archiveBytes: number },
   onProgress?: (progress: { downloadedBytes: number; totalBytes: number }) => void,
 ): Promise<Uint8Array> {
-  if (typeof downloadUrl !== 'string' || downloadUrl.length === 0) throw new TypeError('Content Store download URL is required')
+  if (typeof downloadUrl !== 'string' || downloadUrl.length === 0) throw new TypeError('Studio Library download URL is required')
   let parsedDownloadUrl: URL
   try { parsedDownloadUrl = new URL(downloadUrl) } catch (error) {
-    throw new TypeError('Content Store download URL must be an absolute HTTP(S) URL', { cause: error })
+    throw new TypeError('Studio Library download URL must be an absolute HTTP(S) URL', { cause: error })
   }
   if (!['http:', 'https:'].includes(parsedDownloadUrl.protocol)) {
-    throw new TypeError('Content Store download URL must use HTTP or HTTPS')
+    throw new TypeError('Studio Library download URL must use HTTP or HTTPS')
   }
   if (parsedDownloadUrl.username || parsedDownloadUrl.password) {
-    throw new TypeError('Content Store download URL must not contain embedded credentials')
+    throw new TypeError('Studio Library download URL must not contain embedded credentials')
   }
   if (!/^[0-9a-f]{64}$/.test(expected.archiveSha256)) throw new TypeError('Expected archive SHA-256 must be 64 lowercase hexadecimal characters')
   if (!Number.isSafeInteger(expected.archiveBytes) || expected.archiveBytes < 1 || expected.archiveBytes > MAX_LOCAL_ARCHIVE_BYTES) {
@@ -1715,13 +1715,13 @@ export async function downloadGenStudioContentArchive(
       signal: AbortSignal.timeout(60_000),
     })
   } catch (error) {
-    throw new GenStudioContentStoreTransportError('not-sent', 'The Content Store archive request was not sent.', error)
+    throw new GenStudioContentStoreTransportError('not-sent', 'The Studio Library archive request was not sent.', error)
   }
   let response: Response
   try {
     response = await pending
   } catch (error) {
-    throw new GenStudioContentStoreTransportError('not-sent', 'The Content Store archive request did not receive a response.', error)
+    throw new GenStudioContentStoreTransportError('not-sent', 'The Studio Library archive request did not receive a response.', error)
   }
   if (!response.ok) {
     let responseText = ''
@@ -1730,7 +1730,7 @@ export async function downloadGenStudioContentArchive(
     const code = typeof refusal.code === 'string' ? refusal.code : null
     const detail = typeof refusal.detail === 'string'
       ? refusal.detail
-      : responseText || `GenStudio Content Store archive returned HTTP ${response.status}`
+      : responseText || `The Studio Library archive returned HTTP ${response.status}`
     throw new GenStudioContentStoreApiError(response.status, code, detail, refusal)
   }
 
@@ -1738,10 +1738,10 @@ export async function downloadGenStudioContentArchive(
   if (declaredLength !== null) {
     if (!/^\d+$/.test(declaredLength) || Number(declaredLength) !== expected.archiveBytes) {
       await response.body?.cancel().catch(() => {})
-      throw new Error(`Content Store archive size does not match the expected ${expected.archiveBytes} bytes`)
+      throw new Error(`Studio Library archive size does not match the expected ${expected.archiveBytes} bytes`)
     }
   }
-  if (!response.body) throw new Error('Content Store archive response has no body')
+  if (!response.body) throw new Error('Studio Library archive response has no body')
   const reader = response.body.getReader()
   const chunks: Uint8Array[] = []
   let length = 0
@@ -1753,7 +1753,7 @@ export async function downloadGenStudioContentArchive(
       length += value.byteLength
       if (length > expected.archiveBytes || length > MAX_LOCAL_ARCHIVE_BYTES) {
         await reader.cancel().catch(() => {})
-        throw new Error(`Content Store archive exceeds its expected ${expected.archiveBytes} byte size or ${MAX_LOCAL_ARCHIVE_BYTES} byte limit`)
+        throw new Error(`Studio Library archive exceeds its expected ${expected.archiveBytes} byte size or ${MAX_LOCAL_ARCHIVE_BYTES} byte limit`)
       }
       chunks.push(value)
       onProgress?.({ downloadedBytes: length, totalBytes: expected.archiveBytes })
@@ -1762,7 +1762,7 @@ export async function downloadGenStudioContentArchive(
     reader.releaseLock()
   }
   if (length !== expected.archiveBytes) {
-    throw new Error(`Content Store archive size ${length} does not match expected ${expected.archiveBytes} bytes`)
+    throw new Error(`Studio Library archive size ${length} does not match expected ${expected.archiveBytes} bytes`)
   }
   const bytes = new Uint8Array(length)
   let offset = 0
@@ -1772,7 +1772,7 @@ export async function downloadGenStudioContentArchive(
   }
   const actualSha256 = createHash('sha256').update(bytes).digest('hex')
   if (actualSha256 !== expected.archiveSha256) {
-    throw new Error(`Content Store archive SHA-256 does not match expected digest ${expected.archiveSha256}`)
+    throw new Error(`Studio Library archive SHA-256 does not match expected digest ${expected.archiveSha256}`)
   }
   return bytes
 }

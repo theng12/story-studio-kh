@@ -87,8 +87,8 @@ test('a settings save names what it applied and what it ignored, and why', async
   assert.equal(res.body.ok, true)
   assert.deepEqual(res.body.applied, ['metadata_last_preset', 'image_models'])
   assert.deepEqual(res.body.ignored, [
-    { key: 'audio_models', reason: 'retired: GenStudio is the only voice catalog; choose voices in Audio' },
-    { key: 'models', reason: 'retired: custom model storage was removed; models come from GenStudio' },
+    { key: 'audio_models', reason: 'retired: Gateway is the only voice catalog; choose voices in Audio' },
+    { key: 'models', reason: 'retired: custom model storage was removed; models come from Gateway' },
     { key: 'image_concurrency', reason: 'use PUT /app-settings/concurrency' },
   ])
   const config = await pm.getConfig(project.slug) as Record<string, unknown>

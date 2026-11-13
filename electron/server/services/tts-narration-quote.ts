@@ -74,7 +74,7 @@ export interface TtsNarrationQuote {
   unavailable_reason: TtsQuoteUnavailableReason | null
   /** GenStudio's own words for the refusal, relayed verbatim. */
   unavailable_detail: string
-  /** HTTP status GenStudio answered the refused quote with, when there was one. */
+  /** HTTP status The Gateway answered the refused quote with, when there was one. */
   unavailable_status: number | null
   /** Size of the generation unit GenStudio would not quote, when one was refused. */
   unquotable_characters: number | null

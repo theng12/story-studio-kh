@@ -411,7 +411,7 @@ export function contentStoreErrorPresentation(error: ContentStoreUiError): Conte
     case 'CONTENT_STORE_LOCAL_STATE_UNAVAILABLE': return failure('This Mac’s Studio Library records could not be read', 'Check that the disk has space and Story Studio can write its data folder, then restart Story Studio.')
     case 'CONTENT_STORE_KEY_REQUIRED':
     case 'CONTENT_STORE_SCOPE_REQUIRED': return failure('Studio Library access is needed', 'Open Settings and test the Studio Library scope, then refresh.', true)
-    case 'CONTENT_STORE_SIGNING_KEY_MISSING': return failure('Studio Library access is needed', 'GenStudio did not publish the signing key this Mac needs. Refresh later.')
+    case 'CONTENT_STORE_SIGNING_KEY_MISSING': return failure('Studio Library access is needed', 'The Studio Library did not publish the signing key this Mac needs. Refresh later.')
     case 'CONTENT_PRODUCT_NOT_AVAILABLE': return failure('This product is not available', 'Refresh the Library to see currently published products.')
     case 'CONTENT_PRODUCT_ALREADY_OWNED': return failure('This is already available to this Mac', 'Refresh the Library to see its current install state.')
     case 'CONTENT_PRODUCT_RETIRED': return failure('This product is retired', 'Choose a currently published product instead.')
@@ -422,8 +422,8 @@ export function contentStoreErrorPresentation(error: ContentStoreUiError): Conte
     case 'CONTENT_PURCHASE_NOT_SENT': return failure('This request was not sent', 'Try again when the Gateway is available.')
     case 'quote_expired':
     case 'quote_rejected': return failure('This quote can no longer be used', 'Close it and start again.')
-    case 'CONTENT_PURCHASE_OUTCOME_UNCERTAIN': return failure('GenStudio’s answer is uncertain', 'Retry this request; Story Studio will reuse its saved attempt.')
-    case 'signing_unavailable': return failure('The Studio Library is not open yet', 'Try again after GenStudio can sign its answer.')
+    case 'CONTENT_PURCHASE_OUTCOME_UNCERTAIN': return failure('The Studio Library’s answer is uncertain', 'Retry this request; Story Studio will reuse its saved attempt.')
+    case 'signing_unavailable': return failure('The Studio Library is not open yet', 'Try again after the Studio Library can sign its answer.')
     case 'CONTENT_STORE_ACCOUNT_MISMATCH':
     case 'CONTENT_PURCHASE_ACCOUNT_MISMATCH':
     case 'CONTENT_PACK_OWNED_RELEASE_MISMATCH':
@@ -436,7 +436,7 @@ export function contentStoreErrorPresentation(error: ContentStoreUiError): Conte
     case 'CONTENT_PACK_ARCHIVE_UNAVAILABLE': return failure('This archive is not available', 'Refresh the Library and try again later.')
     // A retired family keeps its bytes but GenStudio withdraws the download.
     // Saying "retired" is the true reason; refreshing cannot change it.
-    case 'CONTENT_PACK_DOWNLOAD_WITHDRAWN': return failure('This Content Pack can no longer be downloaded', 'GenStudio retired this pack. A copy already installed on this Mac keeps working.')
+    case 'CONTENT_PACK_DOWNLOAD_WITHDRAWN': return failure('This Content Pack can no longer be downloaded', 'The Studio Library retired this pack. A copy already installed on this Mac keeps working.')
     case 'CONTENT_PACK_SIGNATURE_INVALID':
     case 'CONTENT_PACK_ARCHIVE_HASH_MISMATCH':
     case 'CONTENT_PACK_SCHEMA_INVALID':
@@ -447,7 +447,7 @@ export function contentStoreErrorPresentation(error: ContentStoreUiError): Conte
     // repeatedly, believing the next one will differ. The mismatch is between
     // this pack's required versions and what GenStudio's receipt attests to,
     // and only GenStudio can change that.
-    case 'CONTENT_PACK_RECEIPT_CLOSURE_MISMATCH': return failure('GenStudio has not attested to the versions this pack requires', 'Refreshing will not clear this. Install the newest release of this pack, or contact the publisher.')
+    case 'CONTENT_PACK_RECEIPT_CLOSURE_MISMATCH': return failure('The Studio Library has not attested to the versions this pack requires', 'Refreshing will not clear this. Install the newest release of this pack, or contact the publisher.')
     case 'CONTENT_PACK_DEPENDENCY_CYCLE':
     case 'CONTENT_PACK_DEPENDENCY_NOT_OWNED':
     case 'CONTENT_PACK_NESTED_CLOSURE_UNSUPPORTED': return failure('This Content Pack cannot be installed', 'Refresh the Library and its required dependencies before trying again.')
@@ -459,7 +459,7 @@ export function contentStoreErrorPresentation(error: ContentStoreUiError): Conte
     case 'CONTENT_PACK_ACTIVATION_FAILED': return failure('This Mac could not prepare the install', 'Check available disk space, then install it again.')
     case 'CONTENT_STORE_REQUEST_INVALID':
     case 'CONTENT_STORE_REQUEST_TOO_LARGE': return failure('This Studio Library request is invalid', 'Refresh the Library and try the action again.')
-    case 'CONTENT_STORE_UPSTREAM_REFUSED': return failure('GenStudio could not complete this request', 'Refresh the Library before trying again.')
+    case 'CONTENT_STORE_UPSTREAM_REFUSED': return failure('The Studio Library could not complete this request', 'Refresh the Library before trying again.')
     // The install failed for a reason Story could not classify. That is NOT a
     // refusal by GenStudio, and calling it one told the customer the Gateway had
     // said no when nothing was ever refused (2026-10-30).

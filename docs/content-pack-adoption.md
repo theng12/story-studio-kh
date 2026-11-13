@@ -7,7 +7,7 @@ If you only remember two things, remember these:
 
 > **Store archives are keyless by design. Never ask for, generate, or supply a signing key.**
 > Publisher signing for production packs was abolished by owner ruling on
-> 2026-08-15: the Store delivery profile is receipt-attested through GenStudio's
+> 2026-08-15: the Store delivery profile is receipt-attested through the Studio Library's
 > commerce keyring instead, and the builder *refuses* a private key on that path.
 > A request for "the Story publisher signing key" means something has gone wrong
 > upstream, not that a credential is missing. There is nothing to find.
@@ -156,7 +156,7 @@ immutable and carry the floor that was current when they were built.
   ...
 ```
 
-`manifest.json` is the contract with GenStudio. Per pack it carries everything the
+`manifest.json` is the contract with the Studio Library. Per pack it carries everything the
 stocking tool needs so that no human is asked a question:
 
 | Field | What it is |
@@ -176,7 +176,7 @@ Top level it records `manifest_version`, the artifact set name, when it was
 generated, the source commit, and the build profile — including, in words, that
 Store archives are keyless.
 
-## Stage 4 — Stock it in GenStudio
+## Stage 4 — Stock it in the Studio Library
 
 **Who decides:** the stocking tool, from the manifest.
 

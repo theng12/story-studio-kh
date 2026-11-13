@@ -95,7 +95,7 @@ export function useCredits() {
           : null
         usageError.value = ''
       } catch (error: any) {
-        usageError.value = error?.data?.detail || error?.message || 'Your GenStudio credit balance could not be read right now.'
+        usageError.value = error?.data?.detail || error?.message || 'Your Gateway credit balance could not be read right now.'
         // A failed poll is not proof the account is unreachable, and saying so
         // next to a job that is generating normally is what made the header
         // cry wolf. Keep the last known standing and mark it stale; drop to

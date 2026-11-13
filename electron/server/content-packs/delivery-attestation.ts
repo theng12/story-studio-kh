@@ -57,10 +57,10 @@ function readGenStudioRestoreReleases(
 ): Array<Record<string, unknown>> | null {
   let payload: Record<string, unknown>
   try { payload = JSON.parse(evidence.receipt_canonical_json) as Record<string, unknown> } catch {
-    throw new Error('GenStudio delivery receipt evidence is not valid JSON')
+    throw new Error('Studio Library delivery receipt evidence is not valid JSON')
   }
   if (String(payload.typ || '') !== 'genstudio.content.restore.v1') return null
-  if (!Array.isArray(payload.releases)) throw new Error('GenStudio restore receipt has no attested releases')
+  if (!Array.isArray(payload.releases)) throw new Error('Studio Library restore receipt has no attested releases')
   // 2026-08-27 -- must stay the same set the live install bound against. A live
   // install resolves a dependency out of `owned_releases` (every owned,
   // fetchable release) and falls back to `releases` (each family's current one
@@ -79,16 +79,16 @@ export function readGenStudioDeliveryClosure(
 ): GenStudioDeliveryClosurePin[] {
   let payload: Record<string, unknown>
   try { payload = JSON.parse(evidence.receipt_canonical_json) as Record<string, unknown> } catch {
-    throw new Error('GenStudio delivery receipt evidence is not valid JSON')
+    throw new Error('Studio Library delivery receipt evidence is not valid JSON')
   }
-  if (!Array.isArray(payload.bundle_closure)) throw new Error('GenStudio delivery receipt has no exact closure')
+  if (!Array.isArray(payload.bundle_closure)) throw new Error('Studio Library delivery receipt has no exact closure')
   return payload.bundle_closure.map((value, index) => {
-    if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(`GenStudio delivery closure pin ${index} is invalid`)
+    if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(`Studio Library delivery closure pin ${index} is invalid`)
     const pin = value as Record<string, unknown>
     if (pin.position !== index || typeof pin.product_id !== 'string' || typeof pin.entitlement_family !== 'string'
       || typeof pin.release_id !== 'string' || typeof pin.version !== 'string'
       || typeof pin.archive_sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(pin.archive_sha256)) {
-      throw new Error(`GenStudio delivery closure pin ${index} is invalid`)
+      throw new Error(`Studio Library delivery closure pin ${index} is invalid`)
     }
     return { product_id: pin.product_id, entitlement_family: pin.entitlement_family, release_id: pin.release_id, version: pin.version, archive_sha256: pin.archive_sha256 }
   })
@@ -98,7 +98,7 @@ function verifyClosureAssignments(evidence: GenStudioDeliveryAttestation, manife
   const dependencies = manifest.dependencies ?? []
   if (evidence.subject === 'bundle-closure-member') {
     if (dependencies.length || evidence.closure_members.length) {
-      throw new Error('A GenStudio bundle closure member may not declare an unbound nested dependency closure')
+      throw new Error('A Studio Library bundle closure member may not declare an unbound nested dependency closure')
     }
     return
   }
@@ -111,7 +111,7 @@ function verifyClosureAssignments(evidence: GenStudioDeliveryAttestation, manife
   const attested = readGenStudioRestoreReleases(evidence)
   if (attested !== null) {
     if (evidence.closure_members.length !== dependencies.length) {
-      throw new Error('GenStudio delivery closure does not match Content Pack dependencies')
+      throw new Error('Studio Library delivery closure does not match Content Pack dependencies')
     }
     for (const [index, dependency] of dependencies.entries()) {
       const assignment = evidence.closure_members[index]
@@ -123,14 +123,14 @@ function verifyClosureAssignments(evidence: GenStudioDeliveryAttestation, manife
         && candidate.archive_sha256 === assignment.archive_sha256)
       if (!assignment || !row || assignment.position !== index
         || assignment.pack_id !== dependency.pack_id || assignment.version !== dependency.version) {
-        throw new Error(`GenStudio restore attestation ${index} does not bind this dependency`)
+        throw new Error(`Studio Library restore attestation ${index} does not bind this dependency`)
       }
     }
     return
   }
   const pins = readGenStudioDeliveryClosure(evidence)
   if (pins.length !== dependencies.length || evidence.closure_members.length !== dependencies.length) {
-    throw new Error('GenStudio delivery closure does not match Content Pack dependencies')
+    throw new Error('Studio Library delivery closure does not match Content Pack dependencies')
   }
   for (const [index, dependency] of dependencies.entries()) {
     const assignment = evidence.closure_members[index]
@@ -139,7 +139,7 @@ function verifyClosureAssignments(evidence: GenStudioDeliveryAttestation, manife
       || assignment.version !== dependency.version || assignment.product_id !== pin.product_id
       || assignment.entitlement_family !== pin.entitlement_family || assignment.release_id !== pin.release_id
       || assignment.version !== pin.version || assignment.archive_sha256 !== pin.archive_sha256) {
-      throw new Error(`GenStudio delivery closure assignment ${index} does not bind the signed root dependency`)
+      throw new Error(`Studio Library delivery closure assignment ${index} does not bind the signed root dependency`)
     }
   }
 }
@@ -156,21 +156,21 @@ export function verifyGenStudioDeliveryAttestation(
   archiveBytes: number,
   trustedPublicKeyBase64: string,
 ): void {
-  // model-drift-allow: Frozen Content Store receipt profile binds delivery evidence to its manifest format.
+  // model-drift-allow: Frozen Studio Library receipt profile binds delivery evidence to its manifest format.
   if (manifest.delivery_profile !== 'genstudio-store-receipt-v1'
     || manifest.pack_id !== evidence.pack_id || manifest.version !== evidence.version
     || manifest.entitlement.family !== evidence.entitlement_family) {
-    throw new Error('GenStudio delivery evidence does not match the Content Pack manifest identity')
+    throw new Error('Studio Library delivery evidence does not match the Content Pack manifest identity')
   }
   if (archiveSha256 !== evidence.archive_sha256 || archiveBytes !== evidence.archive_bytes) {
-    throw new Error('GenStudio delivery evidence does not match the exact archive hash or byte count')
+    throw new Error('Studio Library delivery evidence does not match the exact archive hash or byte count')
   }
   let payload: Record<string, unknown>
   try { payload = JSON.parse(evidence.receipt_canonical_json) as Record<string, unknown> } catch {
-    throw new Error('GenStudio delivery receipt evidence is not valid JSON')
+    throw new Error('Studio Library delivery receipt evidence is not valid JSON')
   }
   const signedReceipt = canonicalizeContentStoreObject(payload)
-  if (signedReceipt.canonicalJson !== evidence.receipt_canonical_json) throw new Error('GenStudio delivery receipt evidence is not canonical')
+  if (signedReceipt.canonicalJson !== evidence.receipt_canonical_json) throw new Error('Studio Library delivery receipt evidence is not canonical')
   const publicKey = parseContentStorePublicKey({
     key_id: evidence.key_id, algorithm: 'ed25519', public_key_base64: trustedPublicKeyBase64,
     payload_types: ['genstudio.content.download.v1', 'genstudio.content.quote.v1', 'genstudio.content.receipt.v1', 'genstudio.content.restore.v1'],

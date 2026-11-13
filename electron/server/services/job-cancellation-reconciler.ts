@@ -65,7 +65,7 @@ type ReconcileEvidence = {
   providerJobs: Array<{ operation: ProviderEvidenceOperation; evidence_id: string; job: ReconciledProviderTask }>
   reason?: string
   /**
-   * v1.2.8 — provider tasks GenStudio answered a lookup for by saying it has
+   * v1.2.8 — provider tasks The Gateway answered a lookup for by saying it has
    * no such task. Reported separately from `reason` on purpose: `reason` means
    * "still waiting", and these are finished questions with a definite answer.
    */

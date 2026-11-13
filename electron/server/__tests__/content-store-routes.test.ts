@@ -136,228 +136,59 @@ afterEach(async () => {
 })
 
 describe('Content Store commerce routes', () => {
-  test('shared pre-enqueue verification restores one exact missing anchor before creating ordinary jobs', async () => {
+  test('an installed pack starts without the anchor and without contacting the Gateway', async () => {
     const { project } = await setupPinnedOwnedPack()
     await fs.rm(contentStoreAnchorsPath())
     forgetVerifiedContentPackVersions()
+    // Owner 2026-11-13: an installed pack is done. It is verified by its own bytes, so a missing
+    // anchor and a stopped Gateway cannot block starting a job that uses it.
+    await mock.close()
     jobQueue.registerExecutor('chapter-only', async () => {})
-    const restoreRequestsBefore = mock.requests.filter(row => row.path === '/v1/content/receipts').length
-
     const jobs = await Promise.all(['EP001', 'EP002'].map(episode_id => jobQueue.enqueue({
       project_slug: project.slug, type: 'chapter-only', episode_id, params: {},
     })))
-
     assert.equal(jobs.length, 2)
-    assert.equal(mock.requests.filter(row => row.path === '/v1/content/receipts').length, restoreRequestsBefore + 1)
     assert.equal((await jobQueue.getJobs(project.slug)).filter(job => jobs.some(created => created.job_id === job.job_id)).length, 2)
+    assert.equal(await fs.stat(contentStoreAnchorsPath()).then(() => true, () => false), false)
     await waitForJobs(jobs.map(job => job.job_id))
   })
 
-  test('failed missing-anchor revalidation returns an actionable 409 and creates no job', async () => {
-    const { project } = await setupPinnedOwnedPack()
-    await fs.rm(contentStoreAnchorsPath())
-    forgetVerifiedContentPackVersions()
-    await mock.close()
-    const before = await jobQueue.getJobs(project.slug)
-
-    await assert.rejects(jobQueue.enqueue({
-      project_slug: project.slug, type: 'chapter-only', episode_id: 'EP003', params: {},
-    }), (error: any) => {
-      assert.equal(error.statusCode, 409)
-      assert.equal(error.code, 'content-store-revalidation-required')
-      assert.match(error.message, /Restore purchases/i)
-      return true
-    })
-    assert.deepEqual(await jobQueue.getJobs(project.slug), before)
-  })
-
-  test('missing-anchor revalidation preserves a distinct origin mismatch and creates no job', async () => {
+  test('an installed pack is not gated on the Gateway account or origin', async () => {
     const { project } = await setupPinnedOwnedPack()
     await fs.rm(contentStoreAnchorsPath())
     forgetVerifiedContentPackVersions()
     const requestsBefore = mock.requests.length
-    const jobsBefore = await jobQueue.getJobs(project.slug)
-    await setGenStudioUrl('http://127.0.0.1:9')
-
-    await assert.rejects(jobQueue.enqueue({
-      project_slug: project.slug, type: 'chapter-only', episode_id: 'EP004', params: {},
-    }), (error: any) => {
-      assert.equal(error.status, 409)
-      assert.equal(error.code, 'CONTENT_STORE_ORIGIN_MISMATCH')
-      return true
-    })
-    assert.equal(mock.requests.length, requestsBefore)
-    assert.deepEqual(await jobQueue.getJobs(project.slug), jobsBefore)
-  })
-
-  test('missing-anchor revalidation preserves a distinct account mismatch and creates no paid or download work', async () => {
-    const { project } = await setupPinnedOwnedPack()
-    await fs.rm(contentStoreAnchorsPath())
-    forgetVerifiedContentPackVersions()
-    await setApiKey('genstudio', KEY_B)
-    const jobsBefore = await jobQueue.getJobs(project.slug)
     const purchasesBefore = mock.contentPurchasePostCount
     const downloadsBefore = mock.contentDownloadPostCount
-
-    await assert.rejects(jobQueue.enqueue({
-      project_slug: project.slug, type: 'chapter-only', episode_id: 'EP005', params: {},
-    }), (error: any) => {
-      assert.equal(error.status, 409)
-      assert.equal(error.code, 'CONTENT_STORE_ACCOUNT_MISMATCH')
-      return true
+    await setApiKey('genstudio', KEY_B)
+    await setGenStudioUrl('http://127.0.0.1:9')
+    jobQueue.registerExecutor('chapter-only', async () => {})
+    const job = await jobQueue.enqueue({
+      project_slug: project.slug, type: 'chapter-only', episode_id: 'EP003', params: {},
     })
+    assert.ok(job.job_id)
+    assert.equal(mock.requests.length, requestsBefore, 'no Gateway request is needed for an installed pack')
     assert.equal(mock.contentPurchasePostCount, purchasesBefore)
     assert.equal(mock.contentDownloadPostCount, downloadsBefore)
-    assert.deepEqual(await jobQueue.getJobs(project.slug), jobsBefore)
+    assert.equal(await fs.stat(contentStoreAnchorsPath()).then(() => true, () => false), false)
+    await waitForJobs([job.job_id])
   })
 
-  test('tampered dedicated anchor fails closed without online restore or job creation', async () => {
-    const { project } = await setupPinnedOwnedPack()
-    await fs.writeFile(contentStoreAnchorsPath(), JSON.stringify({
-      schema_version: 1, anchors: [{ invalid: true }],
-    }))
-    forgetVerifiedContentPackVersions()
-    const requestsBefore = mock.requests.length
-    const jobsBefore = await jobQueue.getJobs(project.slug)
-
-    await assert.rejects(jobQueue.enqueue({
-      project_slug: project.slug, type: 'chapter-only', episode_id: 'EP006', params: {},
-    }), /undecryptable|malformed|tampered/i)
-    assert.equal(mock.requests.length, requestsBefore)
-    assert.deepEqual(await jobQueue.getJobs(project.slug), jobsBefore)
-  })
-
-  test('a failed online restore signature stays distinct and is attempted only once before any job', async () => {
+  test('a credential change never revalidates or records trust for an installed pack', async () => {
     const { project } = await setupPinnedOwnedPack()
     await fs.rm(contentStoreAnchorsPath())
     forgetVerifiedContentPackVersions()
-    mock.tamperContentRestoreReceipt = true
     const receiptsBefore = mock.requests.filter(row => row.path === '/v1/content/receipts').length
-    const jobsBefore = await jobQueue.getJobs(project.slug)
-    const purchasesBefore = mock.contentPurchasePostCount
-
-    await assert.rejects(jobQueue.enqueue({
-      project_slug: project.slug, type: 'chapter-only', episode_id: 'EP007', params: {},
-    }), (error: any) => {
-      assert.notEqual(error.code, 'content-store-revalidation-required')
-      assert.match(error.message, /signature/i)
-      return true
+    jobQueue.registerExecutor('chapter-only', async () => {})
+    const pending = jobQueue.enqueue({
+      project_slug: project.slug, type: 'chapter-only', episode_id: 'EP004', params: {},
     })
-    assert.equal(mock.requests.filter(row => row.path === '/v1/content/receipts').length, receiptsBefore + 1)
-    assert.equal(mock.contentPurchasePostCount, purchasesBefore)
-    assert.deepEqual(await jobQueue.getJobs(project.slug), jobsBefore)
-  })
-
-  test('a credential change during revalidation cannot record trust or create a job', async () => {
-    const { project } = await setupPinnedOwnedPack()
-    await fs.rm(contentStoreAnchorsPath())
-    forgetVerifiedContentPackVersions()
-    const originalFetch = globalThis.fetch
-    let releaseReceipts!: () => void
-    let sawReceipts!: () => void
-    const receiptsStarted = new Promise<void>(resolve => { sawReceipts = resolve })
-    const receiptsRelease = new Promise<void>(resolve => { releaseReceipts = resolve })
-    globalThis.fetch = async (input, init) => {
-      if (new URL(String(input)).pathname === '/v1/content/receipts') {
-        sawReceipts()
-        await receiptsRelease
-      }
-      return originalFetch(input, init)
-    }
-    const jobsBefore = await jobQueue.getJobs(project.slug)
-    try {
-      const pending = jobQueue.enqueue({
-        project_slug: project.slug, type: 'chapter-only', episode_id: 'EP008', params: {},
-      })
-      await receiptsStarted
-      await setApiKey('genstudio', KEY_A_ROTATED)
-      releaseReceipts()
-      await assert.rejects(pending, (error: any) => {
-        assert.equal(error.statusCode, 409)
-        assert.equal(error.code, 'content-store-revalidation-required')
-        return true
-      })
-    } finally {
-      globalThis.fetch = originalFetch
-      releaseReceipts()
-    }
+    await setApiKey('genstudio', KEY_A_ROTATED)
+    const job = await pending
+    assert.ok(job.job_id)
+    assert.equal(mock.requests.filter(row => row.path === '/v1/content/receipts').length, receiptsBefore)
     assert.equal(await fs.stat(contentStoreAnchorsPath()).then(() => true, () => false), false)
-    assert.deepEqual(await jobQueue.getJobs(project.slug), jobsBefore)
-  })
-
-  test('a credential change while the verified restore waits for the commerce lock is rechecked before recording trust', async t => {
-    const { project } = await setupPinnedOwnedPack()
-    await fs.rm(contentStoreAnchorsPath())
-    forgetVerifiedContentPackVersions()
-    const commerceStatePath = getContentStoreStatePath()
-    const worker = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures', 'atomic-store-lock-worker.ts')
-    const ready = `${commerceStatePath}.worker-ready`
-    const release = `${commerceStatePath}.worker-release`
-    const child = spawn(process.execPath, ['--import', 'tsx', worker], {
-      env: {
-        ...process.env, TARGET: commerceStatePath, READY: ready, RELEASE: release, NO_WRITE: '1',
-      },
-      stdio: 'pipe',
-    })
-    let childStderr = ''
-    child.stderr.on('data', chunk => { childStderr += chunk })
-    let childFailure: unknown
-    const childExited = new Promise<void>((resolve, reject) => {
-      child.once('exit', code => code === 0 ? resolve() : reject(new Error(`commerce lock worker exited ${code}: ${childStderr}`)))
-    })
-    let readyObserved = false
-    t.after(async () => {
-      await fs.writeFile(release, 'release').catch(() => {})
-      if (!readyObserved && child.exitCode === null) child.kill()
-      await Promise.allSettled([childExited])
-    })
-    void childExited.catch(error => { childFailure = error })
-    // Allow cold Node/tsx startup; the lock observation below keeps its own deadline.
-    await waitFor(async () => {
-      if (childFailure) throw childFailure
-      return fs.stat(ready).then(() => true, () => false)
-    }, { label: 'commerce lock worker to become ready', timeoutMs: 5_000, pollMs: 5 })
-    readyObserved = true
-    const originalFetch = globalThis.fetch
-    const originalReadFile = fs.readFile.bind(fs)
-    const commerceLockPath = `${commerceStatePath}.lock`
-    let commerceLockReads = 0
-    ;(fs as any).readFile = async (...args: any[]) => {
-      if (String(args[0]) === commerceLockPath) commerceLockReads += 1
-      return (originalReadFile as any)(...args)
-    }
-    let markReceiptsReturned!: () => void
-    const receiptsReturned = new Promise<void>(resolve => { markReceiptsReturned = resolve })
-    globalThis.fetch = async (input, init) => {
-      const response = await originalFetch(input, init)
-      const url = input instanceof Request ? input.url : String(input)
-      if (new URL(url).pathname === '/v1/content/receipts') markReceiptsReturned()
-      return response
-    }
-    const jobsBefore = await jobQueue.getJobs(project.slug)
-    try {
-      const pending = jobQueue.enqueue({
-        project_slug: project.slug, type: 'chapter-only', episode_id: 'EP009', params: {},
-      })
-      await receiptsReturned
-      await waitFor(() => commerceLockReads > 0, {
-        label: 'verified restore to wait on the held commerce lock', timeoutMs: 2_000, pollMs: 5,
-      })
-      await setApiKey('genstudio', KEY_A_ROTATED)
-      await fs.writeFile(release, 'release')
-      await assert.rejects(pending, (error: any) => {
-        assert.equal(error.statusCode, 409)
-        assert.equal(error.code, 'content-store-revalidation-required')
-        return true
-      })
-    } finally {
-      globalThis.fetch = originalFetch
-      ;(fs as any).readFile = originalReadFile
-      await fs.writeFile(release, 'release').catch(() => {})
-      await childExited
-    }
-    assert.equal(await fs.stat(contentStoreAnchorsPath()).then(() => true, () => false), false)
-    assert.deepEqual(await jobQueue.getJobs(project.slug), jobsBefore)
+    await waitForJobs([job.job_id])
   })
 
   test('a stopped Gateway is named per section, and the overview still answers with what this Mac knows', async () => {
@@ -646,7 +477,7 @@ describe('Content Store commerce routes', () => {
     }, { label: 'async recalled install operation', timeoutMs: 5_000 })
     assert.deepEqual(monitored.failure, {
       code: 'release_recalled',
-      detail: 'GenStudio stopped serving this exact Content Pack release.',
+      detail: 'The Studio Library stopped serving this exact Content Pack release.',
     })
   })
 
@@ -669,7 +500,7 @@ describe('Content Store commerce routes', () => {
 
     assert.deepEqual(response.body, {
       code: 'release_recalled',
-      detail: 'GenStudio stopped serving this exact Content Pack release.',
+      detail: 'The Studio Library stopped serving this exact Content Pack release.',
       recall_reason: 'unsafe bundled reference',
       recalled_at: '2026-08-14T09:00:00Z',
       terminal: true,
@@ -898,7 +729,7 @@ describe('Content Store commerce routes', () => {
     }, { label: 'async install with an unreadable archive', timeoutMs: 5_000 })
     assert.equal(monitored.failure.code, 'CONTENT_STORE_INSTALL_FAILED',
       'nothing was refused, so the row must not say GenStudio refused it')
-    assert.doesNotMatch(monitored.failure.detail, /GenStudio (?:could not|refused)/i)
+    assert.doesNotMatch(monitored.failure.detail, /(?:GenStudio|Studio Library) (?:could not|refused)/i)
   })
 
   test('keeps the financial service independent from installer, lifecycle, queue, and admission modules', async () => {

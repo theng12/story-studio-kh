@@ -5601,7 +5601,7 @@ export async function requestGenStudioTtsQuote(
     voice_id: typeof payload?.voice_id === 'string' ? payload.voice_id : voiceId,
     voice_tier: typeof payload?.voice_tier === 'string' ? payload.voice_tier : '',
     // NOT defaulted. `readJson` above has already thrown for any non-200, so
-    // reaching this line means GenStudio answered 200; a `null` here therefore
+    // reaching this line means The Gateway answered 200; a `null` here therefore
     // means "this 200 quote did not publish the field" and nothing else.
     // Callers must report that, not paper over it — `?? 0` on `credits` reads
     // as free, and `?? 0` on `maximum_input_characters` manufactures the

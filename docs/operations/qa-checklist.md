@@ -1,7 +1,7 @@
 # Story Studio KH — QA Checklist
 
 Use this checklist before shipping any release. Generation QA uses one
-GenStudio URL and API key; Story Studio contains no direct provider, local
+Gateway URL and API key; Story Studio contains no direct provider, local
 model, or Studio Hub generation fallback.
 
 ---
@@ -10,7 +10,7 @@ model, or Studio Hub generation fallback.
 
 - [ ] Quit any running instance of Story Studio KH
 - [ ] Backup or clear user data: `~/Library/Application Support/Story Studio KH/`
-- [ ] Gather a valid GenStudio URL and API key with the scopes needed by the test
+- [ ] Gather a valid Gateway URL and API key with the scopes needed by the test
 - [ ] Confirm at least 5 GB free disk space
 - [ ] Internet connection is stable
 - [ ] Confirm the bundled FFmpeg and FFprobe pass Settings → FFmpeg validation
@@ -40,16 +40,16 @@ model, or Studio Hub generation fallback.
 
 - [ ] From home screen, click "+ New Project"
 - [ ] Step 1: name "QA Test Series", prefix "QA", season size 13
-- [ ] Step 2: connect the GenStudio URL and API key
+- [ ] Step 2: connect the Gateway URL and API key
 - [ ] Step 3: choose output folder (or accept the default in `~/Library/Application Support/Story Studio KH/projects/`)
 - [ ] Review + Create
 - [ ] Land on project dashboard; project shows in home grid on return
 - [ ] Verify on disk: `~/Library/Application Support/Story Studio KH/projects/qa-test-series/` contains `project.json`, `config.json`, `production_standards.txt`, and an `episodes/` dir
 - [ ] Create a second project "Another QA" → coexists independently
 
-## Phase 5 — GenStudio Connection
+## Phase 5 — Gateway Connection
 
-- [ ] Settings → App & Connections shows the GenStudio URL and a saved-key indicator
+- [ ] Settings → App & Connections shows the Gateway URL and a saved-key indicator
 - [ ] Test connection reports the account, plan, scopes, and live catalogs
 - [ ] Paste an invalid key → Test returns a clear authentication or scope error
 - [ ] Verify project files and diagnostics never contain the API-key secret
@@ -57,7 +57,7 @@ model, or Studio Hub generation fallback.
 ## Phase 6 — Ideas Generator
 
 - [ ] Ideas tab → generator panel visible
-- [ ] Fill: Genre Fantasy, Mood contemplative, Count 3, and choose a published GenStudio LLM
+- [ ] Fill: Genre Fantasy, Mood contemplative, Count 3, and choose a published Gateway LLM
 - [ ] Click Generate → job queues, ideas appear within ~60 s
 - [ ] Ideas table renders with columns (Code, Title, Status, Mood)
 - [ ] Expand a row → logline + themes shown
@@ -95,7 +95,7 @@ model, or Studio Hub generation fallback.
 
 ### Scene Plan and Scene Review
 - [ ] Scene Plan builds a deterministic narration timeline, then generates unique visual prompts
-- [ ] Scene Review generates only missing scene images through GenStudio and checkpoints each verified image
+- [ ] Scene Review generates only missing scene images through Gateway and checkpoints each verified image
 - [ ] Incomplete or unapproved scenes remain pending and block Video Assembly
 
 ## Phase 9 — Audio Generator
@@ -152,8 +152,8 @@ model, or Studio Hub generation fallback.
 
 ## Phase 14 — Settings
 
-- [ ] Models tab: live GenStudio LLM, image, TTS, voice, transcription, and video counts load
-- [ ] Performance is absent; GenStudio account admission is authoritative
+- [ ] Models tab: live Gateway LLM, image, TTS, voice, transcription, and video counts load
+- [ ] Performance is absent; Gateway account admission is authoritative
 - [ ] Standards tab: production standards + intro format editable, save persists, presets switchable
 - [ ] Folders tab: subfolder template shown; editing `{code}` templates works, revert to defaults
 - [ ] Confirmations tab: toggle per-generator cost dialog — confirm behavior matches
@@ -173,16 +173,16 @@ model, or Studio Hub generation fallback.
 - [ ] Queue a job so it's running/queued
 - [ ] Cmd+Q to quit
 - [ ] Relaunch → projects, ideas, jobs history, API keys, FFmpeg detection, Audio Assembly presets all preserved
-- [ ] Locally queued GenStudio work remains queued and resumes admission
-- [ ] Accepted GenStudio work resumes polling its saved job ID and idempotency key without a duplicate submission
+- [ ] Locally queued Gateway work remains queued and resumes admission
+- [ ] Accepted Gateway work resumes polling its saved job ID and idempotency key without a duplicate submission
 - [ ] Only non-recoverable local execution is marked `error: "Interrupted by app restart"`; Retry remains available
 
 ## Phase 17 — Error Scenarios
 
-- [ ] Paste a bad GenStudio key → attempt generation → red error banner with clear authentication message
+- [ ] Paste a bad Gateway key → attempt generation → red error banner with clear authentication message
 - [ ] Disable internet mid-generation → job marked as error with a network-ish message
-- [ ] Retry a polling/download failure → the accepted GenStudio job ID and idempotency key are reused
-- [ ] Confirm an uncertain GenStudio job never falls back to another route
+- [ ] Retry a polling/download failure → the accepted Gateway job ID and idempotency key are reused
+- [ ] Confirm an uncertain Gateway job never falls back to another route
 - [ ] Try generating scene images before Scene Plan prompts exist → clear blocking error
 
 ## Phase 18 — Multi-Project & Cleanup
@@ -196,7 +196,7 @@ model, or Studio Hub generation fallback.
 
 ## Automated Tests
 
-Before manual QA, run the full verification and deterministic GenStudio
+Before manual QA, run the full verification and deterministic Gateway
 qualification from the project root.
 
 ```bash

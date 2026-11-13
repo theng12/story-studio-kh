@@ -1,7 +1,7 @@
 # New-computer migration checklist
 
 Use this checklist to move Story Studio development and local customer state to
-another Mac without treating build output or an encrypted secret file as the
+another Mac without treating build output or a copied secrets file as the
 source of truth.
 
 For the interrupted-audit recovery, start with the dated
@@ -67,20 +67,20 @@ The check must report five packages and 13 files matching byte-for-byte.
 
 ## 4. Handle secrets and Store anchors safely
 
-`app-secrets.json` is encrypted with Electron `safeStorage` and contains both
-provider credentials and OS-protected Content Store public-key anchors. Copying
-that file alone is not a portable credential export.
+`app-secrets.json` is a plain JSON file with owner-only `0600` permissions. It
+holds the Gateway key, YouTube/social credentials and the Studio Library
+public-key anchors; Story Studio does not use the macOS Keychain or Electron
+`safeStorage` (owner 2026-11-13). Copying the file carries the values, so treat
+the copy as a credential export.
 
-- Prefer a macOS Migration Assistant/Keychain transfer that preserves the
-  operating-system encryption identity.
-- Otherwise, re-enter provider credentials in Story Studio and perform an
-  authenticated Content Store restore/revalidation on the new Mac.
-- A copied Store journal or installed archive without a decryptable matching
-  anchor must fail closed offline. Do not disable keychain protection or edit
-  the journal to bypass revalidation.
+- Prefer re-entering provider credentials in Story Studio on the new Mac and
+  performing an authenticated Studio Library restore; copy the file only over a
+  trusted channel and keep it `0600`.
+- Installed Studio Library content keeps working without re-verification; a new
+  download needs verified trust and is refused if it cannot be verified.
 - Move ignored `.env*` files, Apple signing certificates, notarization
   credentials, and other developer secrets only through an approved secret
-  manager or protected OS credential migration. Never commit them.
+  manager or protected OS credential store. Never commit them.
 
 ## 5. Preserve cross-repository handoffs
 
@@ -113,12 +113,12 @@ does not fetch them.
 
 1. Confirm `git status --short` is clean at the accepted commit.
 2. Run the authoring-skill `--check` command above.
-3. Open Story Studio and confirm the displayed version and approved GenStudio
+3. Open Story Studio and confirm the displayed version and approved Gateway
    origin.
 4. Verify every expected project root before generating or uploading anything.
 5. Confirm credentials decrypt or re-enter them; never infer success from the
    mere presence of `app-secrets.json`.
-6. Restore Content Store ownership online, then verify installed exact versions
+6. Restore Studio Library ownership online, then verify installed exact versions
    and offline access before relying on the migrated machine.
 7. Run the repository's required source or release gates before development or
    packaging work.

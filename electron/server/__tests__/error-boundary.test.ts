@@ -105,7 +105,7 @@ describe('errorBoundary', () => {
     assert.equal(res.status, 409)
     assert.deepEqual(res.body, {
       code: 'content-store-revalidation-required',
-      detail: 'Content Store trust must be verified again. Open Content Store and choose Restore purchases.',
+      detail: 'Studio Library could not confirm access to this download. Check the Gateway API Key in Settings → This Mac, then try again.',
     })
     assert.ok(!JSON.stringify(res.body).includes('acct_private'))
     assert.ok(!JSON.stringify(res.body).includes('private-origin'))

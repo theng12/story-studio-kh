@@ -119,7 +119,7 @@ async function fetchVerifiedOwnership(expected?: {
   const apiKey = await activeKey()
   const account = await getGenStudioContentAccount(apiKey)
   if (expected && account.accountId !== expected.accountId) {
-    throw new ContentStoreLocalError(409, 'CONTENT_STORE_ACCOUNT_MISMATCH', 'This installed Content Pack belongs to a different GenStudio account.')
+    throw new ContentStoreLocalError(409, 'CONTENT_STORE_ACCOUNT_MISMATCH', 'This installed Content Pack belongs to a different Studio Library account.')
   }
   const [publicKey, receipts] = await Promise.all([
     getGenStudioContentPublicKey(apiKey),
@@ -127,15 +127,15 @@ async function fetchVerifiedOwnership(expected?: {
   ])
   verifyContentStoreRestore(publicKey, receipts, account.accountId)
   if (receipts.accountId !== account.accountId || receipts.contentAccountId !== account.contentAccountId) {
-    throw new ContentStoreLocalError(409, 'CONTENT_STORE_ACCOUNT_MISMATCH', 'GenStudio returned ownership for a different account.')
+    throw new ContentStoreLocalError(409, 'CONTENT_STORE_ACCOUNT_MISMATCH', 'The Studio Library returned ownership for a different account.')
   }
   const restoreSigningKey = publicKey.keys.find(key => key.keyId === receipts.restoreReceipt.keyId)
   if (!restoreSigningKey) {
-    throw new ContentStoreLocalError(409, 'CONTENT_STORE_SIGNING_KEY_MISSING', 'GenStudio did not publish the restore receipt signing key.')
+    throw new ContentStoreLocalError(409, 'CONTENT_STORE_SIGNING_KEY_MISSING', 'The Studio Library did not publish the restore receipt signing key.')
   }
   const origin = await currentGenStudioOrigin()
   if (expected && origin !== expected.origin) {
-    throw new ContentStoreLocalError(409, 'CONTENT_STORE_ORIGIN_MISMATCH', 'This installed Content Pack belongs to a different GenStudio origin.')
+    throw new ContentStoreLocalError(409, 'CONTENT_STORE_ORIGIN_MISMATCH', 'This installed Content Pack belongs to a different Gateway origin.')
   }
   if (expected) {
     const current = await getApiKeySnapshot('genstudio')
@@ -169,7 +169,7 @@ export async function revalidateContentStoreTrustForGeneration(scope: {
     throw new ContentStoreLocalError(
       409,
       'CONTENT_STORE_ORIGIN_MISMATCH',
-      'This installed Content Pack belongs to a different GenStudio origin.',
+      'This installed Content Pack belongs to a different Gateway origin.',
     )
   }
   const key = `${scope.origin}\u0000${scope.accountId}\u0000${credential.generation}`
@@ -211,7 +211,7 @@ export async function restoreContentStoreOwnership(): Promise<ContentStoreOvervi
  * receipts response had already stated, and installing the whole library paid
  * it sixty-five times over: ~4,200 requests to install 65 packs. Long enough
  * for the client's own 8-12s request timeouts to start firing, which is what
- * surfaced to the customer as "the Content Store is unavailable".
+ * surfaced to the customer as "the Studio Library is unavailable".
  *
  * `recalled_release_versions` is computed server-side as every release of that
  * product in state RECALLED (see GenStudio `content_store/service.py`
@@ -281,7 +281,7 @@ async function ownedReleaseHistory(
       throw new ContentStoreLocalError(
         409,
         'CONTENT_PACK_OWNED_RELEASE_MISMATCH',
-        'GenStudio returned release history for different verified ownership.',
+        'The Studio Library returned release history for different verified ownership.',
       )
     }
     context.releaseHistories.set(entitlement.entitlementFamily, history)
@@ -303,7 +303,7 @@ export async function resolveOwnedContentStoreDependency(
       throw new ContentStoreLocalError(
         410,
         'release_recalled',
-        `GenStudio recalled ${packId}@${version}: ${release.recallReason}. That exact version cannot be downloaded.`,
+        `The Studio Library recalled ${packId}@${version}: ${release.recallReason}. That exact version cannot be downloaded.`,
       )
     }
     if (release) return { entitlement, release }
@@ -395,7 +395,7 @@ function deliveryAttestation(
     const currentRelease = attested.find(row =>
       restoreReceiptAttestsRelease(row, entitlement.entitlementFamily, release))
     if (!currentRelease) {
-      throw new ContentStoreLocalError(409, 'CONTENT_PACK_RECEIPT_MISSING', 'GenStudio did not return signed receipt evidence for this release.')
+      throw new ContentStoreLocalError(409, 'CONTENT_PACK_RECEIPT_MISSING', 'The Studio Library did not return signed receipt evidence for this release.')
     }
     return {
       account_id: context.account.accountId,
@@ -456,7 +456,7 @@ export async function bindRootClosure(
   context: OwnedReleaseLookupContext,
 ): Promise<ContentPackDeliveryAttestation> {
   if (evidence.subject === 'bundle-closure-member') {
-    if (dependencies.length) throw new ContentStoreLocalError(409, 'CONTENT_PACK_NESTED_CLOSURE_UNSUPPORTED', 'GenStudio 1.14 receipt closure does not authorize nested bundle-member dependencies.')
+    if (dependencies.length) throw new ContentStoreLocalError(409, 'CONTENT_PACK_NESTED_CLOSURE_UNSUPPORTED', 'Gateway 1.14 receipt closure does not authorize nested bundle-member dependencies.')
     return evidence
   }
   const payload = JSON.parse(evidence.receipt_canonical_json) as {
@@ -497,7 +497,7 @@ export async function bindRootClosure(
         && row.version === owned.release.version
         && row.archive_sha256 === owned.release.archiveSha256)
       if (!pin) {
-        throw new ContentStoreLocalError(409, 'CONTENT_PACK_RECEIPT_CLOSURE_MISMATCH', 'The signed GenStudio restore receipt does not attest to this exact dependency.')
+        throw new ContentStoreLocalError(409, 'CONTENT_PACK_RECEIPT_CLOSURE_MISMATCH', 'The signed Studio Library restore receipt does not attest to this exact dependency.')
       }
       return { position, pack_id: dependency.pack_id, version: dependency.version, product_id: owned.entitlement.productId,
         entitlement_family: owned.entitlement.entitlementFamily, release_id: owned.release.releaseId, archive_sha256: owned.release.archiveSha256 }
@@ -505,7 +505,7 @@ export async function bindRootClosure(
     return { ...evidence, closure_members }
   }
   if (!Array.isArray(payload.bundle_closure) || payload.bundle_closure.length !== dependencies.length) {
-    throw new ContentStoreLocalError(409, 'CONTENT_PACK_RECEIPT_CLOSURE_MISMATCH', 'The signed GenStudio receipt closure does not match this pack before installation.')
+    throw new ContentStoreLocalError(409, 'CONTENT_PACK_RECEIPT_CLOSURE_MISMATCH', 'The signed Studio Library receipt closure does not match this pack before installation.')
   }
   const closure_members = await Promise.all(dependencies.map(async (dependency, position) => {
     const owned = await resolveOwnedContentStoreDependency(context, dependency.pack_id, dependency.version)
@@ -513,7 +513,7 @@ export async function bindRootClosure(
     if (!pin || pin.position !== position || pin.product_id !== owned.entitlement.productId
       || pin.entitlement_family !== owned.entitlement.entitlementFamily || pin.release_id !== owned.release.releaseId
       || pin.version !== owned.release.version || pin.archive_sha256 !== owned.release.archiveSha256) {
-      throw new ContentStoreLocalError(409, 'CONTENT_PACK_RECEIPT_CLOSURE_MISMATCH', 'The signed GenStudio receipt closure does not authorize this exact dependency.')
+      throw new ContentStoreLocalError(409, 'CONTENT_PACK_RECEIPT_CLOSURE_MISMATCH', 'The signed Studio Library receipt closure does not authorize this exact dependency.')
     }
     return { position, pack_id: dependency.pack_id, version: dependency.version, product_id: owned.entitlement.productId,
       entitlement_family: owned.entitlement.entitlementFamily, release_id: owned.release.releaseId, archive_sha256: owned.release.archiveSha256 }
@@ -560,7 +560,7 @@ async function installOwnedEntitlement(
     throw new ContentStoreLocalError(
       409,
       'CONTENT_PACK_TOO_LARGE_FOR_THIS_APP',
-      'This release exceeds Story Studio\'s 50 MiB signed-pack safety limit. GenStudio must publish a smaller compatible release.',
+      'This release exceeds Story Studio\'s 50 MiB signed-pack safety limit. The Studio Library must publish a smaller compatible release.',
     )
   }
   try {
@@ -600,7 +600,7 @@ async function installOwnedEntitlement(
       throw new ContentStoreLocalError(
         409,
         'CONTENT_PACK_DOWNLOAD_WITHDRAWN',
-        'GenStudio has withdrawn the download for this Content Pack, so its current release cannot be installed. '
+        'The Studio Library has withdrawn the download for this Content Pack, so its current release cannot be installed. '
         + 'A copy already installed on this Mac keeps working.',
       )
     }

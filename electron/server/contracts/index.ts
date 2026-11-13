@@ -942,7 +942,7 @@ export interface JobControlResponse {
 }
 
 export interface JobRemoteCancellationResponse {
-  /** `absent` (v1.2.8): GenStudio answered and has no such task — terminal,
+  /** `absent` (v1.2.8): The Gateway answered and has no such task — terminal,
    *  and distinct from `unknown`, which is "no answer was obtained". */
   status: 'queued' | 'submitting' | 'requested' | 'reconciling' | 'confirmed' | 'rejected' | 'unknown' | 'absent'
   operation: 'voice.tts' | 'audio.transcription' | 'image.generation' | 'video.generation' | 'chat.response' | 'music.generation'

@@ -59,7 +59,7 @@
               <strong>{{ genStudioAdmission.service_tier.next_tier.display_name }}</strong>:
               {{ genStudioAdmission.service_tier.next_tier.paid_concurrency_limit }} standard lanes,
               {{ genStudioAdmission.service_tier.next_tier.generation_submissions_per_minute }} submissions/min
-              Purchase more standard capacity in GenStudio.
+              Purchase more standard capacity in Gateway.
             </span>
             <span :class="{ 'capacity-warning': genStudioAdmission.queue_near_capacity }">
               <strong>{{ genStudioAdmission.paid_queued_jobs }}/{{ genStudioAdmission.max_queued_jobs }}</strong>
@@ -782,8 +782,8 @@
                 v-if="(job.status === 'error' || job.status === 'cancelled') && canOfferScenePromptAutoRepair(job)"
                 class="btn btn-xs btn-primary prompt-auto-repair-btn"
                 :disabled="controlBusy.has(job.job_id)"
-                :aria-label="`Auto repair missing prompts for ${job.episode_id}; GenStudio credits may be charged`"
-                title="PAID AUTO REPAIR — Keeps every verified prompt and submits each missing or duplicated scene alone. Continues only while verified progress improves. Pause stops new requests after any accepted request settles. GenStudio credits may be charged."
+                :aria-label="`Auto repair missing prompts for ${job.episode_id}; Gateway credits may be charged`"
+                title="PAID AUTO REPAIR — Keeps every verified prompt and submits each missing or duplicated scene alone. Continues only while verified progress improves. Pause stops new requests after any accepted request settles. Gateway credits may be charged."
                 @click="autoRepairScenePrompts(job)"
               >{{ controlBusy.has(job.job_id) ? 'Starting…' : 'Auto Repair Prompts · Credits' }}</button>
               <button
@@ -1398,7 +1398,7 @@ function genStudioQueueDetail(job: RJob): string {
     submitting: 'Sending to the Gateway.',
     accepted: 'The Gateway accepted it; it is waiting its turn.',
     waiting_account_capacity: 'Waiting for a free slot at the Gateway.',
-    waiting_credits: 'Waiting for GenStudio credits.',
+    waiting_credits: 'Waiting for Gateway credits.',
     running: 'The Gateway is generating.',
     completing: 'The Gateway is finishing the result.',
   } as Record<string, string>)[state] || '')

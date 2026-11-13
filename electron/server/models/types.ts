@@ -2880,7 +2880,7 @@ export interface JobControlCapabilities {
 /** Per-provider-task cancellation evidence, keyed by `${operation}:${provider_job_id}`. */
 export interface JobRemoteCancellation {
   /**
-   * `absent` (v1.2.8) means GenStudio answered the status lookup and said it
+   * `absent` (v1.2.8) means The Gateway answered the status lookup and said it
    * has no such task. It is terminal, and it is deliberately distinct from
    * `unknown`, which means Story Studio could not get an answer at all.
    */

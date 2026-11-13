@@ -58,13 +58,13 @@ export const ContentPackInstalledVersionSchema = z.object({
     started_at: z.string().datetime(),
   }).strict().optional(),
 }).strict().superRefine((value, context) => {
-  // model-drift-allow: Frozen Content Store source discriminator validates persisted delivery-attestation state.
+  // model-drift-allow: Frozen Studio Library source discriminator validates persisted delivery-attestation state.
   if ((value.source === 'genstudio-store') !== (value.delivery_attestation !== undefined)) {
-    context.addIssue({ code: z.ZodIssueCode.custom, message: 'only GenStudio Store versions carry delivery attestation evidence' })
+    context.addIssue({ code: z.ZodIssueCode.custom, message: 'only Studio Library versions carry delivery attestation evidence' })
   }
-  // model-drift-allow: Frozen Content Store source discriminator restricts persisted Store recall state.
+  // model-drift-allow: Frozen Studio Library source discriminator restricts persisted Store recall state.
   if (value.recalled && value.source !== 'genstudio-store') {
-    context.addIssue({ code: z.ZodIssueCode.custom, message: 'only GenStudio Store versions may be recalled by Store reconciliation' })
+    context.addIssue({ code: z.ZodIssueCode.custom, message: 'only Studio Library versions may be recalled by Store reconciliation' })
   }
   if (value.recalled && (value.recalled.account_id !== value.delivery_attestation?.account_id
     || value.recalled.genstudio_origin !== value.delivery_attestation?.genstudio_origin)) {

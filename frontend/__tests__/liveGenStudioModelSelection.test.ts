@@ -80,7 +80,7 @@ test('a gateway lock reason is rendered verbatim, never rewritten as an account 
 test('the paid-account lock code keeps its own sentence', () => {
   assert.equal(
     genStudioModelLockReason({ locked: true, lock_reason: 'requires_paid_account' }),
-    'Requires a paid GenStudio account.',
+    'Requires a paid Gateway account.',
   )
 })
 

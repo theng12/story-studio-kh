@@ -64,7 +64,7 @@ Running it again is safe: a finished channel previews as "Already self-contained
    episode's `youtube_upload.json`) do travel, so uploaded episodes stay uploaded.
 4. **Install the channel's Content Pack versions.** The self-contained preview shows
    "Content packs this channel uses" with the exact versions and whether each is
-   installed on this Mac. Install any that are missing from the Content Store.
+   installed on this Mac. Install any that are missing from the Studio Library.
 5. Open the channel's Preview once more: everything should resolve, and anything
    still missing is listed by name.
 

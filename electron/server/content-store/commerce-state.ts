@@ -43,7 +43,7 @@ function runtimePaths() {
   const lockPath = `${statePath}.lock`
   if (path.resolve(path.dirname(statePath)) !== path.resolve(paths.root)
     || path.resolve(path.dirname(lockPath)) !== path.resolve(paths.root)) {
-    throw new Error('Content Store commerce state must live directly below its runtime root')
+    throw new Error('Studio Library commerce state must live directly below its runtime root')
   }
   return { paths, statePath, lockPath }
 }
@@ -56,7 +56,7 @@ async function assertSafeRoot(root: string): Promise<void> {
   assertWriteIsolatedInTests(root, 'content-store-commerce-state')
   await fs.mkdir(root, { recursive: true, mode: 0o700 })
   const stat = await fs.lstat(root)
-  if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error(`Content Store runtime root is unsafe: ${root}`)
+  if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error(`Studio Library runtime root is unsafe: ${root}`)
 }
 
 /**
@@ -83,7 +83,7 @@ async function readStateFile(): Promise<StateRead> {
   try {
     const root = await fs.lstat(paths.root)
     if (!root.isDirectory() || root.isSymbolicLink()) {
-      return { kind: 'io-error', error: new Error(`Content Store runtime root is unsafe: ${paths.root}`) }
+      return { kind: 'io-error', error: new Error(`Studio Library runtime root is unsafe: ${paths.root}`) }
     }
   } catch (error: unknown) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { kind: 'missing' }
@@ -92,7 +92,7 @@ async function readStateFile(): Promise<StateRead> {
   try {
     const stat = await fs.lstat(statePath)
     if (!stat.isFile() || stat.isSymbolicLink()) {
-      return { kind: 'io-error', error: new Error(`Content Store state is unsafe: ${statePath}`) }
+      return { kind: 'io-error', error: new Error(`Studio Library state is unsafe: ${statePath}`) }
     }
     if (stat.size > MAX_STATE_BYTES) {
       return { kind: 'oversized' }
@@ -116,7 +116,7 @@ async function readStateFile(): Promise<StateRead> {
 async function ensureSafeQuarantine(): Promise<string> {
   const { paths } = runtimePaths()
   if (path.resolve(path.dirname(paths.quarantineRoot)) !== path.resolve(paths.root)) {
-    throw new Error('Content Store quarantine must live directly below its runtime root')
+    throw new Error('Studio Library quarantine must live directly below its runtime root')
   }
   await assertSafeRoot(paths.root)
   try {
@@ -126,7 +126,7 @@ async function ensureSafeQuarantine(): Promise<string> {
   }
   const stat = await fs.lstat(paths.quarantineRoot)
   if (!stat.isDirectory() || stat.isSymbolicLink()) {
-    throw new Error(`Content Store quarantine directory is unsafe: ${paths.quarantineRoot}`)
+    throw new Error(`Studio Library quarantine directory is unsafe: ${paths.quarantineRoot}`)
   }
   return paths.quarantineRoot
 }
@@ -156,12 +156,12 @@ async function quarantineOversizedState(): Promise<ContentStoreCommerceState> {
   const hash = createHash('sha256')
   try {
     const stat = await handle.stat()
-    if (!stat.isFile()) throw new Error(`Content Store oversized state is unsafe: ${statePath}`)
+    if (!stat.isFile()) throw new Error(`Studio Library oversized state is unsafe: ${statePath}`)
     const buffer = Buffer.allocUnsafe(64 * 1024)
     let position = 0
     while (position < stat.size) {
       const { bytesRead } = await handle.read(buffer, 0, buffer.byteLength, position)
-      if (bytesRead === 0) throw new Error(`Content Store oversized state changed while quarantining: ${statePath}`)
+      if (bytesRead === 0) throw new Error(`Studio Library oversized state changed while quarantining: ${statePath}`)
       hash.update(buffer.subarray(0, bytesRead))
       position += bytesRead
     }
@@ -212,7 +212,7 @@ export async function recordVerifiedContentRestore(
       && candidate.genstudio_origin === restore.genstudio_origin
     const current = retained.find(sameOwner)
     if (!current && retained.length >= MAX_VERIFIED_RESTORES) {
-      throw new Error(`Content Store commerce journal retains at most ${MAX_VERIFIED_RESTORES} account-bound restore records; online revalidation is required`)
+      throw new Error(`Studio Library commerce journal retains at most ${MAX_VERIFIED_RESTORES} account-bound restore records; online revalidation is required`)
     }
     const previous = current?.key_history ?? (current ? [{
       key_id: current.key_id,
@@ -222,12 +222,12 @@ export async function recordVerifiedContentRestore(
     for (const key of next) {
       const pinned = previous.find(candidate => candidate.key_id === key.key_id)
       if (pinned && pinned.public_key_base64 !== key.public_key_base64) {
-        throw new Error(`GenStudio Content Store signing key ${key.key_id} was repointed locally`)
+        throw new Error(`Studio Library signing key ${key.key_id} was repointed locally`)
       }
     }
     const key_history = [...previous, ...next.filter(key => !previous.some(candidate => candidate.key_id === key.key_id))]
     if (key_history.length > MAX_RESTORE_KEY_HISTORY) {
-      throw new Error(`GenStudio Content Store key history exceeds ${MAX_RESTORE_KEY_HISTORY} keys; online revalidation is required`)
+      throw new Error(`Studio Library key history exceeds ${MAX_RESTORE_KEY_HISTORY} keys; online revalidation is required`)
     }
     await recordContentStoreKeyAnchor({
       origin: restore.genstudio_origin,
@@ -259,7 +259,7 @@ export class ContentStoreRevalidationRequiredError extends Error {
   readonly statusCode = 409
   readonly expose = true
   constructor(readonly scope: { accountId: string; origin: string }) {
-    super('Content Store trust must be verified again. Open Content Store and choose Restore purchases.')
+    super('Studio Library could not confirm access to this download. Check the Gateway API Key in Settings → This Mac, then try again.')
     this.name = 'ContentStoreRevalidationRequiredError'
   }
 }
@@ -281,7 +281,7 @@ export async function resolveVerifiedContentStoreSigningKey(input: {
   const cached = await readVerifiedContentStoreRestore({ accountId: input.accountId, origin: input.origin })
   if (!cached || cached.account_id !== input.accountId || cached.content_account_id !== input.accountId
     || cached.genstudio_origin !== input.origin) {
-    throw new Error('No independently verified GenStudio key history exists for this account and origin')
+    throw new Error('No independently verified Studio Library key history exists for this account and origin')
   }
   const history = cached.key_history ?? [{ key_id: cached.key_id, public_key_base64: cached.public_key_base64 }]
   const anchor = await readContentStoreKeyAnchor({
@@ -291,12 +291,12 @@ export async function resolveVerifiedContentStoreSigningKey(input: {
   for (const key of history) {
     const pinned = anchor.keys.find(candidate => candidate.key_id === key.key_id)
     if (!pinned || pinned.public_key_base64 !== key.public_key_base64) {
-      throw new Error(`GenStudio key history disagrees with the OS-backed anchor for ${key.key_id}`)
+      throw new Error(`Studio Library key history disagrees with the key anchor for ${key.key_id}`)
     }
   }
   const restoreKey = history.find(key => key.key_id === cached.key_id)
   const requested = anchor.keys.find(key => key.key_id === input.keyId)
-  if (!restoreKey || !requested) throw new Error('GenStudio key history does not contain the requested receipt key')
+  if (!restoreKey || !requested) throw new Error('Studio Library key history does not contain the requested receipt key')
   const publicKey = parseContentStorePublicKey({
     key_id: restoreKey.key_id,
     algorithm: 'ed25519',
@@ -310,7 +310,7 @@ export async function resolveVerifiedContentStoreSigningKey(input: {
     })),
   })
   const signedReceipt = canonicalizeContentStoreObject(JSON.parse(cached.receipt_canonical_json))
-  if (signedReceipt.canonicalJson !== cached.receipt_canonical_json) throw new Error('Stored GenStudio restore evidence is not canonical')
+  if (signedReceipt.canonicalJson !== cached.receipt_canonical_json) throw new Error('Stored Studio Library restore evidence is not canonical')
   verifyContentStoreRestoreReceipt(publicKey, {
     signedReceipt,
     receiptSignature: cached.receipt_signature,
@@ -329,7 +329,7 @@ async function mutateState<T>(
     const result = await mutate(state)
     const validated = ContentStoreCommerceStateSchema.parse(state)
     if (encodedStateBytes(validated) > MAX_STATE_BYTES) {
-      throw new Error(`Content Store commerce journal exceeds ${MAX_STATE_BYTES} bytes; no evidence was written`)
+      throw new Error(`Studio Library commerce journal exceeds ${MAX_STATE_BYTES} bytes; no evidence was written`)
     }
     // A replay must leave historical evidence byte-for-byte unchanged.
     if (JSON.stringify(validated) === before) return result
@@ -371,16 +371,16 @@ async function processIncarnation(pid: number): Promise<string | null> {
       process.kill(pid, 0)
     } catch (probeError: unknown) {
       if ((probeError as NodeJS.ErrnoException).code === 'ESRCH') return null
-      throw new Error(`Unable to inspect Content Store submission owner PID ${pid}`, { cause: error })
+      throw new Error(`Unable to inspect Studio Library submission owner PID ${pid}`, { cause: error })
     }
-    throw new Error(`Unable to inspect Content Store submission owner PID ${pid}`, { cause: error })
+    throw new Error(`Unable to inspect Studio Library submission owner PID ${pid}`, { cause: error })
   }
-  throw new Error(`Content Store submission owner inspection is unsupported on ${process.platform}`)
+  throw new Error(`Studio Library submission owner inspection is unsupported on ${process.platform}`)
 }
 
 async function currentSubmissionOwner(): Promise<SubmissionOwner> {
   const incarnation = await processIncarnation(process.pid)
-  if (!incarnation) throw new Error('Unable to determine current Content Store submission process identity')
+  if (!incarnation) throw new Error('Unable to determine current Studio Library submission process identity')
   return {
     hostname: os.hostname(),
     pid: process.pid,
@@ -392,7 +392,7 @@ async function currentSubmissionOwner(): Promise<SubmissionOwner> {
 
 async function submissionOwnerIsProvenDead(owner: SubmissionOwner): Promise<boolean> {
   if (owner.hostname !== os.hostname()) {
-    throw new Error(`Content Store submission belongs to foreign host ${owner.hostname}; manual recovery is required`)
+    throw new Error(`Studio Library submission belongs to foreign host ${owner.hostname}; manual recovery is required`)
   }
   const observed = await processIncarnation(owner.pid)
   return observed === null || observed !== owner.process_incarnation
@@ -472,7 +472,7 @@ function pruneStateToBudgets(state: ContentStoreCommerceState, protectedQuoteIds
     delete state.attempts[candidates.shift()!.quote_id]
   }
   if (Object.keys(state.attempts).length > MAX_RECORDS || encodedStateBytes(state) > MAX_STATE_BYTES) {
-    throw new Error('Content Store commerce journal is full of protected or in-flight evidence; no evidence was lost')
+    throw new Error('Studio Library commerce journal is full of protected or in-flight evidence; no evidence was lost')
   }
 }
 
@@ -483,7 +483,7 @@ export async function saveQuotedAttempt(quote: GenStudioContentQuote): Promise<C
     const candidate = recordForQuote(quote, existing?.created_at ?? currentTime)
     if (existing) {
       if (quoteIdentity(existing) !== quoteIdentity(candidate)) {
-        throw new Error(`Content Store quote identity drift for ${quote.quoteId}`)
+        throw new Error(`Studio Library quote identity drift for ${quote.quoteId}`)
       }
       return existing
     }
@@ -495,7 +495,7 @@ export async function saveQuotedAttempt(quote: GenStudioContentQuote): Promise<C
 
 function requireAttempt(state: ContentStoreCommerceState, quoteId: string): CachedContentQuote {
   const attempt = state.attempts[quoteId]
-  if (!attempt) throw new Error(`Content Store quote is not saved: ${quoteId}`)
+  if (!attempt) throw new Error(`Studio Library quote is not saved: ${quoteId}`)
   return attempt
 }
 
@@ -513,10 +513,10 @@ function validateSignedQuoteProjection(attempt: CachedContentQuote): boolean {
   try {
     signedQuote = canonicalizeContentStoreJson(attempt.quote_canonical_json)
   } catch (error) {
-    throw new Error('Saved Content Store canonical quote is invalid', { cause: error })
+    throw new Error('Saved Studio Library canonical quote is invalid', { cause: error })
   }
   if (signedQuote.canonicalJson !== attempt.quote_canonical_json) {
-    throw new Error('Saved Content Store canonical quote bytes are not canonical')
+    throw new Error('Saved Studio Library canonical quote bytes are not canonical')
   }
   const row = signedQuote.value
   const identity: Array<[string, string]> = [
@@ -528,19 +528,19 @@ function validateSignedQuoteProjection(attempt: CachedContentQuote): boolean {
     ['entitlement_family', attempt.entitlement_family],
   ]
   for (const [field, expected] of identity) {
-    if (row[field] !== expected) throw new Error(`Saved Content Store signed quote ${field} does not match its journal identity`)
+    if (row[field] !== expected) throw new Error(`Saved Studio Library signed quote ${field} does not match its journal identity`)
   }
   const hasFamilies = Object.hasOwn(row, 'entitlement_families')
   const hasClosure = Object.hasOwn(row, 'bundle_closure')
   if (hasFamilies !== hasClosure) {
-    throw new Error('Saved Content Store signed quote has a partial bundle contract and cannot settle')
+    throw new Error('Saved Studio Library signed quote has a partial bundle contract and cannot settle')
   }
   if (!hasFamilies) return false
   if (!Array.isArray(row.entitlement_families) || !Array.isArray(row.bundle_closure)
     || attempt.entitlement_families === undefined || attempt.bundle_closure === undefined
     || !sameCanonicalValue(attempt.entitlement_families, row.entitlement_families)
     || !sameCanonicalValue(attempt.bundle_closure, row.bundle_closure)) {
-    throw new Error('Saved Content Store signed quote bundle projections drifted from canonical evidence')
+    throw new Error('Saved Studio Library signed quote bundle projections drifted from canonical evidence')
   }
   return true
 }
@@ -560,7 +560,7 @@ export async function claimPurchaseAttempt(quoteId: string, accountId: string): 
   const owner = await currentSubmissionOwner()
   return mutateState(state => {
     const attempt = requireAttempt(state, quoteId)
-    if (attempt.account_id !== accountId) throw new Error('Content Store purchase account does not match the saved quote account')
+    if (attempt.account_id !== accountId) throw new Error('Studio Library purchase account does not match the saved quote account')
     if (attempt.status === 'completed') return { outcome: 'completed', attempt }
     if (attempt.status === 'submitting') return { outcome: 'existing-submitting', attempt }
     validateSignedQuoteProjection(attempt)
@@ -578,8 +578,8 @@ export async function claimPurchaseAttempt(quoteId: string, accountId: string): 
 
 export async function beginPurchaseAttempt(quoteId: string, accountId: string): Promise<CachedContentQuote> {
   const result = await claimPurchaseAttempt(quoteId, accountId)
-  if (result.outcome === 'completed') throw new Error('Content Store purchase is already completed and immutable')
-  if (result.outcome === 'existing-submitting') throw new Error('Content Store purchase is already submitting')
+  if (result.outcome === 'completed') throw new Error('Studio Library purchase is already completed and immutable')
+  if (result.outcome === 'existing-submitting') throw new Error('Studio Library purchase is already submitting')
   return result.attempt
 }
 
@@ -587,8 +587,8 @@ export async function recordPurchaseUncertain(quoteId: string, detail: string): 
   const boundedDetail = ContentStoreDetailSchema.parse(detail)
   return mutateState(state => {
     const attempt = requireAttempt(state, quoteId)
-    if (attempt.status === 'completed') throw new Error('Content Store purchase is already completed and immutable')
-    if (attempt.status !== 'submitting') throw new Error('Only a submitting Content Store purchase can become uncertain')
+    if (attempt.status === 'completed') throw new Error('Studio Library purchase is already completed and immutable')
+    if (attempt.status !== 'submitting') throw new Error('Only a submitting Studio Library purchase can become uncertain')
     const { submission_owner: _submissionOwner, ...retained } = attempt
     const next = replaceAttempt(state, { ...retained, status: 'uncertain', uncertain_detail: boundedDetail, updated_at: nowIso() })
     pruneStateToBudgets(state, new Set([quoteId]))
@@ -601,7 +601,7 @@ export async function restoreQuotedAfterPurchaseScopeRefusal(quoteId: string): P
   return mutateState(state => {
     const attempt = requireAttempt(state, quoteId)
     if (attempt.status !== 'submitting') {
-      throw new Error('Only a submitting Content Store purchase can return to quoted after a scope refusal')
+      throw new Error('Only a submitting Studio Library purchase can return to quoted after a scope refusal')
     }
     const {
       submission_owner: _submissionOwner,
@@ -625,12 +625,12 @@ export async function recordPurchaseRefusal(
   refusal: CachedContentRefusal,
 ): Promise<CachedContentQuote> {
   const result = CachedContentRefusalSchema.safeParse(refusal)
-  if (!result.success) throw new Error('Content Store refusal has an unknown status/code pairing or unbounded detail', { cause: result.error })
+  if (!result.success) throw new Error('Studio Library refusal has an unknown status/code pairing or unbounded detail', { cause: result.error })
   const bounded = result.data
   return mutateState(state => {
     const attempt = requireAttempt(state, quoteId)
-    if (attempt.status === 'completed') throw new Error('Content Store purchase is already completed and immutable')
-    if (attempt.status !== 'submitting') throw new Error('Only a submitting Content Store purchase can be refused')
+    if (attempt.status === 'completed') throw new Error('Studio Library purchase is already completed and immutable')
+    if (attempt.status !== 'submitting') throw new Error('Only a submitting Studio Library purchase can be refused')
     const { uncertain_detail: _uncertainDetail, submission_owner: _submissionOwner, ...retained } = attempt
     const next = replaceAttempt(state, {
       ...retained,
@@ -708,22 +708,22 @@ export async function recordCompletedPurchase(
       // Identity is compared without the legacy money projections an old row
       // may still carry, so a stored settlement is not restated.
       if (JSON.stringify(purchaseIdentity(attempt.completed_purchase)) !== JSON.stringify(purchaseIdentity(completed))) {
-        throw new Error('Completed Content Store purchase is immutable; purchase identity drift was refused')
+        throw new Error('Completed Studio Library purchase is immutable; purchase identity drift was refused')
       }
       return attempt
     }
-    if (attempt.status !== 'submitting') throw new Error('Only a submitting Content Store purchase can complete')
+    if (attempt.status !== 'submitting') throw new Error('Only a submitting Studio Library purchase can complete')
     const hasModernBundleContract = validateSignedQuoteProjection(attempt)
-    if (purchase.accountId !== attempt.account_id) throw new Error('Completed Content Store purchase account does not match the quote account')
-    if (purchase.quoteId !== attempt.quote_id) throw new Error('Completed Content Store purchase quote_id does not match the saved quote')
+    if (purchase.accountId !== attempt.account_id) throw new Error('Completed Studio Library purchase account does not match the quote account')
+    if (purchase.quoteId !== attempt.quote_id) throw new Error('Completed Studio Library purchase quote_id does not match the saved quote')
     if (purchase.product.value.product_id !== attempt.product_id
       || purchase.product.value.entitlement_family !== attempt.entitlement_family
       || purchase.release.value.release_id !== attempt.release_id) {
-      throw new Error('Completed Content Store purchase product or release does not match the saved quote')
+      throw new Error('Completed Studio Library purchase product or release does not match the saved quote')
     }
     if (hasModernBundleContract
       && JSON.stringify(purchase.entitlementFamilies) !== JSON.stringify(attempt.entitlement_families)) {
-      throw new Error('Completed Content Store purchase entitlement families do not match the saved quote')
+      throw new Error('Completed Studio Library purchase entitlement families do not match the saved quote')
     }
     const savedClosure = attempt.bundle_closure
     const receivedClosure = purchase.bundleClosure.map(component => ({
@@ -735,7 +735,7 @@ export async function recordCompletedPurchase(
       archive_sha256: component.archiveSha256,
     }))
     if (hasModernBundleContract && JSON.stringify(receivedClosure) !== JSON.stringify(savedClosure)) {
-      throw new Error('Completed Content Store purchase bundle closure does not match the saved quote')
+      throw new Error('Completed Studio Library purchase bundle closure does not match the saved quote')
     }
     const { uncertain_detail: _uncertainDetail, submission_owner: _submissionOwner, ...retained } = attempt
     const next = replaceAttempt(state, {

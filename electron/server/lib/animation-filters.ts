@@ -88,7 +88,7 @@ export function supersampleMultiplier(_w: number, _h: number): number {
 function missingPackMotion(type: string): never {
   throw new MissingPackEffectError(
     `A scene uses the camera move "${type}", which comes from a Content Pack that is not installed. `
-    + 'Rendering now would publish the scene with no motion at all. Reinstall the pack from the Content Store, '
+    + 'Rendering now would publish the scene with no motion at all. Reinstall the pack from the Studio Library, '
     + 'or choose another animation for that scene, then run this job again — no completed work is repeated.',
     [type],
   )

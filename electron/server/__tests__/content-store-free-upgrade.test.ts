@@ -123,6 +123,6 @@ describe('the fallback is a fallback, and the closure follows the same rule', ()
     // an upgrade: the dependency must be the version the account is entitled
     // to now.
     assert.match(source, /const restoreAttested = Array\.isArray\(payload\.releases\) && !Array\.isArray\(payload\.bundle_closure\)/)
-    assert.match(source, /CONTENT_PACK_RECEIPT_CLOSURE_MISMATCH', 'The signed GenStudio restore receipt does not attest to this exact dependency\.'/)
+    assert.match(source, /CONTENT_PACK_RECEIPT_CLOSURE_MISMATCH', 'The signed Studio Library restore receipt does not attest to this exact dependency\.'/)
   })
 })

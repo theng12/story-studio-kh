@@ -51,7 +51,7 @@ export async function reconcileContentStoreRecalledVersions(input: {
   await withContentPackCoordinationLock(paths, () => mutateContentPackState(state => {
     for (const pack of Object.values(state.packs)) {
       for (const [version, installed] of Object.entries(pack.versions)) {
-        // model-drift-allow: Frozen Content Store source discriminator reads persisted delivery-attestation state.
+        // model-drift-allow: Frozen Studio Library source discriminator reads persisted delivery-attestation state.
         const evidence = installed.source === 'genstudio-store' ? installed.delivery_attestation : undefined
         if (!evidence || evidence.account_id !== input.accountId || evidence.genstudio_origin !== input.origin
           || !input.recalledVersionsByFamily.get(evidence.entitlement_family)?.includes(version)) continue
@@ -133,7 +133,7 @@ export async function resolveContentStoreInstallSnapshot(
     const installed: ContentStoreInstalledPackState[] = []
     for (const [packId, pack] of Object.entries(state.packs)) {
       for (const [version, local] of Object.entries(pack.versions)) {
-        // model-drift-allow: Frozen Content Store source discriminator reads persisted reconciled Store state.
+        // model-drift-allow: Frozen Studio Library source discriminator reads persisted reconciled Store state.
         const evidence = local.source === 'genstudio-store' ? local.delivery_attestation : undefined
         if (!evidence || local.recalled || local.pending_removal) continue
         const closure = await inspect(packId, version)

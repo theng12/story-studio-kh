@@ -36,18 +36,18 @@ const router = Router()
 // request that reaches this point in the mount order — every router registered
 // after it in routes/index.ts (b-roll, research, scene plan, scene review,
 // continuity, music pool, library, changelog, …) silently inherited this 16 KiB
-// cap and answered oversized-but-legitimate payloads with a Content Store error
+// cap and answered oversized-but-legitimate payloads with a Studio Library error
 // that had nothing to do with them. Found 2026-09-08 when a 16.9 KiB
 // `POST /api/projects/:slug/image-pool/generate` (13 preview prompts) was
 // refused with CONTENT_STORE_REQUEST_TOO_LARGE.
 router.use('/content-store', (req, res, next) => {
   const declared = Number(req.headers['content-length'] || 0)
   if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) {
-    res.status(413).json({ code: 'CONTENT_STORE_REQUEST_TOO_LARGE', detail: 'Content Store request body exceeds 16 KiB.' })
+    res.status(413).json({ code: 'CONTENT_STORE_REQUEST_TOO_LARGE', detail: 'Studio Library request body exceeds 16 KiB.' })
     return
   }
   if (req.body !== undefined && Buffer.byteLength(JSON.stringify(req.body), 'utf8') > MAX_BODY_BYTES) {
-    res.status(413).json({ code: 'CONTENT_STORE_REQUEST_TOO_LARGE', detail: 'Content Store request body exceeds 16 KiB.' })
+    res.status(413).json({ code: 'CONTENT_STORE_REQUEST_TOO_LARGE', detail: 'Studio Library request body exceeds 16 KiB.' })
     return
   }
   next()
@@ -70,28 +70,28 @@ type ContentStoreFailure = { status: number; body: Record<string, unknown> }
 function upstreamFailure(error: GenStudioContentStoreApiError, requiredScope: 'content:read' | 'content:purchase'): ContentStoreFailure {
   if (error.status === 401) {
     return { status: 401, body: {
-      code: 'CONTENT_STORE_SCOPE_REQUIRED', detail: `The active GenStudio key was not accepted for required ${requiredScope} access.`,
+      code: 'CONTENT_STORE_SCOPE_REQUIRED', detail: `The active Gateway key was not accepted for required ${requiredScope} access.`,
     } }
   }
   const safeRefusals: Record<string, string> = {
-    already_owned: 'This content is already available to this GenStudio account.',
+    already_owned: 'This content is already available to this Studio Library account.',
     archive_unavailable: 'The Content Pack archive is not available right now.',
-    bundle_closure_missing: 'This Content Store bundle has no pinned component closure and cannot be purchased.',
-    bundle_component_unavailable: 'A pinned component of this Content Store bundle is no longer available.',
-    discount_misconfigured: 'GenStudio cannot safely quote this Content Store discount right now.',
-    entitlement_revoked: 'GenStudio reports that this content entitlement is revoked.',
-    not_entitled: 'This Content Pack is not available to this GenStudio account.',
-    product_unavailable: 'This Content Store product is not available.',
-    quote_rejected: 'GenStudio rejected the saved Content Store quote.',
-    release_recalled: 'GenStudio stopped serving this exact Content Pack release.',
+    bundle_closure_missing: 'This Studio Library bundle has no pinned component closure and cannot be purchased.',
+    bundle_component_unavailable: 'A pinned component of this Studio Library bundle is no longer available.',
+    discount_misconfigured: 'The Studio Library cannot safely quote this discount right now.',
+    entitlement_revoked: 'The Studio Library reports that this content entitlement is revoked.',
+    not_entitled: 'This Content Pack is not available to this Studio Library account.',
+    product_unavailable: 'This Studio Library product is not available.',
+    quote_rejected: 'The Studio Library rejected the saved quote.',
+    release_recalled: 'The Studio Library stopped serving this exact Content Pack release.',
     release_unavailable: 'This Content Pack release is not available.',
-    signing_unavailable: 'GenStudio cannot sign Content Store evidence right now.',
+    signing_unavailable: 'The Studio Library cannot sign its evidence right now.',
   }
   const safeDetail = error.code ? safeRefusals[error.code] : undefined
   if (!safeDetail) {
     return { status: 502, body: {
       code: 'CONTENT_STORE_UPSTREAM_REFUSED',
-      detail: 'GenStudio refused this Content Store request without a recognized public reason.',
+      detail: 'The Studio Library refused this request without a recognized public reason.',
     } }
   }
   const recall = error.status === 410 && error.code === 'release_recalled' ? {
@@ -129,19 +129,19 @@ function projectFailure(
     return localFailure(error)
   }
   if (error instanceof z.ZodError) {
-    return { status: 400, body: { code: 'CONTENT_STORE_REQUEST_INVALID', detail: 'Content Store request fields are invalid.' } }
+    return { status: 400, body: { code: 'CONTENT_STORE_REQUEST_INVALID', detail: 'Studio Library request fields are invalid.' } }
   }
   // A read that never reached the Gateway: say so, instead of the generic "Failed to load the
-  // Content Store." A purchase whose outcome is uncertain never gets here (it is mapped earlier).
+  // Studio Library." A purchase whose outcome is uncertain never gets here (it is mapped earlier).
   const offline = gatewayConnectionFailure(error)
   if (offline) return { status: 503, body: { code: 'GATEWAY_UNREACHABLE', ...offline } }
   // A size refusal is the one unexpected failure whose cause is fully safe to
   // repeat: it names a limit and an endpoint, and nothing else. It used to fall
   // through to the generic fallback below, which is why the 2026-08-25 outage
-  // presented as "Content Store is unavailable" with every count at zero and no
+  // presented as "Studio Library is unavailable" with every count at zero and no
   // hint anywhere the user could see.
   if (error instanceof GenStudioContentStoreLimitError) {
-    logLine('error', 'Content Store payload exceeded a Story Studio parsing limit', {
+    logLine('error', 'Studio Library payload exceeded a Story Studio parsing limit', {
       fallback,
       raw: redactSecrets(error.message),
     })
@@ -154,7 +154,7 @@ function projectFailure(
   // field path), never a local path or a secret, so it can be said out loud —
   // in the same words the Studio Library's per-section answer already uses.
   if (error instanceof GenStudioContentStoreResponseError) {
-    logLine('error', 'GenStudio answered a Content Store request with an unreadable response', {
+    logLine('error', 'The Gateway answered a Studio Library request with an unreadable response', {
       fallback,
       raw: redactSecrets(error.message),
     })
@@ -168,13 +168,13 @@ function projectFailure(
   // renderer. The log is a different audience: it is local, redacted below, and
   // it is the only place the cause can be recovered from afterwards.
   //
-  // Logging the synthetic fallback instead made every unexpected Content Store
+  // Logging the synthetic fallback instead made every unexpected Studio Library
   // failure indistinguishable -- a request timeout, an unreadable state file
-  // and an outright bug all wrote the same "Failed to load the Content Store"
+  // and an outright bug all wrote the same "Failed to load the Studio Library"
   // line with a stack pointing at this function. Diagnosing the install outage
   // that motivated this change meant guessing, because the evidence had been
   // thrown away at the moment it was produced.
-  logLine('error', 'Content Store failure surfaced as a generic 500', {
+  logLine('error', 'Studio Library failure surfaced as a generic 500', {
     fallback,
     raw: redactSecrets(String((error as { message?: unknown })?.message ?? error ?? '')),
     name: String((error as { name?: unknown })?.name ?? ''),
@@ -198,7 +198,7 @@ router.get('/content-store', async (_req, res) => {
   try {
     res.json(await loadContentStoreOverview())
   } catch (error) {
-    handleFailure(res, error, 'Failed to load the Content Store.', 'content:read')
+    handleFailure(res, error, 'Failed to load the Studio Library.', 'content:read')
   }
 })
 
@@ -207,7 +207,7 @@ router.post('/content-store/restore', async (req, res) => {
     emptyBody(req.body)
     res.json(await restoreContentStoreOwnership())
   } catch (error) {
-    handleFailure(res, error, 'Failed to restore Content Store ownership.', 'content:read')
+    handleFailure(res, error, 'Failed to restore Studio Library ownership.', 'content:read')
   }
 })
 
@@ -244,18 +244,18 @@ router.get('/content-store/installs/:operationId', (req, res) => {
   try {
     const operation = readContentStoreInstallOperation(OPAQUE_ID.parse(firstParam(req.params.operationId)))
     if (!operation) {
-      res.status(404).json({ code: 'CONTENT_STORE_INSTALL_NOT_FOUND', detail: 'This Content Store install is no longer available to monitor.' })
+      res.status(404).json({ code: 'CONTENT_STORE_INSTALL_NOT_FOUND', detail: 'This Studio Library install is no longer available to monitor.' })
       return
     }
     res.json({ operation })
   } catch (error) {
-    handleFailure(res, error, 'Failed to read Content Store install progress.', 'content:read')
+    handleFailure(res, error, 'Failed to read Studio Library install progress.', 'content:read')
   }
 })
 
 router.use((error: unknown, _req: Request, res: Response, next: NextFunction) => {
   if ((error as { type?: string })?.type === 'entity.too.large') {
-    res.status(413).json({ code: 'CONTENT_STORE_REQUEST_TOO_LARGE', detail: 'Content Store request body exceeds 16 KiB.' })
+    res.status(413).json({ code: 'CONTENT_STORE_REQUEST_TOO_LARGE', detail: 'Studio Library request body exceeds 16 KiB.' })
     return
   }
   next(error)

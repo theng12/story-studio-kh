@@ -71,8 +71,8 @@ router.all('/projects/:slug/settings/accounts/:providerId/:accountId/default', r
  * names them (`ignored`) next to what it saved (`applied`) instead of a bare `{ ok: true }`.
  */
 const CONFIG_KEYS_NOT_SAVED: Record<string, string> = {
-  audio_models: 'retired: GenStudio is the only voice catalog; choose voices in Audio',
-  models: 'retired: custom model storage was removed; models come from GenStudio',
+  audio_models: 'retired: Gateway is the only voice catalog; choose voices in Audio',
+  models: 'retired: custom model storage was removed; models come from Gateway',
   llm_lineup: 'retired (2026-10-03): each step chooses its own model',
   llm_lineup_migration: 'retired (2026-10-03): Story Studio keeps this record itself',
   audio_concurrency: 'use PUT /app-settings/concurrency',

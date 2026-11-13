@@ -892,7 +892,7 @@ export class MissingPackEffectError extends Error {
  *
  * The owning pack id is deliberately NOT guessed. An item id names its
  * publisher, not its pack, so the publisher is all the message can honestly
- * offer, and it is enough to find the pack in the Content Store.
+ * offer, and it is enough to find the pack in the Studio Library.
  */
 export function assertNoUnavailablePackOverlays(unavailable: readonly UnavailableOverlay[]): void {
   const fromPacks = unavailable.filter(entry => entry.from_content_pack)
@@ -904,7 +904,7 @@ export function assertNoUnavailablePackOverlays(unavailable: readonly Unavailabl
   throw new MissingPackEffectError(
     `This episode uses ${named.length === 1 ? 'an effect' : 'effects'} from a Content Pack that is not installed: `
     + `${named.join(', ')}. Rendering now would publish the video without ${named.length === 1 ? 'it' : 'them'}. `
-    + 'Reinstall the pack from the Content Store, or remove the effect from the Video Assembly effect stack, then run this job again — '
+    + 'Reinstall the pack from the Studio Library, or remove the effect from the Video Assembly effect stack, then run this job again — '
     + 'no completed work is repeated.',
     fromPacks.map(entry => entry.id),
   )

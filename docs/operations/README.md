@@ -7,7 +7,7 @@ How to *do* things. Manual procedures, pre-flight checklists, runbooks. Anything
 | File | Purpose |
 |---|---|
 | [`qa-checklist.md`](qa-checklist.md) | Manual QA pass before cutting a release. Disk-space rule, smoke tests across the pipeline, things that automated tests don't cover. |
-| [`security-privacy.md`](security-privacy.md) | Electron trust boundary, GenStudio-key handling, privacy guarantees, packaging checks, and unresolved production gates. |
+| [`security-privacy.md`](security-privacy.md) | Electron trust boundary, Gateway-key handling, privacy guarantees, packaging checks, and unresolved production gates. |
 | [`desktop-release.md`](desktop-release.md) | Deterministic arm64 build/DMG smoke procedure, clean-install and upgrade gates, and external signing/notarization requirements. |
 | [`new-computer-migration.md`](new-computer-migration.md) | Durable repository, project, local-state, secret, handoff, and developer-skill inventory for moving to another Mac. |
 

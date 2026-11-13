@@ -4,6 +4,12 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.400 — 2026-11-13
+
+- **Studio Library** is the new name everywhere in the app — the page, menus, buttons, errors and What's New. Nothing you read says "Content Store" or "GenStudio" any more.
+- Installed Studio Library content keeps working without being verified again. Packs you already have open and serve as before; trust is checked only when a new download or an update arrives. If an older local trust record can't be read, the Library no longer blocks the refresh or asks you to restore purchases.
+- A Library refusal now says what happened and what to press.
+
 ## v1.4.399 — 2026-11-13
 
 - Story Studio no longer checks for or installs its own updates. Settings shows the version and one line — **Updates are installed by Studio Launcher KH** — and nothing in the app can update itself.

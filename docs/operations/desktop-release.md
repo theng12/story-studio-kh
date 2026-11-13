@@ -98,13 +98,13 @@ artifacts. Credential values are never printed.
       bundled fonts, templates, niches, formats, and FFmpeg status must load;
       provider-backed generation may report offline/unavailable without blocking
       the rest of the UI.
-- [ ] Confirm the GenStudio base URL saved under the per-machine
+- [ ] Confirm the Gateway base URL saved under the per-machine
       `genstudio_url` setting is the approved deployment origin. Public endpoints
       must use HTTPS; loopback HTTP is accepted only for a same-machine service.
       Never place API keys, userinfo, query strings, filesystem paths, Pinokio
       paths, or developer home paths in the URL.
-- [ ] If a public GenStudio endpoint should work on a completely fresh install,
-      have the GenStudio migration owner approve its production default before
+- [ ] If a public Gateway endpoint should work on a completely fresh install,
+      have the Gateway migration owner approve its production default before
       release. The current loopback default is safe and offline-friendly but does
       not provision a remote service.
 - [ ] Inspect the generated package report: no `.env` files, secrets, databases,

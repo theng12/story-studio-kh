@@ -384,9 +384,9 @@ function verifyDeliveryAttestedProfile(
   manifest: ContentPackManifest,
   signatureEntry: ZipEntry | undefined,
 ): void {
-  // model-drift-allow: Frozen Content Store receipt profile identifies the signed delivery attestation format.
+  // model-drift-allow: Frozen Studio Library receipt profile identifies the signed delivery attestation format.
   if (manifest.delivery_profile !== 'genstudio-store-receipt-v1') {
-    fail('delivery-attested archive must declare the GenStudio Store receipt profile')
+    fail('delivery-attested archive must declare the Studio Library receipt profile')
   }
   if (signatureEntry) fail('delivery-attested archive must not contain a publisher signature')
 }
