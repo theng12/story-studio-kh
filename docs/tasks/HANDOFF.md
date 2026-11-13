@@ -1,5 +1,34 @@
 # HANDOFF — Story Studio KH
 
+### Release 1.4.400 — Studio Library, installed content is done (2026-11-14)
+
+- Source: `release/1.4.400` from main `64ff9239e`; commits `9962b7c22` (installed content needs no
+  re-verification; full Studio Library rename), `fbd1b906c` (an installed pack serves whatever origin,
+  account or key it was installed under — the Production block), `deb0e0c15` (paid-wave policy pin).
+  Not merged to main, not pushed.
+- Artifact: `dist/Story Studio KH 1.4.400-arm64.dmg`, sha256
+  `d67f2925a02fb5901859372387d64d00cc28d21e043768126b1e517f2cb59a08`, 264,397,449 bytes, signed
+  `KH Studio Local Signing`; `dist:smoke` verified it and its hidden isolated launch in 4.6 s.
+- **Installed Studio Library content is never re-verified** (owner 2026-11-13): its own bytes and the
+  archive hash recorded at install verify it. A missing/unreadable anchor, a legacy envelope, absent
+  restore evidence, a rotated key, or an origin/account recorded before a credential reset can no
+  longer refuse a refresh, a project pin or a job. The Store key and attestation are advisory for
+  installed copies; a **new** download/update still requires verified key and origin. No signed
+  evidence is rewritten. This unblocks the 7 Nov packs on macmini-angkor.
+- **Naming**: user-visible "Content Store" and "GenStudio" are gone — the feature is **Studio
+  Library** and the service **Gateway**. UI labels, error details, route fallbacks, log labels, tests,
+  README and user docs renamed; internal identifiers, file names and comments unchanged. Old
+  CHANGELOG entries and handoffs keep history.
+- Checks: cheap checks, lint (0 errors), both typechecks, `npm run build` and `dist:smoke` exit 0.
+  Full gate once: backend 1041/1041 files exit 0; frontend 406/406 files, 3590 tests exit 0; release
+  17/17 files exit 0; content-packs 45/45 files, 431 tests — one stale paid-wave phrase pin failed in
+  the gate, repaired and the lane rerun exit 0 (the other three lanes' inputs unchanged by that
+  test-only fix).
+- Acceptance on the built app (hidden, isolated data dir): health 1.4.400; api-keys `hasKey:false`;
+  `/api/projects` 200; every old `/app-update/*` route 404; Keychain untouched (no item, no prompt).
+- Not done: publish is the Developer's (live feed on 1301), install on the mini and pack reinstall
+  follow the publish.
+
 ### Release 1.4.399 — Launcher-only updates, no Keychain, named Gateway address (2026-11-13)
 
 - Source: branch `release/1.4.399` from `main` at `8ef6e4a5b` (1.4.398); commits `2c0202453`
