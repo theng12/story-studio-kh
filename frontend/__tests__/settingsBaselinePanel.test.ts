@@ -6,7 +6,7 @@
  * - preview sends dry run payload and displays diffs with protected keys;
  * - apply button requires explicit user confirmation;
  * - readback results display honest mismatch vs verified statuses;
- * - restore requires window confirmation.
+ * - restore asks in the app's own dialog (never window.confirm).
  */
 
 import assert from 'node:assert/strict'
@@ -31,6 +31,7 @@ interface HarnessState {
   previewRes: any
   applyRes: any
   restoreRes: any
+  confirms: any[]
 }
 
 const mockProjects = [
@@ -139,6 +140,7 @@ async function loadPanel(): Promise<Component> {
     const support = `
       import { computed, onMounted, ref } from ${JSON.stringify(vueUrl)}
       const useApi = () => globalThis.__settingsBaselineHarness.api()
+      const useConfirm = () => globalThis.__settingsBaselineHarness.confirm()
     `
     const code = `${support}\n${script.content.replace('export default', 'const __sfc__ =')}\n${template.code}\n__sfc__.render = render\nexport default __sfc__`
     const transformed = await transform(code, { loader: 'ts', format: 'esm' })
@@ -162,6 +164,7 @@ async function mountPanel(overrides: Partial<HarnessState> = {}) {
     previewRes: mockPreview,
     applyRes: mockApplyRes,
     restoreRes: mockRestoreRes,
+    confirms: [],
     ...overrides,
   }
 
@@ -194,7 +197,12 @@ async function mountPanel(overrides: Partial<HarnessState> = {}) {
       throw new Error(`Unhandled POST ${path}`)
     },
   }
-  ;(globalThis as any).__settingsBaselineHarness = { api: () => api }
+  ;(globalThis as any).__settingsBaselineHarness = {
+    api: () => api,
+    // The owner's 2026-11-13 rule forbids window.confirm in a packaged webview: every
+    // confirmation is the app's own in-app dialog, so the test records the ask.
+    confirm: () => ({ ask: async (options: any) => { state.confirms.push(options); return true } }),
+  }
 
   const comp = await loadPanel()
   const host = document.createElement('div')
@@ -339,15 +347,7 @@ test('apply button requires explicit confirmation before enabling application', 
 
 // ── Restore Snapshot Confirmation ────────────────────────────────────────────
 
-test('restore snapshot triggers window confirm and POST restore with explicit confirmation', async () => {
-  const originalConfirm = globalThis.window.confirm
-  let confirmArg: string | null = null
-  let confirmResult = true
-  ;(globalThis.window as any).confirm = (msg: string) => {
-    confirmArg = msg
-    return confirmResult
-  }
-
+test('restore snapshot asks in-app and POSTs restore with explicit confirmation', async () => {
   const panel = await mountPanel()
   try {
     const buttons = Array.from(panel.host.querySelectorAll<HTMLButtonElement>('button'))
@@ -358,7 +358,9 @@ test('restore snapshot triggers window confirm and POST restore with explicit co
     await flush()
     await flush()
 
-    assert.ok(confirmArg && confirmArg.includes('snp_xyz'), 'window.confirm invoked with snapshot ID')
+    const asked = panel.state.confirms.find(c => String(c?.message || '').includes('snp_xyz'))
+    assert.ok(asked, 'the in-app restore dialog names the snapshot ID')
+    assert.doesNotMatch(String(asked.message), /window\.confirm/)
 
     const restoreCall = panel.state.calls.find(c => c.method === 'POST' && c.path === '/settings-baselines/restore')
     assert.ok(restoreCall, 'Restore POST sent')
@@ -368,7 +370,6 @@ test('restore snapshot triggers window confirm and POST restore with explicit co
     const text = panel.host.textContent || ''
     assert.match(text, /successfully restored to snapshot and verified on disk/)
   } finally {
-    ;(globalThis.window as any).confirm = originalConfirm
     await panel.cleanup()
   }
 })

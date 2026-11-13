@@ -58,7 +58,7 @@ test('the prompt never assigns a Formula on its own', () => {
 test('the dashboard passes the choice state, and Settings remains the full editor', () => {
   assert.match(dashboard, /:formula-choice="project\.formula_choice"/)
   assert.match(dashboard, /:name="project\.name"/)
-  assert.match(banner, /settings#channel/)
+  assert.match(banner, /settings#formula/)
   assert.match(banner, /Series Formula/)
   // Mobile layout kept from the banner it replaces.
   assert.match(banner, /@media \(max-width: 560px\)/)

@@ -43,7 +43,7 @@ describe('channel list cards', () => {
   })
 
   test('the episode prefix is labelled as codes, not rendered as a count noun', () => {
-    assert.match(template, /Episode codes: \{\{ project\.episode_prefix \|\| 'EP' \}\}…/)
+    assert.match(template, /Episode codes: \{\{ project\.episode_prefix \|\| 'EP' \}\}0001\+/)
     assert.doesNotMatch(template, /\}\} episodes · Created/)
   })
 })

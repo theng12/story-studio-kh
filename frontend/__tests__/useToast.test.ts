@@ -231,13 +231,13 @@ describe('useToast.humanizeError', () => {
 
   test('once the Gateway address is known, a connection error names it', async () => {
     // The probe is the only writer of the address; drive it with a stubbed fetch.
-    const { refresh, currentGatewayUrl } = await import('../composables/useNetworkStatus.js')
+    const { useNetworkStatus, currentGatewayUrl } = await import('../composables/useNetworkStatus.js')
     const realFetch = globalThis.fetch
     globalThis.fetch = (async (url: string | URL) => String(url).endsWith('/api/health')
       ? new Response('{}', { status: 200 })
       : new Response(JSON.stringify({ reachable: false, url: 'http://127.0.0.1:8787' }), { status: 200 })) as typeof fetch
     try {
-      await refresh()
+      await useNetworkStatus().refresh()
       assert.equal(currentGatewayUrl(), 'http://127.0.0.1:8787')
       assert.match(humanizeError('fetch failed'), /Gateway not reachable at http:\/\/127\.0\.0\.1:8787 — is the Gateway app running on that Mac\?/)
     } finally {
