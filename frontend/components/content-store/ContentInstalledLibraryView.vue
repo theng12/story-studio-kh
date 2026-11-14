@@ -2,6 +2,9 @@
   <section class="installed-library" aria-labelledby="installed-library-heading">
     <header><h2 id="installed-library-heading">Installed</h2><span>{{ installsResolved ? `${installed.length} ${installed.length === 1 ? 'pack' : 'packs'}` : 'Not checked yet' }}</span></header>
     <p>Signed packs installed on this Mac.</p>
+    <!-- The same missing dependency on many packs is one problem. The per-pack
+         line below stays, so the detail is never hidden. -->
+    <GroupedWarnings v-if="groupedMissingWarnings.length" :entries="groupedMissingWarnings" item-noun="packs" />
     <!-- Installed packs are read from this Mac, so only a state where no answer
          has arrived at all is "not checked yet" — a Gateway that could not be
          asked does not make this list unknown. -->
@@ -44,6 +47,7 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import GroupedWarnings from '~/components/GroupedWarnings.vue'
 import { splitPackUsage } from '~/content-store/library-organisation'
 import { useContentStore, type ContentPackRemovalEntry, type ContentPackRemovalState, type ContentStoreInstalledPack } from '~/composables/useContentStore'
 
@@ -80,6 +84,13 @@ async function uninstallVersion(pack: ContentStoreInstalledPack): Promise<void> 
 }
 
 function missing(pack: ContentStoreInstalledPack): string { return pack.missingDependencies.map(dependency => `${dependency.packId} ${dependency.version} (${dependency.reason})`).join(', ') }
+
+const groupedMissingWarnings = computed(() => props.installed
+  .filter(pack => pack.installState === 'incomplete')
+  .map(pack => ({
+    text: missing(pack) || 'Story Studio could not verify this installed pack.',
+    item: pack.title,
+  })))
 
 /** Which channels use it, said plainly — including "none" and "could not tell". */
 function usageLabel(packId: string): string {

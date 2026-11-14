@@ -204,22 +204,13 @@ describe('FolderField', () => {
     unmount()
   })
 
-  test('a caller that still wants the typed fallback gets it, and it saves', async () => {
+  test('no typed path is ever offered, even by a caller that asks for the old fallback', async () => {
     const Field = await loadSfc('../components/FolderField.vue')
-    const emitted: string[] = []
     respond = () => Object.assign(new Error('503'), { status: 503, data: { detail: 'Folder picker not available — Electron main process not detected (are you running the server standalone?).' } })
-    const { host, unmount } = mount(Field, { modelValue: '', allowTyping: true, 'onUpdate:modelValue': (v: string) => emitted.push(v) })
+    const { host, unmount } = mount(Field, { modelValue: '', allowTyping: true, 'onUpdate:modelValue': () => {} })
     await settle()
-    ;[...host.querySelectorAll('button')].find(b => /Choose…/.test(b.textContent || ''))!.click()
-    await settle()
-    const input = host.querySelector('input.folder-field-input') as HTMLInputElement
-    assert.ok(input, 'typed-path field is open')
-    input.value = '  /Volumes/Archive/Finished  '
-    input.dispatchEvent(new Event('input'))
-    await settle()
-    ;[...host.querySelectorAll('button')].find(b => /Use This Path/.test(b.textContent || ''))!.click()
-    await settle()
-    assert.deepEqual(emitted, ['/Volumes/Archive/Finished'])
+    assert.equal(host.querySelector('input'), null, 'read-only path display, never a free-text input')
+    assert.equal([...host.querySelectorAll('button')].some(b => /Type a Path|Use This Path/.test(b.textContent || '')), false)
     unmount()
   })
 

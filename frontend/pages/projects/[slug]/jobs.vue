@@ -376,6 +376,8 @@
       :message="emptyMessage"
     />
 
+    <GroupedWarnings v-if="groupedJobWarnings.length" :entries="groupedJobWarnings" item-noun="jobs" />
+
     <!-- Active (running + queued) — always on top, not paginated -->
     <section v-if="activeJobs.length" class="jobs-section mt-2">
       <div class="section-heading">
@@ -687,8 +689,42 @@
       <div class="section-heading">
         <h2 ref="historyHeading" tabindex="-1">History</h2>
         <span class="section-count">{{ historyJobs.length }}</span>
+        <ViewModeToggle v-model="historyView" label="History view" class="history-view-toggle" />
       </div>
-      <div class="jobs-list mt-1">
+      <div v-if="historyView === 'list'" class="job-table" role="table" aria-label="Job history">
+        <div class="job-table-head" role="row">
+          <span role="columnheader">Status</span>
+          <span role="columnheader">Episode</span>
+          <span role="columnheader">Type</span>
+          <span role="columnheader">Result</span>
+          <span role="columnheader">Finished</span>
+          <span role="columnheader" class="job-table-actions-head">Action</span>
+        </div>
+        <div
+          v-for="job in paginatedHistory"
+          :key="`row-${job.job_id}`"
+          class="job-table-row"
+          :class="'status-' + jobDisplayStatus(job)"
+          role="row"
+        >
+          <span role="cell"><StatusBadge :status="jobDisplayStatus(job)" /></span>
+          <span role="cell" class="job-table-episode">{{ job.episode_id || '—' }}</span>
+          <span role="cell">{{ jobDisplayLabel(job) }}</span>
+          <span role="cell" class="job-table-result" :title="historyRowSummary(job)">{{ historyRowSummary(job) }}</span>
+          <span role="cell" class="job-table-time">{{ formatTime(job.finished_at || job.created_at) }}</span>
+          <span role="cell" class="job-table-actions">
+            <button
+              v-if="primaryJobControl(job)"
+              class="btn btn-xs btn-secondary"
+              :disabled="!primaryJobControl(job)?.enabled || controlBusy.has(job.job_id)"
+              :title="primaryJobControl(job)?.reason"
+              @click="runJobControl(job, primaryJobControl(job) || undefined)"
+            >{{ controlBusy.has(job.job_id) ? 'Working…' : primaryJobControl(job)?.label }}</button>
+            <button type="button" class="btn btn-xs btn-ghost" @click="historyView = 'cards'">Details</button>
+          </span>
+        </div>
+      </div>
+      <div v-else class="jobs-list mt-1">
         <div
           v-for="job in paginatedHistory"
           :key="job.job_id"
@@ -1022,6 +1058,9 @@
 <script setup lang="ts">
 import type { DeepReadonly } from 'vue'
 import type { Job } from '~/composables/useJobs'
+import ViewModeToggle from '~/components/ViewModeToggle.vue'
+import GroupedWarnings from '~/components/GroupedWarnings.vue'
+import { useViewMode } from '~/composables/useViewMode'
 import { useJobDetails } from '~/composables/useJobDetails'
 import { useJobHistory } from '~/composables/useJobHistory'
 import { createVisibleInterval } from '~/composables/useVisibleInterval'
@@ -1073,6 +1112,10 @@ useAppTitle('Jobs')
 const route = useRoute()
 const router = useRouter()
 const slug = computed(() => route.params.slug as string)
+// Cards or the compact History table, remembered per list (owner rule: every
+// visual option stays where the customer put it). Restored synchronously, so
+// the first paint is already the chosen view — no shift.
+const historyView = useViewMode('story-studio:jobs-history-layout:v1', 'cards')
 const { get, post, del } = useApi()
 const projectQueue = useJobs()
 const universalQueue = useAllJobs()
@@ -1572,6 +1615,13 @@ function jobExceptions(job: RJob) {
   // instead — so there is nothing left to filter, and a filter for a key that
   // cannot arrive reads as if the key still can.
   return describeJobExceptions({ ...job, genstudio_jobs: settledRemoteJobs(job) }, now.value)
+}
+
+/** One line that answers "how did it end?" for the compact History table. */
+function historyRowSummary(job: RJob): string {
+  if (job.status === 'error') return jobAttentionSummary(job) || firstErrorLine(customerJobText(job.error || 'Failed', job))
+  if (job.status === 'cancelled') return job.resolved?.reason || job.skipped?.reason || 'Cancelled'
+  return getSummaryLine(job)
 }
 
 /**
@@ -2474,6 +2524,16 @@ const paginatedHistory = computed(() => pageSlice(historyJobs.value, currentPage
 // A busy queue can hold hundreds of active rows; show the first 25 until asked.
 const showAllActive = ref(false)
 const visibleActiveJobs = computed(() => capList(activeJobs.value, showAllActive.value))
+/**
+ * The same sentence repeated on many cards is one problem, not N problems.
+ * Counted over the rows actually on screen; the per-card lines stay in place,
+ * so grouping never hides which job it belongs to.
+ */
+const groupedJobWarnings = computed(() => [...visibleActiveJobs.value, ...paginatedHistory.value]
+  .flatMap(job => jobExceptions(job).map(line => ({
+    text: line.text,
+    item: `${projectName(job.project_slug)} · ${job.episode_id || jobDisplayLabel(job)}`,
+  }))))
 
 // Full records for: the cards on screen, failed rows whose bulk Retry admission reads their
 // evidence, and hidden rows that may still be settling (the "N hidden jobs are still settling" count).
@@ -4467,5 +4527,51 @@ function clearFailed() { return clearHistory('failed') }
     text-align: right;
     line-height: 1.35;
   }
+}
+
+/* History → List: one row per job, the same data as the card in a table.
+   The Cards view keeps every action and the technical drawer; Details
+   switches back to it. */
+.history-view-toggle { margin-left: auto; }
+.job-table {
+  display: grid;
+  margin-top: 8px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-secondary);
+}
+.job-table-head,
+.job-table-row {
+  display: grid;
+  grid-template-columns: 116px minmax(96px, 0.7fr) minmax(120px, 1fr) minmax(0, 2.2fr) 150px minmax(150px, auto);
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+}
+.job-table-head {
+  color: var(--text-muted);
+  font-size: var(--font-xs);
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  background: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border);
+}
+.job-table-row { border-bottom: 1px solid var(--workspace-divider); font-size: var(--font-sm); }
+.job-table-row:last-child { border-bottom: 0; }
+.job-table-row:hover { background: var(--bg-hover); }
+.job-table-episode,
+.job-table-time { color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+.job-table-result { min-width: 0; overflow: hidden; color: var(--text-secondary); text-overflow: ellipsis; white-space: nowrap; }
+.job-table-actions { display: flex; justify-content: flex-end; gap: 6px; }
+.job-table-actions-head { text-align: right; }
+@media (max-width: 900px) {
+  .job-table-head { display: none; }
+  .job-table-row { grid-template-columns: 1fr auto; gap: 6px 12px; }
+  .job-table-row > [role='cell']:nth-child(2),
+  .job-table-row > [role='cell']:nth-child(3),
+  .job-table-row > [role='cell']:nth-child(5) { display: none; }
+  .job-table-actions { grid-column: 2; grid-row: 1 / span 2; }
 }
 </style>

@@ -27,7 +27,8 @@
 
   --text-primary: #e8eaf0;
   --text-secondary: #b0b7c8;
-  --text-muted: #8b93a5;
+  /* 4.67:1 on --bg-hover; the old #8b93a5 measured 4.44:1, just under AA. */
+  --text-muted: #8f97a9;
 
   /* Story's orange (owner, 2026-10-07: keep it, and make it right in dark mode). It used to be a
      pale gold (#f0c674) here while light mode was burnt orange, and that gold sat next to
@@ -91,7 +92,7 @@
 /* ── Light theme palette ────────────────────────────────────────────────────
    Selected by the theme plugin via <html data-theme="light">. The variable
    set mirrors the dark block above — same names, light-friendly values.
-   Accent is shifted darker (amber → burnt-amber #b56e10) so the gold tone
+   Accent is shifted darker (amber → burnt-amber #a15f08) so the gold tone
    stays readable as text + active-state hint against white surfaces
    (contrast on bg-primary ≥ 4.5:1). Backgrounds step from #ffffff (cards
    on the lightest surface) up through cool greys; borders sit between
@@ -116,16 +117,19 @@
 
   --text-primary: #14171f;
   --text-secondary: #454d5d;
-  --text-muted: #606979;
+  /* 4.83:1 on --bg-hover; the old #606979 measured 4.23:1. */
+  --text-muted: #58606f;
 
-  --accent: #b56e10;
+  /* 5.05:1 for white text on the accent and 4.63:1 as link text on the page
+     tint. The previous #b56e10 measured 4.04:1 for both. */
+  --accent: #a15f08;
   --accent-hover: #985a08;
-  --accent-dim: rgba(181, 110, 16, 0.12);
-  --accent-on: #ffffff;   /* white text on dark-amber reads at 4.5:1+ */
+  --accent-dim: rgba(161, 95, 8, 0.12);
+  --accent-on: #ffffff;   /* white text on dark-amber reads at 5.05:1 */
 
-  --success: #1f9d55;
-  --error:   #d4423c;
-  --warning: #c98a05;
+  --success: #17804a;
+  --error:   #c53a34;
+  --warning: #9a6502;
   --info:    #2563eb;
 
   --shadow:    0 2px 8px  rgba(15, 17, 23, 0.08);
@@ -406,7 +410,8 @@ label {
 
 .badge-paused {
   background: rgba(245, 158, 11, 0.14);
-  color: #f5c35b;
+  /* The old hard-coded #f5c35b was unreadable on light cards. */
+  color: var(--warning);
 }
 .badge-done {
   background: rgba(74, 222, 128, 0.15);

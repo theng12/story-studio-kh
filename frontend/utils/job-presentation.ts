@@ -270,8 +270,14 @@ export function isVerifiedLiveCapacity(snapshot: CapacitySnapshotLike | null | u
   return age >= -5_000 && age <= LIVE_CAPACITY_MAX_AGE_MS
 }
 
-export function jobRequestIds(job: JobRequestIdentityLike): string[] {
-  return [
+/** The short id used in "job <id>" sentences — never a raw UUID alone. */
+export function shortJobId(id: unknown): string {
+  const value = String(id || '').trim()
+  if (!value) return ''
+  return value.length > 12 ? value.slice(0, 8) : value
+}
+
+export function jobRequestIds(job: JobRequestIdentityLike): string[] {  return [
     job.job_id,
     ...(job.genstudio_jobs || job.genstudio_jobs_active || []).map(remote => remote.id),
     ...Object.values(job.remote_cancellations || {}).map(record => record.provider_job_id),

@@ -368,6 +368,15 @@
         >
           Recover prior result{{ activeRecoverableCount === 1 ? '' : 's' }} ({{ activeRecoverableCount }})
         </button>
+        <button
+          v-if="failedThumbItems.length"
+          class="btn btn-sm btn-primary"
+          :disabled="submitting || imageJobActiveForEpisode"
+          :title="`Starts a new generation for the ${failedThumbItems.length} failed thumbnail(s). Existing successful thumbnails are kept.`"
+          @click="regenerateAllFailedThumbs"
+        >
+          Regenerate all failed ({{ failedThumbItems.length }})
+        </button>
 
         <button class="btn btn-sm btn-ghost" :disabled="imageStatus.loading" @click="refreshImageStatus">
           Refresh
@@ -385,11 +394,19 @@
         <div v-for="item in activeRepairItems" :key="item.filename" class="repair-task-row">
           <span>{{ item.filename }}</span>
           <!-- Recovery evidence stays in the manifest; customer copy only says
-               whether that evidence exists. -->
+               whether that evidence exists. A real provider reason, when the
+               Job carries one, is shown instead of a generic sentence. -->
           <span v-if="item.task_id" class="repair-task-id">
             Can be recovered for free
           </span>
-          <span v-else class="repair-task-none">Can't be recovered · needs a new render</span>
+          <span v-else class="repair-task-none">{{ item.reason || "Can't be recovered · needs a new render" }}</span>
+          <button
+            v-if="!item.task_id"
+            type="button"
+            class="btn btn-xs btn-secondary"
+            :disabled="submitting || imageJobActiveForEpisode"
+            @click="regenerateThumb(item)"
+          >Regenerate</button>
         </div>
       </details>
 
@@ -454,7 +471,7 @@
 <script setup lang="ts">
 import { findOutputOption, isPublishedAspectRatio, outputOptionsForRatio, storyDefaultAspectRatio, type OutputOptionChoice } from '../../../utils/genstudio-output-options.js'
 import { CREDIT_BASIS_LABEL, describeImageUnitCost } from '../../../utils/genstudio-credit-cost.js'
-import { customerSafeJobText, jobRequestIds } from '../../../utils/job-presentation.js'
+import { customerSafeJobText, jobRequestIds, shortJobId } from '../../../utils/job-presentation.js'
 import { thumbnailTextEnabled as thumbnailTextEnabledFor } from '../../../utils/thumbnail-text.js'
 
 definePageMeta({ layout: 'dashboard' })
@@ -837,7 +854,7 @@ interface ImageStatusState {
 }
 // No `provider`: the repair status endpoint no longer returns one, and a
 // legacy manifest's transport name has nothing to say to the customer.
-interface RepairMissingItem { filename: string; recoverable: boolean; task_id?: string }
+interface RepairMissingItem { filename: string; recoverable: boolean; task_id?: string; reason?: string }
 interface RepairPoolStatus {
   expected: number; present: number; missing: number
   with_manifest: number; without_manifest: number
@@ -949,9 +966,69 @@ async function repairMissing() {
       pool: integrityPool,
     })
     lastRepairJobId.value = job.job_id
-    success('Thumbnail repair queued — watch progress in Jobs.')
+    success(`Thumbnail repair queued — watch progress in Jobs.`)
   } catch (e: any) {
     showError(e?.data?.detail || 'Failed to queue repair')
+  } finally {
+    submitting.value = false
+  }
+}
+
+/** Missing thumbnails with no saved provider task: these need a fresh render. */
+const failedThumbItems = computed(() => activeRepairItems.value.filter(item => !item.recoverable))
+function thumbNumberFor(filename: string): number | null {
+  const match = /_Thumb(\d+)_/i.exec(filename || '')
+  if (!match) return null
+  const number = Number(match[1])
+  return Number.isFinite(number) && number > 0 ? number : null
+}
+
+async function regenerateThumb(item: RepairMissingItem): Promise<void> {
+  const number = thumbNumberFor(item.filename)
+  if (!number) { showError('This thumbnail has no number, so it cannot be regenerated from here.'); return }
+  const paidLine = activeModelPaid.value ? 'This may use credits.' : 'This runs on your free fleet.'
+  if (!await useConfirm().ask({
+    title: `Regenerate thumbnail ${number}?`,
+    message: `${item.filename} will be replaced with a new render. If the file is missing, it is created. ${paidLine}`,
+    confirmLabel: 'Regenerate',
+    danger: true,
+  })) return
+  const params = await prepareGeneration(true, false)
+  if (!params) return
+  submitting.value = true
+  try {
+    const job = await post<{ job_id: string }>(`/projects/${slug.value}/generate/images`, { ...params, thumb_number: number, force: true })
+    success(`Started a new generation; job ${shortJobId(job.job_id)}`)
+    await refreshImageStatus()
+  } catch (e: any) {
+    showError(customerSafeJobText(e?.data?.detail || e?.message || 'Could not start the new generation'))
+  } finally {
+    submitting.value = false
+  }
+}
+
+async function regenerateAllFailedThumbs(): Promise<void> {
+  const numbers = failedThumbItems.value.map(item => thumbNumberFor(item.filename)).filter((n): n is number => n !== null)
+  if (!numbers.length) { showError('No failed thumbnails have a usable number.'); return }
+  if (!await useConfirm().ask({
+    title: `Regenerate all ${numbers.length} failed thumbnail${numbers.length === 1 ? '' : 's'}?`,
+    message: `Thumbnail${numbers.length === 1 ? '' : 's'} ${numbers.sort((a, b) => a - b).join(', ')} will be replaced with new renders. Existing successful thumbnails are kept. ${activeModelPaid.value ? 'This may use credits.' : 'This runs on your free fleet.'}`,
+    confirmLabel: `Regenerate ${numbers.length}`,
+    danger: true,
+  })) return
+  const params = await prepareGeneration(true, false)
+  if (!params) return
+  submitting.value = true
+  const jobIds: string[] = []
+  try {
+    for (const number of numbers) {
+      const job = await post<{ job_id: string }>(`/projects/${slug.value}/generate/images`, { ...params, thumb_number: number, force: true })
+      if (job?.job_id) jobIds.push(String(job.job_id))
+    }
+    success(`Started a new generation; job ${shortJobId(jobIds[0])}${jobIds.length > 1 ? ` (+${jobIds.length - 1} more)` : ''}`)
+    await refreshImageStatus()
+  } catch (e: any) {
+    showError(customerSafeJobText(e?.data?.detail || e?.message || 'Could not start every failed thumbnail'))
   } finally {
     submitting.value = false
   }

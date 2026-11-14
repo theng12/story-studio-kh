@@ -79,13 +79,17 @@
         </label>
 
         <label v-if="draft.preferred_source === 'custom'" class="field full-width">
-          <span>Custom .srt file path</span>
-          <input
-            v-model="draft.custom_srt_path"
-            type="text"
-            placeholder="/path/to/episode.srt"
-            :disabled="disabled"
-            aria-label="Custom .srt file path"
+          <span>Custom subtitle file</span>
+          <!-- A path is chosen with the file picker and shown read-only. -->
+          <FilePicker
+            :model-value="draft.custom_srt_path || ''"
+            placeholder="No subtitle file chosen"
+            :choose-label="'Choose file'"
+            :filters="[{ name: 'Subtitles', extensions: ['srt', 'vtt'] }]"
+            title="Choose the subtitle file"
+            button-label="Choose"
+            aria-label="Custom subtitle file"
+            @update:model-value="draft.custom_srt_path = $event"
           />
         </label>
       </div>
@@ -162,6 +166,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useApi } from '~/composables/useApi'
+import FilePicker from '~/components/FilePicker.vue'
 
 export type CaptionDedupeMode = 'skip_if_exists' | 'replace_existing' | 'upload_always'
 export type CaptionSourcePreference = 'auto' | 'stitched' | 'whisper' | 'custom'

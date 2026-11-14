@@ -898,15 +898,7 @@ const sort = ref<ChannelSort>(rememberedView.sort)
  * blocks the page.
  */
 const CHANNEL_LAYOUT_KEY = 'story-studio:channels-layout:v1'
-function readLayout(): 'cards' | 'list' {
-  try {
-    return localStorage.getItem(CHANNEL_LAYOUT_KEY) === 'list' ? 'list' : 'cards'
-  } catch { return 'cards' }
-}
-const viewMode = ref<'cards' | 'list'>(readLayout())
-watch(viewMode, (now) => {
-  try { localStorage.setItem(CHANNEL_LAYOUT_KEY, now) } catch { /* best effort */ }
-})
+const viewMode = useViewMode(CHANNEL_LAYOUT_KEY, 'cards')
 const activeLabels = ref<string[]>(rememberedView.labels)
 const searchInput = ref<HTMLInputElement | null>(null)
 

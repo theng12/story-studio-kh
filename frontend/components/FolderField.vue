@@ -23,13 +23,14 @@
        - `@change(path)`  — fires once after the user picks, types, or clears
                             (not on programmatic updates); save from here.
        - `hint` or #hint  — one visible sentence under the field.
-       - `allowTyping`    — offer "Type a Path" (default on).
        - `revealable`     — offer "Show in Finder" when a path is set (default on).
+       - A path is only ever chosen with the picker; it is shown read-only,
+         never as a free-text input (owner, 2026-11-14).
        - `clearable`      — offer a clear button labelled `clearLabel`.
        - #badge           — a small status chip beside the label (e.g. "Not found"). -->
   <div class="folder-field" :class="{ 'is-empty': !modelValue, 'is-disabled': disabled }">
     <div v-if="label || $slots.badge" class="folder-field-head">
-      <label v-if="label" :for="editing ? inputId : undefined" class="folder-field-label">{{ label }}</label>
+      <label v-if="label" class="folder-field-label">{{ label }}</label>
       <slot name="badge" />
     </div>
     <div class="folder-field-row" role="group" :aria-label="label || undefined">
@@ -38,38 +39,18 @@
           <path d="M1.75 4.25c0-.83.67-1.5 1.5-1.5h3.1l1.4 1.5h5c.83 0 1.5.67 1.5 1.5v6c0 .83-.67 1.5-1.5 1.5H3.25c-.83 0-1.5-.67-1.5-1.5v-7.5Z" />
         </svg>
       </span>
-      <input
-        v-if="editing"
-        :id="inputId"
-        ref="inputEl"
-        v-model="draft"
-        class="input input-sm folder-field-input"
-        :placeholder="typedPlaceholder"
-        spellcheck="false"
-        autocomplete="off"
-        @keydown.enter.prevent="commitTyped"
-        @keydown.esc.prevent="cancelTyped"
-      >
       <span
-        v-else
         class="folder-field-path"
         :class="{ 'is-placeholder': !modelValue }"
         :title="modelValue || undefined"
       >{{ display || placeholder }}</span>
-      <span v-if="!editing && missing" class="folder-field-missing">Folder not found</span>
+      <span v-if="missing" class="folder-field-missing">Folder not found</span>
       <div class="folder-field-actions">
-        <template v-if="editing">
-          <button type="button" class="btn btn-sm btn-primary" :disabled="!draft.trim()" @click="commitTyped">Use This Path</button>
-          <button type="button" class="btn btn-sm btn-quiet" @click="cancelTyped">Cancel</button>
-        </template>
-        <template v-else>
-          <button type="button" class="btn btn-sm btn-secondary" :disabled="disabled || picking" @click="choose">
-            {{ picking ? 'Choosing…' : chooseLabel }}
-          </button>
-          <button v-if="modelValue && canReveal" type="button" class="btn btn-sm btn-quiet" :disabled="revealing" @click="reveal">Show in Finder</button>
-          <button v-if="allowTyping" type="button" class="btn btn-sm btn-quiet" :disabled="disabled" @click="startTyping">Type a Path</button>
-          <button v-if="clearable && modelValue" type="button" class="btn btn-sm btn-quiet" :disabled="disabled" @click="clear">{{ clearLabel }}</button>
-        </template>
+        <button type="button" class="btn btn-sm btn-secondary" :disabled="disabled || picking" @click="choose">
+          {{ picking ? 'Choosing…' : chooseLabel }}
+        </button>
+        <button v-if="modelValue && canReveal" type="button" class="btn btn-sm btn-quiet" :disabled="revealing" @click="reveal">Show in Finder</button>
+        <button v-if="clearable && modelValue" type="button" class="btn btn-sm btn-quiet" :disabled="disabled" @click="clear">{{ clearLabel }}</button>
       </div>
     </div>
     <p v-if="message" class="hint folder-field-message" :data-tone="messageTone" role="status">{{ message }}</p>
@@ -78,7 +59,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, ref, useId, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { pickFolder } from '../composables/usePathPicker'
 import { friendlyPath } from '../utils/friendly-path'
 import { isServerMode } from '../composables/useServerMode'
@@ -88,14 +69,11 @@ const props = withDefaults(defineProps<{
   label?: string
   hint?: string
   placeholder?: string
-  typedPlaceholder?: string
   pickerTitle?: string
   pickerButtonLabel?: string
   chooseLabel?: string
   clearLabel?: string
   disabled?: boolean
-  /** A typed path is a fallback only; the picker is the control. Off unless a caller asks. */
-  allowTyping?: boolean
   revealable?: boolean
   clearable?: boolean
   /** Longest friendly path shown before middle folders collapse into `…`. */
@@ -105,13 +83,11 @@ const props = withDefaults(defineProps<{
   label: '',
   hint: '',
   placeholder: 'No folder chosen',
-  typedPlaceholder: '/Users/you/Documents/Folder',
   pickerTitle: 'Choose a folder',
   pickerButtonLabel: 'Choose',
   chooseLabel: 'Choose…',
   clearLabel: 'Clear',
   disabled: false,
-  allowTyping: false,
   revealable: true,
   clearable: false,
   maxLength: 48,
@@ -122,10 +98,6 @@ const emit = defineEmits<{
   change: [string]
 }>()
 
-const inputId = `folder-field-${useId()}`
-const inputEl = ref<HTMLInputElement | null>(null)
-const editing = ref(false)
-const draft = ref('')
 const picking = ref(false)
 const revealing = ref(false)
 const message = ref('')
@@ -192,7 +164,6 @@ async function choose() {
     message.value = noNativePicker
       ? 'The folder picker is not available here. Open Story Studio in the app or its browser page and try again.'
       : `The folder picker did not open: ${detail || 'unknown error'}.`
-    if (props.allowTyping) startTyping()
   } finally {
     picking.value = false
   }
@@ -210,24 +181,6 @@ async function reveal() {
   } finally {
     revealing.value = false
   }
-}
-
-function startTyping() {
-  draft.value = props.modelValue || ''
-  editing.value = true
-  nextTick(() => inputEl.value?.focus())
-}
-
-function commitTyped() {
-  const typed = draft.value.trim()
-  if (!typed) return
-  editing.value = false
-  message.value = ''
-  if (typed !== props.modelValue) setPath(typed)
-}
-
-function cancelTyped() {
-  editing.value = false
 }
 
 function clear() {
@@ -261,7 +214,6 @@ function clear() {
   white-space: nowrap;
 }
 .folder-field-path.is-placeholder { color: var(--text-muted); }
-.folder-field-input { flex: 1 1 240px; min-width: 0; width: auto; }
 .folder-field-actions { display: flex; flex: none; flex-wrap: wrap; gap: var(--space-1); margin-left: auto; }
 .folder-field.is-disabled .folder-field-row { opacity: 0.6; }
 .folder-field-message[data-tone='error'] { color: var(--error); }

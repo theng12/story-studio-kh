@@ -136,7 +136,7 @@
       {{ failedRenderMessage }} Images that were already saved are kept.
       <template #actions>
         <button class="btn btn-sm btn-secondary" :disabled="retryingFailedRender" :title="`Tries again for the images that did not finish${creditsNote}.`" @click="retryFailedRender">
-          {{ retryingFailedRender ? 'Retrying…' : 'Retry' }}
+          {{ retryingFailedRender ? 'Starting…' : 'Regenerate all failed' }}
         </button>
         <NuxtLink :to="`/projects/${slug}/jobs`" class="btn btn-sm btn-ghost">Open Jobs</NuxtLink>
       </template>
@@ -507,6 +507,15 @@
             :title="reviewJobActive ? sceneRenderBlockReason({ id: '' }) : `Re-render every not-yet-approved scene as one image job. Replaces their current images${creditsNote}.`"
           >
             Regenerate all unapproved
+          </button>
+          <button
+            v-if="failedScenes.length"
+            class="btn btn-sm btn-primary"
+            :disabled="!form.model || continuityRendering || reviewJobActive"
+            @click="regenerateAllFailed"
+            :title="reviewJobActive ? sceneRenderBlockReason({ id: '' }) : `Regenerate the ${failedScenes.length} image(s) the quality check marked failed. Every other image is kept.`"
+          >
+            Regenerate all failed ({{ failedScenes.length }})
           </button>
         </div>
       </div>
@@ -979,7 +988,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { resolveActiveSceneRenderJob } from '~/utils/scene-render-job-state'
-import { customerSafeJobText, jobRequestIds } from '../../../utils/job-presentation.js'
+import { customerSafeJobText, jobRequestIds, shortJobId } from '../../../utils/job-presentation.js'
 import { findOutputOption, isPublishedAspectRatio, outputOptionsForRatio, publishedOutputOptions, storyDefaultAspectRatio, type OutputOptionChoice } from '../../../utils/genstudio-output-options.js'
 import { CREDIT_BASIS_LABEL, describeImageUnitCost } from '../../../utils/genstudio-credit-cost.js'
 import { isFreeToRun } from '../../../utils/genstudio-price-usd.js'
@@ -2052,6 +2061,21 @@ const staleCount = computed(() => scenes.value.filter(s => s.stale).length)
 function selectAllStale(): void {
   selectedIds.value = new Set(scenes.value.filter(s => s.stale && s.visual_prompt).map(s => s.id))
 }
+
+/** Images the free quality check recorded as failed. These are the ones a
+ *  "regenerate the failures" action should touch — not every unapproved scene. */
+const failedScenes = computed(() => scenes.value.filter(s => s.image_check?.state === 'failed' && s.visual_prompt))
+async function regenerateAllFailed(): Promise<void> {
+  const ids = failedScenes.value.map(s => s.id)
+  if (!ids.length) { showError('No failed images to regenerate'); return }
+  if (!await ask({
+    title: `Regenerate ${ids.length} failed image${ids.length === 1 ? '' : 's'}?`,
+    message: `New images are made for scene${ids.length === 1 ? '' : 's'} ${failedScenes.value.map(s => `#${s.scene_index}`).join(', ')}. Their current images are replaced; every other saved image is kept.${creditsNote}`,
+    confirmLabel: `Regenerate ${ids.length}`,
+    danger: true,
+  })) return
+  await renderContinuity({ sceneIds: ids })
+}
 /** Is the currently-previewed scene ticked for re-render? (modal selection.) */
 const previewSelected = computed(() =>
   !!previewScene.value && selectedIds.value.has(previewScene.value.id))
@@ -2514,7 +2538,7 @@ async function renderContinuity(opts: { sceneIds?: string[] } = {}): Promise<voi
   const ep = episodeId.value
   renderingEpisode.value = ep
   try {
-    await post(`/projects/${slug.value}/scene-review/${ep}/continuity-render`, {
+    const job = await post<{ job_id?: string }>(`/projects/${slug.value}/scene-review/${ep}/continuity-render`, {
       model: form.value.model,
       aspect_ratio: form.value.aspect_ratio,
       force: true,
@@ -2523,7 +2547,7 @@ async function renderContinuity(opts: { sceneIds?: string[] } = {}): Promise<voi
       ...referenceCharacterBody.value,
       ...genStudioImageBody.value,
     })
-    success(`Rendering ${selection.length} scene(s) — each image appears here as it finishes.`)
+    success(`Started a new generation; job ${shortJobId(job?.job_id)} — each image appears here as it finishes.`)
   } catch (e: any) {
     showError(e?.data?.detail || e?.message || 'Failed to start render')
   } finally {
@@ -2692,10 +2716,16 @@ const retryingFailedRender = ref(false)
 async function retryFailedRender(): Promise<void> {
   const job = failedRenderJob.value
   if (!job || retryingFailedRender.value) return
+  if (!await ask({
+    title: 'Regenerate the failed images?',
+    message: `${failedRenderMessage.value} A new generation starts for the images that did not finish. Images that were already saved are kept.${creditsNote}`,
+    confirmLabel: 'Regenerate failed',
+    danger: true,
+  })) return
   retryingFailedRender.value = true
   try {
-    await post(`/projects/${slug.value}/jobs/${job.job_id}/retry`, {})
-    success('Retry started — images already saved are kept.')
+    const retried = await post<{ job_id?: string }>(`/projects/${slug.value}/jobs/${job.job_id}/retry`, {})
+    success(`Started a new generation; job ${shortJobId(retried?.job_id) || shortJobId(job.job_id)} — images already saved are kept.`)
     await loadReview()
   } catch (e: any) {
     showError(customerSafeJobText(e?.data?.detail || e?.message || 'Could not retry. Open the Jobs page to try from there.', jobRequestIds(job)))
