@@ -1,7 +1,7 @@
 /**
  * App-level settings store — single JSON file alongside the projects/ directory.
  *
- * Scope today: `ffmpeg_path` / `ffprobe_path`. Keep additions to genuinely
+ * Scope today: `ffmpeg_path` / `ffprobe_path` / `footage_root`. Keep additions to genuinely
  * app-level knobs (per-install, not per-project). Per-project config lives
  * in `{PROJECTS_ROOT}/{slug}/config.json`. Provider API keys live at app
  * level (see `app-secrets-store.ts`); per-project `secrets.json` files
@@ -10,6 +10,7 @@
 
 import fs from 'fs/promises'
 import { existsSync, readFileSync } from 'fs'
+import os from 'os'
 import path from 'path'
 import { fileURLToPath } from 'url'
 import { writeJsonAtomic, readJsonOr, withLock } from '../lib/atomic-store.js'
@@ -1653,4 +1654,44 @@ export async function setCostSettings(patch: unknown): Promise<CostSettings> {
   }
   await setAppSetting(COST_SETTINGS_KEY, current)
   return current
+}
+
+// ── Footage root ────────────────────────────────────────────────────────────
+//
+// Where Story keeps the stock clips it has fetched from the Gateway. Storage
+// agnostic on purpose: an internal folder, an external SSD, a NAS mount or a
+// Drive-synced folder are all just a path the owner chooses. The default sits
+// beside the app's own data, so a fresh install works before anything is picked.
+// Whether the folder is present and writable is answered at USE time (a NAS can
+// be unplugged), never cached here.
+export const FOOTAGE_ROOT_KEY = 'footage_root'
+
+function defaultFootageRoot(): string {
+  return path.join(path.dirname(appSettingsPath()), 'footage')
+}
+
+/** Trimmed, `~`-expanded, absolute path; empty or unusable input means the default. */
+function normaliseFootageRoot(value: unknown): string {
+  const raw = typeof value === 'string' ? value.trim() : ''
+  if (!raw) return defaultFootageRoot()
+  if (raw.includes('\0')) {
+    throw Object.assign(new Error('The footage folder path contains an invalid character.'), {
+      statusCode: 400, expose: true,
+    })
+  }
+  return path.resolve(raw.replace(/^~(?=$|[\\/])/, os.homedir()))
+}
+
+export async function getFootageRoot(): Promise<string> {
+  return normaliseFootageRoot(await getAppSetting(FOOTAGE_ROOT_KEY))
+}
+
+/** An empty value clears the choice and returns to the default folder. */
+export async function setFootageRoot(value: unknown): Promise<string> {
+  if (value !== null && value !== undefined && typeof value !== 'string') {
+    throw Object.assign(new Error('The footage folder must be a path.'), { statusCode: 400, expose: true })
+  }
+  const next = typeof value === 'string' && value.trim() ? normaliseFootageRoot(value) : ''
+  await setAppSetting(FOOTAGE_ROOT_KEY, next)
+  return next || defaultFootageRoot()
 }
