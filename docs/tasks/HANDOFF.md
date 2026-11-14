@@ -1,5 +1,38 @@
 # HANDOFF — Story Studio KH
 
+### Release 1.4.401 — one-click regeneration, measured contrast, picker-only paths (2026-11-14)
+
+- Source: `release/1.4.401` cut from the published 1.4.400 source (`55b9fc6d0`); commits
+  `ef27cd965` (version/What's New), `a9b8d698c` (UI batch), `fa0de1dc3` (retry identity, aspect
+  refusal, dispatch reasons, log line, comment), `40c7d6f3d` (new action re-renders a settled item),
+  `995006616` (stale pins), `6500a1af7` (harness fallout), `0a558d4a6` (type token),
+  `bd36bab8e` + `bc9cbdde3` (local signing no timestamp). Not merged to main, not pushed.
+- Artifact: `dist/Story Studio KH 1.4.401-arm64.dmg`, sha256
+  `668f19e418edca95c87e245e52f8003a5280b52b18f490eeef8209f853b92c20`, 263,564,573 bytes, signed
+  `KH Studio Local Signing`; `dist:smoke` verified it and its hidden isolated launch in 4.5 s.
+- **One-click regeneration**: per-failed-thumbnail Regenerate and Regenerate all failed on Images and
+  Scene Review, in-app confirmation naming what is replaced, real failure text and a short job id.
+  A terminal image job's Retry mints a new generation action — a cancelled/failed Gateway request is
+  never replayed — while a live/uncertain request keeps its key (no second charge). A new action
+  re-renders a settled item; one log line per regeneration records source job, new job, reason and
+  item scope.
+- **Aspect ratio**: a model that does not publish the requested (or its own declared default) ratio is
+  refused with "publishes no <ratio> output — choose another model or ratio" instead of silently
+  rendering another shape. Gateway `DISPATCH_NO_ELIGIBLE_MACHINE` now reaches the failure detail with
+  per-candidate reasons, scrubbed of paths and key-shaped tokens.
+- **UI**: measured contrast ramp (46 checks, 23 pairs × light/dark, all ≥4.5:1), remembered Cards/Table
+  per list (channel list + Jobs history with a compact table), warnings grouped with counts while
+  per-item lines stay, equal-height cards, and **picker-only paths** (FolderField typing removed,
+  captions use the file picker; no typed path control in the frontend).
+- **Build**: the local self-signed signing hook now passes `--timestamp=none` per file; the public TSA
+  flaked under a burst of per-file timestamp requests. Notarized/public builds keep their own path.
+- Checks: cheap checks, both typechecks, build and `dist:smoke` exit 0. Lanes: backend 1041/1041 files
+  exit 0 (run on `995006616`; later commits are frontend test-only and the signing change, neither in
+  its inputs), frontend **407/407 files** exit 0, release 17/17 exit 0 (rerun after the signing
+  change), content-packs 45/45 exit 0. Hidden acceptance: health 1.4.401, api-keys not set,
+  `/api/projects` 200, no `/app-update/*` route, Keychain untouched.
+- Not done: publish is the Developer's (live feed on 1301); no install on any Mac from this session.
+
 ### Release 1.4.400 — Studio Library, installed content is done (2026-11-14)
 
 - Source: `release/1.4.400` from main `64ff9239e`; commits `9962b7c22` (installed content needs no
