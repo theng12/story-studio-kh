@@ -1078,7 +1078,10 @@ async function computeEpisodeRows(slug: string): Promise<any[] | null> {
       //   video          — every per-scene AI clip present (input to assembly).
       //   video_assembly — final assembled video on disk anywhere (project
       //                    tree OR external_final_video_root).
-      //   video_ready    — derivable: images && merged_audio && !video.
+      //   video_ready    — ready to assemble, not assembled. Derived:
+      //                    `(needsScenePlan ? scenePlanDone && sceneReviewDone : brollPickedDone)
+      //                    && mergedAudioDone && !videoAssemblyDone` — cleared once
+      //                    the final video is assembled.
       //   publishable    — derivable: images && thumbnails && merged_audio &&
       //                    final video on disk. NOTE: uses video_assembly
       //                    (the OUTPUT of the pipeline) not video (per-scene

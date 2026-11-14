@@ -12,6 +12,7 @@ import { useTempDataDir } from './_helpers.js'
 import { waitFor } from './_timing.js'
 import { MOCK_GENSTUDIO_FULL_KEY, startMockGenStudioService } from './fixtures/mock-genstudio-service.js'
 import { readManualGenerationRedoIntent, stampFreshGenerationAction } from '../lib/fresh-generation-action.js'
+import { flushLogLines, getLogDir } from '../services/logger.js'
 
 const server = path.join(path.dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -90,10 +91,12 @@ test('Images board force re-render uses the durable action id while ordinary rec
   assert.match(route, /generation_action:\s*\{\s*id:\s*operationId,\s*kind:\s*'fresh'\s*\}/)
   assert.match(generator, /const generationAction = [\s\S]{0,160}?generation_action/)
   assert.match(generator, /const generationActionId = generationAction\?\.kind === 'fresh'/)
-  assert.match(generator, /force && generationActionId \? baseScope : resolveImageRetryScope/,
-    'a forced action retry must not silently promote a second provider identity')
-  assert.match(generator, /force \? `force:\$\{generationActionId \|\| job\.job_id\}` : 'default'/,
-    'non-force recovery must remain default while force Retry keeps the original action key')
+  assert.match(generator, /const actionBaseScope = generationActionId \?/,
+    'a Retry-minted action must own the base scope even without force')
+  assert.match(generator, /resolveImageRetryActionScope\(entry, baseScope\)/,
+    'a terminal request is never replayed; a live one keeps its saved key')
+  assert.match(generator, /const recoveryBaseScope = force \? `force:\$\{generationActionId \|\| job\.job_id\}` : 'default'/,
+    'non-force recovery keeps its historical default scope')
 })
 
 void test('image and music routes retain one paid provider request per operation across HTTP replay and Jobs Retry', async () => {
@@ -171,19 +174,36 @@ void test('image and music routes retain one paid provider request per operation
 
     const imageRetry = await request(app).post(`/api/projects/${project.slug}/jobs/${imageFirst.body.job_id}/retry`)
     assert.equal(imageRetry.status, 202, JSON.stringify(imageRetry.body))
+    assert.notEqual(imageRetry.body.job.params?.generation_action?.id, imageAction,
+      'Retry mints a new image action instead of replaying the failed one')
+    assert.equal(imageRetry.body.job.params?.force, undefined, 'Retry is a gap-fill, not a forced re-render')
     await terminal(imageRetry.body.job.job_id, 'image Jobs Retry to settle')
-    assert.equal(service.providerSubmissionCount('image'), 1, 'Jobs Retry replayed the original failed image provider key')
+    assert.equal(service.providerSubmissionCount('image'), 2,
+      'Retry submitted fresh image work under its new action')
+    assert.notEqual(
+      service.submissions.filter(row => row.operation === 'image')[1]!.idempotencyKey,
+      service.submissions.filter(row => row.operation === 'image')[0]!.idempotencyKey,
+      'no request key equals the failed one',
+    )
+    await flushLogLines()
+    const regenerationLines = (await fs.readFile(
+      path.join(getLogDir(), `server-${new Date().toISOString().slice(0, 10)}.log`), 'utf8'))
+      .trim().split('\n').map(line => JSON.parse(line))
+      .filter(entry => entry.message === 'regeneration' && entry.source_job_id === imageFirst.body.job_id)
+    assert.equal(regenerationLines.length, 1, 'exactly one regeneration line per retried image job')
+    assert.equal(regenerationLines[0].job_id, imageRetry.body.job.job_id)
+    assert.equal(regenerationLines[0].reason, 'failed')
 
     service.queueScenario('image', { states: ['accepted', 'succeeded'] })
     const imageNew = await request(app).post(`/api/projects/${project.slug}/generate/images`).send(imageBody('22222222-2222-4222-8222-222222222222'))
     assert.equal(imageNew.status, 201, JSON.stringify(imageNew.body))
     await terminal(imageNew.body.job_id, 'new image action to settle')
-    assert.equal(service.providerSubmissionCount('image'), 2, `a distinct image action made one fresh provider POST: ${jq.getJob(imageNew.body.job_id)?.error || ''}`)
+    assert.equal(service.providerSubmissionCount('image'), 3, `a distinct image action made one fresh provider POST: ${jq.getJob(imageNew.body.job_id)?.error || ''}`)
 
     const imageRecover = await request(app).post(`/api/projects/${project.slug}/generate/images`).send(imageBody('', false))
     assert.equal(imageRecover.status, 201, JSON.stringify(imageRecover.body))
     await terminal(imageRecover.body.job_id, 'ordinary image recovery to settle')
-    assert.equal(service.providerSubmissionCount('image'), 2, 'ordinary recovery kept its existing artifact and bought nothing')
+    assert.equal(service.providerSubmissionCount('image'), 3, 'ordinary recovery kept its existing artifact and bought nothing')
 
     await fs.mkdir(paths.scene_prompts_dir, { recursive: true })
     await fs.writeFile(path.join(paths.scene_prompts_dir, 'scene_plan.json'), JSON.stringify({
@@ -291,11 +311,11 @@ void test('image and music routes retain one paid provider request per operation
       )
       assert.notEqual(continuityRecoveryJobId, continuityFirst.body.job_id,
         'episode recovery creates a successor queue record only after preserving the paid action identity')
-      assert.equal(continuityRetry.body.plan.steps.continuity_render.params.generation_action.id, continuityAction,
-        'episode recovery preserves the explicit provider action identity')
+      assert.notEqual(continuityRetry.body.plan.steps.continuity_render.params.generation_action.id, continuityAction,
+        'owner Retry mints a fresh provider action instead of replaying the failed one')
       await terminal(continuityRecoveryJobId, 'continuity Jobs Retry to settle')
-      assert.equal(service.providerSubmissionCount('image'), continuityBefore + 1,
-        `continuity Jobs Retry replayed the original provider key: ${JSON.stringify({
+      assert.equal(service.providerSubmissionCount('image'), continuityBefore + 2,
+        `continuity Jobs Retry submitted fresh provider work: ${JSON.stringify({
           submissions: service.submissions.filter(row => row.operation === 'image').slice(-3),
           job: jq.getJob(continuityRecoveryJobId),
         })}`)
@@ -312,7 +332,7 @@ void test('image and music routes retain one paid provider request per operation
     )
     assert.equal(continuityNew.status, 201, JSON.stringify(continuityNew.body))
     await terminal(continuityNew.body.job_id, 'new continuity action to settle')
-    assert.equal(service.providerSubmissionCount('image'), continuityBefore + 2, `a distinct continuity action made one fresh provider POST: ${jq.getJob(continuityNew.body.job_id)?.error || ''}`)
+    assert.equal(service.providerSubmissionCount('image'), continuityBefore + 3, `a distinct continuity action made one fresh provider POST: ${jq.getJob(continuityNew.body.job_id)?.error || ''}`)
 
     const musicBody = (operationId: string) => ({
       brief: 'warm instrumental lo-fi for reading', count: 1, model: 'mock-music-v1', instrumental: true, operation_id: operationId,

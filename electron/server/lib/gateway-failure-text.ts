@@ -141,3 +141,59 @@ export function humanGatewayText(raw: string): string {
 export function carriesCapacityFacts(raw: string): boolean {
   return /\bneeds? (?:a )?~?\d+(?:\.\d+)?\s?GB\b|\bGB (?:free|available)\b|\bfree memory\b|\bout of disk\b|\binsufficient (?:free )?(?:memory|space)\b/i.test(raw)
 }
+
+export const DISPATCH_NO_ELIGIBLE_MACHINE_CODE = 'DISPATCH_NO_ELIGIBLE_MACHINE'
+
+function scrubDispatchText(raw: string): string {
+  return withoutControllerIds(humanGatewayText(raw))
+    .replace(/\bmachines\b/gi, 'Macs')
+    .replace(/\bmachine\b/gi, 'Mac')
+    .replace(/file:\/\/\S+/gi, 'a local file')
+    .replace(/(?:^|\s)(?:~\/|\/Users\/|\/Volumes\/|\/private\/|\/var\/|\/tmp\/)\S*/g, ' a local path')
+    .replace(/\b(?:sk|gsk|ghp|hf|xox[baprs])[-_][A-Za-z0-9_-]{8,}\b/g, 'a key')
+    .replace(/((?:api[_-]?key|token|secret|bearer)[^:=]{0,20}[:=])\s*\S+/gi, '$1 [hidden]')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function dispatchCandidateReason(value: unknown): string {
+  if (typeof value === 'string') return scrubDispatchText(value)
+  if (!value || typeof value !== 'object') return ''
+  const row = value as Record<string, unknown>
+  const reason = row.reason ?? row.detail ?? row.why ?? row.message ?? row.gate
+  return typeof reason === 'string' ? scrubDispatchText(reason) : ''
+}
+
+/**
+ * A Gateway dispatch refusal, in the owner's words: what happened, and every
+ * per-candidate reason the Gateway published. Machine ids, local paths and
+ * keys are scrubbed — the reasons are useful, the estate behind them is not.
+ */
+export function formatDispatchRefusal(input: {
+  detail?: string
+  candidates?: unknown[]
+}): string {
+  const lead = scrubDispatchText((input.detail || '').trim())
+    || 'No Mac able to run this model could take the job right now.'
+  const reasons = [...new Set((input.candidates || []).map(dispatchCandidateReason).filter(Boolean))]
+  return `The Gateway could not dispatch this job (${DISPATCH_NO_ELIGIBLE_MACHINE_CODE}). ${lead}`
+    + (reasons.length ? ` ${reasons.join('; ')}.` : '')
+}
+
+/** Read a dispatch refusal out of a Gateway error body, when it is one. */
+export function dispatchRefusalFromBody(body: unknown): { detail?: string; candidates?: unknown[] } | null {
+  const record = body && typeof body === 'object' ? body as Record<string, unknown> : null
+  if (!record) return null
+  const nested = [record.detail, record.error]
+    .filter((value): value is Record<string, unknown> => !!value && typeof value === 'object')
+  const sources = [record, ...nested]
+  const codes = sources.map(source => (typeof source.code === 'string' ? source.code.trim().toUpperCase() : ''))
+  if (!codes.includes(DISPATCH_NO_ELIGIBLE_MACHINE_CODE)) return null
+  const detail = sources
+    .map(source => (typeof source.detail === 'string' ? source.detail : typeof source.message === 'string' ? source.message : ''))
+    .find(text => text.trim()) || ''
+  const candidates = sources
+    .map(source => source.candidates)
+    .find((value): value is unknown[] => Array.isArray(value)) || []
+  return { detail, candidates }
+}

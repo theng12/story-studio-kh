@@ -15,6 +15,7 @@ import { resolveEpisodePathsByCode, resolveScenePlanPath } from '../services/uti
 import { scenePromptPackOutputContract } from '../lib/story-output-contracts.js'
 import { stampFreshGenerationAction } from '../lib/fresh-generation-action.js'
 import { evidenceHoldsUnknownOutcome } from '../lib/genstudio-client.js'
+import { logLine } from '../services/logger.js'
 import { jobDisplayStatus } from '../contracts/jobs-history.js'
 
 export const router = Router()
@@ -301,8 +302,47 @@ function holdsEarlierChatAnswer(job: Job): boolean {
     && (entry.state !== 'failed' || evidenceHoldsUnknownOutcome(entry)))
 }
 
+/** The job types whose Gateway request key is derived from a generation action. */
+const IMAGE_RETRY_TYPES = new Set(['scene_image_generate', 'thumb_images', 'images', 'image_pool_generate'])
+
+/**
+ * One line per regeneration: which terminal row was replaced, by which new row,
+ * why, and which items it covers. One call per admitted retry.
+ */
+function logRegeneration(source: Job, job: Job): void {
+  const params = job.params || {}
+  const itemScope = [
+    params.thumb_number != null ? `thumbnail ${params.thumb_number}` : '',
+    params.scene_number != null ? `scene ${params.scene_number}` : '',
+    typeof params.scene_id === 'string' && params.scene_id ? `scene ${params.scene_id}` : '',
+    typeof params.pool_id === 'string' && params.pool_id ? `pool ${params.pool_id}` : '',
+  ].filter(Boolean).join(', ') || 'whole job'
+  logLine('info', 'regeneration', {
+    source_job_id: source.job_id,
+    job_id: job.job_id,
+    reason: source.status === 'cancelled' ? 'cancelled' : 'failed',
+    item_scope: itemScope,
+  })
+}
+
 /** Retry-only repair intent derived from durable job state, never a client form. */
 function retryReplacementParams(job: Job): Record<string, any> | undefined {
+  // The image family derives its Gateway request key from the saved action. A
+  // retry of a terminal (failed/cancelled) image job must therefore mint a NEW
+  // action: replaying the saved key only replays the dead Gateway job (owner
+  // evidence: a failed thumbnail's Retry replayed job 646570e3). A settled
+  // success or an uncertain request never reaches here — `retryTerminalJob`
+  // refuses unsettled evidence first — so its saved key is never discarded.
+  if (IMAGE_RETRY_TYPES.has(job.type)) {
+    const params = { ...(job.params ?? {}) }
+    // Retry is a gap-fill, not an explicit re-render: keep the saved output and
+    // reclaim any request the Gateway may still hold instead of buying it again.
+    delete params.force
+    return { ...params, ...stampFreshGenerationAction(params, randomUUID()) }
+  }
+  if (job.type === 'continuity_render') {
+    return { ...job.params, ...stampFreshGenerationAction(job.params ?? {}, randomUUID()) }
+  }
   if (job.type === 'image_prompts') {
     // Prompt retries keep all saved identity/configuration and ask the generator
     // to fill only the thumbnail slots still absent from disk.
@@ -658,6 +698,7 @@ router.post('/jobs/all/:jobId/retry', async (req, res) => {
     return res.status(202).json({ ok: true, plan: await recoverEpisode(existing.project_slug, existing.episode_id, true, [existing.job_id], [], true) })
   }
   const job = jq.retryTerminalJob(existing.project_slug, req.params.jobId, retryReplacementParams(existing))
+  logRegeneration(existing, job)
   res.status(202).json({ ok: true, job })
 })
 
@@ -1006,6 +1047,7 @@ router.post('/projects/:slug/jobs/:jobId/retry', async (req, res) => {
   }
   const retryParams = existing?.project_slug === req.params.slug ? retryReplacementParams(existing) : undefined
   const job = jq.retryTerminalJob(req.params.slug, req.params.jobId, retryParams)
+  if (existing?.project_slug === req.params.slug) logRegeneration(existing, job)
   res.status(202).json({ ok: true, job })
 })
 

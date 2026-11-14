@@ -29,6 +29,7 @@ import { requireJobCompletion } from '../services/job-completion.js'
 import { hashInput, readManifest, recordTask, recordTaskStrict, type TaskManifestEntry } from '../services/task-manifest.js'
 import {
   isTerminalGenStudioImageTaskFailure,
+  resolveImageRetryActionScope,
   resolveImageRetryScope,
   terminalImageManifestEntry,
   tryRecoverImageFromManifestEntry,
@@ -137,6 +138,8 @@ interface ImagePoolGenerateParams {
   variants?: number
   /** Durable identity retained by manual/local retries. */
   run_id?: string
+  /** A Retry's server-minted fresh action: a new provider identity for this run. */
+  generation_action?: { id?: string; kind?: string }
   /** Exact prepared provider requests, keyed by their additive output filename. */
   image_pool_generation_receipts?: {
     version: 1
@@ -421,7 +424,10 @@ export async function generateImagePoolImages(job: Job): Promise<jq.JobExecutorR
         // The run id keeps one deliberate generation stable across retries; a
         // terminal provider failure promotes it to a NEW, deterministic retry
         // identity so Retry submits fresh work instead of replaying a dead job.
-        const baseScope = `run:${runId}`
+        // A Retry that minted a fresh generation action owns a new identity
+        // while the run id keeps already-produced files skipped.
+        const actionId = params.generation_action?.kind === 'fresh' ? params.generation_action.id : ''
+        const baseScope = actionId ? `run:${runId}:${actionId}` : `run:${runId}`
         attemptBaseScope = baseScope
         const durablePermission = entry
           ? await jq.getPaidImageReplacementSubmitPermission(job, item.filename, pool.folder_path, item.filename, entry)
@@ -470,7 +476,9 @@ export async function generateImagePoolImages(job: Job): Promise<jq.JobExecutorR
         const retryEntry = entry?.request_scope?.includes(':selector:')
           ? { ...entry, request_scope: logicalPaidScope(entry, baseScope) }
           : entry
-        let logicalScope = retryDecisionScope || resolveImageRetryScope(retryEntry, baseScope).scope
+        let logicalScope = retryDecisionScope || (params.generation_action?.kind === 'fresh'
+          ? resolveImageRetryActionScope(retryEntry, baseScope)
+          : resolveImageRetryScope(retryEntry, baseScope).scope)
         let identity = originalSelector
           ? buildPaidImageOriginalIdentity({ prompt: item.prompt, selector: originalSelector, references: emptyReferences.inputs, baseScope: logicalScope })
           : null
@@ -543,7 +551,9 @@ export async function generateImagePoolImages(job: Job): Promise<jq.JobExecutorR
           const carriedRetry = carried.request_scope?.includes(':selector:')
             ? { ...carried, request_scope: logicalPaidScope(carried, baseScope) }
             : carried
-          logicalScope = retryDecisionScope || resolveImageRetryScope(carriedRetry, baseScope).scope
+          logicalScope = retryDecisionScope || (params.generation_action?.kind === 'fresh'
+            ? resolveImageRetryActionScope(carriedRetry, baseScope)
+            : resolveImageRetryScope(carriedRetry, baseScope).scope)
           identity = originalSelector
             ? buildPaidImageOriginalIdentity({ prompt: item.prompt, selector: originalSelector, references: emptyReferences.inputs, baseScope: logicalScope })
             : null

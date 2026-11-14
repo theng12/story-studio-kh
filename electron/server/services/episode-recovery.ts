@@ -23,6 +23,7 @@ import { readSubtitleSourceAudioHashes } from './subtitle-recovery.js'
 import { readLocalMediaCleanupStatus } from './episode-media-cleanup.js'
 import { disabledOptionalStepReason } from '../lib/optional-steps.js'
 import { withSavedPromptCollection } from '../lib/scene-prompt-collection.js'
+import { stampFreshGenerationAction } from '../lib/fresh-generation-action.js'
 
 export const EPISODE_RECOVERY_ORDER = ['audio_merge', 'subtitle_sections', 'subtitle_stitch', 'scene_plan_run', 'contextual_cues', 'continuity_render'] as const
 export type EpisodeRecoveryStep = typeof EPISODE_RECOVERY_ORDER[number]
@@ -418,7 +419,12 @@ function extendPlanFromSelectedFailures(plan: EpisodeRecoveryPlan, selected: Job
   const repaired = failed.map(job => {
     const step = episodeRecoveryStep(job.type)!
     const saved = job.params?.episode_recovery_id === plan.id ? plan.steps[step] : undefined
-    const params = saved ? { ...saved.params, ...job.params } : job.params
+    let params = saved ? { ...saved.params, ...job.params } : job.params
+    // Owner Retry of a terminal scene render is a new deliberate request: the
+    // saved action's Gateway key would only replay the job that already failed.
+    if (step === 'continuity_render' && params?.generation_action?.kind === 'fresh') {
+      params = { ...params, ...stampFreshGenerationAction(params, randomUUID()) }
+    }
     return { ...job, params: repairRecoveryNodeParams(plan, job.job_id, params, jobs, saved && {
       job_id: saved.job_id,
       project_slug: plan.project_slug,

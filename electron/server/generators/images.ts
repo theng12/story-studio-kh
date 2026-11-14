@@ -23,6 +23,7 @@ import * as cm from '../services/character-manager.js'
 import { fileExistsWithContent } from '../lib/http-retry.js'
 import {
   isTerminalGenStudioImageTaskFailure,
+  resolveImageRetryActionScope,
   resolveImageRetryScope,
   terminalImageManifestEntry,
   tryRecoverImageFromManifestEntry,
@@ -921,8 +922,15 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
   const generationActionId = generationAction?.kind === 'fresh' && typeof generationAction.id === 'string'
     ? generationAction.id
     : ''
+  // A Retry that minted a fresh generation action owns a new provider identity.
+  // `force` keeps its historical `force:` scope so a resumed explicit render
+  // still replays the key it already submitted.
+  const actionBaseScope = generationActionId ? `${force ? 'force' : 'retry'}:${generationActionId}` : ''
+  const recoveryBaseScope = force ? `force:${generationActionId || job.job_id}` : 'default'
   const actionScope = (entry: TaskManifestEntry | null | undefined, baseScope: string): string => (
-    force && generationActionId ? baseScope : resolveImageRetryScope(entry, baseScope).scope
+    generationActionId
+      ? resolveImageRetryActionScope(entry, baseScope)
+      : resolveImageRetryScope(entry, baseScope).scope
   )
   const errors: string[] = []
   /**
@@ -1056,7 +1064,7 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
     paid?: { selector: PaidImageOutputSelector; references: ReturnType<typeof capturePaidImageReferenceIdentity>; outputPath: string },
     explicitLogicalScope?: string,
   ): Promise<DurableImageAttempt> {
-    const baseScope = force ? `force:${generationActionId || job.job_id}` : 'default'
+    const baseScope = actionBaseScope || recoveryBaseScope
     const entry = manifest.tasks[filename] || null
     const retryEntry = entry?.request_scope?.includes(':selector:')
       ? { ...entry, request_scope: logicalPaidScope(entry, baseScope) }
@@ -1544,7 +1552,7 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
           if (attemptNum === 1) {
             const currentManifest = await readManifest(thumbDir).catch(() => thumbManifest)
             const existing = currentManifest.tasks[filename] || null
-            const baseScope = force ? `force:${generationActionId || job.job_id}` : 'default'
+            const baseScope = actionBaseScope || recoveryBaseScope
             const durablePermission = existing
               ? await jq.getPaidImageReplacementSubmitPermission(job, filename, thumbDir, filename, existing)
               : null

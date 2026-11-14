@@ -224,7 +224,12 @@ void test('Jobs Retry preserves saved fresh actions, adds thumbnail fill-gaps, a
       assert.notEqual(migrated.body.job.job_id, legacyImages.job_id)
       assert.equal(jq.getJob(legacyImages.job_id), null, 'only the admitted thumbnail replacement clears legacy history')
       await waitForTerminal(jq, migrated.body.job.job_id, `legacy images retry ${label}`)
-      assert.deepEqual(migratedParams, params, `legacy thumbnail retry ${label} keeps its exact saved parameters`)
+      const { generation_action, generation_action_fingerprint, ...migratedSaved } = migratedParams as Record<string, any>
+      assert.deepEqual(migratedSaved, params, `legacy thumbnail retry ${label} keeps its exact saved parameters`)
+      assert.equal(generation_action?.kind, 'fresh', 'an image Retry mints a fresh generation action')
+      assert.match(String(generation_action?.id), /^[0-9a-f-]{36}$/i,
+        'the new action owns a provider key that cannot replay the failed Gateway job')
+      assert.ok(String(generation_action_fingerprint || '').length >= 32)
     }
 
     const legacySceneProject = await pm.createProject({ name: 'Jobs Retry legacy scenes remain blocked' })

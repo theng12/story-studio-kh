@@ -16,7 +16,7 @@ import { existsSync } from 'fs'
 import os from 'os'
 import path from 'path'
 import { createHash, randomUUID } from 'crypto'
-import { carriesCapacityFacts, humanGatewayText } from './gateway-failure-text.js'
+import { carriesCapacityFacts, dispatchRefusalFromBody, formatDispatchRefusal, humanGatewayText } from './gateway-failure-text.js'
 import { getAppSetting, getGenStudioUrl, getLanguageTimeoutMs, setAppSetting, getRetryFailedRequestsSetting, RETRY_ATTEMPTS_MIN, RETRY_ATTEMPTS_MAX, RETRY_ATTEMPTS_DEFAULT } from '../services/app-settings.js'
 import { generationReplacementKey, type ReplacementKind } from '../services/generation-paid-replacement.js'
 import type { GenerationReplacementAttempt, Job } from '../models/types.js'
@@ -4183,6 +4183,11 @@ export function isGenStudioLanguageQuotaExhausted(error: unknown): error is GenS
  * `HTTP <status>`, so this can only ever add information.
  */
 export function describeGenStudioDetail(body: unknown, status: number): string {
+  // A dispatch refusal publishes WHY each candidate Mac declined. That detail
+  // is the owner's whole answer ("model not packaged", "needs 16 GB"), so say
+  // it instead of falling through to a bare status.
+  const dispatch = dispatchRefusalFromBody(body)
+  if (dispatch) return formatDispatchRefusal(dispatch)
   const detail = (body as { detail?: unknown } | null | undefined)?.detail
   if (typeof detail === 'string' && detail.trim()) return detail
   if (Array.isArray(detail)) {

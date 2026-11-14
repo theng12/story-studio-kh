@@ -162,6 +162,7 @@ describe('Content Store commerce routes', () => {
     const downloadsBefore = mock.contentDownloadPostCount
     // The Production state: the pack was installed under an earlier account/origin; both now differ.
     const recorded = (await readContentPackState()).packs['com.storystudio.pack.free-recovery-test'].versions['1.0.0']
+    assert.ok(recorded.delivery_attestation, 'the installed pack keeps its delivery evidence')
     const recordedOrigin = recorded.delivery_attestation.genstudio_origin
     await setApiKey('genstudio', KEY_B)
     await setGenStudioUrl('http://127.0.0.1:9')

@@ -69,6 +69,31 @@ export function publishedAvailabilityProblem(model: GenStudioImageModel): string
 }
 
 /**
+ * Never substitute a different frame for the one the model itself declares.
+ *
+ * A model that declares `default_aspect_ratio` 16:9 but publishes only a 1:1
+ * output row used to fall through to that row, so a batch billed for 1:1 while
+ * the owner had chosen a 16:9 model (live evidence, 1.4.401). Refuse loudly
+ * instead; the declared default still wins when it IS published, and the Story
+ * 16:9 preference still applies when it is published alongside a different
+ * declared default.
+ */
+function assertDeclaredDefaultIsPublished(
+  model: {
+    default_aspect_ratio?: string
+    aspect_ratios?: string[]
+    output_options?: Array<{ resolution: string; aspect_ratio: string }>
+  },
+  declared: string | undefined,
+  label: string,
+): void {
+  const ratio = (declared || '').trim()
+  if (ratio && !isPublishedAspectRatio(model, ratio)) {
+    throw new Error(`${label} publishes no ${ratio} output. Choose another model or ratio.`)
+  }
+}
+
+/**
  * Resolve the aspect ratio a submission may actually use.
  *
  * An empty request is MISSING, not a literal 16:9: it uses the shared Story
@@ -85,6 +110,7 @@ export function resolvePublishedAspectRatio(
 ): string {
   const wanted = (requested || '').trim()
   if (!wanted) {
+    assertDeclaredDefaultIsPublished(model, model.default_aspect_ratio, model.display_name)
     const fallback = storyDefaultAspectRatio(model)
     if (!fallback) {
       throw new Error(`${model.display_name} publishes no aspect ratios. Refresh the model picker and choose a current model.`)
@@ -113,6 +139,7 @@ export function resolveConfiguredAspectRatio(
 ): string {
   const wanted = (requested || '').trim()
   if (!wanted) {
+    assertDeclaredDefaultIsPublished(config, config.default_aspect_ratio, config.label)
     const fallback = storyDefaultAspectRatio(config)
     if (!fallback) {
       throw new Error(`${config.label} publishes no aspect ratios. Refresh the model picker and choose a current model.`)

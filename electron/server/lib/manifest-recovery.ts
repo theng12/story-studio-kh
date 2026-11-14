@@ -339,6 +339,29 @@ export function resolveImageRetryScope(
 }
 
 /**
+ * The request scope for one image asset under a Retry that minted a fresh
+ * generation action.
+ *
+ * A terminal request is never replayed: the action's own base scope wins, so a
+ * cancelled/failed Gateway job can never answer the retry again. A request the
+ * Gateway may still hold (succeeded, accepted, running or uncertain) is still
+ * collected under the scope it was submitted with, so Retry never buys a second
+ * picture it already has. An in-run route retry promotes its own failed scope
+ * exactly as `resolveImageRetryScope` does.
+ */
+export function resolveImageRetryActionScope(
+  entry: TaskManifestEntry | null | undefined,
+  baseScope: string,
+): string {
+  const saved = stripSelectorScope(typeof entry?.request_scope === 'string' ? entry.request_scope : '')
+  if (!isTerminalGenStudioImageTaskFailure(entry)) {
+    return saved || resolveImageRetryScope(entry, baseScope).scope
+  }
+  const inAction = saved === baseScope || saved.startsWith(`${baseScope}:retry:`)
+  return inAction ? resolveImageRetryScope(entry, baseScope).scope : baseScope
+}
+
+/**
  * The manifest entry as it should read once GenStudio has told us the saved job
  * is terminal. Persist this BEFORE resolving the next scope so the retry
  * identity is derivable again after a crash.
