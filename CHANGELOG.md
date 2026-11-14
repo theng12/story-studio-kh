@@ -4,6 +4,12 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.401 — 2026-11-14
+
+- **Regenerate** is one click on a failed image or thumbnail, and **Regenerate all failed** does the whole set. Every regeneration starts a new Gateway attempt with a new operation id — a cancelled or failed job is never replayed — and the old file is kept, recoverable, so you can go back.
+- A model that does not publish the aspect ratio you asked for (or its own declared default) is now refused with a clear message instead of quietly rendering a different shape. A Gateway that answers “no eligible machine” shows that reason and the per-candidate reasons.
+- The app now has a measured contrast ramp in light and dark (body, secondary text and buttons at 4.5:1), remembered Cards/Table choice per list, warnings grouped with counts instead of repeated per row, and equal-height cards.
+
 ## v1.4.400 — 2026-11-13
 
 - **Studio Library** is the new name everywhere in the app — the page, menus, buttons, errors and What's New. Nothing you read says "Content Store" or "GenStudio" any more.
