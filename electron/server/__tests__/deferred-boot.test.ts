@@ -5,6 +5,7 @@
  * itself is signal-driven, never a sleep.
  */
 import assert from 'node:assert/strict'
+import { randomUUID } from 'node:crypto'
 import fs from 'node:fs/promises'
 import { readFile } from 'node:fs/promises'
 import path from 'node:path'
@@ -40,8 +41,12 @@ test('deferred boot work runs only after the first-paint signal, once, with its 
   _resetDeferredBootWorkForTesting()
   try {
     const started: string[] = []
-    registerDeferredBootWork({ name: 'proactive-recovery-sweep', run: async () => { started.push('sweep') } })
-    registerDeferredBootWork({ name: 'genstudio-catalog-refresh', run: async () => { started.push('catalogue') } })
+    // The log file is shared by every run today, so each run names its own items.
+    const tag = randomUUID().slice(0, 8)
+    const sweepName = `proactive-recovery-sweep-${tag}`
+    const catalogueName = `genstudio-catalog-refresh-${tag}`
+    registerDeferredBootWork({ name: sweepName, run: async () => { started.push('sweep') } })
+    registerDeferredBootWork({ name: catalogueName, run: async () => { started.push('catalogue') } })
 
     // Several macrotasks pass with no signal: nothing may have started.
     await macrotasks()
@@ -54,13 +59,14 @@ test('deferred boot work runs only after the first-paint signal, once, with its 
     assert.deepEqual(started.sort(), ['catalogue', 'sweep'], 'items must run after the signal, none skipped')
 
     // The start line fires once per item, naming the item and the defer length.
-    const startLines = await logLinesMatching('deferred boot work starting after first paint')
+    const startLines = (await logLinesMatching('deferred boot work starting after first paint'))
+      .filter(line => line.includes(tag))
     assert.equal(startLines.length, 2, `expected one start line per item, got ${startLines.length}`)
     assert.ok(startLines.every(line => line.includes('defer_ms')))
     // The schedule line fires when the item is registered.
     const scheduled = await logLinesMatching('deferred boot work scheduled')
-    assert.ok(scheduled.some(line => line.includes('proactive-recovery-sweep')))
-    assert.ok(scheduled.some(line => line.includes('genstudio-catalog-refresh')))
+    assert.ok(scheduled.some(line => line.includes(sweepName)))
+    assert.ok(scheduled.some(line => line.includes(catalogueName)))
 
     // Idempotent: a recreated window re-firing the signal runs nothing again.
     signalBootFirstPaint('second signal')
