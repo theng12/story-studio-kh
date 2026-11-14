@@ -334,10 +334,9 @@ function retryReplacementParams(job: Job): Record<string, any> | undefined {
   // success or an uncertain request never reaches here — `retryTerminalJob`
   // refuses unsettled evidence first — so its saved key is never discarded.
   if (IMAGE_RETRY_TYPES.has(job.type)) {
+    // Keep the item scope and `force`: a failed image item is REPLACED by the retry
+    // (owner rule), so it must re-render rather than be skipped as an existing gap.
     const params = { ...(job.params ?? {}) }
-    // Retry is a gap-fill, not an explicit re-render: keep the saved output and
-    // reclaim any request the Gateway may still hold instead of buying it again.
-    delete params.force
     return { ...params, ...stampFreshGenerationAction(params, randomUUID()) }
   }
   if (job.type === 'continuity_render') {

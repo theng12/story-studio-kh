@@ -354,11 +354,16 @@ export function resolveImageRetryActionScope(
   baseScope: string,
 ): string {
   const saved = stripSelectorScope(typeof entry?.request_scope === 'string' ? entry.request_scope : '')
-  if (!isTerminalGenStudioImageTaskFailure(entry)) {
-    return saved || resolveImageRetryScope(entry, baseScope).scope
+  // This action's own request (including its in-run retry promotions) keeps its key.
+  if (saved && (saved === baseScope || saved.startsWith(`${baseScope}:retry:`))) {
+    return resolveImageRetryScope(entry, baseScope).scope
   }
-  const inAction = saved === baseScope || saved.startsWith(`${baseScope}:retry:`)
-  return inAction ? resolveImageRetryScope(entry, baseScope).scope : baseScope
+  // A request the Gateway may still hold from an older identity is collected, not re-bought.
+  // A terminal failure or a completed success from an older action does not bind a NEW
+  // explicit action: the owner's Regenerate must produce new pixels under its new key.
+  const inFlight = !entry?.last_state || ['accepted', 'running', 'prepared', 'submitted', 'uncertain'].includes(entry.last_state)
+  if (inFlight && saved) return saved
+  return baseScope
 }
 
 /**

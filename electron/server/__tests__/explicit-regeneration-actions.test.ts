@@ -176,7 +176,7 @@ void test('image and music routes retain one paid provider request per operation
     assert.equal(imageRetry.status, 202, JSON.stringify(imageRetry.body))
     assert.notEqual(imageRetry.body.job.params?.generation_action?.id, imageAction,
       'Retry mints a new image action instead of replaying the failed one')
-    assert.equal(imageRetry.body.job.params?.force, undefined, 'Retry is a gap-fill, not a forced re-render')
+    assert.equal(imageRetry.body.job.params?.force, true, 'Retry replaces the failed item and keeps its item scope')
     await terminal(imageRetry.body.job.job_id, 'image Jobs Retry to settle')
     assert.equal(service.providerSubmissionCount('image'), 2,
       'Retry submitted fresh image work under its new action')
