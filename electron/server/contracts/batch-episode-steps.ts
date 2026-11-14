@@ -45,6 +45,20 @@ export interface BatchEpisodeStepSummary {
   elapsed_ms: number
 }
 
+/** One episode's outcome inside a finished Pipeline batch. */
+export interface BatchEpisodeOutcome {
+  episode_id: string
+  title: string
+  state: 'done' | 'failed' | 'cancelled' | 'running'
+  steps_done: number
+  steps_total: number
+  steps: BatchEpisodeStep[]
+  /** 0 while a step is still active. */
+  elapsed_ms: number
+  failed_step?: string
+  failed_error?: string
+}
+
 /** Friendly names for the job types a step line names (kept in step with the
  *  frontend's own label table). */
 export const JOB_TYPE_LABELS: Record<string, string> = {

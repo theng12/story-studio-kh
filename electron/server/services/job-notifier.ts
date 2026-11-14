@@ -221,10 +221,6 @@ const JOB_TYPE_LABELS: Record<string, string> = {
   social_publish: 'Social posting',
   youtube_thumbnail_refresh: 'Thumbnail backfill',
 }
-export function labelForJobType(type: string): string {
-  return JOB_TYPE_LABELS[type] || type
-}
-
 /** The Pipeline's step order (mirrors VALID_STEPS in routes/pipeline.ts). A
  *  batch's jobs are chained STEPS, so the summary reads in the order they ran. */
 /** `3m28s`, `1h24m`, `2m` — the Pipeline checklist's compact form (shared). */
@@ -273,10 +269,13 @@ export const BATCH_EPISODE_LINE_LIMIT = 8
  *  notifier adds the redaction scrub the phone message needs. */
 import {
   formatCompactDuration as sharedFormatCompactDuration,
+  labelForJobType,
   summarizeEpisodeSteps,
+  type BatchEpisodeOutcome,
   type BatchEpisodeStep,
 } from '../contracts/batch-episode-steps.js'
 export { labelForJobType } from '../contracts/batch-episode-steps.js'
+export type { BatchEpisodeOutcome } from '../contracts/batch-episode-steps.js'
 
 /**
  * Group a batch's jobs by episode for the Pipeline summary.
