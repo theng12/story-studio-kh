@@ -198,17 +198,31 @@ describe('episode timeline routes', () => {
     // the validator's and not something the routes themselves could produce.
     const file = await service.timelinePath(slug, episodeId)
     const stored = JSON.parse(await fs.readFile(file, 'utf8'))
+    const firstId = stored.segments[0].id
+
     stored.segments[1].start_sec = 25
     await fs.writeFile(file, JSON.stringify(stored))
-
-    const response = await request(app)
-      .patch(`${timelineUrl()}/segments/${encodeURIComponent(stored.segments[0].id)}`)
+    const gap = await request(app)
+      .patch(`${timelineUrl()}/segments/${encodeURIComponent(firstId)}`)
       .send({ media_type: 'sketch' })
       .expect(400)
-    assert.match(response.body.detail, /every second must belong to one segment/)
 
-    // The timeline is whole again for the rest of the file.
+    // Contiguous again, but the episode is longer than the segments cover —
+    // the 100% rule in its own words.
+    stored.segments[1].start_sec = 20
+    stored.total_duration_sec = 70
+    await fs.writeFile(file, JSON.stringify(stored))
+    const coverage = await request(app)
+      .patch(`${timelineUrl()}/segments/${encodeURIComponent(firstId)}`)
+      .send({ media_type: 'sketch' })
+      .expect(400)
+
+    // The timeline is whole again for the rest of the file — rebuilt BEFORE
+    // the assertions below, so one bad expectation cannot poison the rest.
     await request(app).post(timelineUrl()).send({ replace: true }).expect(201)
+
+    assert.match(gap.body.detail, /must start where the previous one ended/)
+    assert.match(coverage.body.detail, /every second must belong to one segment/)
   })
 
   test('set-media, split and merge round-trip and keep the shares at 100', async () => {
