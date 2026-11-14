@@ -41,7 +41,7 @@ test('bar, line and pie render as PNG with the requested IHDR size', async () =>
     assert.equal(size.height, 720, `${spec.kind} default height`)
     assert.equal(width, 1280)
     assert.equal(height, 720)
-    assert.match(summary, new RegExp(`^${spec.kind === 'bar' ? 'Bar' : spec.kind === 'line' ? 'Line' : 'Pie'} chart, 4 values`))
+    assert.match(summary, new RegExp(`^${spec.kind === 'bar' ? 'Bar' : spec.kind === 'line' ? 'Line' : 'Pie'} chart, ${spec.values.length} values`))
   }
 
   const custom = await renderChartPng({ ...BAR, width: 640, height: 400 })
