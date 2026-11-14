@@ -74,6 +74,7 @@ import { router as soundDesignRouter } from './sound-design.js'
 import { router as soundAndLabelsRouter } from './sound-and-labels.js'
 import { router as episodeSegmentsRouter } from './episode-segments.js'
 import { router as episodeTimelineRouter } from './episode-timeline.js'
+import { router as footageRouter } from './footage.js'
 import { router as continuityRouter } from './continuity.js'
 import { router as stillPostsRouter } from './still-posts.js'
 import { router as publishingOverviewRouter } from './publishing-overview.js'
@@ -108,6 +109,8 @@ export function mountRoutes(app: Express): void {
   // One timeline per episode: read/build, per-segment media, split/merge and
   // the preflight that prices it against the live Gateway catalogue.
   app.use('/api', episodeTimelineRouter)
+  // Stock footage: the Gateway catalogue, local-first resolution and the configured media root.
+  app.use('/api', footageRouter)
   app.use('/api', audioMergeRouter)
   app.use('/api', ideasRouter)
   app.use('/api', pipelineRouter)
