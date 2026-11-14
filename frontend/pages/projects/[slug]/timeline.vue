@@ -416,8 +416,9 @@ function formatDuration(seconds: number): string {
 function formatClock(seconds: number): string {
   const value = Math.max(0, Number(seconds) || 0)
   const minutes = Math.floor(value / 60)
-  const rest = (value % 60).toFixed(1).replace(/\.0$/, '')
-  return `${minutes}:${String(rest).padStart(4, '0')}`
+  const rest = value % 60
+  const tail = Number.isInteger(rest) ? String(rest).padStart(2, '0') : rest.toFixed(1)
+  return `${minutes}:${tail}`
 }
 
 function onEpisodeSelected(episode: any) {
@@ -534,6 +535,7 @@ async function changeMedia(segment: Segment, index: number, event: Event) {
     return
   }
   if (next === segment.media_type) return
+  if (stockFor.value === segment.id) stockFor.value = ''
   const body: Record<string, unknown> = { media_type: next }
   if (next === 'chart') {
     const draft = starterChart(segment, index)

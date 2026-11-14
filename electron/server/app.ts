@@ -18,6 +18,7 @@ import './boot/providers.js'              // side-effect: self-register provider
 import { mountRoutes } from './routes/index.js'
 import { registerAllExecutors } from './boot/executors.js'
 import { runBootMigrations, isBootComplete } from './boot/migrations.js'
+import { signalBootFirstPaint } from './boot/deferred-boot.js'
 import { logLine, startLogPruning } from './services/logger.js'
 import { applyServerTimeouts, requestDeadline } from './lib/server-timeouts.js'
 import { migrateLegacyProjects } from './services/project-manager.js'
@@ -280,6 +281,9 @@ if (shouldListen) {
   const server = app.listen(PORT, process.env.HOST || '127.0.0.1', () => {
     console.log(`Story Studio API running on http://localhost:${PORT}`)
     console.log(`API docs: http://localhost:${PORT}/api/health`)
+    // 1.4.402 — standalone server mode has no window: the boot work deferred to
+    // first paint starts one macrotask after the listen callback returns.
+    setTimeout(() => signalBootFirstPaint('standalone server listening (no window)'), 0)
   })
   void applyServerTimeouts(server)
 }

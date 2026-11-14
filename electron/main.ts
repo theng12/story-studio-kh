@@ -9,6 +9,7 @@ import './boot-env.js'
 import { app as electronApp, BrowserWindow, Menu, Notification, dialog, shell } from 'electron'
 import { app as expressApp } from './server/app.js'
 import { buildMenuTemplate } from './menu-template.js'
+import { registerDeferredBootWork, signalBootFirstPaint } from './server/boot/deferred-boot.js'
 import http from 'http'
 import path from 'path'
 import fs from 'fs'
@@ -154,6 +155,10 @@ async function createWindow(port: number) {
       preload: path.join(__dirname, '..', 'preload.cjs'),
     },
   })
+  // 1.4.402 — deferred boot work (recovery sweep, catalogue warmups) starts at
+  // the window's first paint, not during startup. Idempotent: a recreated
+  // window re-fires this harmlessly (the seam is one-shot).
+  mainWindow.webContents.once('did-finish-load', () => signalBootFirstPaint('window did-finish-load'))
   // The owner-only Trash actions trust this window by a per-boot secret it sends to
   // loopback only (auth-session.ts `isOwnerRequest`); the page itself never sees it.
   mainWindow.webContents.session.webRequest.onBeforeSendHeaders((details, callback) => {
@@ -842,7 +847,12 @@ void electronApp.whenReady().then(async () => {
     // the old 8-second ceiling and the stale-catalogue guard then refused work.
     try {
       const { startGenStudioCatalogRefreshScheduler } = await import('./server/services/genstudio-catalog-refresh.js')
-      startGenStudioCatalogRefreshScheduler(e => logCrash('catalogue-refresh', e))
+      // 1.4.402 — the warmups wait for the window's first paint with the rest
+      // of the deferred boot work instead of starting during startup.
+      registerDeferredBootWork({
+        name: 'genstudio-catalog-refresh',
+        run: async () => startGenStudioCatalogRefreshScheduler(e => logCrash('catalogue-refresh', e)),
+      })
     } catch (e) {
       logCrash('catalogue-refresh', e)
     }

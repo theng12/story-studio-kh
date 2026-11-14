@@ -14,6 +14,7 @@ import { cleanupStaleUndoSidecars } from '../services/upload-renumber-undo.js'
 import { cleanupStaleReseasonUndoSidecars } from '../services/upload-reseason.js'
 import { proactiveRecoverySweep } from '../services/boot-recovery.js'
 import { readLastSession } from '../services/last-session.js'
+import { registerDeferredBootWork } from './deferred-boot.js'
 
 let bootComplete = false
 
@@ -124,17 +125,30 @@ export function runBootMigrations(): void {
     if (cleaned.length > 0) console.log(`[boot] reseason-undo: removed ${cleaned.length} stale sidecar(s)`)
   }).catch(error => console.error('[boot] reseason-undo cleanup failed:', error?.message || error)))
 
-  tasks.push((async () => {
-    const last = await readLastSession().catch(() => null)
-    if (!last?.unclean_shutdown) return
-    const summary = await proactiveRecoverySweep({ maxItems: 50 })
-    if (summary.recovered > 0 || summary.pending > 0) {
-      console.log(
-        `[boot-recovery] recovered ${summary.recovered} asset(s); ` +
-        `${summary.pending} still pending, ${summary.expired + summary.failed} unrecoverable`,
-      )
-    }
-  })().catch(error => console.error('[boot-recovery] failed:', error?.message || error)))
+  // 1.4.402 — the unclean-shutdown recovery sweep starts after the window's
+  // first paint, not before it (owner-approved startup deferral). Nothing is
+  // skipped: it still runs on every unclean shutdown, and one logged line now
+  // says when it actually starts. Not part of `tasks`, so `boot_complete` no
+  // longer waits on it — it repairs background evidence, nothing a route
+  // needs synchronously.
+  registerDeferredBootWork({
+    name: 'proactive-recovery-sweep',
+    run: async () => {
+      try {
+        const last = await readLastSession().catch(() => null)
+        if (!last?.unclean_shutdown) return
+        const summary = await proactiveRecoverySweep({ maxItems: 50 })
+        if (summary.recovered > 0 || summary.pending > 0) {
+          console.log(
+            `[boot-recovery] recovered ${summary.recovered} asset(s); ` +
+            `${summary.pending} still pending, ${summary.expired + summary.failed} unrecoverable`,
+          )
+        }
+      } catch (error) {
+        console.error('[boot-recovery] failed:', (error as Error)?.message || error)
+      }
+    },
+  })
 
   tasks.push((async () => {
     const { verifyContentPackRuntimeAtBoot } = await import('../content-packs/recovery.js')
