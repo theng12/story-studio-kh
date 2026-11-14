@@ -668,6 +668,28 @@
           </template>
         </AdvancedDisclosure>
 
+        <!-- Timing: a Pipeline-batch row's own step checklist — what each step
+             did and how long it took, the same facts the Telegram ping reads
+             out (owner request 2026-11-14). Hidden on rows that are not a
+             batch step; collapsed to one line. -->
+        <AdvancedDisclosure
+          v-if="jobTimingSteps(job).length"
+          label="Timing"
+          :open="timingExpanded === job.job_id"
+          @update:open="timingExpanded = $event ? job.job_id : (timingExpanded === job.job_id ? null : timingExpanded)"
+        >
+          <ul class="job-timing-list">
+            <li v-for="s in jobTimingSteps(job)" :key="s.type" class="job-timing-step">
+              <span class="job-timing-label">{{ s.label }}</span>
+              <span class="job-timing-status" :class="`timing-${s.status}`">{{ timingStatusText(s) }}</span>
+            </li>
+            <li v-if="jobTimingTotal(job)" class="job-timing-step job-timing-total">
+              <span class="job-timing-label">Total</span>
+              <span class="job-timing-status">{{ jobTimingTotal(job) }}</span>
+            </li>
+          </ul>
+        </AdvancedDisclosure>
+
         <p
           v-if="primaryJobControl(job)"
           class="job-control-reason"
@@ -1002,6 +1024,25 @@
             </template>
           </AdvancedDisclosure>
 
+          <!-- Timing: the History card's mirror of the Active card's disclosure. -->
+          <AdvancedDisclosure
+            v-if="jobTimingSteps(job).length"
+            label="Timing"
+            :open="timingExpanded === job.job_id"
+            @update:open="timingExpanded = $event ? job.job_id : (timingExpanded === job.job_id ? null : timingExpanded)"
+          >
+            <ul class="job-timing-list">
+              <li v-for="s in jobTimingSteps(job)" :key="s.type" class="job-timing-step">
+                <span class="job-timing-label">{{ s.label }}</span>
+                <span class="job-timing-status" :class="`timing-${s.status}`">{{ timingStatusText(s) }}</span>
+              </li>
+              <li v-if="jobTimingTotal(job)" class="job-timing-step job-timing-total">
+                <span class="job-timing-label">Total</span>
+                <span class="job-timing-status">{{ jobTimingTotal(job) }}</span>
+              </li>
+            </ul>
+          </AdvancedDisclosure>
+
           <div v-if="job.status === 'error'" class="job-error-section" :class="{ 'is-original-attempt': isRecoveredFailure(job) }">
             <p v-if="job.resolved" class="error-summary"><span class="error-label">Settled:</span> {{ job.resolved.reason }}</p>
             <p v-if="job.skipped" class="error-summary"><span class="error-label">Skipped:</span> {{ job.skipped.reason }}</p>
@@ -1066,6 +1107,7 @@ import { useJobHistory } from '~/composables/useJobHistory'
 import { createVisibleInterval } from '~/composables/useVisibleInterval'
 import { publicProviderLabel } from '~/composables/useModelGroups'
 import { buildLatestBatchSummary, formatElapsed } from '~/composables/useBatchSummary'
+import { summarizeEpisodeSteps, formatCompactDuration, type BatchEpisodeStep } from '~/utils/episode-step-jobs'
 import {
   describeCancellation,
   describeFreshness,
@@ -1658,6 +1700,8 @@ function setTechnicalOpen(jobId: string, open: boolean) {
   if (open) expanded.value = jobId
   else if (expanded.value === jobId) expanded.value = null
 }
+// The Timing disclosure's own open row (one at a time, like Technical details).
+const timingExpanded = ref<string | null>(null)
 const errorExpanded = ref<string | null>(null)
 // Persistent per-job repair result so the user can see WHICH cards they've
 // repaired and the outcome (the toast is transient; the card stays red).
@@ -2186,6 +2230,48 @@ async function retryAllFailed() {
 // which the banner treats as "don't render". This keeps the template
 // trivial and the aggregation logic pure / unit-testable.
 const batchSummary = computed(() => buildLatestBatchSummary(jobs.value as readonly Job[]))
+
+// ── Timing disclosure (owner request 2026-11-14) ────────────────────────────
+// A Pipeline-batch row shows its own episode's step checklist: what each step
+// did and how long it took — the same grouping, order and elapsed numbers the
+// Telegram notification reads out, from the same shared builder
+// (`contracts/batch-episode-steps.ts`), so the page and the ping cannot drift.
+// A step the chain planned but never got a job shows as "—"; a failed one
+// shows its reason. Non-batch rows (no pipeline_chain / no batch id) show no
+// disclosure at all.
+const timingCache = new Map<string, BatchEpisodeStep[]>()
+function jobTimingSteps(job: RJob): BatchEpisodeStep[] {
+  const batchId = job.params?.pipeline_batch_id
+  const chain = job.params?.pipeline_chain
+  if (!batchId || !Array.isArray(chain) || chain.length === 0) return []
+  // One summarise per batch per render pass; the episode's own jobs are the
+  // same rows this page already holds in memory.
+  const cached = timingCache.get(job.job_id)
+  if (cached) return cached
+  const siblings = (job.params?.pipeline_batch_jobs as readonly RJob[] | undefined)
+    ?? jobs.value.filter(j => (j as RJob).params?.pipeline_batch_id === batchId
+      && (j as RJob).episode_id === job.episode_id) as unknown as readonly RJob[]
+  const { steps } = summarizeEpisodeSteps(siblings as never[])
+  timingCache.set(job.job_id, steps)
+  return steps
+}
+function timingStatusText(s: BatchEpisodeStep): string {
+  if (s.status === 'done') return s.elapsed_ms > 0 ? formatCompactDuration(s.elapsed_ms) : '—'
+  if (s.status === 'absent') return '—'
+  if (s.status === 'failed') return s.reason ? `${formatCompactDuration(s.elapsed_ms) || '—'} — ${s.reason}` : (s.elapsed_ms > 0 ? formatCompactDuration(s.elapsed_ms) : 'failed')
+  return s.status
+}
+function jobTimingTotal(job: RJob): string {
+  const steps = jobTimingSteps(job)
+  if (!steps.length) return ''
+  // The episode's own total: first step's start → last finished step's end,
+  // same arithmetic the notifier applies (`summarizeEpisodeSteps` returns it).
+  const summary = summarizeEpisodeSteps(
+    (jobs.value.filter(j => (j as RJob).params?.pipeline_batch_id === job.params?.pipeline_batch_id
+      && (j as RJob).episode_id === job.episode_id) as unknown as never[]),
+  )
+  return summary.elapsed_ms > 0 ? formatCompactDuration(summary.elapsed_ms) : ''
+}
 const showBulkFinishedBanner = computed(() => {
   if (isUniversal.value || bulkBannerDismissed.value) return false
   return batchSummary.value !== null
@@ -4377,6 +4463,32 @@ function clearFailed() { return clearHistory('failed') }
   line-height: 1.5;
 }
 .job-exceptions li + li { margin-top: 5px; }
+
+/* Timing disclosure — one label + outcome per Pipeline step. */
+.job-timing-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--font-xs);
+  color: var(--text-secondary);
+}
+.job-timing-step {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 2px 0;
+}
+.job-timing-total {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid var(--border);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.job-timing-status.timing-failed { color: var(--error, rgb(220, 38, 38)); }
+.job-timing-status.timing-cancelled,
+.job-timing-status.timing-paused { color: var(--warning, rgb(202, 138, 4)); }
 
 .jobs-section { display: block; min-width: 0; max-width: 100%; }
 .section-heading {
