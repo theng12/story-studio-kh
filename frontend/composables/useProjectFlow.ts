@@ -142,6 +142,10 @@ const STEP = {
   subtitles:    { key: 'subtitles',    label: 'Subtitles',      icon: '🔤', path: '/subtitles', phase: 'media' },
   characterSheet: { key: 'character-sheet', label: 'Character Sheet', icon: '🎭', path: '/character-sheet', phase: 'video' },
   scenePlan:    { key: 'scene-plan',   label: 'Scene Plan',     icon: '📚', path: '/scene-plan', phase: 'video' },
+  // v1.4.402 — the unified episode timeline. Optional because it is an
+  // editorial layer over Scene Plan: an episode can be finished without ever
+  // opening it, so it must never hold up "done".
+  timeline:     { key: 'timeline',     label: 'Timeline',       icon: '🕓', path: '/timeline',  phase: 'video', optional: true },
   // v1.4.365 — one PAGE for both optional layers. v1.4.371 — ONE STEP for it.
   // Two steps at the same path made Next go from the page to itself (owner,
   // 2026-10-30: "one step"), so the two halves are one row that is pending while
@@ -166,14 +170,14 @@ const FLOW_TIMESTAMP: FlowStep[] = [
   STEP.thumbPrompts, STEP.thumbnails,
   STEP.audio, STEP.audioMerge, STEP.subtitles,
   STEP.metadata,
-  STEP.scenePlan, STEP.soundAndLabels, STEP.sceneReview, STEP.motionReview, STEP.videoAssembly,
+  STEP.scenePlan, STEP.timeline, STEP.soundAndLabels, STEP.sceneReview, STEP.motionReview, STEP.videoAssembly,
 ]
 const FLOW_CONTINUITY: FlowStep[] = [
   STEP.ideas, STEP.research, STEP.script, STEP.introduction,
   STEP.thumbPrompts, STEP.thumbnails,
   STEP.audio, STEP.audioMerge, STEP.subtitles,
   STEP.metadata,
-  STEP.characterSheet, STEP.scenePlan, STEP.soundAndLabels, STEP.sceneReview, STEP.motionReview, STEP.videoAssembly,
+  STEP.characterSheet, STEP.scenePlan, STEP.timeline, STEP.soundAndLabels, STEP.sceneReview, STEP.motionReview, STEP.videoAssembly,
 ]
 // v1.0.300 — narrated-scenes: story/fiction on the audio-paced flow.
 // v1.0.301 — Research + Character Sheet exposed as OPTIONAL steps (non-
@@ -184,7 +188,7 @@ const FLOW_NARRATED_SCENES: FlowStep[] = [
   STEP.thumbPrompts, STEP.thumbnails,
   STEP.audio, STEP.audioMerge, STEP.subtitles,
   STEP.metadata,
-  STEP.characterSheet, STEP.scenePlan, STEP.soundAndLabels, STEP.sceneReview, STEP.motionReview, STEP.videoAssembly,
+  STEP.characterSheet, STEP.scenePlan, STEP.timeline, STEP.soundAndLabels, STEP.sceneReview, STEP.motionReview, STEP.videoAssembly,
 ]
 
 // A music channel: no narration, so no story steps. The thumbnail and Finalizer
@@ -223,7 +227,9 @@ export function flowForVisualSource(vs: VisualSource): FlowStep[] {
   return FLOW_NARRATED_SCENES
 }
 
-const SCENE_PLAN_STEP_KEYS = new Set(['character-sheet', 'scene-plan', 'scene-review', 'motion-review'])
+// The timeline is built from a scene plan, so an Image Pool episode — which
+// has none — never shows a step that could only dead-end.
+const SCENE_PLAN_STEP_KEYS = new Set(['character-sheet', 'scene-plan', 'timeline', 'scene-review', 'motion-review'])
 
 /** Missing legacy episode state keeps the long-standing Scene Plan branch. */
 export function normalizeEpisodeVisualSource(value: unknown): EpisodeVisualSource {
