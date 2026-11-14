@@ -470,23 +470,25 @@ describe('summarizeBatchEpisodes()', () => {
 describe('formatBatchMessage() — per-episode detail', () => {
   const STATS = { batch_id: 'B', total: 1, success: 1, fail: 0, cancelled: 0, earliest_created_at: null, latest_finished_at: null, elapsed_ms: 56_820_000, still_active: 0 }
 
-  test("the owner's 1-episode run names its episode (episodes, not steps)", () => {
+  test("the owner's run names its episode and each step it ran", () => {
     const jobs = [mkJob({ status: 'done', type: 'expand_chapters', episode_id: 'DM0013', params: { pipeline_batch_id: 'B' } })]
     const episodes = summarizeBatchEpisodes(jobs, new Map([['DM0013', 'The Lost Temple']]))
     const { title, body } = formatBatchMessage({ ...STATS }, 'Story Sprout', episodes)
     assert.equal(title, 'Pipeline finished — Story Sprout')
-    assert.equal(body, '1/1 episodes succeeded. Elapsed 15h 47m.\nDM0013 — The Lost Temple: done · 1 step')
+    assert.equal(body, '1/1 episodes succeeded. Elapsed 15h 47m.\nDM0013 — The Lost Temple: script ✓')
+    assert.doesNotMatch(body, /done · \d+ step/)
   })
 
-  test('seven step jobs are ONE episode — the count says so', () => {
+  test('seven step jobs are ONE episode — its seven steps are one line', () => {
     const jobs = Array.from({ length: 7 }, (_, i) => mkJob({ status: 'done', job_id: `s${i}`, episode_id: 'DM0013', created_at: `2026-10-18T0${i}:00:00.000Z`, finished_at: '2026-10-18T09:00:00.000Z' }))
     const episodes = summarizeBatchEpisodes(jobs, new Map([['DM0013', 'The Lost Temple']]))
     const { body } = formatBatchMessage({ ...STATS, total: 7, success: 7 }, undefined, episodes)
     assert.match(body, /^1\/1 episodes succeeded\./)
-    assert.match(body, /DM0013 — The Lost Temple: done · 7 steps/)
+    assert.equal(body.split('\n').length, 2, 'one episode = one line, however many steps')
+    assert.match(body, /DM0013 — The Lost Temple: chapter regen ✓ 9h · total 9h/)
   })
 
-  test('mixed done / failed / cancelled: counts, honest state lines, failure detail', () => {
+  test('mixed done / failed / cancelled: counts, ordered steps, honest states', () => {
     const jobs = [
       mkJob({ status: 'done', job_id: 'a1', episode_id: 'DM0013', type: 'outline_only' }),
       mkJob({ status: 'error', job_id: 'b1', episode_id: 'DM0014', type: 'expand_chapters', error: 'provider timed out' }),
@@ -497,9 +499,9 @@ describe('formatBatchMessage() — per-episode detail', () => {
     assert.equal(title, 'Pipeline finished with issues — Story Sprout')
     assert.equal(body, [
       '1/3 episodes succeeded. 1 failed. 1 cancelled. Elapsed 2h 5m.',
-      'DM0014 — River of Night: failed at Chapter expansion — provider timed out',
-      'DM0015: cancelled',
-      'DM0013 — The Lost Temple: done · 1 step',
+      'DM0014 — River of Night: script ✗ — provider timed out',
+      'DM0015: script — cancelled',
+      'DM0013 — The Lost Temple: script ✓',
     ].join('\n'))
   })
 
@@ -537,8 +539,54 @@ describe('formatBatchMessage() — per-episode detail', () => {
     const jobs = [mkJob({ status: 'done', episode_id: 'DM0013' })]
     const episodes = summarizeBatchEpisodes(jobs, new Map([['DM0013', long]]))
     const { body } = formatBatchMessage({ ...STATS }, undefined, episodes)
-    assert.ok(body.includes(`DM0013 — ${'A'.repeat(80)}: done`))
+    assert.ok(body.includes(`DM0013 — ${'A'.repeat(80)}: `))
     assert.ok(!body.includes('A'.repeat(81)))
+  })
+
+  test("the owner's example: steps in pipeline order, with each outcome and elapsed", () => {
+    const at = (h: number, m: number, s = 0) =>
+      `2026-11-14T${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}.000Z`
+    const step = (from: string, to: string, type: Job['type'], pipeline: string) =>
+      mkJob({ status: 'done' as const, job_id: `${type}-${from}`, episode_id: 'DM0013', type, created_at: from, finished_at: to, params: { pipeline_step: pipeline } })
+    const jobs = [
+      step(at(0, 0), at(0, 3, 28), 'outline_only', 'script-only'),
+      step(at(0, 3, 28), at(0, 3, 59), 'image_prompts', 'image_prompts'),
+      step(at(0, 3, 59), at(0, 5, 59), 'thumb_images', 'thumb_images'),
+      step(at(0, 5, 59), at(0, 14, 45), 'audio', 'audio'),
+      step(at(0, 14, 45), at(0, 15, 41), 'subtitles_transcribe', 'subtitles'),
+      step(at(0, 15, 41), at(0, 19, 25), 'scene_plan_run', 'scene_plan'),
+      step(at(0, 19, 25), at(1, 43, 25), 'continuity_render', 'scene_review'),
+      step(at(1, 43, 25), at(1, 55, 15), 'video_assembly', 'video_assembly'),
+    ]
+    // The chain still carried on the first job says an upload step was planned;
+    // no job ever ran for it, so it reads "pending" rather than vanishing.
+    jobs[0]!.params.pipeline_chain = [{ type: 'youtube_upload', params: { pipeline_step: 'youtube_upload' } }]
+    const episodes = summarizeBatchEpisodes(jobs, new Map([['DM0013', 'The Lost Temple']]))
+    const { body } = formatBatchMessage({ ...STATS, total: jobs.length, success: jobs.length }, 'Story Sprout', episodes)
+    assert.equal(body, [
+      '1/1 episodes succeeded. Elapsed 15h 47m.',
+      'DM0013 — The Lost Temple: script ✓ 3m28s · image prompts ✓ 31s · thumbnails ✓ 2m · audio ✓ 8m46s'
+        + ' · subtitles ✓ 56s · scene plan ✓ 3m44s · scene review ✓ 1h24m · video assembly ✓ 11m50s'
+        + ' · youtube upload — pending · total 1h55m',
+    ].join('\n'))
+    assert.doesNotMatch(body, /done · \d+ step/)
+  })
+
+  test('a failed step names its reason and says the finished steps are kept', () => {
+    const jobs = [
+      mkJob({ status: 'done', job_id: 'ok', episode_id: 'DM0013', type: 'outline_only', created_at: '2026-11-14T00:00:00.000Z', finished_at: '2026-11-14T00:03:28.000Z', params: { pipeline_step: 'script-only' } }),
+      mkJob({ status: 'error', job_id: 'bad', episode_id: 'DM0013', type: 'audio', error: 'provider <timeout> & retry exhausted', created_at: '2026-11-14T00:03:28.000Z', finished_at: '2026-11-14T00:12:14.000Z', params: { pipeline_step: 'audio' } }),
+    ]
+    jobs[0]!.params.pipeline_chain = [{ type: 'subtitles_transcribe', params: { pipeline_step: 'subtitles' } }]
+    const episodes = summarizeBatchEpisodes(jobs, new Map([['DM0013', 'The Lost Temple']]))
+    const { title, body } = formatBatchMessage({ ...STATS, total: 2, success: 1, fail: 1 }, 'Story Sprout', episodes)
+    assert.equal(title, 'Pipeline finished with issues — Story Sprout')
+    assert.equal(body, [
+      '0/1 episodes succeeded. 1 failed. Elapsed 15h 47m.',
+      'DM0013 — The Lost Temple: script ✓ 3m28s · audio ✗ 8m46s — provider <timeout> & retry exhausted'
+        + ' · subtitles — pending · total 12m14s · finished steps are kept',
+    ].join('\n'))
+    assert.doesNotMatch(body, /done · \d+ step/)
   })
 })
 

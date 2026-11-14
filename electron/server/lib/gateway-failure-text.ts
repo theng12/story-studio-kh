@@ -111,10 +111,14 @@ export function humanGatewayText(raw: string): string {
     return detail || `The Mac refused this job (HTTP ${http[1]}).`
   }
 
-  // A writing pool walked every member: `Pool 'x' had no member that could answer — <600 chars of
-  // member ids and provider errors>`. The job's own code already says why (quota, busy …).
-  const pool = /^Pool '([^']+)' had no member that could answer\b/.exec(text)
-  if (pool) return `None of the models in the "${pool[1]}" pool could answer.`
+  // A writing pool walked every member: `Pool 'x' had no member that could answer — <member>: <why>; …`.
+  // The owner asked which member failed (2026-11-14), so the published member attempts are kept —
+  // only controller ids are scrubbed; the member names ARE the answer to "why did writing fail?".
+  const pool = /^Pool '([^']+)' had no member that could answer\s*(?:[—–-]\s*)?([\s\S]*)$/.exec(text)
+  if (pool) {
+    const attempts = withoutControllerIds(pool[2]!.trim()).replace(/\s+/g, ' ')
+    return `None of the models in the "${pool[1]}" pool could answer.${attempts ? ` Tried: ${attempts}` : ''}`
+  }
 
   // `hub submit failed: timed out` (httpx's words): the Mac took the request but did not answer.
   const submit = /^hub submit failed: ([\s\S]*?)(\s+The result is being checked; nothing was run twice\.)?$/i.exec(text)

@@ -59,14 +59,23 @@ test('no credit sentence reaches the writing failure, whatever the settlement sa
     'The writing model could not answer this request. Retry this step; if it keeps failing, pick a different writing model.')
 })
 
-test('a pool that ran out of members says so once, not as a 600-character member dump', () => {
+test('a pool failure names the member that failed, in the gateway\'s published evidence', () => {
   const message = gatewayFailure({
     failure_code: 'PROVIDER_QUOTA_EXHAUSTED',
     failure_reason: "Pool 'gemini-free-all' had no member that could answer — google-ai-free::gemini-3-flash: "
       + 'HTTP 429 RESOURCE_EXHAUSTED; google-ai-free::gemini-3.1-flash-lite: cooling-down',
   }).message
+  assert.match(message, /Details: None of the models in the "gemini-free-all" pool could answer\./)
+  assert.match(message, /google-ai-free::gemini-3-flash: HTTP 429 RESOURCE_EXHAUSTED/)
+  assert.match(message, /google-ai-free::gemini-3\.1-flash-lite: cooling-down/)
+})
+
+test('a pool failure with no published member evidence says only what it has', () => {
+  const message = gatewayFailure({
+    failure_code: 'PROVIDER_QUOTA_EXHAUSTED',
+    failure_reason: "Pool 'gemini-free-all' had no member that could answer",
+  }).message
   assert.match(message, /Details: None of the models in the "gemini-free-all" pool could answer\.$/)
-  assert.doesNotMatch(message, /google-ai-free::|RESOURCE_EXHAUSTED/)
 })
 
 test('an unknown code still gives a plain next step, never the raw code', () => {

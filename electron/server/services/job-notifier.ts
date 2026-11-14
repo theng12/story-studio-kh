@@ -225,6 +225,53 @@ export function labelForJobType(type: string): string {
   return JOB_TYPE_LABELS[type] || type
 }
 
+/** The Pipeline's step order (mirrors VALID_STEPS in routes/pipeline.ts). A
+ *  batch's jobs are chained STEPS, so the summary reads in the order they ran. */
+const PIPELINE_STEP_ORDER: readonly string[] = [
+  'research', 'script-only', 'introduction-only', 'image_prompts', 'thumb_images',
+  'audio', 'audio_merge', 'metadata', 'subtitles', 'scene_plan', 'contextual_cues',
+  'scene_review', 'motion_review', 'character_sheet', 'video_assembly', 'music_build',
+]
+
+/** Job types whose step name differs, so the script step's outline → chapters
+ *  pair (and old rows with no `pipeline_step`) still read as one step. */
+const JOB_TYPE_STEP: Record<string, string> = {
+  outline_only: 'script-only', expand_chapters: 'script-only',
+  research_run: 'research', subtitles_transcribe: 'subtitles',
+  scene_plan_run: 'scene_plan', continuity_render: 'scene_review',
+  scene_clips_batch: 'motion_review', music_episode_build: 'music_build',
+}
+
+const PIPELINE_STEP_LABELS: Record<string, string> = {
+  research: 'Research', 'script-only': 'Script', 'introduction-only': 'Introduction',
+  image_prompts: 'Image prompts', thumb_images: 'Thumbnails', audio: 'Audio',
+  audio_merge: 'Audio merge', metadata: 'Metadata', subtitles: 'Subtitles',
+  scene_plan: 'Scene plan', contextual_cues: 'Contextual cues',
+  scene_review: 'Scene review', motion_review: 'Motion clips',
+  character_sheet: 'Character sheet', video_assembly: 'Video assembly',
+  music_build: 'Music episode',
+}
+
+function jobStepKey(job: Job): string {
+  const stamped = job.params?.pipeline_step
+  if (typeof stamped === 'string' && stamped) return stamped
+  return JOB_TYPE_STEP[job.type] || job.type
+}
+
+function stepLabel(key: string, jobType: string): string {
+  return PIPELINE_STEP_LABELS[key] || labelForJobType(jobType)
+}
+
+/** `3m28s`, `1h24m`, `2m` — the Pipeline checklist's compact form. */
+function formatCompactDuration(ms: number): string {
+  const totalSec = Math.max(0, Math.floor(ms / 1000))
+  if (totalSec < 60) return `${totalSec}s`
+  const totalMin = Math.floor(totalSec / 60)
+  if (totalMin < 60) return totalSec % 60 === 0 ? `${totalMin}m` : `${totalMin}m${totalSec % 60}s`
+  const h = Math.floor(totalMin / 60)
+  return totalMin % 60 === 0 ? `${h}h` : `${h}h${totalMin % 60}m`
+}
+
 /** Immediate failure ping — fires for ANY job error when the `failures`
  *  event is on. Independent of duration / batch membership. */
 export function shouldNotifyFailure(job: Job, events?: NotificationEvents): boolean {
@@ -263,6 +310,21 @@ export function formatFailureMessage(job: Job, projectLabel?: string, episodeTit
  */
 export const BATCH_EPISODE_LINE_LIMIT = 8
 
+/** One step of an episode's Pipeline checklist. */
+export interface BatchEpisodeStep {
+  /** The Pipeline step id (`params.pipeline_step`) when the job carries one,
+   *  else the job type. */
+  type: string
+  /** The app's display name for that step. */
+  label: string
+  /** `absent` is a step the run planned but never got a job (a held chain link). */
+  status: 'done' | 'failed' | 'cancelled' | 'paused' | 'queued' | 'running' | 'absent'
+  /** `created_at` → `finished_at`; 0 when the step never ran or is still active. */
+  elapsed_ms: number
+  /** The step's scrubbed error, when it failed. */
+  reason?: string
+}
+
 /** One episode's outcome inside a finished Pipeline batch. */
 export interface BatchEpisodeOutcome {
   episode_id: string
@@ -276,10 +338,67 @@ export interface BatchEpisodeOutcome {
   steps_done: number
   /** Every batch job recorded for this episode. */
   steps_total: number
+  /** The episode's steps in Pipeline order — what the notification reads out,
+   *  so the owner sees which step did what instead of a bare count. */
+  steps: BatchEpisodeStep[]
+  /** Earliest queue time → last finish, for the episode's own total. */
+  elapsed_ms: number
   /** Friendly label of the first failing step, when the episode failed. */
   failed_step?: string
   /** That step's error — whitespace-collapsed and scrubbed (redactSecrets). */
   failed_error?: string
+}
+
+/** Turn one step's real jobs into its checklist entry (owner request 2026-11-14). */
+function summarizeStep(key: string, label: string, jobs: Job[]): BatchEpisodeStep {
+  let firstSeen = jobs[0]!.created_at
+  let lastFinished = ''
+  let failed: Job | null = null
+  let active = false
+  let paused = false
+  let cancelled = false
+  for (const j of jobs) {
+    if (j.created_at && j.created_at < firstSeen) firstSeen = j.created_at
+    if (j.finished_at && j.finished_at > lastFinished) lastFinished = j.finished_at
+    switch (j.status) {
+      case 'error': if (!failed || j.created_at < failed.created_at) failed = j; break
+      case 'cancelled': cancelled = true; break
+      case 'paused': paused = true; break
+      case 'queued':
+      case 'running': active = true; break
+    }
+  }
+  const status: BatchEpisodeStep['status'] = failed ? 'failed'
+    : active ? 'running'
+    : paused ? 'paused'
+    : cancelled ? 'cancelled'
+    : 'done'
+  const elapsed_ms = (status === 'done' || status === 'failed' || status === 'cancelled') && lastFinished
+    ? Math.max(0, Date.parse(lastFinished) - Date.parse(firstSeen))
+    : 0
+  const step: BatchEpisodeStep = {
+    type: key,
+    label,
+    status,
+    elapsed_ms: Number.isFinite(elapsed_ms) ? elapsed_ms : 0,
+  }
+  if (failed) {
+    const err = redactSecrets((failed.error || '').trim()).replace(/\s+/g, ' ').trim()
+    if (err) step.reason = err
+  }
+  return step
+}
+
+/** A chain link's step, from the chain stamped on a real job. */
+function chainLinkStep(link: unknown): { key: string; type: string } | null {
+  if (!link || typeof link !== 'object') return null
+  const l = link as { type?: unknown; params?: Record<string, unknown> }
+  const type = typeof l.type === 'string' ? l.type : ''
+  const stamped = l.params?.pipeline_step
+  const key = typeof stamped === 'string' && stamped
+    ? stamped
+    : type ? (JOB_TYPE_STEP[type] || type) : ''
+  return key ? { key, type: type || key } : null
 }
 
 /**
@@ -288,6 +407,10 @@ export interface BatchEpisodeOutcome {
  * Episodes are the unit the summary sentence actually claims ("N/M episodes
  * succeeded"); a batch's jobs are chained STEPS, so one 15-hour episode is
  * many jobs and counting jobs would report "7/7 episodes" for one episode.
+ * Each episode carries its ordered steps, from the jobs' own `pipeline_step`,
+ * `created_at`, `finished_at` and `status`, so the notification says what each
+ * step did instead of "done · N steps" (owner request 2026-11-14). A step the
+ * chain planned but never got a job is shown as absent.
  * Failures sort first — they are the lines worth reading — with run order
  * kept inside each state group. `titles` comes from the idea store
  * (episode code → title); codes missing from it keep the stable code alone.
@@ -312,8 +435,10 @@ export function summarizeBatchEpisodes(
     let anyCancelled = false
     let anyActive = false
     let firstSeen = group[0]!.created_at
+    let lastFinished = ''
     for (const j of group) {
       if (j.created_at && j.created_at < firstSeen) firstSeen = j.created_at
+      if (j.finished_at && j.finished_at > lastFinished) lastFinished = j.finished_at
       switch (j.status) {
         case 'done': stepsDone++; break
         case 'error': if (!failed || j.created_at < failed.created_at) failed = j; break
@@ -326,12 +451,51 @@ export function summarizeBatchEpisodes(
       : anyCancelled ? 'cancelled'
       : anyActive ? 'running'
       : 'done'
+
+    // The steps this episode actually has a job for, grouped by Pipeline step
+    // (the script step's outline → chapters pair stays one step).
+    const buckets = new Map<string, { label: string; jobs: Job[]; first_seen: string }>()
+    for (const j of group) {
+      const key = jobStepKey(j)
+      const bucket = buckets.get(key)
+      if (bucket) bucket.jobs.push(j)
+      else buckets.set(key, { label: stepLabel(key, j.type), jobs: [j], first_seen: j.created_at })
+    }
+    // Steps the run planned and never reached: the chain still carried on a
+    // real job is the Gateway's own record that they were coming.
+    const planned = new Map<string, { type: string; first_seen: string }>()
+    for (const j of group) {
+      const chain = Array.isArray(j.params?.pipeline_chain) ? j.params.pipeline_chain as unknown[] : []
+      for (const link of chain) {
+        const step = chainLinkStep(link)
+        if (!step || buckets.has(step.key) || planned.has(step.key)) continue
+        planned.set(step.key, { type: step.type, first_seen: j.created_at })
+      }
+    }
+    const steps: Array<{ step: BatchEpisodeStep; first_seen: string }> = [
+      ...[...buckets].map(([key, b]) => ({ step: summarizeStep(key, b.label, b.jobs), first_seen: b.first_seen })),
+      ...[...planned].map(([key, p]) => ({
+        step: { type: key, label: stepLabel(key, p.type), status: 'absent' as const, elapsed_ms: 0 },
+        first_seen: p.first_seen,
+      })),
+    ]
+    const order = (key: string) => {
+      const index = PIPELINE_STEP_ORDER.indexOf(key)
+      return index === -1 ? PIPELINE_STEP_ORDER.length : index
+    }
+    steps.sort((a, b) => order(a.step.type) - order(b.step.type) || a.first_seen.localeCompare(b.first_seen))
+
+    const elapsed_ms = state !== 'running' && lastFinished
+      ? Math.max(0, Date.parse(lastFinished) - Date.parse(firstSeen))
+      : 0
     const outcome: BatchEpisodeOutcome = {
       episode_id: code,
       title: String(titles?.get(code) || '').trim(),
       state,
       steps_done: stepsDone,
       steps_total: group.length,
+      steps: steps.map(s => s.step),
+      elapsed_ms: Number.isFinite(elapsed_ms) ? elapsed_ms : 0,
     }
     if (failed) {
       outcome.failed_step = labelForJobType(failed.type)
@@ -346,22 +510,39 @@ export function summarizeBatchEpisodes(
   return ranked.map(r => r.outcome)
 }
 
-/** One line of the per-episode detail under a Pipeline summary. */
+/** One checklist entry: `audio ✓ 8m46s`, `subtitles — pending`, `audio ✗ — …`. */
+function formatBatchEpisodeStep(step: BatchEpisodeStep): string {
+  const label = step.label.toLowerCase()
+  if (step.status === 'absent') return `${label} — pending`
+  if (step.status === 'cancelled') return `${label} — cancelled`
+  if (step.status === 'paused' || step.status === 'queued' || step.status === 'running') {
+    return `${label} — ${step.status}`
+  }
+  const time = step.elapsed_ms > 0 ? ` ${formatCompactDuration(step.elapsed_ms)}` : ''
+  if (step.status === 'failed') {
+    return `${label} ✗${time}${step.reason ? ` — ${truncateChars(step.reason, 120)}` : ''}`
+  }
+  return `${label} ✓${time}`
+}
+
+/** One line of the per-episode detail under a Pipeline summary: the episode,
+ *  then its steps in pipeline order with what each did, then the episode's
+ *  total. Never the old "done · N steps" — that said nothing about the run. */
 function formatBatchEpisodeLine(e: BatchEpisodeOutcome): string {
   const name = episodeIdentity(e.episode_id, e.title)
-  switch (e.state) {
-    case 'done':
-      return `${name}: done · ${e.steps_done} step${e.steps_done === 1 ? '' : 's'}`
-    case 'failed': {
-      const at = e.failed_step ? ` at ${e.failed_step}` : ''
-      const why = e.failed_error ? ` — ${truncateChars(e.failed_error, 120)}` : ''
-      return `${name}: failed${at}${why}`
-    }
-    case 'cancelled':
-      return `${name}: cancelled`
-    default:
-      return `${name}: still running`
+  if (e.steps.length === 0) {
+    const state = e.state === 'failed' ? 'failed'
+      : e.state === 'cancelled' ? 'cancelled'
+      : e.state === 'running' ? 'still running'
+      : 'done'
+    return `${name}: ${state}`
   }
+  const parts = e.steps.map(formatBatchEpisodeStep)
+  if (e.elapsed_ms > 0 && e.state !== 'running') parts.push(`total ${formatCompactDuration(e.elapsed_ms)}`)
+  // A failed run keeps everything that already finished — say so, so the line
+  // cannot read as if the whole episode was lost.
+  if (e.state === 'failed' && e.steps.some(s => s.status === 'done')) parts.push('finished steps are kept')
+  return `${name}: ${parts.join(' · ')}`
 }
 
 /** "… and 4 more (2 failed, 1 cancelled)" — the explicit count of episodes
