@@ -138,13 +138,13 @@ describe('mac.sign hook', () => {
       signApp: async (options) => { calls.push(options); return 'signed' },
     })
     assert.equal(result, 'signed')
-    assert.deepEqual(calls, [{
-      app: '/tmp/Story.app',
-      platform: 'darwin',
-      type: 'distribution',
-      identity: DEFAULT_LOCAL_SIGNING_IDENTITY,
-      identityValidation: false,
-    }])
+    assert.equal(calls.length, 1)
+    assert.equal(calls[0].app, '/tmp/Story.app')
+    assert.equal(calls[0].platform, 'darwin')
+    assert.equal(calls[0].type, 'distribution')
+    assert.equal(calls[0].identity, DEFAULT_LOCAL_SIGNING_IDENTITY)
+    assert.equal(calls[0].identityValidation, false)
+    assert.deepEqual(calls[0].optionsForFile('/tmp/file'), { timestamp: 'none' })
   })
 
   test('never uses afterPack/afterSign or deep signing', () => {

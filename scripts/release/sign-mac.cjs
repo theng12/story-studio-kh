@@ -9,7 +9,13 @@
 // public timestamp authority for one file at a time flakes under load ("A timestamp was
 // expected but was not found"). Notarized/public builds use their own signing path.
 async function signWithLocalIdentity({ opts, identity, signApp }) {
-  return signApp({ ...opts, identity, identityValidation: false, timestamp: 'none' })
+  // @electron/osx-sign reads per-file options from `optionsForFile`, not the top level.
+  const previous = opts.optionsForFile
+  const optionsForFile = (filePath) => ({
+    ...(typeof previous === 'function' ? previous(filePath) : previous || {}),
+    timestamp: 'none',
+  })
+  return signApp({ ...opts, identity, identityValidation: false, optionsForFile })
 }
 
 module.exports = async function signMac(opts) {
