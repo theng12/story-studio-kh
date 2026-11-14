@@ -74,7 +74,7 @@ details.grouped-warning > summary::-webkit-details-marker { display: none; }
 details.grouped-warning > summary::before {
   content: '▸';
   color: var(--warning);
-  font-size: 11px;
+  font-size: var(--font-xs);
 }
 details.grouped-warning[open] > summary::before { content: '▾'; }
 .grouped-warning strong { color: var(--warning); font-variant-numeric: tabular-nums; }
