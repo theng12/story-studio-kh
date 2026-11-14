@@ -55,7 +55,16 @@ test('the projects page meets the cold 1.5 s, warm 500 ms and cached 100 ms budg
   report('warm page', warm, BUDGETS.warm)
   assert.ok(warm <= BUDGETS.warm, `warm page ${warm.toFixed(1)} ms exceeds ${BUDGETS.warm} ms`)
 
-  const cached = await timed('/api/projects')
-  report('cached page', cached, BUDGETS.cached)
+  // Steady-state cached reads: one early sample can still carry JIT/first-serialise
+  // cost, so the budget is the median of three consecutive cached reads.
+  const cachedSamples: number[] = []
+  for (let i = 0; i < 3; i++) {
+    const ms = await timed('/api/projects')
+    cachedSamples.push(ms)
+    report(`cached page #${i + 1}`, ms, BUDGETS.cached)
+  }
+  cachedSamples.sort((a, b) => a - b)
+  const cached = cachedSamples[1]!
+  report('cached page (median)', cached, BUDGETS.cached)
   assert.ok(cached <= BUDGETS.cached, `cached page ${cached.toFixed(1)} ms exceeds ${BUDGETS.cached} ms`)
 })
