@@ -114,7 +114,7 @@ test('no sleep was introduced as the defer mechanism', async () => {
     const around = app.slice(match.index ?? 0, (match.index ?? 0) + 160)
     assert.match(around, /,\s*0\s*\)/, `any setTimeout in app.ts near the defer must be a 0ms macrotask: ${around}`)
   }
-  const main = await source(path.join(server, '..', 'main.ts'))
+  const main = await readFile(path.join(server, '..', 'main.ts'), 'utf8')
   assert.match(main, /did-finish-load/, 'Electron mode must signal first paint from the window event')
   assert.match(main, /registerDeferredBootWork\(\{\s*name:\s*'genstudio-catalog-refresh'/,
     'the catalogue scheduler must be registered with the defer seam')
