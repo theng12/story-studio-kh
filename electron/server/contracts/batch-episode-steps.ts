@@ -70,6 +70,13 @@ export const JOB_TYPE_LABELS: Record<string, string> = {
   scene_clips_batch: 'Motion clips', character_sheet: 'Character sheet',
   video_assembly: 'Video assembly', music_episode_build: 'Music episode',
   broll_assemble: 'B-roll assembly', translate_episode: 'Translation',
+  // Carried over from the notifier's table so its phone wording is unchanged.
+  'script-only': 'Script', 'chapter-only': 'Chapter regen',
+  images: 'Images', scene_images: 'Scene images', images_repair: 'Image repair',
+  thumbnail_score: 'Thumbnail scoring', episode_shorts: 'Episode Shorts',
+  scene_image_generate: 'Scene image', composition_generate: 'Composition',
+  broll_normalize: 'B-roll normalize', broll_autotag: 'B-roll auto-tag',
+  expression_markup: 'Expression markup',
   // The legacy AI Video Generator's lane (deleted 2026-10-27). Its stored rows are history.
   video: 'Video clips',
   youtube_upload: 'YouTube upload', youtube_playlist_update: 'YouTube playlist',
