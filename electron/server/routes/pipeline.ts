@@ -179,6 +179,20 @@ export const STEP_JOB_TYPE: Partial<Record<BatchStep, JobType>> = {
 }
 
 /**
+ * Which model a model-less step runs on. Scene Review prefers the Scene Plan's intended image model
+ * (the model the prompts were written for) over the app-wide default; every other step takes the
+ * default. An empty answer means "leave the step model-less", never a guess.
+ */
+export function resolveSceneRenderFallbackModel(
+  step: string,
+  scenePlanImageModel: string,
+  appDefaultModel: string,
+): string {
+  if (step === 'scene_review') return scenePlanImageModel || appDefaultModel
+  return appDefaultModel
+}
+
+/**
  * The JobType a pipeline step enqueues under (mirrors the run-batch loop).
  * `script-only` is special: it expands to outline_only → expand_chapters, so it
  * has no single job type. `character_sheet` is applied inline (never a job).
@@ -3067,7 +3081,13 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
         // and the next run re-reads the setting. Sketch Draw motion presets need no video model.
         if (step !== 'motion_review' || params.renderer !== 'sketch_draw') {
           const appDefaultModel = defaultModelForStep(step, defaults)
-          if (appDefaultModel && !String(params.model || '').trim()) params.model = appDefaultModel
+          // Scene Review renders the images the Scene Plan wrote prompts for. When the render
+          // preset names no model, the plan's intended image model wins over the app-wide default:
+          // otherwise prompts written for one model (and its character ceiling) are rendered by a
+          // stricter one and every scene is refused (EP0018, 2026-11-14). An explicit preset model
+          // still wins — that is the operator's choice.
+          const fallbackModel = resolveSceneRenderFallbackModel(step, pipelineScenePlanImageModel, appDefaultModel)
+          if (fallbackModel && !String(params.model || '').trim()) params.model = fallbackModel
         }
         // 1.4.282 — readable on the job: exactly what this render bakes in. Never read by the render.
         if (step === 'video_assembly') {
