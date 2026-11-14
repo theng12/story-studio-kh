@@ -267,8 +267,9 @@ test('an explicit ratio published only by a row is accepted on both resolvers', 
     ],
   })
   assert.equal(resolvePublishedAspectRatio(published, '9:16'), '9:16')
-  assert.equal(resolvePublishedAspectRatio(published, undefined), '9:16',
-    'the omitted path also resolves the only renderable row ratio')
+  // Owner 2026-11-14: an omitted request never substitutes a different frame for the
+  // model's own declared default. This model declares 16:9 but publishes only 9:16.
+  assert.throws(() => resolvePublishedAspectRatio(published, undefined), /publishes no 16:9 output/)
 
   const config = buildImageModelConfig({ image_models: {} }, 'genstudio-image-fast-v1', published)
   assert.equal(resolveConfiguredAspectRatio(config, '9:16'), '9:16')

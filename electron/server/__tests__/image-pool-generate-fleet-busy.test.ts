@@ -284,7 +284,7 @@ describe('Image Pool: the wait itself', () => {
     has("}, 'failed', true)", 'the settled failure reaches disk strictly before the retry is decided')
     has('const manifest = await readManifest(pool.folder_path)',
       'and the next attempt reads it back from disk, not from a stale in-memory copy')
-    has('let logicalScope = retryDecisionScope || resolveImageRetryScope(retryEntry, baseScope).scope',
+    has('let logicalScope = retryDecisionScope || (params.generation_action?.kind ===',
       "the recovery decision's scope wins; otherwise the promoted scope is derived from the dead job id")
     assert.doesNotMatch(source, /randomUUID/)
     assert.doesNotMatch(source, /Math\.random/)

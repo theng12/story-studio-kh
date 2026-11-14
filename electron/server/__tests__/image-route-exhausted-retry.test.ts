@@ -271,7 +271,7 @@ test('images.ts reuses the retry-scope chain and progress machinery instead of i
   // Explicit force actions keep their caller-owned scope; every other retry
   // goes through the same resolver. The route-exhaustion path must call that
   // shared policy instead of growing a second local scope derivation.
-  assert.match(source, /const actionScope = \(entry: TaskManifestEntry \| null \| undefined, baseScope: string\): string => \(\s*force && generationActionId \? baseScope : resolveImageRetryScope\(entry, baseScope\)\.scope/)
+  assert.match(source, /const actionScope = \(entry: TaskManifestEntry \| null \| undefined, baseScope: string\): string => \(\s*generationActionId\s*\? resolveImageRetryActionScope\(entry, baseScope\)\s*: resolveImageRetryScope\(entry, baseScope\)\.scope\s*\)/)
   assert.match(source, /const logicalScope = explicitScope \|\| actionScope\(failedEntry, previous\.baseScope\)/)
   assert.doesNotMatch(source, /nextImageRouteRetryIdentity/)
 
