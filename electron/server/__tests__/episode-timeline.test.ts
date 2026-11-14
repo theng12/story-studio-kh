@@ -123,6 +123,6 @@ test('preflight prices live evidence and estimates the whole run', () => {
   assert.equal(result.by_media.chart?.credits, 0)
   assert.equal(result.by_media.stock?.credits, 0)
   assert.equal(result.assembly_seconds, 6)
-  // 10+10+10 seconds of images at 3x, a chart at 2s, 20s of stock at 3x, then 6s assembly.
-  assert.equal(result.estimated_seconds, 30 + 30 + 2 + 60 + 6)
+  // 30 seconds of images at 3x, a chart at 2s, 20s of stock at 3x, then 6s assembly.
+  assert.equal(result.estimated_seconds, 90 + 2 + 60 + 6)
 })

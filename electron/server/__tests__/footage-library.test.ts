@@ -233,7 +233,7 @@ describe('the local footage library', () => {
 
     const answer = await client.searchFootage('storm', 'coast')
     assert.deepEqual(answer.results, [upstream])
-    assert.equal(answer.library.length, 1)
+    assert.equal(answer.library.length, server.clips.size)
     assert.equal(answer.sources[0]?.id, 'wikimedia')
     assert.ok(answer.library[0]?.sha256, 'library rows keep their identity')
     assert.match(server.requests[0]!.path, /^\/v1\/footage\/search$/)
