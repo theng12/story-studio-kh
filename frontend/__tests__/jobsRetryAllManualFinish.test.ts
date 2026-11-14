@@ -23,7 +23,11 @@ async function loadJobs(): Promise<Component> {
     const useRoute = () => globalThis.__jobsRoute
     const useRouter = () => ({ replace: async () => undefined })
     const useConfirm = () => ({ ask: async () => true })
-    const useApi = () => globalThis.__jobsApi
+    const useViewMode = (key, fallback = 'cards') => ref(localStorage.getItem(key) === 'list' ? 'list' : fallback)
+      const useApi = () => globalThis.__jobsApi
+
+      const ViewModeToggle = { name: 'ViewModeToggle', props: ['modelValue', 'label'], emits: ['update:modelValue'], render() { return null } }
+      const GroupedWarnings = { name: 'GroupedWarnings', props: ['groups', 'warnings', 'label'], render() { return null } }
     const useJobs = () => globalThis.__jobsProjectQueue
     const useAllJobs = () => globalThis.__jobsUniversalQueue
     // Fixture jobs carry their full evidence, so the per-job detail merge is the identity here.

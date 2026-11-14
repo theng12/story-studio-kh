@@ -31,6 +31,7 @@ async function loadPage() {
     const shared = (name: string) => JSON.stringify(new URL(`../../electron/server/contracts/${name}.ts`, import.meta.url).href)
     const support = `
       import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from ${JSON.stringify(vueUrl)}
+      const useViewMode = (key, fallback = 'cards') => ref(localStorage.getItem(key) === 'list' ? 'list' : fallback)
       const useApi = () => globalThis.__homeHarness.api
       const useAppSettingsModal = () => ({ open() {} })
       const useAppTitle = () => {}

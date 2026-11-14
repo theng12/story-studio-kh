@@ -58,9 +58,11 @@ async function mount(options: {
 
   const vueUrl = import.meta.resolve('vue')
   const support = `const useApi = () => globalThis.__uploadCaptionsApi
-    const useRoute = () => globalThis.__uploadCaptionsRoute`
+    const useRoute = () => globalThis.__uploadCaptionsRoute
+    const FilePicker = { name: 'FilePicker', props: ['modelValue'], emits: ['update:modelValue'], render() { return null } }`
   const scriptWithoutApiImport = script.content
     .replace(/import \{ useApi \} from '~\/composables\/useApi'\n?/, '')
+    .replace(/import FilePicker from '[^']*FilePicker\.vue'\n?/, '')
     .replace('export default', 'const __sfc__ =')
   const compiled = await transform(
     `${support}\n${scriptWithoutApiImport}\n${template.code}\n__sfc__.render = render; export default __sfc__`,

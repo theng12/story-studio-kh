@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { test } from 'node:test'
+import { afterEach, test } from 'node:test'
+
+afterEach(() => { (globalThis as any).__sceneReviewConfirm?.cancel?.() })
 import { createApp, h, nextTick, reactive, ref, unref, type Component } from 'vue'
 import { compileScript, parse } from '@vue/compiler-sfc'
 import { transform } from 'esbuild'
@@ -464,7 +466,10 @@ test('the newest failed image job is surfaced until a newer job replaces it', as
   const mounted = await mount([failed])
   assert.equal(mounted.state.failedRenderJob.value?.job_id, 'failed')
   assert.match(mounted.state.failedRenderMessage.value, /[Tt]he Gateway refused the prompt/)
-  await mounted.state.retryFailedRender()
+  const retry = mounted.state.retryFailedRender()
+  await nextTick()
+  mounted.acceptConfirmation()
+  await retry
   assert.equal(mounted.calls.at(-1)?.path, '/projects/fixture-project/jobs/failed/retry')
   mounted.jobs.value = [failed, { ...failed, job_id: 'later', status: 'done', created_at: '2026-09-06T11:00:00.000Z' }]
   assert.equal(mounted.state.failedRenderJob.value, null)

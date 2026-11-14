@@ -55,6 +55,7 @@ let pageComponent: Promise<any> | undefined
 function loadPage() {
   pageComponent ??= loadComponent('../pages/index.vue', 'home-filters-test', `
       import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from ${VUE_RUNTIME}
+      const useViewMode = (key, fallback = 'cards') => ref(localStorage.getItem(key) === 'list' ? 'list' : fallback)
       const useApi = () => globalThis.__homeHarness.api
       const useAppSettingsModal = () => ({ open() {} })
       const useAppTitle = () => {}

@@ -91,6 +91,9 @@ async function loadComponent(name: SfcName): Promise<Component> {
     // imports, so they are provided here as the shipped wiring: a reader that
     // answers "no pictures published", and the real kind list.
     const useApi = () => ({ get: async () => ({ available: false, reason: null, pictures: [] }) })
+
+      const ViewModeToggle = { name: 'ViewModeToggle', props: ['modelValue', 'label'], emits: ['update:modelValue'], render() { return null } }
+      const GroupedWarnings = { name: 'GroupedWarnings', props: ['groups', 'warnings', 'label'], render() { return null } }
     const contentStoreKindCanCarryPreviews = (kind) => ['visual_style', 'thumbnail_recipe', 'font_pack'].includes(kind)
     ${componentSupport}
     ${pageSupport}

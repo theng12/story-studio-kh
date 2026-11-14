@@ -87,7 +87,8 @@ async function component() {
   const script = compileScript(descriptor, { id: 'episode-recovery' })
   const template = compileTemplate({ source: descriptor.template!.content, filename, id: 'episode-recovery', compilerOptions: { bindingMetadata: script.bindings } })
   const vueUrl = import.meta.resolve('vue')
-  const support = `const useApi = () => ({ post: (...args) => globalThis.__recoveryPost(...args) });`
+  const support = `const useViewMode = (key, fallback = 'cards') => ref(localStorage.getItem(key) === 'list' ? 'list' : fallback)
+      const useApi = () => ({ post: (...args) => globalThis.__recoveryPost(...args) });`
   const code = await transform(`${support}\n${script.content.replace('export default', 'const __sfc__ =')}\n${template.code}\n__sfc__.render = render; export default __sfc__`, { loader: 'ts', format: 'esm' })
   return (await import(`data:text/javascript;base64,${Buffer.from(code.code.replaceAll('"vue"', JSON.stringify(vueUrl))).toString('base64')}`)).default
 }

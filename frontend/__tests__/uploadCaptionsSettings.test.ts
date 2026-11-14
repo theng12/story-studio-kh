@@ -62,7 +62,9 @@ test('UploadCaptionsSettings: supports subtitle source preferences and custom pa
   assert.match(componentSrc, /value="whisper"/)
   assert.match(componentSrc, /value="custom"/)
   assert.match(componentSrc, /v-if="draft\.preferred_source === 'custom'"/)
-  assert.match(componentSrc, /v-model="draft\.custom_srt_path"/)
+  assert.match(componentSrc, /<FilePicker/)
+  assert.doesNotMatch(componentSrc, /v-model="draft\.custom_srt_path"/)
+  assert.doesNotMatch(componentSrc, /type="text"[^>]*custom_srt_path/)
 })
 
 test('UploadCaptionsSettings: reflects honest subtitle availability states', () => {
