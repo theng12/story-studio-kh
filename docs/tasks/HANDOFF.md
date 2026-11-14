@@ -31,7 +31,11 @@
   its inputs), frontend **407/407 files** exit 0, release 17/17 exit 0 (rerun after the signing
   change), content-packs 45/45 exit 0. Hidden acceptance: health 1.4.401, api-keys not set,
   `/api/projects` 200, no `/app-update/*` route, Keychain untouched.
-- Not done: publish is the Developer's (live feed on 1301); no install on any Mac from this session.
+- Published and verified: the Developer published on 1301 — the signed feed serves story 1.4.401
+  (previous 1.4.400), artifact `668f19e418ed-Story Studio KH 1.4.401-arm64.dmg`, sha256 matching the
+  DMG byte-for-byte, 263,564,573 bytes. Install on macmini-angkor waits for a quiet point (10 active
+  jobs at publish time); the EP0015 regeneration path is tested after that install.
+- No install on any Mac from this session.
 
 ### Release 1.4.400 — Studio Library, installed content is done (2026-11-14)
 
