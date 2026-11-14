@@ -8,7 +8,7 @@
  * one macrotask after the listen callback returns. Nothing is skipped: every
  * item logs one line when it is scheduled and one when it actually runs, with
  * the item name and how long the defer was. The defer itself is signal-driven;
- * there is no timer or sleep in the wait.
+ * there is no timer or busy-wait in the wait.
  */
 import { logLine } from '../services/logger.js'
 
