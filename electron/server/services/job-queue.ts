@@ -5557,8 +5557,15 @@ async function readPersistedJobs(projectSlug: string): Promise<Job[]> {
               queues[j.type as JobType].pending.push(j)
               resumedTypes.add(j.type as JobType)
             } else {
-              observePersistedRunningJobLoadStage(j, 'cancellation-reconciliation')
-              if (requiresCancellationReconciliation(j)) {
+              // Image work that cannot resume and has nothing left to reclaim — a terminally
+              // failed provider task, or a pool render with no saved run id to name its own
+              // outputs — gains nothing from a Gateway read: the same answer settles nothing,
+              // and the row would wait for a key that cannot change it. It keeps the
+              // interrupted verdict, and paid image work is manual-only, so no retry is armed.
+              const deadImageWork = IMAGE_EPISODE_TYPES.has(j.type as JobType)
+                && !(hasStableImageOutputIdentity(j) && hasReclaimableImageEvidence(j))
+              observePersistedRunningJobLoadStage(j, deadImageWork ? 'interrupted-terminalization' : 'cancellation-reconciliation')
+              if (requiresCancellationReconciliation(j) && !deadImageWork) {
                 // The provider request already has a durable identity. Never convert it to an
                 // interrupted error or requeue it into a generation lane.
                 j.local_execution_complete = true
