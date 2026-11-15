@@ -658,7 +658,8 @@ export async function generateIdeaCampaign(job: Job): Promise<void> {
         batchRecord = replayBatch ?? {
           ordinal, count, model: request.model, prompt,
           request_identity: `${job.project_slug}:${request.campaign_id}:ideas:${ordinal}`,
-          outputBudget: { tier: 'workload', minimumTokens: ideaOutputTokenBudget(count) },
+          outputBudget: { tier: 'maximum' },
+          expected_output_tokens: ideaOutputTokenBudget(count),
           outputContract: ideaBatchOutputContract(),
           slots, keys: slots.map(slot => varietySeedLabel(slot)),
         }
@@ -675,6 +676,7 @@ export async function generateIdeaCampaign(job: Job): Promise<void> {
           preparePrompt: () => prompt,
           outputContract: batchRecord.outputContract,
           outputBudget: batchRecord.outputBudget,
+          expectedOutputTokens: batchRecord.expected_output_tokens,
           ...(batchRecord.idempotency_key ? { idempotencyKey: batchRecord.idempotency_key } : {}),
           onRequestPrepared: async key => { batchRecord!.idempotency_key = key; writeIdeaBatch(job, batchRecord!); await jq.checkpointJobState(job) },
           onJobAccepted: async providerJobId => { batchRecord!.provider_job_id = providerJobId; writeIdeaBatch(job, batchRecord!); await jq.checkpointJobState(job) },
@@ -711,7 +713,8 @@ export async function generateIdeaCampaign(job: Job): Promise<void> {
         batchRecord = replayBatch ?? {
           ordinal, count: assignments.length, model: request.model, prompt,
           request_identity: `${job.project_slug}:${request.campaign_id}:ideas:${ordinal}`,
-          outputBudget: { tier: 'workload', minimumTokens: ideaOutputTokenBudget(assignments.length) },
+          outputBudget: { tier: 'maximum' },
+          expected_output_tokens: ideaOutputTokenBudget(assignments.length),
           outputContract: ideaCampaignOutputContract(assignments.map(item => item.idea_key)),
           assignments, keys: assignments.map(item => item.idea_key),
         }
@@ -724,6 +727,7 @@ export async function generateIdeaCampaign(job: Job): Promise<void> {
           jobId: job.job_id,
           signal: controller.signal,
           outputBudget: batchRecord.outputBudget,
+          expectedOutputTokens: batchRecord.expected_output_tokens,
           outputContract: batchRecord.outputContract,
           requestIdentity: batchRecord.request_identity,
           ...(batchRecord.idempotency_key ? { idempotencyKey: batchRecord.idempotency_key } : {}),

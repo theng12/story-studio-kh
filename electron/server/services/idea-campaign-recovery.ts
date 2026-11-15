@@ -37,6 +37,13 @@ export interface IdeaBatchRecord {
   /** The identity the request went out under, captured so a replay keeps it byte for byte. */
   request_identity: string
   outputBudget: OutputBudget
+  /**
+   * What this batch's answer is EXPECTED to use (the count's own workload floor). Kept beside the
+   * budget because they are different facts: the request asks for the product's published maximum
+   * output allowance, while this number sizes the deadline and the preflight expectation. Absent on
+   * batches captured before this field existed; a replay of those keeps its original body.
+   */
+  expected_output_tokens?: number
   outputContract: TextOutputContract
   /** Coverage: the reserved assignments, whole, so an answer can be normalised without re-planning. */
   assignments?: unknown[]

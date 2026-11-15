@@ -384,6 +384,8 @@ export interface GenerateFreeformIdeaBatchInput {
   requestIdentity?: string
   /** Reuse a prompt the caller already built for this batch. */
   preparePrompt?: () => string
+  /** The answer this batch is expected to use; sizes the Gateway deadline, never the ceiling. */
+  expectedOutputTokens?: number
   /**
    * Record the provider key the moment it is prepared, so a restarted campaign can collect this
    * request by its own key instead of rebuilding a body that would mint a different one.
@@ -436,7 +438,11 @@ export async function generateFreeformIdeaBatch(input: GenerateFreeformIdeaBatch
     // with the count's own workload floor and the SAME tier the campaign passes its batches, so the
     // two idea call paths carry the same figure for the same count.
     outputBudget: input.outputBudget
-      ?? { tier: 'workload', minimumTokens: ideaOutputTokenBudget(input.request.count) },
+      ?? { tier: 'maximum' },
+    // The count's own estimate stays the EXPECTATION (deadline, preflight), while the request asks
+    // for the product's published maximum so a reasoning model's thinking is not capped by it.
+    expectedOutputTokens: input.expectedOutputTokens
+      ?? ideaOutputTokenBudget(input.request.count),
     // A replayed batch carries the contract it was ORIGINALLY sent with: the recovered answer is the
     // original job's, so it must be parsed by the same shape.
     outputContract: input.outputContract ?? ideaBatchOutputContract(),
