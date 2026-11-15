@@ -880,9 +880,21 @@
                 title="Remove this job for good. It cannot be undone."
                 @click="discardJob(job)"
               >Discard</button>
+              <button
+                v-else-if="canDiscardActiveJob(job)"
+                class="btn btn-xs btn-ghost"
+                :disabled="controlBusy.has(job.job_id)"
+                title="End this job for good, and ask the Gateway to end its linked job too. It cannot be undone."
+                @click="discardActiveJob(job)"
+              >Discard</button>
             </div>
           </div>
           <EpisodeRecoveryStatus :job="job" :verified-recovered="isVerifiedRecoveredSubtitleJob(job)" />
+          <p
+            v-if="discardNotes[job.job_id]"
+            class="job-control-reason"
+            role="status"
+          >{{ discardNotes[job.job_id] }}</p>
           <p
             v-if="primaryJobControl(job)"
             class="job-control-reason"
@@ -2335,6 +2347,64 @@ async function discardJob(job: RJob) {
     await loadJobHistory()
   } catch (e: any) {
     showError(customerJobText(e?.data?.detail || 'Failed to discard this job', job))
+  }
+}
+
+/** Statuses the history controls already own. Anything else is still live. */
+const LIVE_DISPLAY_STATUSES = ['running', 'queued', 'paused']
+
+/**
+ * Terminal DISCARD for a row that has not ended yet (owner 2026-11-15:
+ * "discard must be terminal"). Unlike Hide — which only takes the row off the
+ * list — this ends it: the server sets Cancelled, keeps the record, and asks
+ * the Gateway to end its linked job too. A private-fleet render keeps its own
+ * fence and its own Cancel path, so it is not offered here (the server refuses
+ * it as well rather than showing a control that cannot act).
+ */
+function canDiscardActiveJob(job: RJob): boolean {
+  if (job.hidden_at || !LIVE_DISPLAY_STATUSES.includes(jobDisplayStatus(job))) return false
+  return !(job as { final_render_wait?: unknown }).final_render_wait
+}
+
+/** queued → progress → result, kept per row so the answer stays on the card. */
+const discardNotes = ref<Record<string, string>>({})
+
+async function discardActiveJob(job: RJob) {
+  if (controlBusy.value.has(job.job_id)) return
+  const { ask } = useConfirm()
+  // The wording is the confirmation: what ends, what is kept, and what happens
+  // on the Gateway side — including that the Gateway's own answer follows.
+  if (!await ask({
+    title: `Discard ${job.title || job.type}?`,
+    message: 'This cannot be undone. Story Studio ends this job now: it becomes Cancelled, with this reason kept on the record — nothing is deleted, and files already written stay on disk. If this job sent work to the Gateway, Story Studio also asks the Gateway to discard its linked job, and the Gateway\'s own answer is shown here afterwards.',
+    confirmLabel: 'Discard',
+    danger: true,
+  })) return
+  controlBusy.value = new Set(controlBusy.value).add(job.job_id)
+  discardNotes.value = { ...discardNotes.value, [job.job_id]: 'Discarding…' }
+  try {
+    const response = await post<{ job?: RJob; upstream?: string; detail?: string }>(
+      `${jobQueuePath(job)}/discard`, {},
+    )
+    if (response?.job) {
+      projectQueue.applyUpdate(response.job)
+      universalQueue.applyUpdate(response.job)
+    }
+    discardNotes.value = {
+      ...discardNotes.value,
+      [job.job_id]: response?.detail ? `Gateway: ${response.detail}` : 'Discarded.',
+    }
+    success('Job discarded — it ends here for good.')
+    await loadJobHistory()
+  } catch (e: any) {
+    const remaining = { ...discardNotes.value }
+    delete remaining[job.job_id]
+    discardNotes.value = remaining
+    showError(customerJobText(e?.data?.detail || 'Failed to discard this job', job))
+  } finally {
+    const busy = new Set(controlBusy.value)
+    busy.delete(job.job_id)
+    controlBusy.value = busy
   }
 }
 

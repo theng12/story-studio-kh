@@ -437,3 +437,98 @@ export async function reconcilePendingJobCancellation(
   if (providerJobs.length && providerJobs.every(item => item.job.state === 'succeeded')) return { kind: 'succeeded', records, providerJobs, absent, reason }
   return { kind: 'pending', records, providerJobs, absent, reason }
 }
+
+// ── Terminal DISCARD of a linked Gateway job ────────────────────────────────
+//
+// Owner, 2026-11-15: "discard must be terminal … it also leads to gateway
+// terminally discard the job as well." Cancel is the wrong tool for a stuck
+// row — for a `running` job it only writes `cancel_requested` and waits for a
+// worker that is gone — so Story asks the Gateway for its own terminal end
+// (`POST /admin/api/jobs/{id}/discard`, merged in Gateway 2026-11-15) and
+// reports the Gateway's answer verbatim. `upstream: "none"` means nothing was
+// sent and the detail says why; that is shown, never dressed up as a provider
+// that was told.
+
+export type GatewayDiscardUpstream = 'told' | 'declined' | 'none'
+
+export interface GatewayJobDiscardAnswer {
+  gateway_job_id: string
+  upstream: GatewayDiscardUpstream
+  detail: string
+  already_terminal: boolean
+}
+
+export interface GatewayDiscardSummary {
+  upstream: GatewayDiscardUpstream
+  detail: string
+  already_terminal: boolean
+}
+
+const GATEWAY_DISCARD_TIMEOUT_MS = 15_000
+
+/** Ask the Gateway to end one linked job for good. Never throws: a refusal or an
+ * unreachable Gateway is an answer about the Gateway, and Story's own row has
+ * already ended by the time this runs. */
+export async function requestGatewayJobDiscard(
+  gatewayJobId: string,
+  apiKey: string,
+  by: string,
+  reason?: string,
+): Promise<GatewayJobDiscardAnswer> {
+  const baseUrl = (await getGenStudioUrl()).trim().replace(/\/+$/, '')
+  const refuse = (detail: string): GatewayJobDiscardAnswer => ({
+    gateway_job_id: gatewayJobId, upstream: 'none', detail, already_terminal: false,
+  })
+  try {
+    const response = await fetch(
+      `${baseUrl}/admin/api/jobs/${encodeURIComponent(gatewayJobId)}/discard`,
+      {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${apiKey.trim()}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(reason ? { by, reason } : { by }),
+        signal: AbortSignal.timeout(GATEWAY_DISCARD_TIMEOUT_MS),
+      },
+    )
+    const payload = await response.json().catch(() => null) as Record<string, unknown> | null
+    const spoken = typeof payload?.detail === 'string' ? payload.detail : ''
+    if (!response.ok) {
+      return refuse(redactSensitiveValue(
+        `The Gateway refused to discard this job (HTTP ${response.status}).${spoken ? ` ${spoken}` : ''}`,
+      ).slice(0, 400))
+    }
+    return {
+      gateway_job_id: gatewayJobId,
+      upstream: payload?.upstream === 'told' || payload?.upstream === 'declined' ? payload.upstream : 'none',
+      detail: redactSensitiveValue(
+        spoken || (payload?.already_terminal
+          ? 'The Gateway job was already finished, so its discard changed nothing.'
+          : 'The Gateway ended this job.'),
+      ).slice(0, 400),
+      already_terminal: payload?.already_terminal === true,
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    return refuse(redactSensitiveValue(`Story Studio could not reach the Gateway to discard this job: ${message}`).slice(0, 400))
+  }
+}
+
+/** One honest answer for one or many linked Gateway jobs. */
+export function summariseGatewayDiscard(answers: readonly GatewayJobDiscardAnswer[]): GatewayDiscardSummary {
+  if (!answers.length) {
+    return {
+      upstream: 'none',
+      already_terminal: false,
+      detail: 'This job never sent anything to the Gateway, so there was no linked Gateway job to discard.',
+    }
+  }
+  const upstream: GatewayDiscardUpstream = answers.some(answer => answer.upstream === 'told')
+    ? 'told'
+    : answers.some(answer => answer.upstream === 'declined') ? 'declined' : 'none'
+  return {
+    upstream,
+    already_terminal: answers.every(answer => answer.already_terminal),
+    detail: answers.length === 1
+      ? answers[0]!.detail
+      : answers.map(answer => `${answer.gateway_job_id}: ${answer.detail}`).join(' '),
+  }
+}
