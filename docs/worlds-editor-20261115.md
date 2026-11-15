@@ -30,3 +30,14 @@ this branch is rebased deliberately when 402 ships.
   when it becomes empty.
 - `pages/projects/[slug]/music-formula.vue`: per-world name, register, sight, scenes, music; add,
   remove, scene-theme toggle, and the visible fallback text.
+
+## Rebase notes (when 1.4.402 ships)
+
+- **Do not resolve a conflict in `music-formula.vue` near the worlds block by taking one side.** The
+  empty-state copy is a template string with a ternary (`registerLabels.length ? '(…)' : '(none are
+  set)'`); a wholesale "ours"/"theirs" would silently drop one of the two states. Re-read the block
+  and keep both branches.
+- **Release note line:** this branch is the first worked example of the owner's 2026-11-15 rule
+  ("every element, option and change must be practical AND editable in the UI") — scene worlds went
+  from read-only chips to an editor with add/edit/remove, merging saves and a stated empty state.
+  It gives the next feature a pattern to copy rather than a principle to interpret.
