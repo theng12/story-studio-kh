@@ -1,4 +1,5 @@
 import { resolveOutputTokenBudget } from './output-token-budget.js'
+import { normalizeContentLanguage } from '../lib/content-language.js'
 
 /** Floor for a small request: one or two ideas never ask for less than the historical default. */
 const MIN_IDEA_OUTPUT_TOKENS = 4_096
@@ -41,11 +42,24 @@ export const IDEA_BATCH_SCHEMA_HEADROOM_TOKENS = TOKEN_ROUNDING_STEP
  * through the same `resolveOutputTokenBudget` call, tier and workload floor the request itself
  * uses — so the figure reported here is the figure the batch is asked with.
  */
-export type IdeaBatchSizing =
+/**
+ * How the per-idea allowance was chosen. `measured` is true only when a real measurement was
+ * supplied; otherwise the English workload estimate stands and the note says so — this build has no
+ * measured Khmer answer cost, and inventing a multiplier for it is exactly what the owner refused.
+ */
+export interface IdeaSizingLanguageBasis {
+  code: 'en' | 'km' | null
+  tokens_per_idea: number
+  measured: boolean
+  note: string
+}
+
+export type IdeaBatchSizing = (
   | { source: 'published_ceiling'; batch: number; budget: number }
   | { source: 'no_published_ceiling'; batch: number; budget: null }
   | { source: 'cannot_fit_one_idea'; batch: null; budget: number; ceiling: number }
   | { source: 'no_work_remaining'; batch: 0; budget: null }
+) & { language_basis: IdeaSizingLanguageBasis }
 
 /**
  * Size one idea request against what the selected product actually publishes for output.
@@ -76,30 +90,66 @@ export type IdeaBatchSizing =
  *
  * A zero remaining is answered with zero: nothing is invented to send.
  */
-export function ideaBatchForPublishedCeiling(publishedMaxOutputTokens: unknown, remaining: number): IdeaBatchSizing {
+export function ideaBatchForPublishedCeiling(
+  publishedMaxOutputTokens: unknown,
+  remaining: number,
+  language: { code?: unknown; measuredTokensPerIdea?: unknown } = {},
+): IdeaBatchSizing {
+  const basis = languageBasis(language.code, language.measuredTokensPerIdea)
   const wanted = Number.isFinite(remaining)
     ? Math.min(IDEA_BATCH_CAP, Math.max(0, Math.floor(remaining)))
     : 0
-  if (wanted === 0) return { source: 'no_work_remaining', batch: 0, budget: null }
+  if (wanted === 0) return { source: 'no_work_remaining', batch: 0, budget: null, language_basis: basis }
   // The request's own resolver is the single reader of the published figure: it answers `null` when
   // the product publishes none and throws on a present-but-malformed value (AGENTS.md §6). Neither
   // state is invented here, and malformed is never folded into absence. `maximum` is the tier that
   // returns the whole published ceiling rather than a fraction of it — sizing from a fraction was
   // what left half of a large ceiling unused.
   const ceiling = resolveOutputTokenBudget('maximum', publishedMaxOutputTokens)
-  if (ceiling === null) return { source: 'no_published_ceiling', batch: wanted, budget: null }
+  if (ceiling === null) return { source: 'no_published_ceiling', batch: wanted, budget: null, language_basis: basis }
   const usable = ceiling - IDEA_BATCH_SCHEMA_HEADROOM_TOKENS
-  if (usable < IDEA_OUTPUT_TOKENS_PER_ITEM) {
-    return { source: 'cannot_fit_one_idea', batch: null, budget: ceiling, ceiling }
+  if (usable < basis.tokens_per_idea) {
+    return { source: 'cannot_fit_one_idea', batch: null, budget: ceiling, ceiling, language_basis: basis }
   }
-  const batch = Math.min(wanted, Math.floor(usable / IDEA_OUTPUT_TOKENS_PER_ITEM))
+  const batch = Math.min(wanted, Math.floor(usable / basis.tokens_per_idea))
   // The number the request will carry: this batch's own workload floor through the same resolver,
   // tier and floor the call sites pass, clamped to the published ceiling by the resolver itself.
   const budget = resolveOutputTokenBudget(
-    { tier: 'workload', minimumTokens: ideaOutputTokenBudget(batch) },
+    { tier: 'workload', minimumTokens: ideaOutputTokenBudgetFor(batch, basis.tokens_per_idea) },
     publishedMaxOutputTokens,
   ) ?? ceiling
-  return { source: 'published_ceiling', batch, budget }
+  return { source: 'published_ceiling', batch, budget, language_basis: basis }
+}
+
+/**
+ * The allowance one idea is sized with. English (and an unset language) keep the historical
+ * workload estimate byte-for-byte. Khmer has NO measured answer cost in this build and the
+ * catalogue publishes none, so it keeps the same estimate and says so in `note`; a real
+ * measurement, when one exists, is passed in and only ever SHRINKS the batch.
+ */
+function languageBasis(code: unknown, measuredTokensPerIdea: unknown): IdeaSizingLanguageBasis {
+  const language = normalizeContentLanguage(code)
+  const measured = Number.isFinite(measuredTokensPerIdea) && (measuredTokensPerIdea as number) > 0
+  if (measured) {
+    const tokens = Math.ceil(measuredTokensPerIdea as number)
+    return {
+      code: language, tokens_per_idea: tokens, measured: true,
+      note: `Sized from a measured ${tokens}-token answer per idea.`,
+    }
+  }
+  if (language === 'km') {
+    return {
+      code: language, tokens_per_idea: IDEA_OUTPUT_TOKENS_PER_ITEM, measured: false,
+      note: 'Khmer has no measured answer cost yet, so this batch keeps the English estimate; a truncated answer means the model\'s output limit, not a Khmer sizing figure.',
+    }
+  }
+  if (code != null && String(code).trim() && !language) {
+    return {
+      code: null, tokens_per_idea: IDEA_OUTPUT_TOKENS_PER_ITEM, measured: false,
+      note: `Unknown content language "${String(code)}" — the English estimate stands.`,
+    }
+  }
+  return { code: language, tokens_per_idea: IDEA_OUTPUT_TOKENS_PER_ITEM, measured: false, note: '' }
 }
 
 /**
@@ -118,11 +168,17 @@ export function ideaBatchForPublishedCeiling(publishedMaxOutputTokens: unknown, 
  * published `max_output_tokens` (or its absence) is what the request actually travels with.
  */
 export function ideaOutputTokenBudget(expectedIdeas: number): number {
+  return ideaOutputTokenBudgetFor(expectedIdeas, IDEA_OUTPUT_TOKENS_PER_ITEM)
+}
+
+/** The same floor with the per-idea allowance the sizing chose (a measurement, when one exists). */
+export function ideaOutputTokenBudgetFor(expectedIdeas: number, tokensPerIdea: number): number {
   const count = Number.isFinite(expectedIdeas)
     ? Math.max(1, Math.min(IDEA_BATCH_CAP, Math.ceil(expectedIdeas)))
     : 1
+  const perIdea = Number.isFinite(tokensPerIdea) && tokensPerIdea > 0 ? tokensPerIdea : IDEA_OUTPUT_TOKENS_PER_ITEM
   return Math.max(
     MIN_IDEA_OUTPUT_TOKENS,
-    count * IDEA_OUTPUT_TOKENS_PER_ITEM + IDEA_BATCH_SCHEMA_HEADROOM_TOKENS,
+    count * perIdea + IDEA_BATCH_SCHEMA_HEADROOM_TOKENS,
   )
 }
