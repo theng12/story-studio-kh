@@ -50,7 +50,7 @@ import { imagePromptGuidanceBlock } from '../lib/image-content-guidance.js'
 import { freshActionFingerprint, readOperationId } from '../lib/fresh-generation-action.js'
 import { withLock, writeJsonAtomic } from '../lib/atomic-store.js'
 import { singleImagePromptOutputContract } from '../lib/story-output-contracts.js'
-import { ThumbnailOptionUpdateSchema, type ThumbnailOptionSettings } from '../contracts/thumbnail-options.js'
+import { ThumbnailOptionUpdateSchema, THUMBNAIL_STYLE_TEXT_HARD_MAX, type ThumbnailOptionSettings } from '../contracts/thumbnail-options.js'
 import {
   effectiveThumbnailAutoApprove,
   mergeThumbnailOption,
@@ -108,13 +108,13 @@ const RegenerateSchema = z.object({
    * chosen to suit the concept" even when the customer had chosen one. Omitted
    * means exactly what it meant before: no style is asserted.
    */
-  thumb_font_style: z.string().max(200).optional(),
-  thumb_text_style: z.string().max(200).optional(),
+  thumb_font_style: z.string().max(THUMBNAIL_STYLE_TEXT_HARD_MAX).optional(),
+  thumb_text_style: z.string().max(THUMBNAIL_STYLE_TEXT_HARD_MAX).optional(),
   thumb_text_position: z.string().max(50).optional(),
   thumbnail_template_id: z.string().max(200).optional(),
   thumbnail_shell_id: z.string().max(300).optional(),
-  thumb_font_style_custom: z.string().max(240).optional(),
-  thumb_text_style_custom: z.string().max(240).optional(),
+  thumb_font_style_custom: z.string().max(THUMBNAIL_STYLE_TEXT_HARD_MAX).optional(),
+  thumb_text_style_custom: z.string().max(THUMBNAIL_STYLE_TEXT_HARD_MAX).optional(),
   /** The character CEILING SELECTION the rewrite is written under.
    *
    *  - 'auto'  follow the intended image model's published limit, resolved
@@ -737,7 +737,7 @@ router.put(
       const hashes = await currentThumbnailPromptHashes(slug, episodeId)
       res.json(presentThumbnailOptions(next, hashes, await effectiveThumbnailAutoApprove(slug, next)))
     } catch (e: any) {
-      res.status(500).json({ detail: e?.message || 'Failed to save thumbnail option settings' })
+      res.status(e?.statusCode || 500).json({ detail: e?.message || 'Failed to save thumbnail option settings' })
     }
   },
 )

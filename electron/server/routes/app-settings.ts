@@ -32,12 +32,14 @@ import {
   getPaidReplacementSettings,
   getManualGenerationRedoSetting, setManualGenerationRedoSetting,
   getPrivateFinalRenderSetting, setPrivateFinalRenderSetting,
+  getThumbnailStyleTextLimit, setThumbnailStyleTextLimit,
   getDefaultModels, setDefaultModels,
   getCostSettings, setCostSettings,
   recordAutomationKeyUse,
   setAppSetting,
 } from '../services/app-settings.js'
 import { getGatewayBindingStatus } from '../services/private-render-identity.js'
+import { THUMBNAIL_STYLE_TEXT_MAX } from '../contracts/thumbnail-options.js'
 import { getFinalRenderOutputSettingsCapabilities } from '../lib/final-render-gateway-client.js'
 import { getGlobalCompression, setGlobalCompression, COMPRESSION_DEFAULTS } from '../services/generation-compression.js'
 import { openAtLogin, setOpenAtLogin } from '../services/open-at-login.js'
@@ -85,6 +87,23 @@ const requirePrivateRenderOwner = buildRequireSession(
     allowLocalBypass: false,
   },
 )
+
+/** The thumbnail lettering ceiling — a default the owner can change, shown with the value in force. */
+router.get('/app-settings/thumbnail-style-text-limit', async (_req, res) => {
+  try {
+    res.json({ limit: await getThumbnailStyleTextLimit(), default: THUMBNAIL_STYLE_TEXT_MAX })
+  } catch (e: any) {
+    res.status(e?.statusCode || 500).json(humanizeBackendError(e, 'Failed to load the thumbnail lettering limit'))
+  }
+})
+
+router.put('/app-settings/thumbnail-style-text-limit', async (req, res) => {
+  try {
+    res.json({ limit: await setThumbnailStyleTextLimit(req.body?.limit), default: THUMBNAIL_STYLE_TEXT_MAX })
+  } catch (e: any) {
+    res.status(e?.statusCode || 400).json(humanizeBackendError(e, 'Failed to save the thumbnail lettering limit'))
+  }
+})
 
 router.get('/app-settings/private-final-render', async (_req, res) => {
   try {

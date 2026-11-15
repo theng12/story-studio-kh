@@ -17,6 +17,11 @@ import { writeJsonAtomic, readJsonOr, withLock } from '../lib/atomic-store.js'
 import { assertWriteIsolatedInTests } from '../lib/test-isolation.js'
 import { normalizeServiceBaseUrl } from '../lib/security.js'
 import {
+  THUMBNAIL_STYLE_TEXT_FLOOR,
+  THUMBNAIL_STYLE_TEXT_HARD_MAX,
+  THUMBNAIL_STYLE_TEXT_MAX,
+} from '../contracts/thumbnail-options.js'
+import {
   normalizeVoicePresets,
   type NormalizedVoicePreset,
 } from './voice-presets.js'
@@ -118,6 +123,26 @@ function cloneSettingValue<T>(value: T): T {
 export const RETRY_ATTEMPTS_MIN = 1
 export const RETRY_ATTEMPTS_MAX = 10
 export const RETRY_ATTEMPTS_DEFAULT = 3
+
+/**
+ * How long one thumbnail's lettering / headline description may be. 1,000 characters by default
+ * (a shipped template's own defaults are 242 and 252), and the owner's to change in
+ * Settings → Performance & recovery: a lower number keeps the field tight, a higher one admits
+ * longer prose. `THUMBNAIL_STYLE_TEXT_MAX` is the default, never the rule.
+ */
+export const THUMBNAIL_STYLE_TEXT_LIMIT_KEY = 'thumbnail_style_text_max'
+
+/** Reads as the default when absent or corrupt — never a silent zero, which would reject everything. */
+export async function getThumbnailStyleTextLimit(): Promise<number> {
+  return parseThumbnailStyleTextLimit(await getAppSetting(THUMBNAIL_STYLE_TEXT_LIMIT_KEY), 'default')
+}
+
+/** Validate the whole value before replacing the last admitted one. */
+export async function setThumbnailStyleTextLimit(value: unknown): Promise<number> {
+  const limit = parseThumbnailStyleTextLimit(value, 'throw')
+  await setAppSetting(THUMBNAIL_STYLE_TEXT_LIMIT_KEY, limit)
+  return limit
+}
 
 export interface RetryFailedRequestsSetting {
   /** The switch to enable retry for failed requests of this kind. */
@@ -259,6 +284,27 @@ export function parseRetryFailedRequestsSetting(
     }
   }
   return { enabled: record.enabled, retries }
+}
+
+/**
+ * A whole number of characters from 1 to 12,000, or the default when the stored value is absent or
+ * unusable. Absent is not an error: every install that has never touched this reads the default.
+ */
+function parseThumbnailStyleTextLimit(value: unknown, invalid: 'default' | 'throw'): number {
+  // Absent is the default. An explicit null is not: a save that clears the value is refused rather
+  // than silently meaning "1,000", so the owner sees what happened.
+  if (value === undefined) return THUMBNAIL_STYLE_TEXT_MAX
+  if (typeof value !== 'number' || !Number.isInteger(value)
+    || value < THUMBNAIL_STYLE_TEXT_FLOOR || value > THUMBNAIL_STYLE_TEXT_HARD_MAX) {
+    if (invalid === 'throw') {
+      throw Object.assign(
+        new Error(`The thumbnail lettering limit must be a whole number from ${THUMBNAIL_STYLE_TEXT_FLOOR} to ${THUMBNAIL_STYLE_TEXT_HARD_MAX.toLocaleString('en-US')} characters.`),
+        { statusCode: 400, expose: true },
+      )
+    }
+    return THUMBNAIL_STYLE_TEXT_MAX
+  }
+  return value
 }
 
 // Legacy installs wrote this file with default 0644. On the first read after
