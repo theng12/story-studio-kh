@@ -189,3 +189,13 @@ export function poolNeeds(targetLengthS: number, windowEpisodes: number, average
   // SPEC §3 table: 18 songs × 30 episodes = 540.
   return { per_episode: perEpisode, needed: Math.ceil(perEpisode * windowEpisodes) }
 }
+
+/**
+ * How many more songs the NEXT episode needs. Readiness is the songs free for it — drawable and
+ * not used in the no-repeat window — not the pool's whole stock: a pool can hold 500 songs, block
+ * 490 of them for the last N episodes, and still be unable to build one episode. This is the
+ * number the "Generate Songs" dialog offers to make.
+ */
+export function poolShortfall(needed: number | null, freeNext: number): number | null {
+  return needed === null ? null : Math.max(0, needed - freeNext)
+}

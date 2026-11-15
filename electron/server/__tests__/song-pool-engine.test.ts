@@ -8,7 +8,7 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { useTempDataDir } from './_helpers.js'
-import { STARTING_SONG_FORMULA, comboCount, comboKey, poolNeeds, SongFormulaSchema, ALL_KEYS } from '../contracts/song-formula.js'
+import { STARTING_SONG_FORMULA, comboCount, comboKey, poolNeeds, poolShortfall, SongFormulaSchema, ALL_KEYS } from '../contracts/song-formula.js'
 import { planCells } from '../services/song-coverage.js'
 import { assemblePrompt, checkBrief, trigrams, writeBriefs, BRIEFS_PER_CALL } from '../services/song-brief.js'
 import { parseAnalysis, planTrim } from '../services/song-audio.js'
@@ -259,5 +259,21 @@ describe('the seed travels to the Gateway', () => {
     assert.equal(buildGenStudioMusicIdempotencyKey({ ...base, seed: undefined }), before)
     assert.notEqual(buildGenStudioMusicIdempotencyKey({ ...base, seed: 1 }), before)
     assert.notEqual(buildGenStudioMusicIdempotencyKey({ ...base, seed: 1 }), buildGenStudioMusicIdempotencyKey({ ...base, seed: 2 }))
+  })
+})
+
+describe('pool readiness counts FREE songs, not the whole stock', () => {
+  test('a 500-song pool that blocks 490 in the no-repeat window still needs 403 more for the next episode', () => {
+    assert.equal(poolShortfall(413, 10), 403,
+      'stock used in the last N episodes is not availability for the next one')
+  })
+
+  test('a pool with enough free songs needs none, however large its stock', () => {
+    assert.equal(poolShortfall(413, 413), 0)
+    assert.equal(poolShortfall(413, 500), 0)
+  })
+
+  test('no measured songs means no answer, never a zero', () => {
+    assert.equal(poolShortfall(null, 10), null)
   })
 })

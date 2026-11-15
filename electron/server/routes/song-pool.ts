@@ -25,7 +25,7 @@ import { withLock } from '../lib/atomic-store.js'
 import { freshActionFingerprint, freshActionMatch, stampFreshGenerationAction } from '../lib/fresh-generation-action.js'
 import { planCells, coverageGrid } from '../services/song-coverage.js'
 import { BRIEFS_PER_CALL, SUNG_BRIEFS_PER_CALL, writeBriefs } from '../services/song-brief.js'
-import { comboCount, poolNeeds, EpisodeDefaultsSchema, STARTING_EPISODE_DEFAULTS } from '../contracts/song-formula.js'
+import { comboCount, poolNeeds, EpisodeDefaultsSchema, STARTING_EPISODE_DEFAULTS, poolShortfall } from '../contracts/song-formula.js'
 import { songFormulaFor } from '../generators/song-pool-generate.js'
 import {
   readSongPoolBatchCheckpoint,
@@ -94,6 +94,10 @@ router.get('/projects/:slug/song-pool', async (req, res) => {
     const avgSong = measured.length ? measured.reduce((t, s) => t + s.duration_s!, 0) / measured.length : 0
     const timed = pool.songs.filter(s => Number(s.generation_s) > 0).slice(-50)
     const needs = avgSong ? poolNeeds(defaults.target_length_s, defaults.no_repeat_episodes, avgSong) : null
+    // Readiness is about the NEXT episode: a song already used in the no-repeat window is stock,
+    // not availability. `needed` describes the channel-default episode length; `missing` counts
+    // against the songs actually free for the next one.
+    const freeNext = drawable.filter(s => !sp.inWindow(s, window, slug)).length
     let coverage = null
     if (!('error' in formula)) {
       const moods = formula.formula.moods.map(m => m.value)
@@ -117,14 +121,14 @@ router.get('/projects/:slug/song-pool', async (req, res) => {
       stats: {
         songs: ready.length,
         total_s: Math.round(ready.reduce((t, s) => t + (s.duration_s || 0), 0)),
-        free_next: drawable.filter(s => !sp.inWindow(s, window, slug)).length,
+        free_next: freeNext,
         rejected: pool.songs.filter(s => s.status === 'rejected').length,
         archived: pool.songs.filter(s => s.status === 'archived').length,
         average_song_s: Math.round(avgSong),
         average_generation_s: timed.length ? Math.round(timed.reduce((t, s) => t + s.generation_s!, 0) / timed.length) : null,
         per_episode: needs?.per_episode ?? null,
         needed: needs?.needed ?? null,
-        missing: needs ? Math.max(0, needs.needed - drawable.length) : null,
+        missing: needs ? poolShortfall(needs.needed, freeNext) : null,
       },
       active_batch: await activeBatch(slug),
     })
