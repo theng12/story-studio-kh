@@ -161,6 +161,42 @@ test('without saved channel settings the estimate is the 65-minute default, labe
   assert.equal(body.stats.next_episode_missing, 4)
 })
 
+test('songs without a measured duration are unknown: excluded from the average and never free', async () => {
+  const pm = await import('../services/project-manager.js')
+  const sp = await import('../services/song-pool.js')
+  const base = await makeProject(pm, sp, 'Song pool unmeasured', 4)
+  const pool = await sp.readPool(base.slug)
+  pool.songs[0]!.duration_s = 0
+  await sp.updatePool(base.slug, value => { value.songs = pool.songs })
+  const body = await stats(base.slug)
+  assert.equal(body.stats.average_song_s, AVG_S, 'only the three measured songs count')
+  assert.equal(body.stats.free_next, 3, 'the unmeasured song is not availability')
+})
+
+test('an empty pool answers unknown, never an implied zero-length readiness', async () => {
+  const pm = await import('../services/project-manager.js')
+  const sp = await import('../services/song-pool.js')
+  const project = await pm.createProject({ name: 'Song pool empty' })
+  const body = await stats(project.slug)
+  assert.equal(body.stats.average_song_s, null)
+  assert.equal(body.stats.single_episode_needed, null)
+  assert.equal(body.stats.next_episode_missing, null)
+  assert.equal(body.stats.missing, null)
+  assert.equal(body.stats.free_next, 0, 'no songs is zero free, which is true, not unknown')
+})
+
+test('an unreadable pool fails loudly instead of reporting readiness', async () => {
+  const pm = await import('../services/project-manager.js')
+  const sp = await import('../services/song-pool.js')
+  const project = await pm.createProject({ name: 'Song pool unreadable' })
+  const dir = sp.poolDir(project.slug)!
+  await mkdir(dir, { recursive: true })
+  await writeFile(path.join(dir, 'library.json'), '{not json')
+  const response = await request(app).get(`/api/projects/${project.slug}/song-pool`)
+  assert.equal(response.status, 500)
+  assert.ok(!('free_next' in (response.body?.stats || {})), 'no readiness numbers on a failed read')
+})
+
 test('duplicate uses of one episode collapse, and the window keeps the newest N in time order', async () => {
   const pm = await import('../services/project-manager.js')
   const sp = await import('../services/song-pool.js')

@@ -66,6 +66,8 @@ describe('Song Pool page', () => {
     assert.match(pool, /:target-length-s="data\?\.stats\?\.target_length_s"/)
     assert.match(pool, /readiness_scope === 'channel_default_estimate'/)
     assert.match(pool, /-minute default episode; the Episode Builder checks the actual episode\./)
+    assert.match(pool, /:title="holdingLabel\(s\)/)
+    assert.match(pool, /poolWindow\.toggleAllShown/)
   })
   test('reject explains trash vs archive before anything moves', () => {
     assert.match(pool, /move to this project's _trash folder \(nothing is deleted\)/)

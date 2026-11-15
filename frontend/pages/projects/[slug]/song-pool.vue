@@ -31,10 +31,13 @@
       <div class="mp-kpis k4" style="margin-top: 16px">
         <div class="mp-kpi"><span>Songs</span><b>{{ data.stats.songs }}</b></div>
         <div class="mp-kpi"><span>Total length</span><b>{{ hm(data.stats.total_s) }}</b></div>
-        <div class="mp-kpi" data-tone="success"><span>Free for the next episode</span><b>{{ data.stats.free_next }}</b></div>
+        <div class="mp-kpi" data-tone="success"><span>Free for the next episode</span><b>{{ data.stats.free_next ?? '—' }}</b></div>
         <div class="mp-kpi" data-tone="warning"><span>Rejected · in trash</span><b>{{ data.stats.rejected }}</b></div>
       </div>
-      <p v-if="data.stats.readiness_scope === 'channel_default_estimate'" class="mp-hint" style="margin-top: 6px">
+      <p v-if="data.stats.missing_pools?.length" class="mp-hint mp-warn" style="margin-top: 6px">
+        Readiness unknown — selected pools missing: {{ data.stats.missing_pools.join(', ') }}. Nothing is claimed free until they are available.
+      </p>
+      <p v-else-if="data.stats.readiness_scope === 'channel_default_estimate'" class="mp-hint" style="margin-top: 6px">
         “Free for the next episode” estimates the channel’s {{ Math.round((data.stats.target_length_s || 0) / 60) }}-minute default episode; the Episode Builder checks the actual episode.
       </p>
 
@@ -154,7 +157,7 @@
                 <td class="mp-num">{{ s.episodes.length }}</td>
                 <td>
                   <span v-if="last(s)">{{ last(s) }}</span><span v-else class="mp-muted">never</span>
-                  <span v-if="inWindow(s)" class="ds-chip" data-tone="warning" style="margin-left: 4px">in window</span>
+                  <span v-if="inWindow(s)" class="ds-chip" data-tone="warning" style="margin-left: 4px" :title="holdingLabel(s) ? `Held by ${holdingLabel(s)}` : 'Held by the no-repeat window'">in window</span>
                   <span v-if="s.status === 'archived'" class="ds-chip" style="margin-left: 4px">archived</span>
                   <span v-if="s.status === 'rejected'" class="ds-chip" style="margin-left: 4px">in trash</span>
                   <span v-if="s.status === 'ready' && !s.enabled" class="ds-chip" style="margin-left: 4px">older take</span>
@@ -256,6 +259,8 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import GenerateSongsDialog from '~/components/music/GenerateSongsDialog.vue'
+import * as poolWindow from '~/utils/song-pool-window'
+import type { PoolWindowBasis } from '~/utils/song-pool-window'
 import AddChip from '~/components/music/AddChip.vue'
 import { describeMusicUnitCost, type PricedMusicModel } from '../../../utils/genstudio-credit-cost.js'
 import { UNCONFIRMED_SUBMISSION } from '../../../composables/useFreshGenerationAction'
@@ -375,11 +380,15 @@ const bands = computed<any[]>(() => data.value?.formula?.song_formula?.tempo_ban
 const windowCodes = computed<string[]>(() => data.value?.window || [])
 // Blocked by the builder's own window: rendered uses OR a saved draft in the last N episodes.
 const blockedMap = computed<Record<string, string>>(() => data.value?.blocked || {})
-const inWindow = (s: any) => s.episodes.some((e: any) => e.project_slug === slug.value && windowCodes.value.includes(e.code))
-  || !!blockedMap.value[`${data.value?.pool?.pool_id}/${s.id}`]
+const basis = computed<PoolWindowBasis>(() => ({
+  slug: slug.value, windowCodes: windowCodes.value, blocked: blockedMap.value,
+  poolId: data.value?.pool?.pool_id || '',
+}))
+const inWindow = (s: any) => poolWindow.inWindow(s, basis.value)
+const holdingLabel = (s: any) => poolWindow.holdingLabel(s, basis.value)
 const last = (s: any) => s.episodes.reduce((a: any, e: any) => (!a || e.used_at > a.used_at ? e : a), null)?.code || ''
 const values = (k: string) => [...new Set(songs.value.map(s => s[k]).filter(Boolean))].sort() as string[]
-const drawable = (s: any) => s.status === 'ready' && s.enabled && !s.file_missing && s.duration_s > 0
+const drawable = (s: any) => poolWindow.isDrawable(s)
 const short = (e: string) => e.replace(/^Cello quartet$/i, 'Quartet')
 
 const rows = computed(() => {
@@ -448,9 +457,7 @@ function made(s: any) {
 
 function toggle(id: string) { const n = new Set(selected.value); n.has(id) ? n.delete(id) : n.add(id); selected.value = n }
 function toggleAll() {
-  const n = new Set(selected.value)
-  if (allShownSelected.value) shown.value.forEach(s => n.delete(s.id)); else shown.value.forEach(s => n.add(s.id))
-  selected.value = n
+  selected.value = poolWindow.toggleAllShown(shown.value.map(s => s.id), selected.value)
 }
 
 let poll: ReturnType<typeof setInterval> | null = null

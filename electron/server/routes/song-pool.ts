@@ -98,7 +98,10 @@ router.get('/projects/:slug/song-pool', async (req, res) => {
     // it. A 500-song pool that blocks 490 in the no-repeat window has no window deficit but is far
     // from ready for one episode, so the two deficits are reported separately.
     const drawableTotal = ctx.songs.filter(s => s.drawable).length
-    const freeNext = ctx.songs.filter(s => s.drawable && !ctx.blocked.has(songKey(s))).length
+    // A missing chosen pool means the required context is incomplete: report availability as
+    // unknown, never as a number that would imply the episode can be drawn.
+    const readinessKnown = ctx.missing_pools.length === 0
+    const freeNext = readinessKnown ? ctx.songs.filter(s => s.drawable && !ctx.blocked.has(songKey(s))).length : null
     const singleNeeded = avgSong ? singleEpisodeNeed(settings.target_length_s, avgSong) : null
     let coverage = null
     if (!('error' in formula)) {
@@ -124,18 +127,19 @@ router.get('/projects/:slug/song-pool', async (req, res) => {
         songs: ready.length,
         total_s: Math.round(ready.reduce((t, s) => t + (s.duration_s || 0), 0)),
         free_next: freeNext,
+        missing_pools: ctx.missing_pools,
         rejected: pool.songs.filter(s => s.status === 'rejected').length,
         archived: pool.songs.filter(s => s.status === 'archived').length,
-        average_song_s: Math.round(avgSong),
+        average_song_s: measured.length ? Math.round(avgSong) : null,
         average_generation_s: timed.length ? Math.round(timed.reduce((t, s) => t + s.generation_s!, 0) / timed.length) : null,
         // Window stock (channel default): `needed` is the whole no-repeat window's target and
         // `missing` its deficit against all drawable songs. The next episode's own readiness is
         // `free_next` against `single_episode_needed` — never these window figures.
         per_episode: needs?.per_episode ?? null,
         needed: needs?.needed ?? null,
-        missing: needs ? windowStockDeficit(needs.needed, drawableTotal) : null,
+        missing: needs && readinessKnown ? windowStockDeficit(needs.needed, drawableTotal) : null,
         single_episode_needed: singleNeeded,
-        next_episode_missing: nextEpisodeShortfall(singleNeeded, freeNext),
+        next_episode_missing: readinessKnown && freeNext !== null ? nextEpisodeShortfall(singleNeeded, freeNext) : null,
         // The generic pool page has no identified episode: this is the channel-default estimate,
         // labelled with its own target so it never reads as a saved 150-minute episode's answer.
         readiness_scope: 'channel_default_estimate',
