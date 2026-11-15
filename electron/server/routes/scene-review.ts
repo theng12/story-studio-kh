@@ -1143,7 +1143,7 @@ function finishRequestFingerprint(
   })).digest('hex')
 }
 
-async function enqueueContinuityRender(
+export async function enqueueContinuityRender(
   slug: string,
   episodeId: string,
   body: any,
@@ -1161,37 +1161,40 @@ async function enqueueContinuityRender(
   const params = continuityRenderParams(episodeId, body, singleSceneId, Array.isArray(body.scene_ids)
     ? body.scene_ids.filter((s: any) => typeof s === 'string')
     : undefined, opts.manualFinish)
-  // Generate missing goes through this helper too: a bulk repair inherits the failed step's saved
-  // continuation once, so its completion drains Final Video instead of leaving it stranded.
-  let adoptedFrom = ''
-  if (!singleSceneId) {
-    const jobs = await jq.findJobs(slug, () => true)
-    const continuation = repairContinuationFrom(jobs, episodeId, { assemblyExists: assemblyAlreadyExists(jobs, episodeId) })
-    if (continuation) {
-      const adopted = params as typeof params & {
-        pipeline_chain?: unknown[]
-        pipeline_batch_id?: string
-        pipeline_chain_adopted_from?: string
+  // Adoption and enqueue are ONE reservation under the episode's continuity lock: a concurrent
+  // repair cannot select the same parent before the first child's adoption marker is durable, and
+  // the disk load inside findJobs means a queued assembly is never missed by a stale in-memory view.
+  return withLock(`continuity-adoption:${slug}:${episodeId}`, async () => {
+    let adoptedFrom = ''
+    if (!singleSceneId) {
+      const jobs = await jq.findJobs(slug, () => true)
+      const continuation = repairContinuationFrom(jobs, episodeId, { assemblyExists: assemblyAlreadyExists(jobs, episodeId) })
+      if (continuation) {
+        const adopted = params as typeof params & {
+          pipeline_chain?: unknown[]
+          pipeline_batch_id?: string
+          pipeline_chain_adopted_from?: string
+        }
+        adopted.pipeline_chain = continuation.chain
+        if (continuation.batchId) adopted.pipeline_batch_id = continuation.batchId
+        adopted.pipeline_chain_adopted_from = continuation.fromJobId
+        adoptedFrom = continuation.fromJobId
       }
-      adopted.pipeline_chain = continuation.chain
-      if (continuation.batchId) adopted.pipeline_batch_id = continuation.batchId
-      adopted.pipeline_chain_adopted_from = continuation.fromJobId
-      adoptedFrom = continuation.fromJobId
     }
-  }
-  const job = await jq.enqueue({
-    project_slug: slug,
-    type: 'continuity_render' as JobType,
-    episode_id: episodeId,
-    title: singleSceneId ? `Render scene — ${episodeId}` : `Scene image batch — ${episodeId}`,
-    dedupeParams,
-    params,
+    const job = await jq.enqueue({
+      project_slug: slug,
+      type: 'continuity_render' as JobType,
+      episode_id: episodeId,
+      title: singleSceneId ? `Render scene — ${episodeId}` : `Scene image batch — ${episodeId}`,
+      dedupeParams,
+      params,
+    })
+    if (adoptedFrom) {
+      job.output_lines.push(`Adopted the remaining Final Video step from failed job ${adoptedFrom}; nothing was re-run.`)
+      await jq.checkpointJobState(job)
+    }
+    return job
   })
-  if (adoptedFrom) {
-    job.output_lines.push(`Adopted the remaining Final Video step from failed job ${adoptedFrom}; nothing was re-run.`)
-    await jq.checkpointJobState(job)
-  }
-  return job
 }
 
 function continuityRenderParams(
@@ -1823,41 +1826,44 @@ router.post('/projects/:slug/scene-review/:episodeId/continuity-render', async (
     })
   }
 
-  // A BULK repair inherits the saved continuation a failed step left behind (EP0018): the parent
-  // keeps its historical row, and this child drains the chain exactly once when the images finish.
-  let adoptedFrom = ''
-  if (!singleSceneId) {
-    const jobs = await jq.findJobs(slug, () => true)
-    const continuation = repairContinuationFrom(jobs, episodeId, { assemblyExists: assemblyAlreadyExists(jobs, episodeId) })
-    if (continuation) {
-      const adopted = params as typeof params & {
-        pipeline_chain?: unknown[]
-        pipeline_batch_id?: string
-        pipeline_chain_adopted_from?: string
-      }
-      adopted.pipeline_chain = continuation.chain
-      if (continuation.batchId) adopted.pipeline_batch_id = continuation.batchId
-      adopted.pipeline_chain_adopted_from = continuation.fromJobId
-      adoptedFrom = continuation.fromJobId
-    }
-  }
   let job
   try {
-    job = await jq.enqueue({
-      project_slug: slug,
-      type: 'continuity_render' as JobType,
-      episode_id: episodeId,
-      title: singleSceneId ? `Render scene — ${episodeId}` : `Scene image batch — ${episodeId}`,
-      // Atomic backstop for the pre-check above (the queue's single
-      // serialisation point): same scene-aware predicate so concurrent route
-      // hits can't both enqueue the same scene.
-      dedupeParams,
-      params,
+    // One reservation with the helper's own path: a concurrent bulk repair cannot select the same
+    // parent before the first child's adoption marker is durable.
+    job = await withLock(`continuity-adoption:${slug}:${episodeId}`, async () => {
+      let adoptedFrom = ''
+      if (!singleSceneId) {
+        const jobs = await jq.findJobs(slug, () => true)
+        const continuation = repairContinuationFrom(jobs, episodeId, { assemblyExists: assemblyAlreadyExists(jobs, episodeId) })
+        if (continuation) {
+          const adopted = params as typeof params & {
+            pipeline_chain?: unknown[]
+            pipeline_batch_id?: string
+            pipeline_chain_adopted_from?: string
+          }
+          adopted.pipeline_chain = continuation.chain
+          if (continuation.batchId) adopted.pipeline_batch_id = continuation.batchId
+          adopted.pipeline_chain_adopted_from = continuation.fromJobId
+          adoptedFrom = continuation.fromJobId
+        }
+      }
+      const queued = await jq.enqueue({
+        project_slug: slug,
+        type: 'continuity_render' as JobType,
+        episode_id: episodeId,
+        title: singleSceneId ? `Render scene — ${episodeId}` : `Scene image batch — ${episodeId}`,
+        // Atomic backstop for the pre-check above (the queue's single
+        // serialisation point): same scene-aware predicate so concurrent route
+        // hits can't both enqueue the same scene.
+        dedupeParams,
+        params,
+      })
+      if (adoptedFrom) {
+        queued.output_lines.push(`Adopted the remaining Final Video step from failed job ${adoptedFrom}; nothing was re-run.`)
+        await jq.checkpointJobState(queued)
+      }
+      return queued
     })
-    if (adoptedFrom) {
-      job.output_lines.push(`Adopted the remaining Final Video step from failed job ${adoptedFrom}; nothing was re-run.`)
-      await jq.checkpointJobState(job)
-    }
   } catch (e: any) {
     // Lost the atomic dedupe race — surface as a clean 409 (no async error
     // boundary in this app, so an unhandled throw would hang the request).

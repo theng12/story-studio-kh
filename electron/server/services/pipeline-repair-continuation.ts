@@ -38,7 +38,7 @@ export function repairContinuationFrom(
     .filter(job => Array.isArray(job.params?.pipeline_chain) && job.params.pipeline_chain.length > 0)
     .filter(job => (job.params.pipeline_chain as Array<{ type?: unknown }>)[0]?.type === 'video_assembly')
     .filter(job => !adoptedFrom.has(job.job_id))
-    .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))[0]
+    .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)) || String(b.job_id).localeCompare(String(a.job_id)))[0]
   if (!candidate) return null
   const batchId = typeof candidate.params?.pipeline_batch_id === 'string'
     ? candidate.params.pipeline_batch_id
