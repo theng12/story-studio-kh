@@ -14,6 +14,7 @@ import type { SketchRevealSetting, SketchRevealType } from '../lib/sketch-reveal
 import type { SketchLineWeight } from '../lib/sketch-line-weight.js'
 import type { AssignedPipelineModelPolicy, PipelinePolicyCheckpointStore } from '../lib/pipeline-model-policy.js'
 import type { SceneImageRules } from '../contracts/scene-image-rules.js'
+import type { GenStudioFailureRecord } from '../contracts/genstudio-pool-attempts.js'
 
 // ── Project ─────────────────────────────────────────────────────────────────
 
@@ -3135,6 +3136,8 @@ export interface Job {
   started_at: string | null
   finished_at: string | null
   error: string | null
+  /** Gateway's structured member walk for the last provider failure, when it published one. */
+  genstudio_failure?: GenStudioFailureRecord
   output_lines: string[]
   /** Immutable Content Pack selection captured before queue insertion. */
   content_pack_provenance?: ContentPackProvenance[]

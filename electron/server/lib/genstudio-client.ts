@@ -17,6 +17,7 @@ import os from 'os'
 import path from 'path'
 import { createHash, randomUUID } from 'crypto'
 import { carriesCapacityFacts, dispatchRefusalFromBody, formatDispatchRefusal, humanGatewayText } from './gateway-failure-text.js'
+import { genStudioFailureRecord, parsePoolAttempts, summarizePoolFailure, type GenStudioFailureRecord, type PoolAttempt } from '../contracts/genstudio-pool-attempts.js'
 import { getAppSetting, getGenStudioUrl, getLanguageTimeoutMs, setAppSetting, getRetryFailedRequestsSetting, RETRY_ATTEMPTS_MIN, RETRY_ATTEMPTS_MAX, RETRY_ATTEMPTS_DEFAULT } from '../services/app-settings.js'
 import { generationReplacementKey, type ReplacementKind } from '../services/generation-paid-replacement.js'
 import type { GenerationReplacementAttempt, Job } from '../models/types.js'
@@ -558,6 +559,10 @@ export interface GenStudioSettledJobShape {
    * as the field above; see `GenStudioFailureClass`.
    */
   failure_class?: string | null
+  /** The writing pool that walked its members, when the job was pool-dispatched. */
+  pool?: string | null
+  /** The pool's own member walk (member, outcome, code/status, detail, finish reason). */
+  pool_attempts?: unknown
   /** The gateway could not confirm the outcome, so a resubmission might duplicate real work. */
   recovery_required?: boolean | null
   recovery_state?: string | null
@@ -677,6 +682,10 @@ export class GenStudioTerminalFailureError extends Error {
   readonly releasedCredits: number | null
   /** The model id the job envelope published; `studio-hub::…` is the owner's free fleet. */
   readonly modelId: string | null
+  /** Gateway's own member walk, when the settled job published it. */
+  readonly poolAttempts: PoolAttempt[]
+  readonly poolName: string | null
+  readonly failureRecord: GenStudioFailureRecord | null
   constructor(modality: GenStudioModality, job: GenStudioSettledJobShape, message: string) {
     // Appended HERE rather than in each of the six subclasses, and rather than
     // at the render sites, because every surface that shows a failed job shows
@@ -689,9 +698,17 @@ export class GenStudioTerminalFailureError extends Error {
     // is byte-for-byte what it was before this existed.
     const reason = settledFailureReason(job)
     const failureClass = settledFailureClass(job)
+    const poolAttempts = parsePoolAttempts((job as { pool_attempts?: unknown }).pool_attempts)
+    const poolValue = (job as { pool?: unknown }).pool
+    const poolName = typeof poolValue === 'string' ? poolValue.trim() || null : null
+    const poolSummary = summarizePoolFailure(poolName, poolAttempts)
+    const failureRecord = poolAttempts.length
+      ? genStudioFailureRecord({ pool: poolName, jobId: job.id, model: job.model_id ?? null, attempts: poolAttempts })
+      : null
     super([
       message.replace(/\s{2,}/g, ' ').trim(),
       reason ? `Provider reason: ${reason}` : null,
+      poolSummary || null,
       genStudioFailureGuidance(failureClass, modality),
     ].filter(Boolean).join(' '))
     this.name = 'GenStudioTerminalFailureError'
@@ -700,6 +717,9 @@ export class GenStudioTerminalFailureError extends Error {
     this.failureCode = settledFailureCode(job)
     this.failureReason = reason
     this.failureClass = failureClass
+    this.poolAttempts = poolAttempts
+    this.poolName = poolName
+    this.failureRecord = failureRecord
     this.cancelled = job.cancelled === true
     this.unknownOutcome = holdsUnknownOutcome(job)
     this.reservedCredits = null
@@ -4247,12 +4267,21 @@ export class GenStudioApiError extends Error {
   /** GenStudio's own "ask again in N seconds", when it sent one. */
   readonly retryAfterSeconds: number | null
 
+  /** Gateway's own member walk, when the response published it. */
+  readonly poolAttempts: PoolAttempt[]
+  readonly poolName: string | null
+  readonly gatewayJobId: string | null
+
   constructor(
     public readonly status: number,
     public readonly detail: string,
     public readonly code?: string,
     capacity?: GenStudioCapacitySignal,
+    pool?: { name?: unknown; jobId?: unknown; attempts?: unknown },
   ) {
+    const poolAttempts = parsePoolAttempts(pool?.attempts)
+    const poolName = typeof pool?.name === 'string' && pool.name.trim() ? pool.name.trim() : null
+    const gatewayJobId = typeof pool?.jobId === 'string' && pool.jobId.trim() ? pool.jobId.trim() : null
     const languageFailureCode = readLanguageFailureCode(detail, code)
     const languageFailureMessage = describeGenStudioLanguageFailure(languageFailureCode)
     const capacityReason = normalizeGenStudioCapacityReason(capacity?.reason)
@@ -4284,8 +4313,12 @@ export class GenStudioApiError extends Error {
                     'submissions; accepted jobs and completed checkpoints are preserved. Enable generation in ' +
                     'Gateway Admin, then Retry only unfinished work.'
                   : `Gateway request failed: ${detail}`
-    super(message)
+    const poolSummary = summarizePoolFailure(poolName, poolAttempts)
+    super(poolSummary ? `${message} ${poolSummary}` : message)
     this.name = 'GenStudioApiError'
+    this.poolAttempts = poolAttempts
+    this.poolName = poolName
+    this.gatewayJobId = gatewayJobId
     this.languageFailureCode = languageFailureCode
     this.capacityReason = capacityReason
     this.retryAfterSeconds = Number.isFinite(capacity?.retryAfterSeconds)
@@ -4724,9 +4757,15 @@ async function readJson(response: Response): Promise<any> {
     const code = typeof body?.code === 'string' ? body.code : undefined
     const hintMs = readGenStudioPollHintMs(body)
       ?? parseGenStudioRetryAfterMs(response.headers.get('retry-after'))
+    const poolBody = (body && typeof body === 'object' ? body as Record<string, unknown> : {})
+    const detailBody = poolBody.detail && typeof poolBody.detail === 'object' ? poolBody.detail as Record<string, unknown> : {}
     throw new GenStudioApiError(response.status, detail, code, {
       reason: readGenStudioCapacityReason(body, response.headers),
       retryAfterSeconds: hintMs == null ? null : hintMs / 1_000,
+    }, {
+      name: poolBody.pool ?? poolBody.pool_name ?? detailBody.pool ?? detailBody.pool_name,
+      jobId: poolBody.job_id ?? poolBody.request_id ?? detailBody.job_id ?? detailBody.request_id,
+      attempts: poolBody.pool_attempts ?? detailBody.pool_attempts,
     })
   }
   return body

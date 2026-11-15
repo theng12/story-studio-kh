@@ -9,6 +9,7 @@ import { constants, existsSync } from 'fs'
 import path from 'path'
 import { EventEmitter } from 'events'
 import { redactSensitiveValue } from '../lib/redact-secrets.js'
+import { genStudioFailureRecord } from '../contracts/genstudio-pool-attempts.js'
 import { repairCircularParams } from '../lib/circular-params-repair.js'
 import {
   FINAL_RENDER_MAX_REVISION_BYTES,
@@ -6896,6 +6897,16 @@ async function runJob(type: JobType, job: Job): Promise<void> {
         return
       }
       job.local_execution_complete = true
+      // Keep Gateway's own member walk as data, not only as the last member's sentence.
+      const failureRecord = e?.failureRecord ?? (Array.isArray(e?.poolAttempts) && e.poolAttempts.length
+        ? genStudioFailureRecord({
+            pool: typeof e.poolName === 'string' ? e.poolName : null,
+            jobId: typeof e.gatewayJobId === 'string' ? e.gatewayJobId : null,
+            model: null,
+            attempts: e.poolAttempts,
+          })
+        : null)
+      if (failureRecord) job.genstudio_failure = failureRecord
       if (hasCancellationContext(job) && !hasUnsettledProviderWork(job)) {
         await finalizeSettledProviderJob(job.job_id)
         if (job.status !== 'running') {
