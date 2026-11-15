@@ -1964,7 +1964,7 @@ async function admitNextPacedUpload(): Promise<boolean> {
   const q = queues.youtube_upload
   let progressed = false
   for (const job of [...q.pending]) {
-    if (queuePaused) break
+    if (queuePaused || dispatchHeld()) break
     if (job.status !== 'queued' || cancelled.has(job.job_id)) {
       removePendingUpload(job.job_id)
       progressed = true
@@ -2030,7 +2030,7 @@ async function admitNextPacedUpload(): Promise<boolean> {
 /** Claim the single upload slot before any await, then decide from live pacing. */
 function pumpUploadLane(): void {
   const q = queues.youtube_upload
-  if (queuePaused || q.running || q.pending.length === 0 || uploadAdmissionInFlight) return
+  if (queuePaused || dispatchHeld() || q.running || q.pending.length === 0 || uploadAdmissionInFlight) return
   const startPending = q.pending.length
   q.running = true
   uploadAdmissionInFlight = true
@@ -5839,7 +5839,7 @@ function finishMissingWaitsForLiveWorker(candidate: Job): boolean {
 /** Admit image jobs from one shared round-robin pump. Capacity is consumed
  * synchronously before any executor can yield, preventing double admission. */
 function pumpImageEpisodeGroup(limit: number): void {
-  if (queuePaused || imageEpisodeBootAdmissionHolds > 0) return
+  if (queuePaused || dispatchHeld() || imageEpisodeBootAdmissionHolds > 0) return
   let emptyPass = 0
   while ((groupActive[IMAGE_EPISODE_GROUP] || 0) < limit) {
     const type = IMAGE_GROUP_TYPES[(imageEpisodeCursor + emptyPass) % IMAGE_GROUP_TYPES.length]
@@ -5859,7 +5859,7 @@ function pumpImageEpisodeGroup(limit: number): void {
 
 function pump(type: JobType): void {
   queuePumpObserverForTesting?.(type)
-  if (queuePaused) return  // network is down; jobs wait
+  if (queuePaused || dispatchHeld()) return  // network is down, or an update hold owns dispatch; jobs wait
   const q = queues[type]
   // A retired job type can still sit in a project's history (owner rule: stored data is read
   // safely and never rewritten). Its lane no longer exists, so there is nothing to pump.
@@ -7325,6 +7325,106 @@ async function setQueuePausedUnlocked(paused: boolean, owner: string | null): Pr
 
 export function isQueuePaused(): boolean {
   return queuePaused
+}
+
+// ── Update hold (dispatch-side) ─────────────────────────────────────────────
+// Contract: `_orchestra/youtube-stack/update-hold/CONTRACT.md`. The installer
+// POSTs a hold BEFORE it replaces the app: claims close first, in-flight work
+// gets a bounded window to settle, and dispatch resumes by itself.
+//
+// In-memory only — a timestamp the claim gates read plus one kick timer.
+// Nothing here is ever written to settings, so an aborted install cannot leave
+// Story refusing work and a restart always dispatches again with no manual
+// step. (The durable `queuePaused` above is the OWNER's Pause: a different
+// thing that also pauses submissions of running work — an update hold must
+// never interrupt in-flight work, so it does not touch that path.)
+let dispatchHoldUntil = 0
+let dispatchHoldKick: ReturnType<typeof setTimeout> | null = null
+
+function dispatchHeld(): boolean {
+  return Date.now() < dispatchHoldUntil
+}
+
+/** Test-only: the dispatch state a fresh process starts in (no hold). */
+export function _clearUpdateHoldForTesting(): void {
+  if (dispatchHoldKick) clearTimeout(dispatchHoldKick)
+  dispatchHoldKick = null
+  dispatchHoldUntil = 0
+}
+
+function kickAllLanes(): void {
+  for (const type of Object.keys(queues) as JobType[]) pump(type)
+}
+
+/** In-flight jobs a restart now would not continue where they stopped. */
+async function unsettledInFlightJobIds(): Promise<string[]> {
+  const wouldNotResume = await runningJobsThatWouldNotResume()
+  return wouldNotResume
+    .filter(job => activeRunJobIds.has(job.job_id))
+    .map(job => job.job_id)
+}
+
+export interface UpdateHoldReply {
+  safe: boolean
+  unsettled: string[]
+  dispatch_paused_s: number
+  in_flight: number
+}
+
+/**
+ * Close the claim/dispatch path FIRST, then wait up to `timeoutS` (0..30,
+ * default 20) for in-flight work to settle or already carry an id the next
+ * start follows. Queued jobs stay queued; nothing is cancelled. The pause
+ * expires by itself after `pauseS` (1..900, default 120).
+ */
+export async function takeUpdateHold(timeoutS: number, pauseS: number): Promise<UpdateHoldReply> {
+  dispatchHoldUntil = Date.now() + pauseS * 1000
+  if (dispatchHoldKick) clearTimeout(dispatchHoldKick)
+  dispatchHoldKick = setTimeout(() => {
+    dispatchHoldKick = null
+    dispatchHoldUntil = 0
+    kickAllLanes()
+  }, pauseS * 1000)
+  dispatchHoldKick.unref?.()
+  console.log(`[update-hold] taken: in_flight=${activeRunJobIds.size} pause_s=${pauseS}`)
+
+  const deadline = Date.now() + timeoutS * 1000
+  const watched = new Set<string>()
+  let unsettled = await unsettledInFlightJobIds()
+  for (const id of unsettled) watched.add(id)
+  while (unsettled.length > 0 && Date.now() < deadline) {
+    await new Promise(resolve => setTimeout(resolve, 250))
+    unsettled = await unsettledInFlightJobIds()
+    for (const id of unsettled) watched.add(id)
+  }
+  // Rule 4: anything still in flight at the deadline keeps the durable row it
+  // already has — written `running` before its executor started — so the next
+  // start follows that id (requeue, provider reconcile, or interrupted+retry).
+  console.log(unsettled.length > 0
+    ? `[update-hold] unsettled: ${unsettled.join(',')}`
+    : `[update-hold] settled: ${[...watched].join(',') || 'none'}`)
+  return {
+    safe: unsettled.length === 0,
+    unsettled,
+    dispatch_paused_s: pauseS,
+    in_flight: activeRunJobIds.size,
+  }
+}
+
+/** Resume at once (DELETE). Never required: the pause expires by itself. */
+export async function releaseUpdateHold(): Promise<UpdateHoldReply> {
+  if (dispatchHoldKick) clearTimeout(dispatchHoldKick)
+  dispatchHoldKick = null
+  dispatchHoldUntil = 0
+  kickAllLanes()
+  console.log('[update-hold] resumed')
+  const unsettled = await unsettledInFlightJobIds()
+  return {
+    safe: unsettled.length === 0,
+    unsettled,
+    dispatch_paused_s: 0,
+    in_flight: activeRunJobIds.size,
+  }
 }
 
 interface PausedJobTransitionSnapshot {

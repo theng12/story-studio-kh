@@ -19,7 +19,7 @@ import { createRequire } from 'module'
 import fs from 'fs/promises'
 import path from 'path'
 import * as pm from '../services/project-manager.js'
-import { initializeQueuePauseState, setQueuePaused, isQueuePaused, getQueueStats } from '../services/job-queue.js'
+import { initializeQueuePauseState, setQueuePaused, isQueuePaused, getQueueStats, takeUpdateHold, releaseUpdateHold } from '../services/job-queue.js'
 import { resolveAssetPath, toPortablePath, isPortablePath } from '../services/path-resolver.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 import { isServerMode } from '../lib/server-mode.js'
@@ -450,6 +450,30 @@ router.post('/system/queue/pause', async (_req, res) => {
 router.post('/system/queue/resume', async (_req, res) => {
   await setQueuePaused(false)
   res.json({ paused: false })
+})
+
+// ── Update hold (contract: _orchestra/youtube-stack/update-hold/CONTRACT.md) ──
+// The Studio Launcher calls POST before it downloads or replaces the app:
+// Story stops claiming new jobs first, waits up to `timeout_s` for in-flight
+// work to settle or keep an id the next start follows, and answers whether a
+// restart now is safe. Queued jobs stay queued; nothing is cancelled. The
+// pause expires by itself after `pause_s` (never persisted — an aborted
+// install cannot leave Story refusing work), or at once on DELETE.
+
+function boundedHoldNumber(value: unknown, fallback: number, min: number, max: number): number {
+  const parsed = typeof value === 'string' ? Number(value) : NaN
+  if (!Number.isFinite(parsed)) return fallback
+  return Math.min(max, Math.max(min, parsed))
+}
+
+router.post('/maintenance/hold', async (req, res) => {
+  const timeoutS = boundedHoldNumber(req.query.timeout_s, 20, 0, 30)
+  const pauseS = boundedHoldNumber(req.query.pause_s, 120, 1, 900)
+  res.json(await takeUpdateHold(timeoutS, pauseS))
+})
+
+router.delete('/maintenance/hold', async (_req, res) => {
+  res.json(await releaseUpdateHold())
 })
 
 // Named roots were retired in v1.4.3. The label → path map they managed was

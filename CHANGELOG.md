@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.402 — 2026-11-15
+
+- An update now holds Story's job queue before it starts: no new job begins, in-flight work gets up to 30 seconds to finish or keep an id the next start follows, and dispatch starts again by itself — nothing is cancelled, queued work stays queued, and an interrupted install never leaves the app refusing to work.
+
 ## v1.4.401 — 2026-11-14
 
 - **Regenerate** is one click on a failed image or thumbnail, and **Regenerate all failed** does the whole set. Every regeneration starts a new Gateway attempt with a new operation id — a cancelled or failed job is never replayed — and the old file is kept, recoverable, so you can go back.
