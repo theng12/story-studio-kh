@@ -466,15 +466,22 @@ function boundedHoldNumber(value: unknown, fallback: number, min: number, max: n
   return Math.min(max, Math.max(min, parsed))
 }
 
-router.post('/maintenance/hold', async (req, res) => {
+// Also mounted by server/hold-endpoint.ts on the fixed loopback port
+// (127.0.0.1:8647) the signed feed's holdURL names — one implementation, two
+// listeners, so the Launcher can reach the hold without knowing the app's
+// random API port.
+export async function maintenanceHoldPost(req: express.Request, res: express.Response) {
   const timeoutS = boundedHoldNumber(req.query.timeout_s, 20, 0, 30)
   const pauseS = boundedHoldNumber(req.query.pause_s, 120, 1, 900)
   res.json(await takeUpdateHold(timeoutS, pauseS))
-})
+}
 
-router.delete('/maintenance/hold', async (_req, res) => {
+export async function maintenanceHoldDelete(_req: express.Request, res: express.Response) {
   res.json(await releaseUpdateHold())
-})
+}
+
+router.post('/maintenance/hold', maintenanceHoldPost)
+router.delete('/maintenance/hold', maintenanceHoldDelete)
 
 // Named roots were retired in v1.4.3. The label → path map they managed was
 // the fourth location concept, and the one that made a project non-portable in

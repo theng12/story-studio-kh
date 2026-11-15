@@ -8,6 +8,7 @@
 import './boot-env.js'
 import { app as electronApp, BrowserWindow, Menu, Notification, dialog, shell } from 'electron'
 import { app as expressApp } from './server/app.js'
+import { startHoldEndpoint } from './server/hold-endpoint.js'
 import { buildMenuTemplate } from './menu-template.js'
 import { registerDeferredBootWork, signalBootFirstPaint } from './server/boot/deferred-boot.js'
 import http from 'http'
@@ -727,6 +728,10 @@ void electronApp.whenReady().then(async () => {
       }
     }
     const port = await startServer()
+    // Fixed loopback hold endpoint (127.0.0.1:8647) for the Studio Launcher —
+    // started before any window so it answers whether or not one is open.
+    // Fail open: a taken port logs one line and Story carries on regardless.
+    startHoldEndpoint()
     // ── Boot-time orphan reap (defence-in-depth) ─────────────────────────
     // If the previous run was force-quit, FFmpeg children are still alive
     // and writing to project output dirs. Kill them BEFORE the window
