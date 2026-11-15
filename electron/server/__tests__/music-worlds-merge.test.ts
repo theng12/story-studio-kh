@@ -47,3 +47,18 @@ test('the patch schema accepts worlds and removals, and still refuses an empty b
   assert.equal(MusicFormatPatchSchema.safeParse({ worlds_remove: ['a'] }).success, true)
   assert.equal(MusicFormatPatchSchema.safeParse({}).success, false)
 })
+
+test('an id that is both edited and removed is refused, never silently dropped', () => {
+  assert.throws(
+    () => mergeMusicWorlds(CURRENT, [{ id: 'a', sight: 'new' }], ['a']),
+    /both edited and removed/,
+  )
+})
+
+test('renaming an existing world edits it in place: same id, same position, no new world', () => {
+  const merged = mergeMusicWorlds(CURRENT, [{ id: 'b', name: 'Empty ballroom at dawn' }])
+  assert.equal(merged.length, 3)
+  assert.equal(merged[1]!.id, 'b')
+  assert.equal(merged[1]!.name, 'Empty ballroom at dawn')
+  assert.deepEqual(merged.map(w => w.id), ['a', 'b', 'c'])
+})

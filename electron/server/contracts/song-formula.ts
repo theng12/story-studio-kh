@@ -157,6 +157,13 @@ export function mergeMusicWorlds(
   remove: readonly string[] = [],
 ): StoredMusicWorld[] {
   const byId = new Map<string, StoredMusicWorld>(current.map(world => [world.id, { ...world, scenes: [...world.scenes], music: [...world.music] }]))
+  const removing = new Set(remove)
+  // One id cannot be both edited and removed: the overlap is refused, never resolved by order.
+  for (const entry of patch) {
+    if (entry.id && removing.has(entry.id)) {
+      throw new Error(`World "${entry.id}" is both edited and removed in this patch; do one or the other.`)
+    }
+  }
   for (const id of remove) {
     if (!byId.delete(id)) throw new Error(`World "${id}" was not found in this formula.`)
   }

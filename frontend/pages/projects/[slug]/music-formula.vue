@@ -307,12 +307,15 @@
               <input :value="(w.music || []).join(', ')" class="mp-inp" style="flex: 1 1 260px" :aria-label="`World ${i + 1} music`" placeholder="Music, comma separated" @input="setWorldList(w, 'music', $event)">
             </div>
           </div>
-          <p v-if="!worldDrafts.length" class="mp-hint">No worlds yet — add one to give this channel's songs their own places.</p>
+          <p v-if="!worldDrafts.length" class="mp-hint">
+            No worlds are saved. Until you add one, each song's scene idea falls back to this formula's register labels
+            ({{ registerLabels.length ? registerLabels.join(', ') : 'none set' }}); nothing is lost, and the list stays empty.
+          </p>
           <div class="mp-row" style="margin-top: 8px">
             <button type="button" class="btn btn-secondary btn-sm" @click="addWorld">Add a world</button>
           </div>
           <div v-if="worlds.length" class="mp-row" style="margin-top: 10px">
-            <span class="mp-hint" style="margin: 0">Scene themes from these worlds:</span>
+            <span class="mp-hint" style="margin: 0">Scene themes{{ worldDrafts.length ? ' from these worlds' : ' (register labels — no worlds are saved)' }}:</span>
             <button v-for="w in shownWorlds" :key="w" type="button" class="mp-chip" :class="{ on: e.scene_themes.includes(w) }" @click="toggleTheme(w)">{{ w }}</button>
             <button v-if="worlds.length > shownWorlds.length" type="button" class="mp-chip" @click="allWorlds = true">+ {{ worlds.length - shownWorlds.length }} more</button>
           </div>
@@ -418,6 +421,7 @@ function toggleKey(k: string) {
   f.keys = next.length === 24 ? [] : ALL_KEYS.filter(x => next.includes(x))
 }
 
+const registerLabels = computed<string[]>(() => Object.values((niche.value?.musicFormat || {}).registers || {}).map((r: any) => String(r?.label || '')).filter(Boolean))
 const worldDrafts = ref<any[]>([])
 const removedWorldIds = ref<string[]>([])
 function addWorld() {
