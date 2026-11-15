@@ -6198,7 +6198,13 @@ async function completeSuccessfulJob(job: Job): Promise<void> {
   const trackType = typeMap[job.type]
   if (trackType) trackGeneration(job.project_slug, trackType).catch(() => {})
 
-  const chain = job.params?.episode_recovery_id ? undefined : job.params?.pipeline_chain
+  const recoveryOwnsChain = !!job.params?.episode_recovery_id
+  const chain = recoveryOwnsChain ? undefined : job.params?.pipeline_chain
+  if (recoveryOwnsChain && Array.isArray(job.params?.pipeline_chain) && job.params.pipeline_chain.length) {
+    // An episode-recovery plan owns the remaining steps and queues them itself. Say so, so a
+    // missing Final Video can never look like an unexplained gap in the chain.
+    job.output_lines.push('Pipeline continuation not queued by this job: its episode-recovery plan owns the remaining steps.')
+  }
   if (!Array.isArray(chain) || chain.length === 0) {
     job.status = 'done'
     return
@@ -6429,6 +6435,22 @@ async function failClosedPipelineHandoff(job: Job, message: string): Promise<voi
   emitUpdate(job)
 }
 
+/**
+ * Why a saved continuation was not queued. `null` means it is still actionable (pending with no
+ * child, or a child already exists). Anything else is a state a later repair left behind; it is
+ * reported, never silently swallowed and never re-queued by guesswork.
+ */
+export function pipelineHandoffSkipReason(
+  marker: { state?: unknown; child_job_id?: unknown } | null | undefined,
+  hasChild: boolean,
+): string | null {
+  if (!marker) return 'no saved continuation'
+  if (hasChild) return null
+  const state = typeof marker.state === 'string' ? marker.state : 'unknown'
+  if (state === 'pending') return null
+  return `its saved continuation is ${state} and no child job exists`
+}
+
 async function drainPendingPipelineHandoff(parentJobId: string): Promise<void> {
   await withLock(`pipeline-handoff-parent:${parentJobId}`, async () => {
     const parent = jobs.get(parentJobId)
@@ -6440,7 +6462,17 @@ async function drainPendingPipelineHandoff(parentJobId: string): Promise<void> {
         'Saved Pipeline continuation is malformed. The completed parent was not rerun and no child was started.')
       return
     }
-    if (marker.state !== 'pending' || pipelineHandoffBlocked(parent)) return
+    if (marker.state !== 'pending') {
+      const hasChild = !!jobs.get(String(marker.child_job_id || ''))
+      const why = pipelineHandoffSkipReason(marker, hasChild)
+      if (why && !parent.output_lines.some(line => line.startsWith('Pipeline continuation not queued:'))) {
+        parent.output_lines.push(`Pipeline continuation not queued: ${why}. Nothing was re-run; start the remaining step from the episode's Pipeline.`)
+        await persistJob(parent)
+        emitUpdate(parent)
+      }
+      return
+    }
+    if (pipelineHandoffBlocked(parent)) return
 
     let authoritative = await loadAuthoritativeJob(parent.project_slug, parent.job_id)
     const durableMarker = authoritative && pipelineHandoffOf(authoritative)

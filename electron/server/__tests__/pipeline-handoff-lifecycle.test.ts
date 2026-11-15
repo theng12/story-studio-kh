@@ -1439,3 +1439,14 @@ test('provider settlement drains once only after finalizer ownership is released
   assert.equal(jobs.filter(job => job.type === 'expand_chapters').length, 1)
   assert.equal(expansionRuns, 1)
 })
+
+test('a saved continuation left non-pending with no child is reported, never silently skipped', () => {
+  assert.equal(jq.pipelineHandoffSkipReason({ state: 'pending', child_job_id: 'child' }, false), null,
+    'a pending marker is still actionable')
+  assert.equal(jq.pipelineHandoffSkipReason({ state: 'dispatched', child_job_id: 'child' }, true), null,
+    'an existing child is the continuation')
+  assert.match(jq.pipelineHandoffSkipReason({ state: 'dispatched', child_job_id: 'child' }, false)!,
+    /dispatched and no child job exists/, 'a later repair that left the marker dispatched is named')
+  assert.match(jq.pipelineHandoffSkipReason({ state: 'failed' }, false)!, /failed/)
+  assert.match(jq.pipelineHandoffSkipReason(null, false)!, /no saved continuation/)
+})
