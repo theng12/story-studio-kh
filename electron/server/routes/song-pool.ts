@@ -25,7 +25,7 @@ import { withLock } from '../lib/atomic-store.js'
 import { freshActionFingerprint, freshActionMatch, stampFreshGenerationAction } from '../lib/fresh-generation-action.js'
 import { planCells, coverageGrid } from '../services/song-coverage.js'
 import { BRIEFS_PER_CALL, SUNG_BRIEFS_PER_CALL, writeBriefs } from '../services/song-brief.js'
-import { comboCount, poolNeeds, EpisodeDefaultsSchema, STARTING_EPISODE_DEFAULTS, poolShortfall } from '../contracts/song-formula.js'
+import { comboCount, poolNeeds, singleEpisodeNeed, nextEpisodeShortfall, windowStockDeficit, EpisodeDefaultsSchema, STARTING_EPISODE_DEFAULTS } from '../contracts/song-formula.js'
 import { songFormulaFor } from '../generators/song-pool-generate.js'
 import {
   readSongPoolBatchCheckpoint,
@@ -94,10 +94,12 @@ router.get('/projects/:slug/song-pool', async (req, res) => {
     const avgSong = measured.length ? measured.reduce((t, s) => t + s.duration_s!, 0) / measured.length : 0
     const timed = pool.songs.filter(s => Number(s.generation_s) > 0).slice(-50)
     const needs = avgSong ? poolNeeds(defaults.target_length_s, defaults.no_repeat_episodes, avgSong) : null
-    // Readiness is about the NEXT episode: a song already used in the no-repeat window is stock,
-    // not availability. `needed` describes the channel-default episode length; `missing` counts
-    // against the songs actually free for the next one.
+    // Two different questions, never one number: the WINDOW's stock size (`needed`) versus the
+    // pool's drawable total, and the NEXT episode's requirement versus the songs actually free for
+    // it. A 500-song pool that blocks 490 in the no-repeat window has no window deficit but is far
+    // from ready for one episode, so the two deficits are reported separately.
     const freeNext = drawable.filter(s => !sp.inWindow(s, window, slug)).length
+    const singleNeeded = avgSong ? singleEpisodeNeed(defaults.target_length_s, avgSong) : null
     let coverage = null
     if (!('error' in formula)) {
       const moods = formula.formula.moods.map(m => m.value)
@@ -126,9 +128,14 @@ router.get('/projects/:slug/song-pool', async (req, res) => {
         archived: pool.songs.filter(s => s.status === 'archived').length,
         average_song_s: Math.round(avgSong),
         average_generation_s: timed.length ? Math.round(timed.reduce((t, s) => t + s.generation_s!, 0) / timed.length) : null,
+        // Window stock (channel default): `needed` is the whole no-repeat window's target and
+        // `missing` its deficit against all drawable songs. The next episode's own readiness is
+        // `free_next` against `single_episode_needed` — never these window figures.
         per_episode: needs?.per_episode ?? null,
         needed: needs?.needed ?? null,
-        missing: needs ? poolShortfall(needs.needed, freeNext) : null,
+        missing: needs ? windowStockDeficit(needs.needed, drawable.length) : null,
+        single_episode_needed: singleNeeded,
+        next_episode_missing: nextEpisodeShortfall(singleNeeded, freeNext),
       },
       active_batch: await activeBatch(slug),
     })

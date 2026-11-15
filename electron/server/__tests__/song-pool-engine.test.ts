@@ -8,7 +8,7 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { useTempDataDir } from './_helpers.js'
-import { STARTING_SONG_FORMULA, comboCount, comboKey, poolNeeds, poolShortfall, SongFormulaSchema, ALL_KEYS } from '../contracts/song-formula.js'
+import { STARTING_SONG_FORMULA, comboCount, comboKey, poolNeeds, singleEpisodeNeed, nextEpisodeShortfall, windowStockDeficit, SongFormulaSchema, ALL_KEYS } from '../contracts/song-formula.js'
 import { planCells } from '../services/song-coverage.js'
 import { assemblePrompt, checkBrief, trigrams, writeBriefs, BRIEFS_PER_CALL } from '../services/song-brief.js'
 import { parseAnalysis, planTrim } from '../services/song-audio.js'
@@ -262,18 +262,35 @@ describe('the seed travels to the Gateway', () => {
   })
 })
 
-describe('pool readiness counts FREE songs, not the whole stock', () => {
-  test('a 500-song pool that blocks 490 in the no-repeat window still needs 403 more for the next episode', () => {
-    assert.equal(poolShortfall(413, 10), 403,
-      'stock used in the last N episodes is not availability for the next one')
+describe('window stock and next-episode readiness are two different numbers', () => {
+  // The production shape: 500 drawable, 490 blocked by the no-repeat window (10 free), the
+  // channel-default window target is 413 songs, and one channel-default episode needs ~32.
+  const WINDOW_NEED = 413
+  const DRAWABLE = 500
+  const FREE = 10
+  const SINGLE = 32
+
+  test('a full window stock can still leave the next episode short', () => {
+    assert.equal(windowStockDeficit(WINDOW_NEED, DRAWABLE), 0,
+      'the pool holds the whole window target')
+    assert.equal(nextEpisodeShortfall(SINGLE, FREE), 22,
+      'one episode needs 32 songs and only 10 are free for it — never the 403 a window-minus-free count would give')
   })
 
-  test('a pool with enough free songs needs none, however large its stock', () => {
-    assert.equal(poolShortfall(413, 413), 0)
-    assert.equal(poolShortfall(413, 500), 0)
+  test('no-repeat off means every drawable song is free, so the episode is short only by its own need', () => {
+    assert.equal(nextEpisodeShortfall(SINGLE, DRAWABLE), 0)
+    assert.equal(windowStockDeficit(WINDOW_NEED, 100), 313)
   })
 
-  test('no measured songs means no answer, never a zero', () => {
-    assert.equal(poolShortfall(null, 10), null)
+  test('a single episode need comes from one episode, not the window', () => {
+    assert.equal(singleEpisodeNeed(3_900, 122), SINGLE)
+    assert.equal(singleEpisodeNeed(9_000, 122), Math.ceil(9_000 / 122),
+      'a saved 150-minute episode needs its own, larger figure')
+  })
+
+  test('an unmeasured pool answers null, never a made-up zero', () => {
+    assert.equal(singleEpisodeNeed(3_900, 0), null)
+    assert.equal(nextEpisodeShortfall(null, FREE), null)
+    assert.equal(windowStockDeficit(null, DRAWABLE), null)
   })
 })

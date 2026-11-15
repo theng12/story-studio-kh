@@ -191,11 +191,24 @@ export function poolNeeds(targetLengthS: number, windowEpisodes: number, average
 }
 
 /**
- * How many more songs the NEXT episode needs. Readiness is the songs free for it — drawable and
- * not used in the no-repeat window — not the pool's whole stock: a pool can hold 500 songs, block
- * 490 of them for the last N episodes, and still be unable to build one episode. This is the
- * number the "Generate Songs" dialog offers to make.
+ * Songs a single episode needs: the channel-default episode length divided by the measured average.
+ * A window target is a different number (that per-episode figure × the no-repeat window) and must
+ * never be used to judge one episode's readiness.
  */
-export function poolShortfall(needed: number | null, freeNext: number): number | null {
-  return needed === null ? null : Math.max(0, needed - freeNext)
+export function singleEpisodeNeed(targetLengthS: number, averageSongS: number): number | null {
+  return averageSongS > 0 ? Math.ceil(targetLengthS / averageSongS) : null
+}
+
+/**
+ * How many more songs the NEXT episode needs: one episode's requirement minus the songs actually
+ * free for it (drawable and not used in the no-repeat window). This is what "Generate Songs"
+ * offers; the window stock deficit stays a separate figure for the stock card.
+ */
+export function nextEpisodeShortfall(singleEpisodeNeeded: number | null, freeNext: number): number | null {
+  return singleEpisodeNeeded === null ? null : Math.max(0, singleEpisodeNeeded - freeNext)
+}
+
+/** Window stock deficit: the whole no-repeat window's target minus every drawable song in the pool. */
+export function windowStockDeficit(windowNeeded: number | null, drawableTotal: number): number | null {
+  return windowNeeded === null ? null : Math.max(0, windowNeeded - drawableTotal)
 }
