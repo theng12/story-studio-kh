@@ -258,6 +258,10 @@ const CLASSIFIED: Record<string, Record<string, Classification>> = {
   },
   'image-prompts.vue': {
     thumbnailVisionModel: { verdict: 'transient', reason: 'the model that analyses a reference image — a live catalogue pick, healed on every load and never a preset value' },
+    // Owner, 2026-11-15: the lettering limit is shown where the lettering is chosen, but it
+    // belongs to the app, not to one channel's preset — a preset that carried it would change
+    // every channel that adopted the preset.
+    letteringLimit: { verdict: 'saved-elsewhere', reason: 'an app-wide limit stored by `PUT /app-settings/thumbnail-style-text-limit`, the same value Settings → Performance & recovery shows' },
   },
   'images.vue': {
     'activeForm.model': { verdict: 'saved-by-preset', reason: '`activeForm` is a computed alias of `form.thumbnail`', via: 'form.thumbnail' },
