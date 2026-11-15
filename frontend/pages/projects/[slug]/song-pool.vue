@@ -156,7 +156,7 @@
                 <td class="mp-num">{{ s.lufs != null ? s.lufs.toFixed(1) : '—' }}</td>
                 <td class="mp-num">{{ s.episodes.length }}</td>
                 <td>
-                  <span v-if="last(s)">{{ last(s) }}</span><span v-else class="mp-muted">never</span>
+                  <span v-if="last(s)">{{ last(s) }}</span><span v-else-if="holdingLabel(s)" class="mp-muted">no rendered use</span><span v-else class="mp-muted">never</span>
                   <span v-if="inWindow(s)" class="ds-chip" data-tone="warning" style="margin-left: 4px" :title="holdingLabel(s) ? `Held by ${holdingLabel(s)}` : 'Held by the no-repeat window'">in window</span>
                   <span v-if="s.status === 'archived'" class="ds-chip" style="margin-left: 4px">archived</span>
                   <span v-if="s.status === 'rejected'" class="ds-chip" style="margin-left: 4px">in trash</span>

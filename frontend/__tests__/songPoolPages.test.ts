@@ -38,6 +38,10 @@ describe('Generate Songs dialog', () => {
     assert.match(dialog, /averageGenerationS/)
     assert.match(dialog, /does not guess it/)
   })
+  test('an unknown availability never seeds the count from the episode target', () => {
+    assert.doesNotMatch(dialog, /count\.value = .*needed/)
+    assert.match(dialog, /props\.mode === 'fill-gaps' && missing\.value \? missing\.value : 50/)
+  })
   test('the readiness chip states its basis, never a bare number', () => {
     assert.match(dialog, /targetLengthS\?: number \| null/)
     assert.match(dialog, /channel-default \{\{ Math\.round\(targetLengthS \/ 60\) \}\}-minute episode/)
@@ -68,6 +72,8 @@ describe('Song Pool page', () => {
     assert.match(pool, /-minute default episode; the Episode Builder checks the actual episode\./)
     assert.match(pool, /:title="holdingLabel\(s\)/)
     assert.match(pool, /poolWindow\.toggleAllShown/)
+    assert.match(pool, /no rendered use/)
+    assert.match(pool, /holdingLabel\(s\)/)
   })
   test('reject explains trash vs archive before anything moves', () => {
     assert.match(pool, /move to this project's _trash folder \(nothing is deleted\)/)
