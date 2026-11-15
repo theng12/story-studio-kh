@@ -4,7 +4,7 @@ What's new in each release. Newest first.
 
 ---
 
-## v1.4.402 — 2026-11-15
+## v1.4.403 — 2026-11-15
 
 - **One Timeline for the whole episode.** Every second of the episode belongs to one segment, and each segment picks its own media: a generated still, a sketch, a chart, stock footage, text-to-video or image-to-video. Charts are drawn locally and cost nothing. Segments must join exactly — a gap or an overlap is refused with the second it happens at — and a segment that asks for a video model the Gateway is not publishing right now says so instead of waiting. **Preflight** prices the whole timeline from the Gateway's live figures before anything renders, and says "price not published" rather than quoting a number of its own. This release builds and prices the timeline; turning it into a finished video is the next step and is not in it.
 - The Song Pool opens reliably and reports readiness from the channel's current settings. An interrupted image job whose Gateway work is already terminal now ends locally when it cannot safely resume, keeping its evidence and sending no new generation request. A repair's explanation of the Final Video step it adopted stays in the job log as the worker runs.
