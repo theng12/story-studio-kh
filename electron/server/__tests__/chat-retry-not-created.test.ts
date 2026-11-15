@@ -82,7 +82,8 @@ test('Retry resumes a proven not-created chat request with its exact key and pre
     assert.deepEqual(retried.genstudio_chat_recovery_preview, preview)
     assert.equal(retried.genstudio_chat_recovery_purpose, 'narrative-batch')
     assert.deepEqual(retried.genstudio_chat_recovery_chapters, [21, 22, 23])
-    assert.equal(jq.getJob(original.job_id), null)
+    assert.equal(jq.getJob(original.job_id)?.superseded?.superseded_by, retried.job_id,
+      'the original is retired with a superseded marker, not erased')
   } finally {
     await jq._waitForJobPersistenceForTesting()
     if (!wasPaused) await jq.setQueuePaused(false)

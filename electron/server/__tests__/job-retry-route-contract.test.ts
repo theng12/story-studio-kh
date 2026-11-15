@@ -75,7 +75,8 @@ void test('Jobs Retry preserves saved fresh actions, adds thumbnail fill-gaps, a
       const retry = await request(app).post(retryPath).send({})
       assert.equal(retry.status, 202, JSON.stringify(retry.body))
       assert.notEqual(retry.body.job.job_id, original.job_id)
-      assert.equal(jq.getJob(original.job_id), null, 'only an admitted retry may replace its terminal original')
+      assert.equal(jq.getJob(original.job_id)?.superseded?.superseded_by, retry.body.job.job_id,
+        'an admitted retry RETIRES its terminal original: kept, marked, linked to the replacement')
       await waitForTerminal(jq, retry.body.job.job_id, `${type} retry`)
 
       const expected = type === 'image_prompts' ? { ...params, fill_gaps: true } : params
@@ -222,7 +223,8 @@ void test('Jobs Retry preserves saved fresh actions, adds thumbnail fill-gaps, a
       assert.equal(migrated.status, 202, JSON.stringify(migrated.body))
       assert.equal(migrated.body.job.type, 'thumb_images')
       assert.notEqual(migrated.body.job.job_id, legacyImages.job_id)
-      assert.equal(jq.getJob(legacyImages.job_id), null, 'only the admitted thumbnail replacement clears legacy history')
+      assert.equal(jq.getJob(legacyImages.job_id)?.superseded?.superseded_by, migrated.body.job.job_id,
+        'only the admitted thumbnail replacement retires legacy history — kept, marked, linked')
       await waitForTerminal(jq, migrated.body.job.job_id, `legacy images retry ${label}`)
       const { generation_action, generation_action_fingerprint, ...migratedSaved } = migratedParams as Record<string, any>
       assert.deepEqual(migratedSaved, params, `legacy thumbnail retry ${label} keeps its exact saved parameters`)

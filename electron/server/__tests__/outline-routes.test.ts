@@ -1006,7 +1006,8 @@ describe('POST /expand-chapters — terminal manual retry', () => {
     await clearExpandJob(res.body.job_id)
     assert.equal(replacement?.params.model, 'current-live-model')
     assert.equal(replacement?.genstudio_chat_retry_scope, `terminal:job-terminal-${original.job_id}:${original.job_id}`)
-    assert.equal(jq.getJob(original.job_id), null, 'replacement removes the terminal source only after enqueue')
+    assert.equal(jq.getJob(original.job_id)?.superseded?.superseded_by, res.body.job_id,
+      'the terminal source is retired with a superseded marker only after enqueue')
   })
 
   test('rejects a terminal retry job from another episode', async () => {

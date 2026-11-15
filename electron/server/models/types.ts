@@ -3348,6 +3348,27 @@ export interface Job {
     reason?: string
   }
   /**
+   * 2026-11-15 — a retry or replacement RETIRED this terminal row instead of
+   * erasing it. The row keeps every record it had — status, provider
+   * evidence, params, cost, timestamps, log — and this marker names the run
+   * that replaced it. The replacement points back through `previous_job_id`.
+   * Off the active list and out of every "needs attention" count, reachable
+   * only from the Superseded history control.
+   */
+  superseded?: {
+    at: string
+    by: string
+    reason?: string
+    /** The new job id that took this row's place. */
+    superseded_by: string
+  }
+  /**
+   * The terminal row this job replaced (Retry / Replace failed items). The
+   * forward edge is `superseded.superseded_by` on that original row; both
+   * directions exist so either side of the pair can be read on its own.
+   */
+  previous_job_id?: string
+  /**
    * v1.2.6 — the result of the last provider re-check run for a FINISHED job
    * whose stored evidence was still non-terminal.
    *

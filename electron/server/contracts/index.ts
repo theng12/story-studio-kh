@@ -1149,6 +1149,15 @@ export interface JobEnqueuedResponse {
    * automatically.
    */
   hidden_at?: string
+  /**
+   * 2026-11-15 — this terminal row was RETIRED by a retry or replacement
+   * (see `Job.superseded`): kept in full with its evidence, off the active
+   * list, reachable from the Superseded history control. `superseded_by` is
+   * the job id that took its place.
+   */
+  superseded?: { at: string; by: string; reason?: string; superseded_by: string }
+  /** The terminal row this job replaced (see `Job.previous_job_id`). */
+  previous_job_id?: string
   /** This step did not run because the channel's own settings switch it off (AGENTS.md §8). Reads `skipped`. */
   skipped?: { at: string; reason: string }
   /** v1.2.8 — the owner stopped tracking this job without provider confirmation. */
@@ -1259,6 +1268,13 @@ export interface JobHistoryFacets {
    * many records are being kept out of sight (AGENTS.md §6).
    */
   hidden: number
+  /**
+   * Rows a retry or replacement retired. Not in `stats`, `status` or
+   * `clearable` — they are off the active list — and never a silent zero:
+   * the Superseded control counts them here, and each row names the job that
+   * replaced it (`superseded.superseded_by`).
+   */
+  superseded: number
 }
 
 /** Response from the paged history endpoints. */

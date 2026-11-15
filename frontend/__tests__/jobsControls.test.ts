@@ -150,7 +150,7 @@ test('Jobs keeps all toolbar actions available, disabled when their scoped count
 test('toolbar scope uses only the selected project; hiding affects cards but never bulk actions', () => {
   assert.match(jobs, /const projectScopedJobs = computed\(\(\) => \{[\s\S]{0,240}job\.project_slug === projectFilter\.value/)
   assert.match(jobs, /const presentationScopedJobs = computed\(\(\) =>\s*projectScopedJobs\.value\.filter\(job => !isJobHidden\(job\)\)/)
-  assert.match(jobs, /const typeScopedJobs = computed\(\(\) => statusFilter\.value === 'hidden'[\s\S]{0,120}hiddenTypeScopedJobs\.value[\s\S]{0,80}: visibleTypeScopedJobs\.value\)/)
+  assert.match(jobs, /const typeScopedJobs = computed\(\(\) => \{[\s\S]{0,160}statusFilter\.value === 'hidden'[\s\S]{0,120}hiddenTypeScopedJobs\.value[\s\S]{0,160}statusFilter\.value === 'superseded'[\s\S]{0,120}supersededScopedJobs\.value[\s\S]{0,160}visibleTypeScopedJobs\.value/)
   for (const name of ['repairableFailedJobs', 'failedJobsForRetryAll', 'recoverableEpisodes', 'pausedJobCount', 'removableJobs']) {
     assert.match(jobs, new RegExp(`const ${name}[\\s\\S]{0,360}projectScopedJobs\\.value`), `${name} must ignore type and status filters`)
   }
@@ -502,7 +502,7 @@ test('Paused status uses the same project and type scope for counts and visible 
   )
   assert.match(jobs, /const typeScopedJobs = computed\(\(\) =>/)
   assert.match(jobs, /\{ key: 'paused', label: 'Paused' \}/)
-  assert.match(jobs, /count: s\.key === 'hidden'[\s\S]{0,80}hiddenTypeScopedJobs\.value\.length[\s\S]{0,120}visibleTypeScopedJobs\.value\.filter\(j => jobDisplayStatus\(j\) === s\.key\)\.length/)
+  assert.match(jobs, /count: s\.key === 'hidden'[\s\S]{0,80}hiddenTypeScopedJobs\.value\.length[\s\S]{0,200}supersededScopedJobs\.value\.length[\s\S]{0,200}visibleTypeScopedJobs\.value\.filter\(j => jobDisplayStatus\(j\) === s\.key\)\.length/)
   assert.match(jobs, /filterJobsForView\(typeScopedJobs\.value, \{[\s\S]*?project: 'all'/)
 })
 

@@ -88,7 +88,8 @@ describe('automatic retry of jobs a restart interrupted', () => {
       label: 'the interrupted final video to be retried and finish',
     })
     const retried = (await retriedJob(project.slug, 'DK0116'))!
-    assert.equal(jq.getJob('interrupted-DK0116'), null, 'the failed row is replaced, as a manual Retry does')
+    assert.equal(jq.getJob('interrupted-DK0116')?.superseded?.superseded_by, retried.job_id,
+      'the failed row is retired with a superseded marker, as a manual Retry does')
     assert.match(retried.output_lines.join('\n'), LINE)
     assert.equal(retried.params.restart_retry_attempt, 2)
     await waitFor(async () => (await retriedJob(project.slug, 'CONTROL'))?.status === 'done', {
@@ -113,7 +114,10 @@ describe('automatic retry of jobs a restart interrupted', () => {
         } as Job['remote_cancellations'] }),
         runningJob(project.slug, 'EXHAUSTED', 'video_assembly', { params: { restart_retry_attempt: 3 } }),
         // Scheduled last with the same delay: once it is retried, every timer above has fired.
-        runningJob(project.slug, 'CONTROL'),
+        // CONTROL2, not CONTROL: job ids are process-global and a retired
+        // original KEEPS its id (retry now supersedes rather than deletes), so
+        // reusing the first test's id would make this load skip the row.
+        runningJob(project.slug, 'CONTROL2'),
       ])
       // Evidence that appears before the retry fires is checked when it fires.
       await jq.mutateAuthoritativeJob(project.slug, 'interrupted-UNSETTLED', current => ({ ...current,
@@ -122,7 +126,7 @@ describe('automatic retry of jobs a restart interrupted', () => {
       await jq.setQueuePaused(false)
     }
 
-    await waitFor(async () => (await retriedJob(project.slug, 'CONTROL'))?.status === 'done', {
+    await waitFor(async () => (await retriedJob(project.slug, 'CONTROL2'))?.status === 'done', {
       label: 'the control job to be retried',
     })
     await jq._waitForJobPersistenceForTesting()
