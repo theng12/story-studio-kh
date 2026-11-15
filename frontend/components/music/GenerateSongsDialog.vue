@@ -34,6 +34,7 @@
             <button v-if="missing" type="button" class="mp-chip" :class="{ on: count === missing }" @click="cancelPendingSongPoolSubmission(); count = missing">{{ missing }} · to reach {{ needed }}</button>
             <button type="button" class="mp-chip" :class="{ on: count === 500 }" @click="cancelPendingSongPoolSubmission(); count = 500">500</button>
           </div>
+          <p v-if="targetLengthS" class="mp-hint">A channel-default {{ Math.round(targetLengthS / 60) }}-minute episode — the Episode Builder checks the actual episode.</p>
           <p class="mp-hint">Briefs are written {{ perCall }} at a time — {{ calls }} call{{ calls === 1 ? '' : 's' }} to the writing model for {{ count || 0 }} songs.</p>
         </div>
         <div>
@@ -150,6 +151,7 @@ const props = defineProps<{
   slug: string
   mode: 'new' | 'fill-gaps'
   initialCount?: number
+  targetLengthS?: number | null
   formulaName?: string
   formulaError?: string
   songFormula?: any

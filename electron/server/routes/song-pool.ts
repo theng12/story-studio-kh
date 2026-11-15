@@ -136,6 +136,11 @@ router.get('/projects/:slug/song-pool', async (req, res) => {
         missing: needs ? windowStockDeficit(needs.needed, drawableTotal) : null,
         single_episode_needed: singleNeeded,
         next_episode_missing: nextEpisodeShortfall(singleNeeded, freeNext),
+        // The generic pool page has no identified episode: this is the channel-default estimate,
+        // labelled with its own target so it never reads as a saved 150-minute episode's answer.
+        readiness_scope: 'channel_default_estimate',
+        target_length_s: settings.target_length_s,
+        no_repeat_episodes: settings.no_repeat_episodes,
       },
       active_batch: await activeBatch(slug),
     })

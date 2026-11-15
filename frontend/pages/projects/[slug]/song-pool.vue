@@ -34,6 +34,9 @@
         <div class="mp-kpi" data-tone="success"><span>Free for the next episode</span><b>{{ data.stats.free_next }}</b></div>
         <div class="mp-kpi" data-tone="warning"><span>Rejected · in trash</span><b>{{ data.stats.rejected }}</b></div>
       </div>
+      <p v-if="data.stats.readiness_scope === 'channel_default_estimate'" class="mp-hint" style="margin-top: 6px">
+        “Free for the next episode” estimates the channel’s {{ Math.round((data.stats.target_length_s || 0) / 60) }}-minute default episode; the Episode Builder checks the actual episode.
+      </p>
 
       <WorkspaceNotice v-if="data.formula.error" title="No song formula yet" tone="warning" style="margin-top: 14px">
         {{ data.formula.error }}
@@ -223,7 +226,7 @@
     <GenerateSongsDialog
       :visible="genOpen" :slug="slug" :mode="genMode" :initial-count="genCount"
       :formula-name="data?.formula?.name" :formula-error="data?.formula?.error" :song-formula="data?.formula?.song_formula"
-      :missing="data?.stats?.next_episode_missing" :needed="data?.stats?.single_episode_needed" :average-song-s="data?.stats?.average_song_s"
+      :missing="data?.stats?.next_episode_missing" :needed="data?.stats?.single_episode_needed" :target-length-s="data?.stats?.target_length_s" :average-song-s="data?.stats?.average_song_s"
       :average-generation-s="data?.stats?.average_generation_s"
       @close="genOpen = false" @started="onStarted"
     />

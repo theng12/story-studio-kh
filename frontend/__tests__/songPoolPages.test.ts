@@ -38,6 +38,12 @@ describe('Generate Songs dialog', () => {
     assert.match(dialog, /averageGenerationS/)
     assert.match(dialog, /does not guess it/)
   })
+  test('the readiness chip states its basis, never a bare number', () => {
+    assert.match(dialog, /targetLengthS\?: number \| null/)
+    assert.match(dialog, /channel-default \{\{ Math\.round\(targetLengthS \/ 60\) \}\}-minute episode/)
+    assert.match(dialog, /Episode Builder checks the actual episode/)
+    assert.match(dialog, /count = missing/)
+  })
   test('an unconfirmed ordinary submission keeps one captured body and UUID for Retry', () => {
     assert.match(dialog, /pendingSongPoolSubmission/)
     assert.match(dialog, /JSON\.parse\(JSON\.stringify/)
@@ -53,6 +59,13 @@ describe('Song Pool page', () => {
       'Regenerate', 'Add Tag…', 'Edit Brief &amp; Regenerate…', 'Show in Finder', 'Fill Gaps…', 'Generate Songs…', 'in window', 'Check by ear']) {
       assert.ok(pool.includes(label), `missing: ${label}`)
     }
+  })
+  test('the page offers the next episode\'s own numbers and labels the channel-default estimate with its duration', () => {
+    assert.match(pool, /:missing="data\?\.stats\?\.next_episode_missing"/)
+    assert.match(pool, /:needed="data\?\.stats\?\.single_episode_needed"/)
+    assert.match(pool, /:target-length-s="data\?\.stats\?\.target_length_s"/)
+    assert.match(pool, /readiness_scope === 'channel_default_estimate'/)
+    assert.match(pool, /-minute default episode; the Episode Builder checks the actual episode\./)
   })
   test('reject explains trash vs archive before anything moves', () => {
     assert.match(pool, /move to this project's _trash folder \(nothing is deleted\)/)
