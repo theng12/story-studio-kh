@@ -19,6 +19,7 @@
       "@shared/narration-staleness": ["../electron/server/contracts/narration-staleness.ts"],
       "@shared/narration-plausibility": ["../electron/server/contracts/narration-plausibility.ts"],
       "@shared/thumbnail-text": ["../electron/server/contracts/thumbnail-text.ts"],
+      "@shared/format-pool": ["../electron/server/contracts/format-pool.ts"],
       "@shared/thumbnail-overlay": ["../electron/server/contracts/thumbnail-overlay.ts"],
       "@shared/thumbnail-counts": ["../electron/server/contracts/thumbnail-counts.ts"],
       "@shared/scene-effects": ["../electron/server/contracts/scene-effects.ts"],

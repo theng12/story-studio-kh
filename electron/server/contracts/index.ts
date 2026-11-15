@@ -24,7 +24,8 @@
  */
 
 import { z } from 'zod'
-import { FormatPoolSchema, type FormatPool } from './format-pool.js'
+import { FormatPoolSchema } from './format-pool-schema.js'
+import type { FormatPool } from './format-pool.js'
 import {
   MAX_PROJECT_LABELS,
   MAX_PROJECT_LABEL_LENGTH,

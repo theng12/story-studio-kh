@@ -2,7 +2,8 @@ import fs from 'fs/promises'
 import path from 'path'
 
 import { withLock, writeJsonAtomic } from '../lib/atomic-store.js'
-import { normaliseFormatPool, type FormatPool, type FormatPoolMember, type LiveFormatPool } from '../contracts/format-pool.js'
+import type { FormatPool, FormatPoolMember, LiveFormatPool } from '../contracts/format-pool.js'
+import { normaliseFormatPool } from '../contracts/format-pool-schema.js'
 import { EpisodeSettingFileUnreadable, episodeDir, isEpisodeCode } from './episode-sketch-pen.js'
 
 /**

@@ -6,7 +6,8 @@ import path from 'node:path'
 import request from 'supertest'
 
 import { useTempDataDir } from './_helpers.js'
-import { FORMAT_POOL_MAX_MEMBERS, normaliseFormatPool } from '../contracts/format-pool.js'
+import { FORMAT_POOL_MAX_MEMBERS } from '../contracts/format-pool.js'
+import { normaliseFormatPool } from '../contracts/format-pool-schema.js'
 import { EpisodeSettingFileUnreadable } from '../services/episode-sketch-pen.js'
 import {
   formatMemberIndex,

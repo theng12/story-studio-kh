@@ -73,7 +73,7 @@ function setField(index: number, field: keyof FormatPoolMember, value: string) {
   const next = current().members.map((m, i) => (i === index ? { ...m, [field]: value || undefined } : m))
   // An empty optional field is removed, not stored as '' — absent keeps the
   // channel's own fallback, which is what "empty box" means to the owner.
-  if (value === '') delete (next[index] as Record<string, any>)[field]
+  if (value === '') delete (next[index] as Record<string, any>)[field as string]
   void save({ enabled: true, members: next as FormatPoolMember[] })
 }
 
