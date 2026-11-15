@@ -49,6 +49,17 @@ export interface OverlayTextZone {
   wrapTuningMultiplier?: number
 }
 
+/** Structural subset of the recipe profile recipe-only Shells carry
+ *  (models/types.ts ThumbnailRecipeProfile). Signed packs and the shipped
+ *  recipe JSONs describe layout and typography as `recipe` prose for the
+ *  image model, never as `textZones`; these are the parts the preview can
+ *  map onto overlay fields. */
+export interface OverlayRecipeProfile {
+  defaultTextPosition?: 'top' | 'center' | 'bottom' | 'bottom-left'
+  defaultTextStyle?: string
+  defaultFontStyle?: string
+}
+
 /** Structural subset of models/types.ts ThumbnailTemplate. */
 export interface OverlayTemplate {
   canvas?: { width: number; height: number }
@@ -60,6 +71,9 @@ export interface OverlayTemplate {
   }
   textZones?: OverlayTextZone[]
   accentStrokes?: Array<{ x: XAnchor; xOffset?: number; y: number; width: number; thickness?: number; color?: string }>
+  /** Recipe-only Shells carry layout/typography here instead of textZones;
+   *  `deriveRecipeOverlay` maps them when — and only when — no zones exist. */
+  recipe?: OverlayRecipeProfile
 }
 
 export interface OverlayText {
@@ -169,15 +183,16 @@ export function layoutTextZone(
 /** Build the full-canvas SVG (dim gradient + accent strokes + text) that is
  *  composited over the background. */
 export function buildOverlaySvg(tmpl: OverlayTemplate, input: OverlayText = {}): string {
-  const canvas = tmpl.canvas || DEFAULT_THUMBNAIL_CANVAS
+  const t = deriveRecipeOverlay(tmpl)
+  const canvas = t.canvas || DEFAULT_THUMBNAIL_CANVAS
   const parts: string[] = []
   parts.push(
     `<svg xmlns="http://www.w3.org/2000/svg" width="${canvas.width}" height="${canvas.height}" viewBox="0 0 ${canvas.width} ${canvas.height}">`,
   )
 
   // ── Gradient dim ────────────────────────────────────────────────────
-  if (tmpl.backgroundDimGradient) {
-    const g = tmpl.backgroundDimGradient
+  if (t.backgroundDimGradient) {
+    const g = t.backgroundDimGradient
     const coverage = g.coverage ?? 0.6
     const strength = Math.min(1, Math.max(0, g.strength ?? 0.7))
     const color = escapeAttr(g.color || '#000000')
@@ -210,7 +225,7 @@ export function buildOverlaySvg(tmpl: OverlayTemplate, input: OverlayText = {}):
   }
 
   // ── Accent strokes (horizontal rules / dividers) ────────────────────
-  for (const s of tmpl.accentStrokes || []) {
+  for (const s of t.accentStrokes || []) {
     const thickness = s.thickness ?? 4
     const color = escapeAttr(s.color || '#ffffff')
     const xOff = s.xOffset ?? 0
@@ -224,10 +239,88 @@ export function buildOverlaySvg(tmpl: OverlayTemplate, input: OverlayText = {}):
   }
 
   // ── Text zones ──────────────────────────────────────────────────────
-  for (const z of tmpl.textZones || []) parts.push(renderTextZone(z, canvas, input))
+  for (const z of t.textZones || []) parts.push(renderTextZone(z, canvas, input))
 
   parts.push(`</svg>`)
   return parts.join('')
+}
+
+/**
+ * Map a recipe-only Shell's layout and typography onto the overlay fields
+ * buildOverlaySvg already draws — one renderer, no second preview path.
+ *
+ * Signed packs and the shipped recipe JSONs describe their layout as
+ * `recipe` (for the image model), not as `textZones`, so without this the
+ * SVG came out empty and the preview route served the bare placeholder for
+ * every recipe Shell. Explicit `textZones` always win: this fills the gap,
+ * it never overrides a template's own layout. A template with neither zones
+ * nor recipe has nothing to draw and stays as it is — honestly blank.
+ *
+ * shortcut: `defaultFontStyle`/`defaultTextStyle` are image-model prose, so
+ * only their common keywords map (serif/sans/condensed families, dark-ink
+ * fills); the exact lettering is the image model's job at render time.
+ */
+export function deriveRecipeOverlay(tmpl: OverlayTemplate): OverlayTemplate {
+  if (tmpl.textZones !== undefined || !tmpl.recipe) return tmpl
+  const recipe = tmpl.recipe
+  const canvas = tmpl.canvas || DEFAULT_THUMBNAIL_CANVAS
+  const position = recipe.defaultTextPosition ?? 'bottom'
+  const style = recipe.defaultTextStyle || ''
+  const fontStyle = recipe.defaultFontStyle || ''
+  // Dark text needs a light band under it to stay readable over the
+  // placeholder; light text gets the usual dark dim. `dark ground`/`dark
+  // outline`/`dark drop shadow` describe the picture, not the fill.
+  const darkFill = /\b(ink|navy|oxblood)\b/i.test(style)
+    || /\bdark\s+(marker|ink|letters?|capitals?|type|text|letterforms?)\b/i.test(style)
+  const fontFamily = recipeFontFamily(fontStyle)
+  const fontWeight = /\b(black|heavy|fat|bold)\b/i.test(fontStyle) ? 900 : 700
+
+  const xMargin = Math.round(canvas.width * 0.05)
+  const yMargin = Math.round(canvas.height * 0.08)
+  const fontSize = Math.round(canvas.height * 0.125)
+  const anchoredLeft = position === 'bottom-left'
+  const zone: OverlayTextZone = {
+    name: 'title',
+    defaultText: '{episode_title}',
+    x: anchoredLeft ? 'left' : 'center',
+    y: position === 'top' ? 'top' : position === 'center' ? 'middle' : 'bottom',
+    xOffset: anchoredLeft ? xMargin : 0,
+    yOffset: position === 'center' ? 0 : yMargin,
+    maxWidth: Math.round(canvas.width * (anchoredLeft ? 0.55 : 0.9)),
+    fontFamily,
+    fontSize,
+    fontWeight,
+    fill: darkFill ? '#14141a' : '#ffffff',
+    letterSpacing: 2,
+    uppercase: true,
+    lineHeight: 1.05,
+    textAnchor: anchoredLeft ? 'start' : 'middle',
+    ...(darkFill ? {} : { shadow: { dx: 0, dy: 4, blur: Math.round(fontSize * 0.12), color: '#000000' } }),
+  }
+
+  const side = position === 'center' ? 'full'
+    : position === 'top' ? 'top'
+    : 'bottom'
+  return {
+    ...tmpl,
+    textZones: [zone],
+    backgroundDimGradient: tmpl.backgroundDimGradient ?? {
+      side,
+      coverage: side === 'full' ? 1 : 0.55,
+      color: darkFill ? '#ffffff' : '#000000',
+      strength: darkFill ? 0.7 : 0.65,
+    },
+  }
+}
+
+/** Closest Mac system face to a recipe's font prose; anything unmapped (and
+ *  condensed/narrow styles, which Impact already is) fall to the thumbnail
+ *  default every Mac ships. */
+function recipeFontFamily(style: string): string {
+  const s = style.toLowerCase()
+  if (/\bsans\b|\bgrotesque\b|\bhelvetica\b|\barial\b/.test(s)) return "'Helvetica Neue', Arial, sans-serif"
+  if (/\bserif\b/.test(s)) return "Georgia, 'Times New Roman', serif"
+  return "Impact, 'Arial Black', 'Helvetica Neue', sans-serif"
 }
 
 function renderTextZone(

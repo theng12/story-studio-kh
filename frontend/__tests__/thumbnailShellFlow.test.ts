@@ -11,8 +11,12 @@ test('Shell browsing uses the shared modal and keeps only the selected Shell on 
   assert.ok(page.indexOf('<ThumbnailTemplatePicker') > modal)
   assert.match(page, /data-testid="selected-shell"/)
   assert.match(picker, /v-model="query" type="search"/)
+  // No stored picture → the card still asks preview.png for its layout over
+  // the placeholder; the pending label is gone, only a failed render says so.
   assert.match(picker, /!t\.shellImage && !t\.previewImages\?\.length/)
-  assert.match(picker, /Preview pending/)
+  assert.match(picker, /if \(!t\.shellImage && !t\.previewImages\?\.length\) return previewUrl\(t\.id\)/)
+  assert.match(picker, /Preview unavailable/)
+  assert.doesNotMatch(picker, />Preview pending</)
   assert.ok(page.indexOf('aria-label="How closely to follow the Shell layout"') > page.indexOf('What should make someone click?'))
 })
 

@@ -56,14 +56,14 @@
       <div class="tte-shell-row">
         <div class="tte-shell-thumb">
           <img
-            v-if="shellPreviewSrc && !shellPreviewFailed"
-            :src="shellPreviewSrc"
+            v-if="shellThumbSrc && !shellPreviewFailed"
+            :src="shellThumbSrc"
             alt="Shell picture preview"
             class="tte-shell-img"
             data-testid="tte-shell-preview"
             @error="shellPreviewFailed = true"
           />
-          <span v-else-if="shellPreviewFailed" class="tte-shell-empty">Shell image unavailable</span>
+          <span v-else-if="shellPreviewFailed" class="tte-shell-empty">{{ workingTemplate?.shellImage ? 'Shell image unavailable' : 'Preview unavailable' }}</span>
           <span v-else class="tte-shell-empty" data-testid="tte-shell-pending">Preview pending</span>
         </div>
         <div class="tte-shell-controls">
@@ -477,10 +477,23 @@ const shellPreviewSrc = computed(() => {
   if (!t?.shellImage) return ''
   return `/api/thumbnail-templates/${encodeURIComponent(t.id)}/preview.png?k=${previewKey.value}`
 })
+/** The small Shell thumb asks the endpoint even with no stored picture: a
+ *  text-only template previews its layout and typography over the placeholder
+ *  (a fork with no artwork shows its layout, not a grey box). An unsaved new
+ *  template has no id to ask, so it keeps the pending label until it exists. */
+const shellThumbSrc = computed(() => {
+  const t = workingTemplate.value
+  if (!t) return ''
+  if (shellPreviewSrc.value) return shellPreviewSrc.value
+  if (isNew.value) return ''
+  return `/api/thumbnail-templates/${encodeURIComponent(t.id)}/preview.png?k=${previewKey.value}`
+})
 /** The canvas previews the text over the Shell's own picture when it has one,
- *  and over the placeholder while the template is text-only. */
+ *  and over the placeholder while the template is text-only — the live overlay
+ *  SVG is drawn on top here, so it must NOT use the composed endpoint image
+ *  (that would paint the overlay twice). */
 const canvasBgSrc = computed(() => (shellPreviewSrc.value && !shellPreviewFailed.value ? shellPreviewSrc.value : placeholderSrc))
-watch(shellPreviewSrc, () => { shellPreviewFailed.value = false })
+watch(shellThumbSrc, () => { shellPreviewFailed.value = false })
 
 /** Live Gateway vision choices (AGENTS §1) — read when the editor opens,
  *  never remembered past it. Only the analysis needs one. */

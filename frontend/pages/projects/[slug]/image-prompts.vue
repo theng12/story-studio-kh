@@ -88,7 +88,7 @@
         </div>
         <div class="shell-card" data-testid="selected-shell">
           <img v-if="selectedShellPreview && !channelImageMissing" :src="selectedShellPreview" :alt="`${selectedShellName} preview`" class="shell-card-media" @error="channelImageMissing = true" />
-          <span v-else class="shell-card-media text-muted text-xs">{{ channelImageMissing ? 'Shell image unavailable' : 'Preview pending' }}</span>
+          <span v-else class="shell-card-media text-muted text-xs">{{ shellPreviewLabel }}</span>
           <span class="shell-card-copy">
             <strong>{{ selectedShellName }}</strong>
             <span class="text-muted text-xs">{{ selectedShellNote || 'Choose a layout from your Shell library.' }}</span>
@@ -659,6 +659,12 @@ const selectedShellNote = ref('')
 const selectedShellPreview = ref('')
 const shellLibraryOpen = ref(false)
 const shellLibraryRevision = ref(0)
+/** Honest states only: nothing selected yet → pending; a failed request says
+ *  which picture failed, never a blank box pretending to be a preview. */
+const shellPreviewLabel = computed(() => {
+  if (!channelImageMissing.value) return 'Preview pending'
+  return selectedShellImage.value ? 'Shell image unavailable' : 'Preview unavailable'
+})
 async function loadSelectedShellImage(templateId: string): Promise<void> {
   selectedShellImage.value = null
   selectedShellName.value = 'No Shell selected'
@@ -684,7 +690,11 @@ async function loadSelectedShellImage(templateId: string): Promise<void> {
       selectedShellName.value = t.name
       selectedShellNote.value = t.layoutNote || ''
       selectedShellImage.value = t.shellImage || null
-      selectedShellPreview.value = t.shellImage ? `/api/thumbnail-templates/${encodeURIComponent(templateId)}/preview.png` : t.previewImages?.[0] || ''
+      // No stored picture → the endpoint anyway: it composites this Shell's
+      // layout and typography over the placeholder (a fork with no artwork
+      // shows its layout, not a grey box).
+      const previewEndpoint = `/api/thumbnail-templates/${encodeURIComponent(templateId)}/preview.png`
+      selectedShellPreview.value = t.shellImage || !t.previewImages?.length ? previewEndpoint : t.previewImages[0]!
     }
   } catch (e: any) {
     if (form.thumbnail.thumbnail_shell_id !== templateId) return

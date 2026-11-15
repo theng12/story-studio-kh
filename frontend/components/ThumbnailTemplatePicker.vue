@@ -20,19 +20,20 @@
         @click="select(t.id)"
       >
         <div class="ttp-preview-wrap">
-          <!-- preview.png serves the Shell's own picture when one is declared;
-               a 502 there means the stored image is unavailable, so show that
-               plainly instead of a broken picture. -->
-          <span v-if="!t.shellImage && !t.previewImages?.length" class="ttp-preview ttp-preview-missing">Preview pending</span>
+          <!-- preview.png serves the Shell's own picture when one is declared,
+               and composites this template's layout and typography over the
+               neutral placeholder when there is no stored picture at all (a
+               fork with no artwork shows its layout, not a grey box). A failed
+               render says so plainly instead of a broken picture. -->
           <img
-            v-else-if="!failedPreviewIds.has(t.id)"
-            :src="t.shellImage ? previewUrl(t.id) : t.previewImages?.[0]"
+            v-if="!failedPreviewIds.has(t.id)"
+            :src="previewSrc(t)"
             :alt="`${t.name} preview`"
             class="ttp-preview"
             loading="lazy"
             @error="failedPreviewIds.add(t.id)"
           />
-          <span v-else class="ttp-preview ttp-preview-missing" role="status">Shell image unavailable</span>
+          <span v-else class="ttp-preview ttp-preview-missing" role="status">{{ failedPreviewLabel(t) }}</span>
           <span v-if="isRecommended(t)" class="ttp-rec-badge" aria-label="Recommended for this niche">★</span>
           <span v-if="t.id === modelValue" class="ttp-active-badge" aria-label="Selected">✓</span>
         </div>
@@ -161,6 +162,20 @@ function previewUrl(id: string): string {
   // without a hard reload. In production the JSONs are immutable in
   // the bundle so the URL is effectively stable.
   return `/api/thumbnail-templates/${encodeURIComponent(id)}/preview.png?k=${_cacheKey.value}`
+}
+
+/** Where a card's picture comes from: the Shell's own picture through the
+ *  endpoint, else a stored finished example, else the endpoint anyway — a
+ *  template with no stored picture still previews its layout and typography
+ *  over the placeholder, so a card only ever says a render failed ("Preview
+ *  unavailable") when the request itself failed. */
+function previewSrc(t: ThumbnailTemplateLite): string {
+  if (!t.shellImage && !t.previewImages?.length) return previewUrl(t.id)
+  return t.shellImage ? previewUrl(t.id) : t.previewImages![0]!
+}
+
+function failedPreviewLabel(t: ThumbnailTemplateLite): string {
+  return t.shellImage ? 'Shell image unavailable' : 'Preview unavailable'
 }
 
 // One cache-key per mount — fresh values on every dialog open.
