@@ -10,6 +10,7 @@ import assert from 'node:assert/strict'
 import { before, test } from 'node:test'
 
 import { useTempDataDir } from './_helpers.js'
+import { waitFor } from './_timing.js'
 
 let jq: typeof import('../services/job-queue.js')
 let pm: typeof import('../services/project-manager.js')
@@ -73,4 +74,31 @@ test('an existing assembly means no adoption, and the repair still queues', asyn
   assert.equal(job.params.pipeline_chain, undefined, 'nothing is adopted when an assembly already exists')
   assert.equal(job.params.pipeline_chain_adopted_from, undefined)
   assert.equal((await jq.findJobs(slug, row => row.job_id === parentId))[0]!.params.pipeline_chain.length, 1)
+})
+
+test('a completed bulk repair drains exactly one Final Video child', async () => {
+  const parentId = await failedParent('EP0030')
+  const restoreImage = jq._setExecutorForTesting('continuity_render', async job => { job.result = { ...(job.result || {}), complete: true } })
+  const restoreVideo = jq._setExecutorForTesting('video_assembly', async job => { job.result = { ...(job.result || {}), complete: true } })
+  try {
+    const job = await enqueueContinuityRender(slug, 'EP0030', { model: 'mock-image-model', scene_ids: ['sc-30'] })
+    await waitFor(() => jq.getJob(job.job_id)?.status === 'done', { label: 'the repaired image batch to finish' })
+    await waitFor(async () => (await jq.findJobs(slug, row => row.type === 'video_assembly' && row.episode_id === 'EP0030')).length === 1,
+      { label: 'exactly one Final Video child' })
+    const assemblies = await jq.findJobs(slug, row => row.type === 'video_assembly' && row.episode_id === 'EP0030')
+    assert.equal(assemblies.length, 1)
+    assert.equal(assemblies[0]!.params.pipeline_batch_id, 'batch-1')
+    assert.equal((await jq.findJobs(slug, row => row.job_id === parentId))[0]!.params.pipeline_chain.length, 1,
+      'the failed parent remains historical')
+  } finally { restoreImage(); restoreVideo() }
+})
+
+test('a failed bulk repair queues no assembly', async () => {
+  await failedParent('EP0031')
+  const restoreImage = jq._setExecutorForTesting('continuity_render', async () => { throw new Error('image render failed') })
+  try {
+    const job = await enqueueContinuityRender(slug, 'EP0031', { model: 'mock-image-model', scene_ids: ['sc-31'] })
+    await waitFor(() => jq.getJob(job.job_id)?.status === 'error', { label: 'the failed image batch' })
+    assert.equal((await jq.findJobs(slug, row => row.type === 'video_assembly' && row.episode_id === 'EP0031')).length, 0)
+  } finally { restoreImage() }
 })
