@@ -197,6 +197,8 @@ async function stockCredits(sha256: string): Promise<number> {
     const root = await getFootageRoot()
     const raw = JSON.parse(await fs.readFile(path.join(root, `${sha256}.json`), 'utf8'))
     const credits = Number((raw as any)?.credits)
+    // model-drift-allow: a local clip's own sidecar publishes what it cost; no provider is
+    // called for footage already on this Mac, so an absent figure is a real zero, not a guess
     return Number.isFinite(credits) && credits >= 0 ? credits : 0
   } catch {
     return 0
@@ -378,8 +380,8 @@ router.post('/projects/:slug/episodes/:code/timeline/preflight', async (req, res
     )
 
     const result = preflightTimeline(timeline, {
-      imageCredits: () => imageCreditsPerImage ?? 0,
-      videoCreditsPerSecond: () => videoCreditsPerSecond ?? 0,
+      imageCredits: () => imageCreditsPerImage ?? null,
+      videoCreditsPerSecond: () => videoCreditsPerSecond ?? null,
       stockCredits: sha256 => stockById.get(sha256) ?? 0,
       segmentSeconds: mediaType => SEGMENT_SECONDS[mediaType],
       assemblySeconds: totalSeconds => totalSeconds * ASSEMBLY_SECONDS_PER_EPISODE_SECOND,

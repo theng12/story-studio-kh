@@ -850,6 +850,8 @@ void electronApp.whenReady().then(async () => {
       // 1.4.402 — the warmups wait for the window's first paint with the rest
       // of the deferred boot work instead of starting during startup.
       registerDeferredBootWork({
+        // model-drift-allow: a deferred-boot work label, not a catalogue id — nothing is
+        // selected by it and no product is named by it
         name: 'genstudio-catalog-refresh',
         run: async () => startGenStudioCatalogRefreshScheduler(e => logCrash('catalogue-refresh', e)),
       })

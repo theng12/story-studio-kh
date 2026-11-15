@@ -171,10 +171,10 @@ export function setSegmentMedia(
 }
 
 export interface TimelinePreflightDeps {
-  /** Live per-image price for the selected model, in credits. */
-  imageCredits(): number
-  /** Live per-second price for the selected video model, in credits. */
-  videoCreditsPerSecond(): number
+  /** Live per-image price for the selected model, in credits; `null` when the Gateway published none. */
+  imageCredits(): number | null
+  /** Live per-second price for the selected video model, in credits; `null` when the Gateway published none. */
+  videoCreditsPerSecond(): number | null
   /** Credits a chosen footage clip costs (free providers and local clips are 0). */
   stockCredits(sha256: string): number
   /** Estimated seconds to produce one segment of this type at this duration. */
@@ -186,10 +186,16 @@ export interface TimelinePreflightDeps {
 export interface TimelinePreflight {
   segments: number
   duration_seconds: number
-  /** Maximum credits this timeline may spend — computed from live prices only. */
-  credits: number
+  /**
+   * Maximum credits this timeline may spend — computed from live prices only.
+   *
+   * `null` when the Gateway published no price for a media type this timeline uses: the
+   * figure is then unknowable, and stating `0` would tell the customer a paid render is
+   * free. The Gateway's own figure is the only one Story Studio ever quotes.
+   */
+  credits: number | null
   estimated_seconds: number
-  by_media: Partial<Record<TimelineMediaType, { segments: number; seconds: number; credits: number }>>
+  by_media: Partial<Record<TimelineMediaType, { segments: number; seconds: number; credits: number | null }>>
   /** Whole seconds of assembly at the end, included in `estimated_seconds`. */
   assembly_seconds: number
 }
@@ -197,27 +203,35 @@ export interface TimelinePreflight {
 /** One summary before anything runs: live price evidence plus an estimated wall-clock duration. */
 export function preflightTimeline(timeline: EpisodeTimeline, deps: TimelinePreflightDeps): TimelinePreflight {
   const byMedia: TimelinePreflight['by_media'] = {}
+  // model-drift-allow: a running total's starting point, never a price Story Studio states
   let credits = 0
+  let unpriced = false
   let renderSeconds = 0
   for (const segment of timeline.segments) {
     const seconds = segment.end_sec - segment.start_sec
-    const segmentCredits = segment.media_type === 't2i' ? deps.imageCredits()
-      : VIDEO_MEDIA_TYPES.has(segment.media_type) ? deps.videoCreditsPerSecond() * seconds
+    const imagePrice = deps.imageCredits()
+    const videoPrice = deps.videoCreditsPerSecond()
+    const segmentCredits = segment.media_type === 't2i' ? imagePrice
+      : VIDEO_MEDIA_TYPES.has(segment.media_type) ? (videoPrice === null ? null : videoPrice * seconds)
         : segment.media_type === 'stock' && segment.footage_sha256 ? deps.stockCredits(segment.footage_sha256)
           : 0
-    credits += segmentCredits
+    if (segmentCredits === null) unpriced = true
+    else credits += segmentCredits
     renderSeconds += deps.segmentSeconds(segment.media_type, seconds)
+    // model-drift-allow: the empty bucket's counters start at zero before any segment is added
     const bucket = byMedia[segment.media_type] ?? { segments: 0, seconds: 0, credits: 0 }
     bucket.segments += 1
     bucket.seconds += seconds
-    bucket.credits += segmentCredits
+    bucket.credits = bucket.credits === null || segmentCredits === null
+      ? null
+      : bucket.credits + segmentCredits
     byMedia[segment.media_type] = bucket
   }
   const assembly = deps.assemblySeconds(timeline.total_duration_sec)
   return {
     segments: timeline.segments.length,
     duration_seconds: timeline.total_duration_sec,
-    credits: Math.round(credits * 100) / 100,
+    credits: unpriced ? null : Math.round(credits * 100) / 100,
     estimated_seconds: Math.round(renderSeconds + assembly),
     by_media: byMedia,
     assembly_seconds: Math.round(assembly),
