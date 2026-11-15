@@ -8679,6 +8679,10 @@ export const EPISODE_CODE_JOB_TYPES: ReadonlySet<JobType> = new Set<JobType>([
   'composition_generate', 'contextual_cues', 'translate_episode',
   'music_video', 'music_episode_build', 'music_scene_polish',
   'thumbnail_score', 'story_entities_extract',
+  // 1.4.403 — the Timeline's per-segment renders and its assembly all name the
+  // episode they belong to, and their executors resolve that episode's paths.
+  'timeline_image', 'timeline_sketch', 'timeline_chart', 'timeline_stock',
+  'timeline_video', 'timeline_assemble',
 ])
 
 /**
