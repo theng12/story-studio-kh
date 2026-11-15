@@ -3335,6 +3335,19 @@ export interface Job {
     unsettled: string[]
   }
   /**
+   * 2026-11-15 — a terminal DISCARD, the owner's "discard must be terminal".
+   *
+   * Unlike `hidden_at` (which only takes the row off the list) and unlike the
+   * DELETE that used to remove the record, a discard ENDS the row: status
+   * `cancelled`, evidence and output list retained, and this marker says who
+   * ended it and why. A second discard reads it and changes nothing.
+   */
+  discarded?: {
+    at: string
+    by: string
+    reason?: string
+  }
+  /**
    * v1.2.6 — the result of the last provider re-check run for a FINISHED job
    * whose stored evidence was still non-terminal.
    *

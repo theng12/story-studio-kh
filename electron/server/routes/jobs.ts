@@ -1123,6 +1123,56 @@ router.post('/projects/:slug/jobs/:jobId/cancel', async (req, res, next) => {
   }
 })
 
+// v1.4.402 — terminal DISCARD (owner 2026-11-15: "discard must be terminal …
+// it also leads to gateway terminally discard the job as well"). Unlike Cancel,
+// which only *requests* a stop and waits for a worker that may be gone, this
+// ENDS the Story row (`cancelled`, `discarded` marker retained, never deleted)
+// and asks the Gateway to end its linked job too. The Gateway's own answer comes
+// back with the result — including `upstream: "none"` when nothing was sent —
+// so the page shows what actually happened rather than a hopeful half-fix.
+type DiscardBody = { reason?: unknown }
+
+function parseDiscardBody(body: unknown): { value: { reason?: string } } | { error: string } {
+  if (body === undefined || body === null) return { value: {} }
+  if (typeof body !== 'object' || Array.isArray(body)) return { error: 'Invalid request body.' }
+  const reason = (body as DiscardBody).reason
+  if (reason === undefined || reason === null || reason === '') return { value: {} }
+  if (typeof reason !== 'string') return { error: 'reason must be text.' }
+  const trimmed = reason.trim()
+  return { value: trimmed ? { reason: trimmed.slice(0, 500) } : {} }
+}
+
+router.post('/projects/:slug/jobs/:jobId/discard', async (req, res, next) => {
+  const existing = (await jq.findJobs(req.params.slug, job => job.job_id === req.params.jobId))[0]
+  if (!existing || existing.project_slug !== req.params.slug) return res.status(404).json({ detail: 'Job not found' })
+  const parsed = parseDiscardBody(req.body)
+  if ('error' in parsed) return res.status(400).json({ detail: parsed.error })
+  try {
+    const result = await jq.discardJobTerminal(req.params.slug, req.params.jobId, parsed.value)
+    res.json({ ok: true, ...result })
+  } catch (error) {
+    if (sendJobControlError(res, error)) return
+    next(error)
+  }
+})
+
+// The `/jobs/all` sibling, shaped like Cancel above: the Jobs page lists
+// fleet-wide rows through this path too, and a stuck one must not be the row
+// that has no way out.
+router.post('/jobs/all/:jobId/discard', async (req, res, next) => {
+  const existing = await findUniversalJob(req.params.jobId)
+  if (!existing) return res.status(404).json({ detail: 'Job not found' })
+  const parsed = parseDiscardBody(req.body)
+  if ('error' in parsed) return res.status(400).json({ detail: parsed.error })
+  try {
+    const result = await jq.discardJobTerminal(existing.project_slug, req.params.jobId, parsed.value)
+    res.json({ ok: true, ...result })
+  } catch (error) {
+    if (sendJobControlError(res, error)) return
+    next(error)
+  }
+})
+
 // v1.2.6 — see the /jobs/all sibling above.
 router.post('/projects/:slug/jobs/:jobId/recheck-provider-status', async (req, res, next) => {
   const existing = (await jq.findJobs(req.params.slug, job => job.job_id === req.params.jobId))[0]

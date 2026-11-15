@@ -51,7 +51,12 @@ import { isChatTextJob, isLocalTextModel, isNonRetryableError, resolveJobAutoRet
 import { getAllAppSettings, getPaidImageReplacementSetting, onAppSettingWritten, setAppSettings } from './app-settings.js'
 import { classifyJobControl, classifyJobControls } from './job-control.js'
 import { getJobCancellationAuditor, hasJobCancellationAuditor, readCancellationAudit } from './job-cancellation-auditors.js'
-import { reconcilePendingJobCancellation } from './job-cancellation-reconciler.js'
+import {
+  reconcilePendingJobCancellation,
+  requestGatewayJobDiscard,
+  summariseGatewayDiscard,
+  type GatewayDiscardSummary,
+} from './job-cancellation-reconciler.js'
 import { musicResultsAwaitingImport } from './music-library.js'
 import {
   isNeverCreatedProviderTask,
@@ -849,14 +854,20 @@ function hasStableImageOutputIdentity(job: Pick<Job, 'type' | 'params'>): boolea
 }
 
 /** Continue control-plane polling until every accepted sibling is terminal. */
-function requiresCancellationReconciliation(job: Pick<Job, 'genstudio_jobs' | 'remote_cancellations'>): boolean {
+function requiresCancellationReconciliation(job: Pick<Job, 'genstudio_jobs' | 'remote_cancellations' | 'status'>): boolean {
   // A restart can occur after the final provider status was persisted but
   // before Story recorded its own terminal state. One final read is required
   // to settle that durable evidence through the same cancellation/audit path.
-  return hasCancellationContext(job)
-    ? hasUnsettledProviderWork(job) || (job.genstudio_jobs || []).length > 0
-    : hasRecoverableUnsettledGenStudioEvidence(job)
-      || (job.genstudio_jobs || []).some(shouldRecheckStoredTranscriptionAbsence)
+  if (hasCancellationContext(job)) return hasUnsettledProviderWork(job) || (job.genstudio_jobs || []).length > 0
+  if (hasRecoverableUnsettledGenStudioEvidence(job) || (job.genstudio_jobs || []).some(shouldRecheckStoredTranscriptionAbsence)) return true
+  // v1.4.402 — the stuck `running` row (seven measured 2026-11-15). No cancel
+  // was ever asked for, so the branches above are all false, yet the linked
+  // Gateway work is already terminal and there is nothing left to wait for:
+  // without this the row sat at `running` for ever with no control that could
+  // end it. One final pass settles it from the Gateway's own verdict.
+  return job.status === 'running'
+    && (job.genstudio_jobs || []).length > 0
+    && !(job.genstudio_jobs || []).some(isUnsettledProviderEntry)
 }
 
 function mergeGenStudioReconciliationEvidence(
@@ -987,6 +998,11 @@ async function reconcileCancellationJob(jobId: string): Promise<void> {
   const job = jobs.get(jobId)
   if (!job || (job.status !== 'running' && job.status !== 'paused') || !requiresCancellationReconciliation(job)) return
   cancellationReconciling.add(jobId)
+  // Set when the Gateway's verdict was terminal but this row still would not
+  // end: retrying the same read can only get the same answer, so the 5 s
+  // reschedule in `finally` is withheld rather than writing the same hold line
+  // for ever. A later event (Retry, Resume, a fresh pass) schedules it again.
+  let stopReschedulingAfterTerminalVerdict = false
   try {
     // Do not claim the one cancellation POST before credentials exist. A
     // durable queued intent is safely retryable; a stranded submitting claim
@@ -1060,12 +1076,33 @@ async function reconcileCancellationJob(jobId: string): Promise<void> {
       const line = 'Paused. Everything already sent to the Gateway has finished; Resume checks the files and sends only what is missing.'
       if (!job.output_lines.slice(-8).includes(line)) job.output_lines.push(line)
     } else if (!job.local_execution_complete) {
-      // A live generator can receive its provider success before it has
-      // downloaded/checkpointed the authoritative output. Persist that remote
-      // truth now, but leave the duplicate lock and audit for runJob's local
-      // boundary. Recovered jobs explicitly set this marker at load time.
-      job.output_lines.push('The Gateway settled provider work; waiting for the active local executor to finish saving output before verification.')
+      if (activeRunJobIds.has(job.job_id)) {
+        // A live generator can receive its provider success before it has
+        // downloaded/checkpointed the authoritative output. Persist that remote
+        // truth now, but leave the duplicate lock and audit for runJob's local
+        // boundary. Recovered jobs explicitly set this marker at load time.
+        job.output_lines.push('The Gateway settled provider work; waiting for the active local executor to finish saving output before verification.')
+      } else {
+        // No executor is left to carry this row over its local boundary, so the
+        // Gateway's own terminal verdict is all there is to settle from (the
+        // stuck `running` rows measured 2026-11-15). Say where the verdict came
+        // from; `finalizeSettledProviderJob` then reads the retained evidence
+        // and never invents an outcome the Gateway did not give.
+        job.local_execution_complete = true
+        const verdict = 'Story Studio reconciled this row from the Gateway\'s terminal verdict; no provider outcome was invented.'
+        if (!job.output_lines.includes(verdict)) job.output_lines.push(verdict)
+        await finalizeSettledProviderJob(job.job_id)
+        // Terminal-but-not-classifiable is the one outcome a retry cannot
+        // change — the same read answers the same way — so stop the 5 s loop.
+        if (jobs.get(jobId)?.status === 'running') stopReschedulingAfterTerminalVerdict = true
+      }
     } else {
+      // Only a row with no executor left would otherwise sit here for ever; a
+      // live job's own completion log does not need this sentence.
+      if (!activeRunJobIds.has(job.job_id)) {
+        const verdict = 'Story Studio reconciled this row from the Gateway\'s terminal verdict; no provider outcome was invented.'
+        if (!job.output_lines.includes(verdict)) job.output_lines.push(verdict)
+      }
       await finalizeSettledProviderJob(job.job_id)
     }
     await persistJob(job)
@@ -1087,7 +1124,8 @@ async function reconcileCancellationJob(jobId: string): Promise<void> {
   } finally {
     cancellationReconciling.delete(jobId)
     const latest = jobs.get(jobId)
-    if ((latest?.status === 'running' || latest?.status === 'paused') && requiresCancellationReconciliation(latest)) {
+    if (!stopReschedulingAfterTerminalVerdict
+      && (latest?.status === 'running' || latest?.status === 'paused') && requiresCancellationReconciliation(latest)) {
       const existing = cancellationReconcileTimers.get(jobId)
       if (!existing) {
         const timer = setTimeout(() => {
@@ -7091,7 +7129,11 @@ async function runJob(type: JobType, job: Job): Promise<void> {
       clearQuotaWaitTimer(job.job_id)
     }
     if (
-      (job.status === 'running' && hasUnsettledProviderWork(job))
+      // `requiresCancellationReconciliation` is a superset of
+      // `hasUnsettledProviderWork` (the cancellation-context branch returns it
+      // verbatim), and now also covers a row whose linked Gateway work is
+      // already terminal with no executor left — the stuck `running` rows.
+      (job.status === 'running' && requiresCancellationReconciliation(job))
       || (job.status === 'paused' && job.pause_origin === 'stall' && requiresCancellationReconciliation(job))
     ) scheduleCancellationReconciliation(job.job_id)
     // v1.2.6 — a job can finish while one recorded provider task was still
@@ -10550,6 +10592,118 @@ async function forceAbandonJobUnlocked(job: Job): Promise<Job> {
   await persistJob(job)
   emitUpdate(job)
   return serializeJob(job)
+}
+
+/** The Gateway jobs this Story row is linked to — the ids a discard must end too. */
+function linkedGatewayJobIds(job: Job): string[] {
+  const ids = new Set<string>()
+  for (const entry of job.genstudio_jobs || []) {
+    if (entry.id && !entry.id.startsWith('pending:')) ids.add(entry.id)
+  }
+  for (const record of Object.values(job.remote_cancellations || {})) {
+    if (record.provider_job_id && !record.provider_job_id.startsWith('pending:')) ids.add(record.provider_job_id)
+  }
+  return [...ids]
+}
+
+export interface JobDiscardResult {
+  job: Job
+  /** The Story row was already finished, so nothing — Story or Gateway — changed. */
+  already_terminal: boolean
+  upstream: GatewayDiscardSummary['upstream']
+  detail: string
+}
+
+/**
+ * Terminal DISCARD (owner, 2026-11-15: "discard must be terminal").
+ *
+ * Two things, in this order and both honest on their own. (a) The Story row ENDS:
+ * status `cancelled`, a retained `discarded: {at, by, reason}` marker, evidence,
+ * output list and files untouched — never deleted, never merely hidden. (b) The
+ * linked Gateway job is asked to end too, and the Gateway's own answer
+ * (`upstream`, `detail`, `already_terminal`) comes back with the result. Story
+ * ends first and unconditionally, so a Gateway that refuses, errors or is
+ * unreachable still leaves a finished row and a reply that says exactly that.
+ */
+export async function discardJobTerminal(
+  projectSlug: string,
+  jobId: string,
+  options: { reason?: string } = {},
+): Promise<JobDiscardResult> {
+  await loadPersistedJobs(projectSlug)
+  const existing = jobs.get(jobId)
+  if (!existing || existing.project_slug !== projectSlug) {
+    throw Object.assign(new Error('Job not found'), { status: 404, expose: true })
+  }
+  // A second discard changes nothing, and never re-asks the Gateway either.
+  if (existing.discarded || TERMINAL_JOB_STATUSES.has(existing.status)) {
+    return {
+      job: serializeJob(existing), already_terminal: true, upstream: 'none',
+      detail: 'This row is already finished, so nothing changed.',
+    }
+  }
+  // A private-fleet render keeps its own fence and its own cancel path; ending
+  // the row here would strand that state machine (same rule Abandon follows).
+  if (hasFinalRenderFence(existing)) throw finalRenderWaitConflict()
+
+  const gatewayIds = linkedGatewayJobIds(existing)
+  const reason = options.reason?.trim() || undefined
+  let ended = false
+  await withPaidImageWaitSettingGate(() => withPaidImageWaitJobMutex(jobId, async () => {
+    const live = jobs.get(jobId)
+    if (!live || live.discarded || TERMINAL_JOB_STATUSES.has(live.status)) return
+    ended = true
+    clearPaidImageWaitTimer(live.job_id)
+    clearQuotaWaitTimer(live.job_id)
+    cancelled.add(live.job_id)
+    pauseRequested.delete(live.job_id)
+    const queue = queues[live.type]
+    if (queue) queue.pending = queue.pending.filter(candidate => candidate.job_id !== live.job_id)
+    killChildrenFor(live.job_id)
+    const timer = cancellationReconcileTimers.get(live.job_id)
+    if (timer) {
+      clearTimeout(timer)
+      cancellationReconcileTimers.delete(live.job_id)
+    }
+    const at = new Date().toISOString()
+    live.discarded = { at, by: 'Story Studio', ...(reason ? { reason } : {}) }
+    live.status = 'cancelled'
+    live.pause_requested = false
+    live.pause_origin = undefined
+    live.local_execution_complete = true
+    live.reconciliation_error = undefined
+    delete live.history_evidence_check
+    live.finished_at = at
+    live.error = null
+    live.output_lines.push(`Discarded at your request${reason ? ` (${reason})` : ''}. `
+      + 'Story Studio ended this job for good: it is Cancelled, not deleted — its log, its files and its '
+      + 'Gateway evidence all stay, and Restore is not needed because the row remains in history.')
+    await persistJob(live)
+    emitUpdate(live)
+  }))
+  const job = jobs.get(jobId)
+  if (!job) throw Object.assign(new Error('Job not found'), { status: 404, expose: true })
+
+  // (b) the Gateway's own answer, whatever it is. Every failure path inside
+  // `requestGatewayJobDiscard` resolves to an honest sentence rather than a throw.
+  let summary: GatewayDiscardSummary
+  if (!gatewayIds.length) {
+    summary = summariseGatewayDiscard([])
+  } else {
+    const apiKey = await getApiKey('genstudio').catch(() => '')
+    summary = apiKey
+      ? summariseGatewayDiscard(await Promise.all(
+        gatewayIds.map(id => requestGatewayJobDiscard(id, apiKey, 'Story Studio', reason)),
+      ))
+      : {
+        upstream: 'none', already_terminal: false,
+        detail: 'Story Studio could not ask the Gateway to discard this job because no Gateway API Key is saved on this Mac.',
+      }
+  }
+  job.output_lines.push(`Gateway discard: ${summary.detail}`)
+  await persistJob(job)
+  emitUpdate(job)
+  return { job: serializeJob(job), already_terminal: !ended, upstream: summary.upstream, detail: summary.detail }
 }
 
 /** Remove terminal history only. Generated files and provider evidence remain intact. */

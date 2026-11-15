@@ -6,6 +6,7 @@ What's new in each release. Newest first.
 
 ## v1.4.402 — 2026-11-15
 
+- A stuck job can now be **Discarded** straight from the Jobs page: the row ends for good as Cancelled with your reason kept on the record (nothing is deleted), and Story Studio asks the Gateway to discard its linked job too — the Gateway's own answer, including when it declines or was not told, is shown on the row. A row whose linked Gateway job has already finished settles itself to terminal without anyone pressing anything.
 - An update now holds Story's job queue before it starts: no new job begins, in-flight work gets up to 30 seconds to finish or keep an id the next start follows, and dispatch starts again by itself — nothing is cancelled, queued work stays queued, and an interrupted install never leaves the app refusing to work.
 
 ## v1.4.401 — 2026-11-14
