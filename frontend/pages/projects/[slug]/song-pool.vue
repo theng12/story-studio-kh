@@ -213,7 +213,7 @@
           <span class="mp-hint" style="margin: 0">{{ shown.length }} of {{ rows.length }} shown.</span>
         </div>
         <div class="mp-hint" style="margin-top: 8px">
-          More ▾ = Play · Regenerate · Edit Brief · Reject · Show in Finder. "In window" = used in the last {{ data.episode_defaults.no_repeat_episodes }} episodes, so the next draw skips it.
+          More ▾ = Play · Regenerate · Edit Brief · Reject · Show in Finder. "In window" = used or drawn in the last {{ data.episode_defaults.no_repeat_episodes }} episodes, so the next draw skips it.
         </div>
       </section>
     </template>
@@ -370,7 +370,10 @@ const manualMusicPriceClass = computed<'free' | 'paid' | 'unknown'>(() => {
 const songs = computed<any[]>(() => data.value?.pool?.songs || [])
 const bands = computed<any[]>(() => data.value?.formula?.song_formula?.tempo_bands || [])
 const windowCodes = computed<string[]>(() => data.value?.window || [])
+// Blocked by the builder's own window: rendered uses OR a saved draft in the last N episodes.
+const blockedMap = computed<Record<string, string>>(() => data.value?.blocked || {})
 const inWindow = (s: any) => s.episodes.some((e: any) => e.project_slug === slug.value && windowCodes.value.includes(e.code))
+  || !!blockedMap.value[`${data.value?.pool?.pool_id}/${s.id}`]
 const last = (s: any) => s.episodes.reduce((a: any, e: any) => (!a || e.used_at > a.used_at ? e : a), null)?.code || ''
 const values = (k: string) => [...new Set(songs.value.map(s => s[k]).filter(Boolean))].sort() as string[]
 const drawable = (s: any) => s.status === 'ready' && s.enabled && !s.file_missing && s.duration_s > 0

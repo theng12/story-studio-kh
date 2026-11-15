@@ -25,7 +25,7 @@ import { withLock } from '../lib/atomic-store.js'
 import { freshActionFingerprint, freshActionMatch, stampFreshGenerationAction } from '../lib/fresh-generation-action.js'
 import { planCells, coverageGrid } from '../services/song-coverage.js'
 import { BRIEFS_PER_CALL, SUNG_BRIEFS_PER_CALL, writeBriefs } from '../services/song-brief.js'
-import { comboCount, poolNeeds, singleEpisodeNeed, nextEpisodeShortfall, windowStockDeficit, EpisodeDefaultsSchema, STARTING_EPISODE_DEFAULTS } from '../contracts/song-formula.js'
+import { comboCount, poolNeeds, singleEpisodeNeed, nextEpisodeShortfall, windowStockDeficit } from '../contracts/song-formula.js'
 import { songFormulaFor } from '../generators/song-pool-generate.js'
 import {
   readSongPoolBatchCheckpoint,
@@ -38,6 +38,8 @@ import { getApiKey } from '../services/app-secrets-store.js'
 import { listMusicModels, type GenStudioMusicModel } from '../lib/genstudio-client.js'
 import { musicModelCanServe } from '../contracts/music-model-choice.js'
 import { readManualGenerationRedoIntent } from '../lib/fresh-generation-action.js'
+import { channelStartingSettings, loadEpisodeContext } from '../services/music-episode-store.js'
+import { songKey } from '../services/music-episode.js'
 import type { Job, JobType } from '../models/types.js'
 
 export const router = Router()
@@ -49,12 +51,6 @@ async function project(req: any, res: any): Promise<string | null> {
   const slug = String(req.params.slug || '')
   if (!(await pm.getProject(slug))) { res.status(404).json({ detail: 'Project not found' }); return null }
   return slug
-}
-
-async function episodeDefaultsFor(slug: string) {
-  const niche: any = await getEffectiveNiche(slug).catch(() => null)
-  const parsed = EpisodeDefaultsSchema.safeParse(niche?.musicFormat?.episodeDefaults)
-  return { defaults: parsed.success ? parsed.data : STARTING_EPISODE_DEFAULTS, saved: parsed.success }
 }
 
 /** The running (or paused/queued) Song Pool batch, if any. */
@@ -86,20 +82,24 @@ router.get('/projects/:slug/song-pool', async (req, res) => {
     const slug = await project(req, res); if (!slug) return
     const pool = await sp.readPool(slug)
     const formula = await songFormulaFor(slug)
-    const { defaults, saved: defaultsSaved } = await episodeDefaultsFor(slug)
-    const window = sp.episodeWindow([pool], slug, defaults.no_repeat_episodes)
+    // Same target, pools and history the Episode Builder uses (channel settings, not the formula's
+    // narrower legacy episode defaults): a channel saved at 150 minutes must not be judged by the
+    // 65-minute starting figure, and a drafted episode holds its songs just like a rendered one.
+    const { settings } = await channelStartingSettings(slug)
+    const ctx = await loadEpisodeContext(slug, '', settings)
+    const window = ctx.window_codes
     const ready = pool.songs.filter(s => s.status === 'ready')
-    const drawable = ready.filter(sp.isDrawable)
-    const measured = ready.filter(s => Number(s.duration_s) > 0)
+    const measured = ctx.songs.filter(s => s.drawable && s.duration_s > 0)
     const avgSong = measured.length ? measured.reduce((t, s) => t + s.duration_s!, 0) / measured.length : 0
     const timed = pool.songs.filter(s => Number(s.generation_s) > 0).slice(-50)
-    const needs = avgSong ? poolNeeds(defaults.target_length_s, defaults.no_repeat_episodes, avgSong) : null
+    const needs = avgSong ? poolNeeds(settings.target_length_s, settings.no_repeat_episodes, avgSong) : null
     // Two different questions, never one number: the WINDOW's stock size (`needed`) versus the
     // pool's drawable total, and the NEXT episode's requirement versus the songs actually free for
     // it. A 500-song pool that blocks 490 in the no-repeat window has no window deficit but is far
     // from ready for one episode, so the two deficits are reported separately.
-    const freeNext = drawable.filter(s => !sp.inWindow(s, window, slug)).length
-    const singleNeeded = avgSong ? singleEpisodeNeed(defaults.target_length_s, avgSong) : null
+    const drawableTotal = ctx.songs.filter(s => s.drawable).length
+    const freeNext = ctx.songs.filter(s => s.drawable && !ctx.blocked.has(songKey(s))).length
+    const singleNeeded = avgSong ? singleEpisodeNeed(settings.target_length_s, avgSong) : null
     let coverage = null
     if (!('error' in formula)) {
       const moods = formula.formula.moods.map(m => m.value)
@@ -116,8 +116,8 @@ router.get('/projects/:slug/song-pool', async (req, res) => {
       folder: sp.poolDir(slug),
       summary: sp.summarize(pool),
       window,
-      episode_defaults: defaults,
-      episode_defaults_saved: defaultsSaved,
+      blocked: Object.fromEntries(ctx.blocked),
+      episode_defaults: settings,
       formula: 'error' in formula ? { error: formula.error } : { name: formula.name, song_formula: formula.formula, themes: formula.themes },
       coverage,
       stats: {
@@ -133,7 +133,7 @@ router.get('/projects/:slug/song-pool', async (req, res) => {
         // `free_next` against `single_episode_needed` — never these window figures.
         per_episode: needs?.per_episode ?? null,
         needed: needs?.needed ?? null,
-        missing: needs ? windowStockDeficit(needs.needed, drawable.length) : null,
+        missing: needs ? windowStockDeficit(needs.needed, drawableTotal) : null,
         single_episode_needed: singleNeeded,
         next_episode_missing: nextEpisodeShortfall(singleNeeded, freeNext),
       },
