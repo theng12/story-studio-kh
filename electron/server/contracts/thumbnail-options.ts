@@ -27,6 +27,30 @@ export const THUMBNAIL_OPTIONS_SCHEMA = 1
  */
 export const THUMBNAIL_OPTION_STYLE_TAG_MAX = 12_000
 
+/**
+ * Lettering and headline descriptor ceiling — the DEFAULT ceiling, adjustable in
+ * Settings → Performance & recovery (1 to 12,000 characters). These carry a written description of
+ * the type treatment, not a short label, and a shipped template's own defaults are prose: the banner
+ * triptych's `default_font_style` is 242 characters and its `default_text_style` 252.
+ *
+ * The cap was 200, so the app rejected a value the app itself ships — measured live 2026-11-15:
+ * thirteen Komsan episodes failed at `image_prompts` with "String must contain at most 200
+ * character(s)" on `options[1..3].thumb_font_style`, before any provider was called. The limit
+ * still exists to keep the field bounded; it just has to admit the templates it is given.
+ *
+ * Every read and write checks against the effective setting instead of this constant:
+ * `services/thumbnail-option-settings.ts` holds the schema factories, so a ceiling the owner lowers
+ * is enforced too, and `thumbnail-options-shipped-templates.test.ts` fails if a shipped recipe is
+ * longer than the default (a ceiling below that default needs the owner's own setting).
+ */
+export const THUMBNAIL_STYLE_TEXT_MAX = 1_000
+
+/** Lowest ceiling the setting accepts. A ceiling under a template's own default rejects that template. */
+export const THUMBNAIL_STYLE_TEXT_FLOOR = 1
+
+/** A lettering field that long would hold prose, not a style; the style bible already has its own field. */
+export const THUMBNAIL_STYLE_TEXT_HARD_MAX = 12_000
+
 /** One option's stored selection. Absent key = never chosen. */
 export const ThumbnailOptionStoredSchema = z.object({
   /** Selected recipe — the thumbnail template id. */
@@ -34,9 +58,9 @@ export const ThumbnailOptionStoredSchema = z.object({
   /** Selected visual art style tag / style bible. */
   style_tag: z.string().max(THUMBNAIL_OPTION_STYLE_TAG_MAX),
   /** Selected lettering font. */
-  thumb_font_style: z.string().max(200),
+  thumb_font_style: z.string(),
   /** Selected headline/text style. */
-  thumb_text_style: z.string().max(200),
+  thumb_text_style: z.string(),
   /** Selected text placement. */
   thumb_text_position: z.string().max(50),
   /** The source option when this option was duplicated inside the episode. */
@@ -73,8 +97,8 @@ export const ThumbnailOptionUpdateSchema = z.object({
   number: z.number().int().safe().min(1),
   thumbnail_template_id: z.string().max(200).optional(),
   style_tag: z.string().max(THUMBNAIL_OPTION_STYLE_TAG_MAX).optional(),
-  thumb_font_style: z.string().max(200).optional(),
-  thumb_text_style: z.string().max(200).optional(),
+  thumb_font_style: z.string().optional(),
+  thumb_text_style: z.string().optional(),
   thumb_text_position: z.string().max(50).optional(),
   /** true: approve the CURRENT prompt text (stores its hash).
    *  false: withdraw approval. Absent: approval untouched. */

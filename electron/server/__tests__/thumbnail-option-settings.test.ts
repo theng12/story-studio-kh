@@ -53,7 +53,8 @@ before(async () => {
   legacyDir = (await resolveEpisodePaths(slug, legacyCode, '')).episode_dir
   await fs.mkdir(legacyDir, { recursive: true })
   const { router } = await import('../routes/image-prompts-edit.js')
-  app = express().use(express.json()).use('/api', router)
+  const { router: settingsRouter } = await import('../routes/app-settings.js')
+  app = express().use(express.json()).use('/api', router).use('/api', settingsRouter)
 })
 after(async () => { await cleanup?.() })
 
@@ -362,5 +363,80 @@ describe('reusable Auto-approve thumbnail prompts (owner-approved 2026-11-08)', 
       /Approve thumbnail prompt/,
       'the SHA-256 no longer matches the edited prompt',
     )
+  })
+})
+
+/**
+ * The lettering/headline ceiling is a DEFAULT the owner can change (owner, 2026-11-15: "make this a
+ * default only but an adjustable number"). Measured the same day: thirteen Komsan episodes failed at
+ * `image_prompts` on `options[1..3].thumb_font_style` because the cap was 200 while the banner
+ * triptych's own default is 242 characters — the app refused a value the app ships.
+ */
+describe('thumbnail lettering limit is an adjustable default', () => {
+  const limitEndpoint = '/api/app-settings/thumbnail-style-text-limit'
+
+  test('absent reads as the 1,000-character default, and a shipped 242/252-character template fits', async () => {
+    const { getThumbnailStyleTextLimit, setThumbnailStyleTextLimit } = await import('../services/app-settings.js')
+    const { THUMBNAIL_STYLE_TEXT_MAX } = await import('../contracts/thumbnail-options.js')
+    assert.equal(THUMBNAIL_STYLE_TEXT_MAX, 1_000)
+    assert.equal(await getThumbnailStyleTextLimit(), 1_000, 'an install that never set it reads the default')
+    assert.equal(await setThumbnailStyleTextLimit(undefined), 1_000, 'saving nothing keeps the default')
+  })
+
+  test('prose over the limit is refused with 400, names the limit and its setting, and is not written', async () => {
+    const { initializeThumbnailOptions, readThumbnailOptionSettings } = await import('../services/thumbnail-option-settings.js')
+    const overCode = 'EP0009'
+    const { resolveEpisodePaths } = await import('../services/utils.js')
+    const paths = await resolveEpisodePaths(slug, overCode, '')
+    await fs.mkdir(path.dirname(paths.thumb_prompts_docx), { recursive: true })
+    await fs.writeFile(paths.thumb_prompts_docx, promptsFile(PROMPT_1), 'utf8')
+
+    const tooLong = 'Bold condensed sans with a warm gold rim. '.repeat(40)
+    assert.ok(tooLong.length > 1_000, `test requires >1000 characters, got ${tooLong.length}`)
+    await assert.rejects(
+      initializeThumbnailOptions(slug, overCode, [1], { thumb_font_style: tooLong }),
+      (error: any) => error.statusCode === 400 && /over the 1,000-character limit/.test(error.message) && /Settings → Performance/.test(error.message),
+      'the refusal names the limit and where to change it',
+    )
+    const put = await request(app).put(optionsEndpoint(overCode)).send({ number: 1, thumb_font_style: tooLong })
+    assert.equal(put.status, 400, 'the API reports it as the user error it is, not a 500')
+    assert.match(put.body.detail, /1,000-character limit/)
+    const stored = await readThumbnailOptionSettings(slug, overCode)
+    assert.equal(stored.options['1']?.thumb_font_style, undefined, 'nothing over the limit is written')
+  })
+
+  test('raising the limit admits longer prose, and lowering it leaves stored values readable', async () => {
+    const { initializeThumbnailOptions, readThumbnailOptionSettings } = await import('../services/thumbnail-option-settings.js')
+    const raisedCode = 'EP0010'
+    const { resolveEpisodePaths } = await import('../services/utils.js')
+    const paths = await resolveEpisodePaths(slug, raisedCode, '')
+    await fs.mkdir(path.dirname(paths.thumb_prompts_docx), { recursive: true })
+    await fs.writeFile(paths.thumb_prompts_docx, promptsFile(PROMPT_1), 'utf8')
+
+    assert.equal((await request(app).put(limitEndpoint).send({ limit: 2_000 })).status, 200)
+    const long = 'Bold condensed sans with a warm gold rim. '.repeat(40)
+    await initializeThumbnailOptions(slug, raisedCode, [1], { thumb_font_style: long })
+    assert.equal((await readThumbnailOptionSettings(slug, raisedCode)).options['1']?.thumb_font_style, long)
+
+    // Lowered again: the stored 1,520 characters still read, and an unrelated edit still saves.
+    assert.equal((await request(app).put(limitEndpoint).send({ limit: 300 })).status, 200)
+    assert.equal((await readThumbnailOptionSettings(slug, raisedCode)).options['1']?.thumb_font_style, long)
+    const edit = await request(app).put(optionsEndpoint(raisedCode)).send({ number: 1, thumb_text_position: 'bottom' })
+    assert.equal(edit.status, 200, 'an unchanged long value never blocks an unrelated edit')
+    assert.equal(edit.body.options[1].thumb_font_style, long)
+
+    // Restore the default for the rest of the file.
+    assert.equal((await request(app).put(limitEndpoint).send({ limit: 1_000 })).status, 200)
+  })
+
+  test('a value outside 1..12,000 is refused at save time and the last value stays in force', async () => {
+    for (const limit of [0, -5, 12_001, 1.5, 'lots', null, true]) {
+      const response = await request(app).put(limitEndpoint).send({ limit })
+      assert.equal(response.status, 400, `${JSON.stringify(limit)} must be refused`)
+    }
+    const current = await request(app).get(limitEndpoint)
+    assert.equal(current.status, 200)
+    assert.equal(current.body.limit, 1_000, 'a refused save never replaces the value in force')
+    assert.equal(current.body.default, 1_000, 'the default is shown beside the value in force')
   })
 })

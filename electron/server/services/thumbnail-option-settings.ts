@@ -29,6 +29,7 @@ import { withLock, writeJsonAtomic } from '../lib/atomic-store.js'
 import { resolveEpisodePathsByCodeWithSidecar } from './utils.js'
 import { EpisodeSettingFileUnreadable } from './episode-sketch-pen.js'
 import { getConfig } from './project-manager.js'
+import { getThumbnailStyleTextLimit } from './app-settings.js'
 import {
   THUMBNAIL_OPTIONS_SCHEMA,
   ThumbnailOptionSettingsSchema,
@@ -121,7 +122,9 @@ export async function updateThumbnailOptionSettings(
   }
   const file = path.join(dir, THUMBNAIL_OPTIONS_FILENAME)
   return withLock(file, async () => {
-    const settings = update(await readThumbnailOptionSettings(slug, episodeId))
+    const current = await readThumbnailOptionSettings(slug, episodeId)
+    const settings = update(current)
+    await assertStyleTextWithinLimit(current, settings)
     ThumbnailOptionSettingsSchema.parse(settings)
     await writeJsonAtomic(file, settings)
     return settings
@@ -151,6 +154,37 @@ export function thumbnailOptionApproved(
   const stored = settings.options[String(number)]
   if (!stored?.approved_prompt_sha256 || !currentPromptSha) return false
   return stored.approved_prompt_sha256 === currentPromptSha
+}
+
+/**
+ * A NEW or CHANGED lettering/headline description must fit the owner's current ceiling
+ * (Settings → Performance & recovery, 1,000 by default). Unchanged stored values are never
+ * re-judged, so lowering the ceiling can never make an episode's own saved choices unreadable or
+ * unwritable — it only refuses new prose past it.
+ *
+ * This is the one place every write passes through: the generator's initialization, the Image
+ * Prompts page's option editor and option duplication all end at `updateThumbnailOptionSettings`.
+ */
+async function assertStyleTextWithinLimit(
+  previous: ThumbnailOptionSettings,
+  next: ThumbnailOptionSettings,
+): Promise<void> {
+  const limit = await getThumbnailStyleTextLimit()
+  for (const [key, option] of Object.entries(next.options ?? {})) {
+    const before = previous.options?.[key]
+    for (const field of ['thumb_font_style', 'thumb_text_style'] as const) {
+      const value = option?.[field]
+      if (typeof value !== 'string' || value === before?.[field]) continue
+      if (value.length <= limit) continue
+      const which = field === 'thumb_font_style' ? 'font' : 'text'
+      throw Object.assign(
+        new Error(
+          `Thumbnail ${key}'s ${which} description is ${value.length.toLocaleString('en-US')} characters, over the ${limit.toLocaleString('en-US')}-character limit. Shorten it, or raise the limit in Settings → Performance & recovery.`,
+        ),
+        { statusCode: 400, expose: true },
+      )
+    }
+  }
 }
 
 export async function initializeThumbnailOptions(

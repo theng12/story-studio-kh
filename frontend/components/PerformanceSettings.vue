@@ -51,8 +51,35 @@
       <p v-else class="perf-muted" role="status">{{ loginSaving ? 'Saving…' : loginLoaded ? loginMessage : 'Loading…' }}</p>
     </section>
 
-    <section class="perf-card manual-redo" data-setting="manual-generation-redo" aria-labelledby="perf-manual-redo-title">
+    <section class="perf-card" data-setting="thumbnail-lettering-limit" aria-labelledby="perf-lettering-title">
       <header class="perf-card-head">
+        <div>
+          <h4 id="perf-lettering-title">Thumbnail lettering description length</h4>
+          <p>
+            How many characters a thumbnail's font or headline description may be. 1,000 by default;
+            the templates that ship with Story Studio use up to 252, so a limit below that rejects them.
+            The limit in force is shown here and checked on every save.
+          </p>
+        </div>
+        <span v-if="letteringLoaded" class="ceiling">
+          <input
+            v-model="letteringLimit"
+            name="thumbnail-style-text-limit"
+            type="number" min="1" max="12000" step="1" required inputmode="numeric"
+            aria-label="Thumbnail lettering description limit, in characters"
+            :disabled="saving"
+            @input="letteringError = ''; savedMessage = ''"
+          /> characters
+        </span>
+        <span v-else class="perf-muted">{{ letteringError ? 'Could not load this setting' : 'Loading…' }}</span>
+      </header>
+      <p v-if="letteringError" class="perf-row-error" role="alert">{{ letteringError }}</p>
+      <p v-else-if="letteringLoaded" class="perf-muted" role="status">
+        In force: {{ letteringBaseline }} characters{{ letteringBaseline === letteringDefault ? ' (the default)' : '' }}.
+      </p>
+    </section>
+
+    <section class="perf-card manual-redo" data-setting="manual-generation-redo" aria-labelledby="perf-manual-redo-title">      <header class="perf-card-head">
         <div>
           <h4 id="perf-manual-redo-title">Show manual fresh-attempt controls</h4>
           <p>
@@ -340,6 +367,11 @@ const privateFleetError = ref('')
 const privateFleetEnabled = ref(false)
 const privateFleetBaseline = ref(false)
 const privateFleetBinding = ref<PrivateFleetBinding | null>(null)
+const letteringLoaded = ref(false)
+const letteringError = ref('')
+const letteringLimit = ref('')
+const letteringBaseline = ref(0)
+const letteringDefault = ref(0)
 const bestStatus = ref<BestRenderStatus | null>(null)
 
 const paidRows = reactive<PaidRow[]>([
@@ -355,7 +387,8 @@ const throughputDirty = computed(() => concurrencyLoaded.value && throughputSnap
 const paidDirtyRows = computed(() => paidRows.filter(row => row.loaded && paidSnapshot(row) !== row.baseline))
 const manualRedoDirty = computed(() => manualRedoLoaded.value && manualRedoEnabled.value !== manualRedoBaseline.value)
 const privateFleetDirty = computed(() => privateFleetLoaded.value && privateFleetEnabled.value !== privateFleetBaseline.value)
-const dirty = computed(() => throughputDirty.value || manualRedoDirty.value || privateFleetDirty.value || paidDirtyRows.value.length > 0)
+const letteringDirty = computed(() => letteringLoaded.value && String(letteringLimit.value).trim() !== String(letteringBaseline.value))
+const dirty = computed(() => throughputDirty.value || manualRedoDirty.value || privateFleetDirty.value || letteringDirty.value || paidDirtyRows.value.length > 0)
 
 function isPaidSetting(s: PaidSetting): boolean {
   return typeof s?.enabled === 'boolean'
@@ -406,6 +439,7 @@ function revert(): void {
   }
   if (manualRedoLoaded.value) manualRedoEnabled.value = manualRedoBaseline.value
   if (privateFleetLoaded.value) privateFleetEnabled.value = privateFleetBaseline.value
+  if (letteringLoaded.value) { letteringLimit.value = String(letteringBaseline.value); letteringError.value = '' }
   saveError.value = ''
   savedMessage.value = ''
 }
@@ -447,6 +481,16 @@ async function load(): Promise<void> {
     privateFleetLoaded.value = true
   } catch {
     privateFleetError.value = 'Could not load this setting'
+  }
+  try {
+    const setting = await get<{ limit?: unknown; default?: unknown }>('/app-settings/thumbnail-style-text-limit')
+    if (!Number.isSafeInteger(setting?.limit) || !Number.isSafeInteger(setting?.default)) throw new Error('invalid')
+    letteringBaseline.value = setting.limit as number
+    letteringDefault.value = setting.default as number
+    letteringLimit.value = String(setting.limit)
+    letteringLoaded.value = true
+  } catch {
+    letteringError.value = 'Could not load this setting'
   }
   try {
     const status = await get<PrivateFleetBinding>('/app-settings/private-final-render/binding')
@@ -495,6 +539,13 @@ async function save(): Promise<void> {
       }
     }
   }
+  if (letteringDirty.value) {
+    const n = Number(String(letteringLimit.value).trim())
+    if (!Number.isSafeInteger(n) || n < 1 || n > 12000) {
+      letteringError.value = 'Enter a whole number from 1 to 12,000 characters.'
+      invalid = true
+    }
+  }
   if (invalid) { if (!saveError.value) saveError.value = 'Nothing was saved — fix the highlighted row first.'; return }
 
   saving.value = true
@@ -506,6 +557,15 @@ async function save(): Promise<void> {
       Object.assign(models, throughputFromServer({ ...throughputPayload(models), ...(applied || {}) }))
       baseline.value = throughputSnapshot()
       done.push('job numbers')
+    }
+    if (letteringDirty.value) {
+      // Show what was ACTUALLY applied: the server validates the whole value.
+      const saved = await put<{ limit: number }>('/app-settings/thumbnail-style-text-limit', { limit: Number(letteringLimit.value) })
+      if (!Number.isSafeInteger(saved?.limit)) throw new Error('The saved thumbnail lettering limit came back invalid.')
+      letteringLimit.value = String(saved.limit)
+      letteringBaseline.value = saved.limit
+      letteringError.value = ''
+      done.push('thumbnail lettering limit')
     }
     if (manualRedoDirty.value) {
       const saved = await put<ManualRedoSetting>('/app-settings/manual-generation-redo', { enabled: manualRedoEnabled.value })
