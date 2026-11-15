@@ -393,9 +393,6 @@ export async function generateIdeaCampaign(job: Job): Promise<void> {
 
   const project = await pm.getProject(job.project_slug)
   if (!project) throw new Error(`Project '${job.project_slug}' not found`)
-  // The audience language shapes how much answer one idea may occupy; it never changes which
-  // model may serve the request.
-  const contentLanguage = normalizeContentLanguage(project.content_language)
   const { formulaId, topicPackIds, niche, droppedTopicPacks } = await resolveCampaignNiche(project, request)
   // A selected Topic Pack that could not be used is never silent: the job says
   // which one and why, before any paid call.
@@ -586,17 +583,10 @@ export async function generateIdeaCampaign(job: Job): Promise<void> {
    * than being read as "no ceiling" and silently sized. Only a product that genuinely publishes no
    * ceiling attempts the whole remaining batch with the wire field omitted.
    */
-  let sizingNoteShown = false
   const ideaBatchForModel = async (needed: number): Promise<number> => {
     const apiKey = await getApiKey('genstudio')
     const published = resolveLivePipelineModel(request.model, apiKey ? await listChatModels(apiKey) : []).max_output_tokens
-    // No measured Khmer answer cost exists yet, so the language only adds a visible note; a
-    // measurement, when one is supplied here, is what would shrink the batch.
-    const sizing = ideaBatchForPublishedCeiling(published, needed, { code: contentLanguage })
-    if (sizing.language_basis.note && !sizingNoteShown) {
-      sizingNoteShown = true
-      job.output_lines.push(sizing.language_basis.note)
-    }
+    const sizing = ideaBatchForPublishedCeiling(published, needed)
     if (sizing.batch !== null) return sizing.batch
     throw new Error(
       `The selected product publishes a ${sizing.ceiling}-token output ceiling, and one complete idea does not fit in the ${sizing.budget} tokens that ceiling leaves for the answer. Choose a product with a larger output limit in Settings, then press Retry.`,
