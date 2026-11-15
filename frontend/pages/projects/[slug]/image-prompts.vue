@@ -237,6 +237,28 @@
             >{{ option.label }}</button>
           </div>
         </div>
+
+        <div class="lettering-part">
+          <div class="lettering-part-head"><strong>Lettering description limit</strong><span>How long a font or text-style description may be</span></div>
+          <div class="lettering-limit">
+            <input
+              id="thumbnail-lettering-limit"
+              v-model.number="letteringLimit"
+              type="number" min="1" max="12000" step="1"
+              class="input lettering-limit-input"
+              :disabled="letteringLimitBusy"
+              @change="saveLetteringLimit"
+            />
+            <span class="text-muted text-xs">
+              characters<template v-if="letteringLimitDefault"> · default {{ letteringLimitDefault.toLocaleString('en-US') }}</template>
+            </span>
+          </div>
+          <p v-if="letteringLimitError" class="lettering-limit-error">⚠ {{ letteringLimitError }}</p>
+          <p v-else class="text-muted text-xs">
+            A font or text-style description longer than this is refused before any image is requested.
+            This is the same setting as Settings → Performance &amp; recovery: changing it here changes it there.
+          </p>
+        </div>
       </section>
       <div v-if="!khmerThumbnail" class="flex gap-2 mt-1 items-center flex-wrap">
         <button
@@ -330,6 +352,43 @@ const { success, info: showInfo, error: showError } = useToast()
 
 const khmerThumbnail = ref(false)
 const generating = ref(false)
+
+/**
+ * The lettering description limit, shown and editable where the lettering is chosen.
+ * ONE setting, one endpoint: Settings → Performance & recovery reads and writes the
+ * same value, so the two places can never disagree. The server owns the range and
+ * refuses an out-of-range value with the reason, which is shown here as it comes back.
+ */
+const letteringLimit = ref<number | null>(null)
+const letteringLimitDefault = ref<number | null>(null)
+const letteringLimitBusy = ref(false)
+const letteringLimitError = ref('')
+async function loadLetteringLimit() {
+  try {
+    const saved = await get<{ limit?: unknown; default?: unknown }>('/app-settings/thumbnail-style-text-limit')
+    if (typeof saved.limit === 'number') letteringLimit.value = saved.limit
+    if (typeof saved.default === 'number') letteringLimitDefault.value = saved.default
+  } catch {
+    // The line simply does not render; nothing else on this page depends on it.
+  }
+}
+async function saveLetteringLimit() {
+  const value = Number(letteringLimit.value)
+  if (!Number.isFinite(value)) return
+  letteringLimitBusy.value = true
+  letteringLimitError.value = ''
+  try {
+    const saved = await put<{ limit: number }>('/app-settings/thumbnail-style-text-limit', { limit: value })
+    letteringLimit.value = saved.limit
+    success(`Lettering descriptions may now be up to ${saved.limit.toLocaleString('en-US')} characters.`)
+  } catch (e: any) {
+    letteringLimitError.value = e?.data?.detail || e?.message || 'Could not save the lettering description limit.'
+    await loadLetteringLimit()
+  } finally {
+    letteringLimitBusy.value = false
+  }
+}
+
 /** Thumbnail prompt numbers on disk for this episode, reported by PromptReviewPanel. */
 const existingThumbNumbers = ref<number[]>([])
 
@@ -751,6 +810,7 @@ watch(selectedGenStudioImageModel, (model) => {
 })
 onMounted(() => {
   void refreshGenStudioImageModels().catch(() => {})
+  void loadLetteringLimit()
 })
 
 function pickRandomPresetId(presets: StylePreset[]): string {
@@ -1183,6 +1243,9 @@ async function replaceAllThumbnailPrompts() {
 .lettering-part-head strong { font-size: var(--font-sm); }
 .lettering-part-head span { color: var(--text-muted); font-size: var(--font-xs); }
 .lettering-positions { display: flex; flex-wrap: wrap; gap: 6px; }
+.lettering-limit { display: flex; align-items: center; gap: 8px; }
+.lettering-limit-input { width: 120px; }
+.lettering-limit-error { color: var(--danger, #d33); font-size: var(--font-xs); }
 .position-chip { min-height: var(--control-height-sm); padding: 6px 12px; border: 1px solid var(--border); border-radius: 999px; background: var(--bg-primary); color: var(--text-secondary); cursor: pointer; font: inherit; font-size: var(--font-sm); }
 .position-chip:hover { border-color: var(--border-light); color: var(--text-primary); }
 .position-chip.selected { border-color: color-mix(in srgb, var(--accent) 60%, var(--border)); background: var(--accent-dim); color: var(--accent); }
