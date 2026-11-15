@@ -1158,16 +1158,40 @@ async function enqueueContinuityRender(
   const dedupeParams = singleSceneId
     ? (p: any) => p.single_scene_id === singleSceneId
     : (p: any) => !p.single_scene_id
-  return await jq.enqueue({
+  const params = continuityRenderParams(episodeId, body, singleSceneId, Array.isArray(body.scene_ids)
+    ? body.scene_ids.filter((s: any) => typeof s === 'string')
+    : undefined, opts.manualFinish)
+  // Generate missing goes through this helper too: a bulk repair inherits the failed step's saved
+  // continuation once, so its completion drains Final Video instead of leaving it stranded.
+  let adoptedFrom = ''
+  if (!singleSceneId) {
+    const jobs = await jq.findJobs(slug, () => true)
+    const continuation = repairContinuationFrom(jobs, episodeId, { assemblyExists: assemblyAlreadyExists(jobs, episodeId) })
+    if (continuation) {
+      const adopted = params as typeof params & {
+        pipeline_chain?: unknown[]
+        pipeline_batch_id?: string
+        pipeline_chain_adopted_from?: string
+      }
+      adopted.pipeline_chain = continuation.chain
+      if (continuation.batchId) adopted.pipeline_batch_id = continuation.batchId
+      adopted.pipeline_chain_adopted_from = continuation.fromJobId
+      adoptedFrom = continuation.fromJobId
+    }
+  }
+  const job = await jq.enqueue({
     project_slug: slug,
     type: 'continuity_render' as JobType,
     episode_id: episodeId,
     title: singleSceneId ? `Render scene — ${episodeId}` : `Scene image batch — ${episodeId}`,
     dedupeParams,
-    params: continuityRenderParams(episodeId, body, singleSceneId, Array.isArray(body.scene_ids)
-      ? body.scene_ids.filter((s: any) => typeof s === 'string')
-      : undefined, opts.manualFinish),
+    params,
   })
+  if (adoptedFrom) {
+    job.output_lines.push(`Adopted the remaining Final Video step from failed job ${adoptedFrom}; nothing was re-run.`)
+    await jq.checkpointJobState(job)
+  }
+  return job
 }
 
 function continuityRenderParams(
