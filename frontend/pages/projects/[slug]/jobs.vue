@@ -2418,7 +2418,9 @@ async function discardActiveJob(job: RJob) {
   controlBusy.value = new Set(controlBusy.value).add(job.job_id)
   discardNotes.value = { ...discardNotes.value, [job.job_id]: 'Discarding…' }
   try {
-    const response = await post<{ job?: RJob; upstream?: string; detail?: string }>(
+    // The discarded row comes back over the wire and is handed to the queues, so it is the
+    // mutable `Job`, not the deep-readonly `RJob` this page uses for its own props.
+    const response = await post<{ job?: Job; upstream?: string; detail?: string }>(
       `${jobQueuePath(job)}/discard`, {},
     )
     if (response?.job) {
