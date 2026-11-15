@@ -28,6 +28,8 @@ import { useTempDataDir } from './_helpers.js'
 import { waitFor } from './_timing.js'
 import { MOCK_GENSTUDIO_FULL_KEY, startMockGenStudioService } from './fixtures/mock-genstudio-service.js'
 import { ideaBatchOutputContract } from '../lib/story-output-contracts.js'
+import { expectedOutputTokensFor } from '../services/output-token-budget.js'
+import { storedExpectedOutputTokens } from '../services/idea-output-budget.js'
 
 const MODEL = 'mock-chat-v1'
 const FORMULA = 'history-narration'
@@ -702,4 +704,86 @@ test('a public stop while the provider is answering appends nothing and leaves t
       }
     }
   }
+})
+
+test('a new freeform batch asks the published maximum and expects the count floor', async () => {
+  const env = await setup()
+  try {
+    await env.refreshCatalogue([{
+      id: MODEL, display_name: 'Mock Chat', description: 'primary', available: true,
+      qualification_only: false, context_window_tokens: 200_000, max_output_tokens: 32_000,
+      max_structured_items_per_request: null, controls: ['temperature', 'top_p', 'max_output_tokens'],
+      activation_blockers: [], supports_structured_output: true, structured_output_mode: 'request_json_schema',
+    }])
+    env.service.queueScenario('chat', { outputText: answer([...DISTINCT_ANSWERS]) })
+    const job = campaignJob(env.project.slug, { count: 2 })
+    await env.generateIdeaCampaign(job)
+
+    const post = env.service.requests.filter(row => row.method === 'POST' && row.path === CHAT_SUBMIT_PATH).at(-1)!
+    const body = JSON.parse(post.bodyText)
+    assert.equal(body.max_output_tokens, 32_000, 'the request carries the published allowance')
+    assert.equal(body.expected_output_tokens, 4_096, 'the deadline expectation stays the count floor')
+    assert.equal(post.idempotencyKey, job.params.idea_batch.idempotency_key,
+      'the captured key is the one the body was sent under')
+    assert.ok(body.max_output_tokens > body.expected_output_tokens, 'room remains for reasoning')
+  } finally { await env.close() }
+})
+
+test('a pre-change captured batch replays its own body under the same key, with no new POST', async () => {
+  const env = await setup()
+  try {
+    const { first, pending } = await interruptFirstSubmission(env)
+    // Rewrite the captured record as the pre-change code wrote it: workload budget, no expectation.
+    first.params.idea_batch.outputBudget = { tier: 'workload', minimumTokens: 4_096 }
+    delete first.params.idea_batch.expected_output_tokens
+    assert.equal(expectedOutputTokensFor(first.params.idea_batch.outputBudget), 4_096,
+      'the freeform fallback derives exactly the old expectation')
+    assert.equal(storedExpectedOutputTokens(undefined), undefined)
+    env.service.patchJobScenario(providerJobForKey(env, pending.idempotency_key), {
+      outputText: answer([...DISTINCT_ANSWERS]),
+    })
+    const postsBefore = env.posts()
+
+    await env.generateIdeaCampaign(retryJob(env.project.slug, first))
+
+    assert.equal(env.posts(), postsBefore, 'the captured body is collected, never re-submitted')
+    assert.equal(env.byKeyGets(), 1)
+    const gets = env.service.requests.filter(row => row.method === 'GET' && row.path.includes('/by-idempotency-key/'))
+    assert.ok(gets[0]!.path.includes(pending.idempotency_key), 'the original key is the one read back')
+  } finally { await env.close() }
+})
+
+test('a post-change captured batch replays maximum plus expectation without reading the live catalogue', async () => {
+  const env = await setup()
+  try {
+    const { first, pending } = await interruptFirstSubmission(env)
+    assert.equal(first.params.idea_batch.outputBudget.tier, 'maximum')
+    assert.equal(first.params.idea_batch.expected_output_tokens, 4_096)
+    env.service.patchJobScenario(providerJobForKey(env, pending.idempotency_key), {
+      outputText: answer([...DISTINCT_ANSWERS]),
+    })
+    const postsBefore = env.posts()
+    const catalogueBefore = env.catalogueGets()
+
+    await env.generateIdeaCampaign(retryJob(env.project.slug, first))
+
+    assert.equal(env.posts(), postsBefore, 'no re-submission')
+    assert.equal(env.catalogueGets(), catalogueBefore, 'the captured request is read, not recomputed')
+    assert.equal(env.byKeyGets(), 1)
+  } finally { await env.close() }
+})
+
+test('a malformed stored expectation is treated as absent, never sent', async () => {
+  const env = await setup()
+  try {
+    const { first, pending } = await interruptFirstSubmission(env)
+    first.params.idea_batch.expected_output_tokens = 'many' as any
+    assert.equal(storedExpectedOutputTokens(first.params.idea_batch.expected_output_tokens), undefined)
+    env.service.patchJobScenario(providerJobForKey(env, pending.idempotency_key), {
+      outputText: answer([...DISTINCT_ANSWERS]),
+    })
+    const postsBefore = env.posts()
+    await env.generateIdeaCampaign(retryJob(env.project.slug, first))
+    assert.equal(env.posts(), postsBefore, 'the malformed value never reaches a new request')
+  } finally { await env.close() }
 })

@@ -31,9 +31,11 @@ describe('idea output token budget', () => {
       'utf8',
     )
 
-    // The count-scaled number is a FLOOR inside a product-derived budget: the resolver clamps the
-    // request to the selected product's published output limit.
-    assert.match(freeformHelper, /\?\? \{ tier: 'workload', minimumTokens: ideaOutputTokenBudget\(input\.request\.count\) \}/)
-    assert.match(campaign, /outputBudget: \{ tier: 'workload', minimumTokens: ideaOutputTokenBudget\(assignments\.length\) \}/)
+    // The request asks the product's published maximum; the count-scaled number is the EXPECTED
+    // answer (deadline/preflight), not the ceiling.
+    assert.match(freeformHelper, /\?\? \{ tier: 'maximum' \}/)
+    assert.match(freeformHelper, /expectedOutputTokens: input\.expectedOutputTokens/)
+    assert.match(campaign, /outputBudget: \{ tier: 'maximum' \}/)
+    assert.match(campaign, /expected_output_tokens: ideaOutputTokenBudget\(assignments\.length\)/)
   })
 })

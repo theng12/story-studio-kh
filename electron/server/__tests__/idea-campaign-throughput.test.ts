@@ -164,9 +164,12 @@ describe('the campaign reads the capability live and fails loudly when it cannot
     assert.doesNotMatch(budgetModule, /MAX_IDEA_FLOOR_TOKENS|IDEA_BATCH_WORKLOAD_FALLBACK/)
   })
 
-  test('both actual call sites pass the count-sized workload floor', () => {
-    assert.match(campaign, /outputBudget: \{ tier: 'workload', minimumTokens: ideaOutputTokenBudget\(assignments\.length\) \}/)
-    assert.match(freeform, /\?\? \{ tier: 'workload', minimumTokens: ideaOutputTokenBudget\(input\.request\.count\) \}/)
+  test('both actual call sites ask the published maximum and expect the count-sized floor', () => {
+    assert.match(campaign, /outputBudget: \{ tier: 'maximum' \}/)
+    assert.match(campaign, /expected_output_tokens: ideaOutputTokenBudget\(assignments\.length\)/)
+    assert.match(campaign, /expected_output_tokens: ideaOutputTokenBudget\(count\)/)
+    assert.match(freeform, /\?\? \{ tier: 'maximum' \}/)
+    assert.match(freeform, /expectedOutputTokens: input\.expectedOutputTokens/)
   })
 
   test('a ceiling that cannot hold one idea raises an actionable failure naming the numbers', () => {

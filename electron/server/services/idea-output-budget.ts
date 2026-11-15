@@ -126,3 +126,11 @@ export function ideaOutputTokenBudget(expectedIdeas: number): number {
     count * IDEA_OUTPUT_TOKENS_PER_ITEM + IDEA_BATCH_SCHEMA_HEADROOM_TOKENS,
   )
 }
+
+/**
+ * A persisted expectation is used only when it is a usable count of tokens. A malformed value is
+ * treated as absent (the legacy path), never sent on the wire or turned into a guess.
+ */
+export function storedExpectedOutputTokens(value: unknown): number | undefined {
+  return Number.isInteger(value) && (value as number) > 0 ? value as number : undefined
+}

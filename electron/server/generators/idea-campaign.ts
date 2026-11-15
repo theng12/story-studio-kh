@@ -22,7 +22,7 @@ import {
 } from '../services/idea-similarity.js'
 import { requireJobCompletion } from '../services/job-completion.js'
 import { composeChannelTitle } from '../lib/title-wrapping.js'
-import { ideaBatchForPublishedCeiling, ideaOutputTokenBudget } from '../services/idea-output-budget.js'
+import { ideaBatchForPublishedCeiling, ideaOutputTokenBudget, storedExpectedOutputTokens } from '../services/idea-output-budget.js'
 import { ideaBatchOutputContract, ideaCampaignOutputContract } from '../lib/story-output-contracts.js'
 import {
   applyFormulaEpisodeProfile,
@@ -676,7 +676,7 @@ export async function generateIdeaCampaign(job: Job): Promise<void> {
           preparePrompt: () => prompt,
           outputContract: batchRecord.outputContract,
           outputBudget: batchRecord.outputBudget,
-          expectedOutputTokens: batchRecord.expected_output_tokens,
+          expectedOutputTokens: storedExpectedOutputTokens(batchRecord.expected_output_tokens),
           ...(batchRecord.idempotency_key ? { idempotencyKey: batchRecord.idempotency_key } : {}),
           onRequestPrepared: async key => { batchRecord!.idempotency_key = key; writeIdeaBatch(job, batchRecord!); await jq.checkpointJobState(job) },
           onJobAccepted: async providerJobId => { batchRecord!.provider_job_id = providerJobId; writeIdeaBatch(job, batchRecord!); await jq.checkpointJobState(job) },
@@ -727,7 +727,7 @@ export async function generateIdeaCampaign(job: Job): Promise<void> {
           jobId: job.job_id,
           signal: controller.signal,
           outputBudget: batchRecord.outputBudget,
-          expectedOutputTokens: batchRecord.expected_output_tokens,
+          expectedOutputTokens: storedExpectedOutputTokens(batchRecord.expected_output_tokens),
           outputContract: batchRecord.outputContract,
           requestIdentity: batchRecord.request_identity,
           ...(batchRecord.idempotency_key ? { idempotencyKey: batchRecord.idempotency_key } : {}),
