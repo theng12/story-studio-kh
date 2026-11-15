@@ -38,6 +38,14 @@ export const JOB_TYPE_LABELS: Record<string, string> = {
   youtube_thumbnail_refresh: 'YouTube thumbnail',
   social_publish: 'Social posting',
   broll_select: 'B-roll selection',
+  // 1.4.403 — the Timeline's six job types, named the way the Timeline page
+  // shows them, so a live row in Jobs reads as the segment the owner started.
+  timeline_image: 'Timeline still',
+  timeline_sketch: 'Timeline sketch',
+  timeline_chart: 'Timeline chart',
+  timeline_stock: 'Timeline stock clip',
+  timeline_video: 'Timeline clip',
+  timeline_assemble: 'Timeline assembly',
   broll_normalize: 'B-roll normalize',
   broll_assemble: 'B-roll assembly',
   research_run: 'Research',
