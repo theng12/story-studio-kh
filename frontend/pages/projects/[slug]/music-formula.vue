@@ -289,10 +289,30 @@
           <p class="mp-hint">{{ sceneSettingsList.length ? `${sceneSettingsList.length} setting${sceneSettingsList.length === 1 ? '' : 's'}${e.scenes.mode === 'per-song' && perEpisode > sceneSettingsList.length ? ` — fewer than the ≈ ${perEpisodeText} songs per episode, so some repeat (never side by side)` : ''}.` : 'No list: pictures follow each song\'s scene idea.' }}</p>
         </section>
 
-        <section v-if="worlds.length" class="card workspace-section mp-card">
+        <section class="card workspace-section mp-card">
           <h3>Scene worlds</h3>
-          <p class="mp-hint">From this formula's {{ worlds.length }} worlds — each song's scene idea is written in one of these.</p>
+          <p class="mp-hint">Each song's scene idea is written in one of these worlds. Edit a name, register, sight or the scenes and music it suggests; add or remove worlds here — nothing is hidden in a config file. Saving merges your changes: a world you do not touch is kept as it is.</p>
+          <div v-for="(w, i) in worldDrafts" :key="w.id || `new-${i}`" class="mp-world" data-testid="world-row">
+            <div class="mp-row" style="gap: 8px; flex-wrap: wrap">
+              <input v-model="w.name" class="mp-inp" style="flex: 1 1 220px" :aria-label="`World ${i + 1} name`" placeholder="World name">
+              <input v-model="w.register" class="mp-inp" style="flex: 0 1 160px" :aria-label="`World ${i + 1} register`" placeholder="Register">
+              <button type="button" class="btn btn-secondary btn-sm" :class="{ on: e.scene_themes.includes(w.name) }" @click="toggleTheme(w.name)">
+                {{ e.scene_themes.includes(w.name) ? 'Used as a scene theme' : 'Use as a scene theme' }}
+              </button>
+              <button type="button" class="btn btn-danger btn-sm" :aria-label="`Remove world ${w.name || i + 1}`" @click="removeWorld(i)">Remove</button>
+            </div>
+            <textarea v-model="w.sight" class="mp-inp" rows="2" style="width: 100%; margin-top: 6px; resize: vertical" :aria-label="`World ${i + 1} sight`" placeholder="What the listener sees: the place, the light, the weather" />
+            <div class="mp-row" style="gap: 8px; margin-top: 6px; flex-wrap: wrap">
+              <input :value="(w.scenes || []).join(', ')" class="mp-inp" style="flex: 1 1 260px" :aria-label="`World ${i + 1} scenes`" placeholder="Scenes, comma separated" @input="setWorldList(w, 'scenes', $event)">
+              <input :value="(w.music || []).join(', ')" class="mp-inp" style="flex: 1 1 260px" :aria-label="`World ${i + 1} music`" placeholder="Music, comma separated" @input="setWorldList(w, 'music', $event)">
+            </div>
+          </div>
+          <p v-if="!worldDrafts.length" class="mp-hint">No worlds yet — add one to give this channel's songs their own places.</p>
           <div class="mp-row" style="margin-top: 8px">
+            <button type="button" class="btn btn-secondary btn-sm" @click="addWorld">Add a world</button>
+          </div>
+          <div v-if="worlds.length" class="mp-row" style="margin-top: 10px">
+            <span class="mp-hint" style="margin: 0">Scene themes from these worlds:</span>
             <button v-for="w in shownWorlds" :key="w" type="button" class="mp-chip" :class="{ on: e.scene_themes.includes(w) }" @click="toggleTheme(w)">{{ w }}</button>
             <button v-if="worlds.length > shownWorlds.length" type="button" class="mp-chip" @click="allWorlds = true">+ {{ worlds.length - shownWorlds.length }} more</button>
           </div>
@@ -398,6 +418,20 @@ function toggleKey(k: string) {
   f.keys = next.length === 24 ? [] : ALL_KEYS.filter(x => next.includes(x))
 }
 
+const worldDrafts = ref<any[]>([])
+const removedWorldIds = ref<string[]>([])
+function addWorld() {
+  worldDrafts.value.push({ name: '', register: '', sight: '', scenes: [], music: [] })
+}
+function removeWorld(index: number) {
+  const [removed] = worldDrafts.value.splice(index, 1)
+  if (removed?.id) removedWorldIds.value.push(removed.id)
+}
+function setWorldList(world: any, key: 'scenes' | 'music', event: Event) {
+  const value = (event.target as HTMLInputElement).value
+  world[key] = value.split(',').map(part => part.trim()).filter(Boolean)
+}
+
 const worlds = computed<string[]>(() => {
   const mf = niche.value?.musicFormat || {}
   return Array.isArray(mf.worlds) && mf.worlds.length ? mf.worlds.map((w: any) => w.name).filter(Boolean)
@@ -436,6 +470,8 @@ async function load() {
     Object.assign(e, clone({ ...STARTING_EPISODE_DEFAULTS, ...(mf.episodeDefaults || {}) }))
     saved.value = !!mf.songFormula
     settingsText.value = Array.isArray(mf.sceneSettings) ? mf.sceneSettings.join('\n') : ''
+    worldDrafts.value = Array.isArray(mf.worlds) ? clone(mf.worlds) : []
+    removedWorldIds.value = []
     minText.value = clock(f.length_s.min); maxText.value = clock(f.length_s.max)
     if (niche.value) pool.value = await get(`/projects/${slug.value}/song-pool`).catch(() => null)
     snapshot = saved.value ? state() : 'unsaved'
@@ -447,7 +483,12 @@ async function save() {
   busy.value = true
   try {
     f.length_s = { min: parseClock(minText.value), max: parseClock(maxText.value) }
-    const r = await patch<{ niche: any }>(`/niches/${encodeURIComponent(niche.value.id)}/music-format?project_slug=${encodeURIComponent(slug.value)}`, { songFormula: f, episodeDefaults: e, sceneSettings: sceneSettingsList.value.length ? sceneSettingsList.value : null })
+    const r = await patch<{ niche: any }>(`/niches/${encodeURIComponent(niche.value.id)}/music-format?project_slug=${encodeURIComponent(slug.value)}`, {
+      songFormula: f, episodeDefaults: e, sceneSettings: sceneSettingsList.value.length ? sceneSettingsList.value : null,
+      ...(worldDrafts.value.length || removedWorldIds.value.length
+        ? { worlds: worldDrafts.value, worlds_remove: removedWorldIds.value }
+        : {}),
+    })
     niche.value = r.niche; saved.value = true; snapshot = state()
     pool.value = await get(`/projects/${slug.value}/song-pool`).catch(() => pool.value)
     success('Formula saved. New songs and episodes use it from now on.')

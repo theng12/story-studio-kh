@@ -244,7 +244,7 @@ const baseDocument = {
  * inner shapes are the shared contracts rather than a second copy. The block
  * is DATA: adding a world or changing a scene needs no code change.
  */
-const MusicWorldSchema = z.object({
+export const MusicWorldSchema = z.object({
   id: localSlug,
   name: safeText(120),
   register: safeText(60),
