@@ -711,7 +711,7 @@ test('a new freeform batch asks the published maximum and expects the count floo
   try {
     await env.refreshCatalogue([{
       id: MODEL, display_name: 'Mock Chat', description: 'primary', available: true,
-      qualification_only: false, context_window_tokens: 200_000, max_output_tokens: 32_000,
+      qualification_only: false, context_window_tokens: 0, max_output_tokens: 128_000,
       max_structured_items_per_request: null, controls: ['temperature', 'top_p', 'max_output_tokens'],
       activation_blockers: [], supports_structured_output: true, structured_output_mode: 'request_json_schema',
     }])
@@ -721,7 +721,8 @@ test('a new freeform batch asks the published maximum and expects the count floo
 
     const post = env.service.requests.filter(row => row.method === 'POST' && row.path === CHAT_SUBMIT_PATH).at(-1)!
     const body = JSON.parse(post.bodyText)
-    assert.equal(body.max_output_tokens, 32_000, 'the request carries the published allowance')
+    // The live selected product publishes 128,000 with no context figure (1301, 2026-11-15).
+    assert.equal(body.max_output_tokens, 128_000, 'the request carries the selected pool\'s published allowance')
     assert.equal(body.expected_output_tokens, 4_096, 'the deadline expectation stays the count floor')
     assert.equal(post.idempotencyKey, job.params.idea_batch.idempotency_key,
       'the captured key is the one the body was sent under')
