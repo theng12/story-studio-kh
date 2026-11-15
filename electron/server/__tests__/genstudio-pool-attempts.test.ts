@@ -15,7 +15,8 @@ import {
   sanitizeAttemptDetail,
   summarizePoolFailure,
 } from '../contracts/genstudio-pool-attempts.js'
-import { GenStudioApiError, GenStudioTerminalFailureError } from '../lib/genstudio-client.js'
+import { GenStudioApiError, GenStudioTerminalFailureError, genStudioApiErrorFromBody } from '../lib/genstudio-client.js'
+import { persistGenStudioFailure } from '../services/job-queue.js'
 
 const MIXED = [
   { member: 'magpie::group/story-llm-free', outcome: 'failed', code: 'INCOMPLETE_OUTPUT', finish_reason: 'length', retryable: true },
@@ -101,4 +102,72 @@ test('the sanitizer keeps a real reason and drops every key shape', () => {
   assert.equal(sanitizeAttemptDetail('x-api-key: sk-abc123456789'), '[key removed]')
   assert.equal(sanitizeAttemptDetail('invalid x-api-key (401)'), 'invalid x-api-key (401)')
   assert.equal(sanitizeAttemptDetail('   '), null)
+})
+
+test('retry_attempted is not retry eligibility: it never becomes retryable', () => {
+  const attempts = parsePoolAttempts([
+    { member: 'a', retry_attempted: true },
+    { member: 'b', retry_attempted: false },
+    { member: 'c', retryable: true },
+  ])
+  assert.equal(attempts[0]!.retryable, null)
+  assert.equal(attempts[1]!.retryable, null)
+  assert.equal(attempts[2]!.retryable, true)
+})
+
+test('an incomplete answer without a length proof is not called an output limit', () => {
+  const generic = parsePoolAttempts([{ member: 'a', code: 'INCOMPLETE_OUTPUT' }])
+  assert.match(summarizePoolFailure('p', generic), /stopped incomplete/)
+  assert.doesNotMatch(summarizePoolFailure('p', generic), /output limit/)
+  const proven = parsePoolAttempts([{ member: 'a', code: 'INCOMPLETE_OUTPUT', finish_reason: 'length' }])
+  assert.match(summarizePoolFailure('p', proven), /stopped at its output limit/)
+})
+
+test('a real Response body reaches the client parser with nested pool facts', async () => {
+  const body = {
+    detail: {
+      code: 'POOL_EXHAUSTED',
+      detail: "Pool 'story-studio-llm' had no member that could answer",
+      pool: 'story-studio-llm',
+      job_id: 'job286aa756',
+      pool_attempts: MIXED,
+    },
+  }
+  const response = new Response(JSON.stringify(body), { status: 502, headers: { 'content-type': 'application/json' } })
+  const error = genStudioApiErrorFromBody(response.status, await response.json(), response.headers)
+  assert.equal(error.poolAttempts.length, 3)
+  assert.equal(error.poolName, 'story-studio-llm')
+  assert.equal(error.gatewayJobId, 'job286aa756')
+  assert.match(error.message, /1 stopped at its output limit/)
+  assert.match(error.message, /1 could not authenticate/)
+})
+
+test('a legacy body with no attempts leaves the message and fields as before', () => {
+  const error = genStudioApiErrorFromBody(502, { detail: 'provider failed' })
+  assert.equal(error.poolAttempts.length, 0)
+  assert.doesNotMatch(error.message, /models in pool/)
+})
+
+test('the queue keeps the walk with the job\'s model and correlation id, across reload', () => {
+  const job: any = { params: { model: 'story-studio-llm', idea_batch: { idempotency_key: 'hash-123' } } }
+  const error: any = { poolAttempts: parsePoolAttempts(MIXED), poolName: 'story-studio-llm' }
+  persistGenStudioFailure(job, error)
+  assert.equal(job.genstudio_failure.attempts.length, 3)
+  assert.equal(job.genstudio_failure.model, 'story-studio-llm')
+  assert.equal(job.genstudio_failure.correlation_id, 'hash-123')
+  const reloaded = JSON.parse(JSON.stringify(job))
+  assert.deepEqual(reloaded.genstudio_failure, job.genstudio_failure)
+  assert.match(reloaded.genstudio_failure.summary, /1 could not authenticate/)
+})
+
+test('a mixed walk suppresses class-based guidance; a plain failure keeps it', () => {
+  const mixed = new GenStudioTerminalFailureError('chat', {
+    id: 'job286aa756', state: 'failed', model_id: 'story-studio-llm',
+    failure_class: 'provider_transient', failure_reason: 'pool exhausted', pool: 'story-studio-llm', pool_attempts: MIXED,
+  }, 'Writing failed')
+  assert.doesNotMatch(mixed.message, /Temporary provider issue/)
+  const plain = new GenStudioTerminalFailureError('chat', {
+    id: 'job2', state: 'failed', model_id: 'm', failure_class: 'provider_transient', failure_reason: 'temporary',
+  }, 'Writing failed')
+  assert.match(plain.message, /Temporary provider issue/)
 })

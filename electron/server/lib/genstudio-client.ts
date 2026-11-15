@@ -17,7 +17,7 @@ import os from 'os'
 import path from 'path'
 import { createHash, randomUUID } from 'crypto'
 import { carriesCapacityFacts, dispatchRefusalFromBody, formatDispatchRefusal, humanGatewayText } from './gateway-failure-text.js'
-import { genStudioFailureRecord, parsePoolAttempts, summarizePoolFailure, type GenStudioFailureRecord, type PoolAttempt } from '../contracts/genstudio-pool-attempts.js'
+import { genStudioFailureRecord, parseGenStudioFailureBody, parsePoolAttempts, summarizePoolFailure, type GenStudioFailureRecord, type PoolAttempt } from '../contracts/genstudio-pool-attempts.js'
 import { getAppSetting, getGenStudioUrl, getLanguageTimeoutMs, setAppSetting, getRetryFailedRequestsSetting, RETRY_ATTEMPTS_MIN, RETRY_ATTEMPTS_MAX, RETRY_ATTEMPTS_DEFAULT } from '../services/app-settings.js'
 import { generationReplacementKey, type ReplacementKind } from '../services/generation-paid-replacement.js'
 import type { GenerationReplacementAttempt, Job } from '../models/types.js'
@@ -709,7 +709,9 @@ export class GenStudioTerminalFailureError extends Error {
       message.replace(/\s{2,}/g, ' ').trim(),
       reason ? `Provider reason: ${reason}` : null,
       poolSummary || null,
-      genStudioFailureGuidance(failureClass, modality),
+      // A member walk names the causes itself; a generic class-based sentence on top of a mixed
+      // walk would assert one cause the members did not share.
+      poolAttempts.length ? null : genStudioFailureGuidance(failureClass, modality),
     ].filter(Boolean).join(' '))
     this.name = 'GenStudioTerminalFailureError'
     this.modality = modality
@@ -4750,24 +4752,25 @@ async function submitLanguageJson(
   }
 }
 
+/**
+ * The error one non-OK Gateway response becomes. Exported so a test can drive a real Response
+ * through the same parser instead of constructing the error by hand.
+ */
+export function genStudioApiErrorFromBody(status: number, body: any, headers: Headers = new Headers()): GenStudioApiError {
+  const detail = describeGenStudioDetail(body, status)
+  const code = typeof body?.code === 'string' ? body.code : undefined
+  const hintMs = readGenStudioPollHintMs(body)
+    ?? parseGenStudioRetryAfterMs(headers.get('retry-after'))
+  const pool = parseGenStudioFailureBody(body)
+  return new GenStudioApiError(status, detail, code, {
+    reason: readGenStudioCapacityReason(body, headers),
+    retryAfterSeconds: hintMs == null ? null : hintMs / 1_000,
+  }, { name: pool.pool, jobId: pool.jobId, attempts: pool.attempts })
+}
+
 async function readJson(response: Response): Promise<any> {
   const body = await response.json().catch(() => ({}))
-  if (!response.ok) {
-    const detail = describeGenStudioDetail(body, response.status)
-    const code = typeof body?.code === 'string' ? body.code : undefined
-    const hintMs = readGenStudioPollHintMs(body)
-      ?? parseGenStudioRetryAfterMs(response.headers.get('retry-after'))
-    const poolBody = (body && typeof body === 'object' ? body as Record<string, unknown> : {})
-    const detailBody = poolBody.detail && typeof poolBody.detail === 'object' ? poolBody.detail as Record<string, unknown> : {}
-    throw new GenStudioApiError(response.status, detail, code, {
-      reason: readGenStudioCapacityReason(body, response.headers),
-      retryAfterSeconds: hintMs == null ? null : hintMs / 1_000,
-    }, {
-      name: poolBody.pool ?? poolBody.pool_name ?? detailBody.pool ?? detailBody.pool_name,
-      jobId: poolBody.job_id ?? poolBody.request_id ?? detailBody.job_id ?? detailBody.request_id,
-      attempts: poolBody.pool_attempts ?? detailBody.pool_attempts,
-    })
-  }
+  if (!response.ok) throw genStudioApiErrorFromBody(response.status, body, response.headers)
   return body
 }
 

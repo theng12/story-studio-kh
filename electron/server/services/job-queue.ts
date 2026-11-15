@@ -6621,6 +6621,36 @@ async function joinDuplicateChainLink(job: Job, nextStep: any, rest: unknown[]):
  * from pump(); the `finally` guarantees the slot is released even on error so
  * the queue never deadlocks.
  */
+/**
+ * Keep Gateway's own member walk as data, not only as the last member's sentence (1.4.402).
+ * Only the allowlisted record is stored: pool, job/correlation id, the selected model and the
+ * sanitized attempts. The selected model comes from the job the request belongs to, never invented.
+ */
+export function persistGenStudioFailure(job: Job, error: any): void {
+  const attempts = Array.isArray(error?.poolAttempts) ? error.poolAttempts : []
+  if (!attempts.length && !error?.failureRecord) return
+  const batch = job.params && typeof job.params.idea_batch === 'object' ? job.params.idea_batch as Record<string, unknown> : {}
+  const correlationId = typeof error?.gatewayJobId === 'string' && error.gatewayJobId
+    ? error.gatewayJobId
+    : typeof batch.idempotency_key === 'string' && batch.idempotency_key
+      ? batch.idempotency_key
+      : typeof batch.request_identity === 'string' ? batch.request_identity : null
+  const selectedModel = writingModelOf(job)
+    || (typeof job.params?.model === 'string' ? job.params.model : null)
+  const record = error?.failureRecord ?? genStudioFailureRecord({
+    pool: typeof error?.poolName === 'string' ? error.poolName : null,
+    jobId: typeof error?.gatewayJobId === 'string' ? error.gatewayJobId : null,
+    correlationId,
+    model: selectedModel,
+    attempts,
+  })
+  job.genstudio_failure = {
+    ...record,
+    correlation_id: record.correlation_id || correlationId,
+    model: record.model || selectedModel,
+  }
+}
+
 async function runJob(type: JobType, job: Job): Promise<void> {
   const q = queues[type]
   activeRunJobIds.add(job.job_id)
@@ -6897,16 +6927,7 @@ async function runJob(type: JobType, job: Job): Promise<void> {
         return
       }
       job.local_execution_complete = true
-      // Keep Gateway's own member walk as data, not only as the last member's sentence.
-      const failureRecord = e?.failureRecord ?? (Array.isArray(e?.poolAttempts) && e.poolAttempts.length
-        ? genStudioFailureRecord({
-            pool: typeof e.poolName === 'string' ? e.poolName : null,
-            jobId: typeof e.gatewayJobId === 'string' ? e.gatewayJobId : null,
-            model: null,
-            attempts: e.poolAttempts,
-          })
-        : null)
-      if (failureRecord) job.genstudio_failure = failureRecord
+      persistGenStudioFailure(job, e)
       if (hasCancellationContext(job) && !hasUnsettledProviderWork(job)) {
         await finalizeSettledProviderJob(job.job_id)
         if (job.status !== 'running') {

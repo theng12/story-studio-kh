@@ -9,8 +9,10 @@
  *
  * Field names are read tolerantly because the contract is Gateway's: the snake_case names it
  * publishes today and the camelCase variants of the same facts. Nothing here invents a fact the
- * response did not carry, and no secret ever survives `sanitizeAttemptDetail`.
+ * response did not carry. Human fields pass the shared secret redactor and a bounded scrub of
+ * known credential shapes; only the allowlisted fields below are stored, never a raw body/header.
  */
+import { redactSensitiveValue } from '../lib/redact-secrets.js'
 
 export interface PoolAttempt {
   /** The pool member — a model id or fleet group id. Empty only when the response named none. */
@@ -30,6 +32,8 @@ export interface GenStudioFailureRecord {
   pool: string | null
   /** Gateway's job / request identifier, when it published one. */
   job_id: string | null
+  /** The request's own correlation id (the idempotency key or request identity) when no job id. */
+  correlation_id: string | null
   /** The selected product Story asked for. */
   model: string | null
   attempts: PoolAttempt[]
@@ -43,7 +47,9 @@ const MAX_DETAIL = 300
 /** Remove credential-shaped text before it can be stored or shown. */
 export function sanitizeAttemptDetail(value: unknown): string | null {
   if (typeof value !== 'string') return null
-  const cleaned = value
+  // The shared redactor covers the exact secrets this process holds and Bearer/sk- shapes; the
+  // patterns below add the header forms it does not, then the field is bounded.
+  const cleaned = String(redactSensitiveValue(value))
     .replace(/\b(?:bearer|basic)\s+[A-Za-z0-9._~+/=-]{8,}/gi, '[key removed]')
     .replace(/\b(?:x-api-key|api[_-]?key|authorization)\s*[:=]\s*[^\s,;]+/gi, '[key removed]')
     .replace(/\b(?:sk|rk|pk)-[A-Za-z0-9_-]{8,}/g, '[key removed]')
@@ -78,7 +84,9 @@ export function parsePoolAttempts(value: unknown): PoolAttempt[] {
     const status = Number.isInteger(rawStatus) ? rawStatus as number : null
     const detail = sanitizeAttemptDetail(pick(row, 'detail', 'failure_reason', 'message', 'error'))
     const finishReason = text(pick(row, 'finish_reason', 'native_finish_reason', 'finishReason')) || null
-    const rawRetryable = pick(row, 'retryable', 'retryable_error', 'retry_attempted')
+    // Only names that state retry ELIGIBILITY. `retry_attempted` says an attempt happened, not that
+    // another is safe, so it is deliberately not read.
+    const rawRetryable = pick(row, 'retryable', 'retryable_error')
     const retryable = typeof rawRetryable === 'boolean' ? rawRetryable : null
     // A row with no member and no fact is not an attempt; a member with no detail is still one.
     if (!member && !code && status === null && !detail) continue
@@ -87,10 +95,17 @@ export function parsePoolAttempts(value: unknown): PoolAttempt[] {
   return out
 }
 
-function category(attempt: PoolAttempt): 'auth' | 'incomplete' | 'unavailable' | 'other' {
+/**
+ * The output-limit cause is claimed only when the response proves it: a `length` finish reason or a
+ * token-limit code. `INCOMPLETE_OUTPUT` alone can be a dropped connection or an unreadable answer,
+ * so it stays the generic `incomplete` — an accurate cause, not an invented one.
+ */
+function category(attempt: PoolAttempt): 'auth' | 'output_limit' | 'incomplete' | 'unavailable' | 'other' {
   const code = (attempt.code || '').toUpperCase()
   if (attempt.status === 401 || attempt.status === 403 || code.includes('AUTH') || code.includes('UNAUTHORIZED')) return 'auth'
-  if (code.includes('INCOMPLETE') || (attempt.finish_reason || '').toLowerCase() === 'length') return 'incomplete'
+  if ((attempt.finish_reason || '').toLowerCase() === 'length'
+    || /OUTPUT[_ -]?LIMIT|MAX[_ -]?TOKENS|TOKEN[_ -]?LIMIT|LENGTH[_ -]?LIMIT/.test(code)) return 'output_limit'
+  if (code.includes('INCOMPLETE')) return 'incomplete'
   if (code.includes('UNAVAILABLE') || attempt.outcome === 'unavailable' || /offline|unavailable/i.test(attempt.detail || '')) return 'unavailable'
   return 'other'
 }
@@ -101,10 +116,11 @@ function category(attempt: PoolAttempt): 'auth' | 'incomplete' | 'unavailable' |
  */
 export function summarizePoolFailure(pool: string | null, attempts: readonly PoolAttempt[]): string {
   if (!attempts.length) return ''
-  const counts = { auth: 0, incomplete: 0, unavailable: 0, other: 0 }
+  const counts = { auth: 0, output_limit: 0, incomplete: 0, unavailable: 0, other: 0 }
   for (const attempt of attempts) counts[category(attempt)]++
   const parts = [
-    counts.incomplete ? `${counts.incomplete} stopped at its output limit` : '',
+    counts.output_limit ? `${counts.output_limit} stopped at its output limit` : '',
+    counts.incomplete ? `${counts.incomplete} stopped incomplete` : '',
     counts.auth ? `${counts.auth} could not authenticate` : '',
     counts.unavailable ? `${counts.unavailable} ${counts.unavailable === 1 ? 'was' : 'were'} unavailable` : '',
     counts.other ? `${counts.other} failed` : '',
@@ -117,6 +133,7 @@ export function summarizePoolFailure(pool: string | null, attempts: readonly Poo
 export function genStudioFailureRecord(input: {
   pool?: string | null
   jobId?: string | null
+  correlationId?: string | null
   model?: string | null
   attempts: readonly PoolAttempt[]
   at?: string
@@ -125,9 +142,26 @@ export function genStudioFailureRecord(input: {
   return {
     pool: input.pool?.trim() || null,
     job_id: input.jobId?.trim() || null,
+    correlation_id: input.correlationId?.trim() || null,
     model: input.model?.trim() || null,
     attempts,
     summary: summarizePoolFailure(input.pool ?? null, attempts),
     at: input.at || new Date().toISOString(),
+  }
+}
+
+/**
+ * Read the pool facts from a Gateway HTTP error body. Both shapes are accepted: `pool_attempts` at
+ * the top level, or nested under `detail` (the same nesting `detail` prose already uses).
+ */
+export function parseGenStudioFailureBody(body: unknown): { pool: string | null; jobId: string | null; attempts: PoolAttempt[] } {
+  const top = body && typeof body === 'object' ? body as Record<string, unknown> : {}
+  const detail = top.detail && typeof top.detail === 'object' ? top.detail as Record<string, unknown> : {}
+  const pool = top.pool ?? top.pool_name ?? detail.pool ?? detail.pool_name
+  const jobId = top.job_id ?? top.request_id ?? detail.job_id ?? detail.request_id
+  return {
+    pool: typeof pool === 'string' && pool.trim() ? pool.trim() : null,
+    jobId: typeof jobId === 'string' && jobId.trim() ? jobId.trim() : null,
+    attempts: parsePoolAttempts(top.pool_attempts ?? detail.pool_attempts),
   }
 }
