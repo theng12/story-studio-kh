@@ -12,6 +12,7 @@
  *   POST   /api/projects/:slug/episodes/:code/timeline/segments/:segmentId/split
  *   POST   /api/projects/:slug/episodes/:code/timeline/merge
  *   POST   /api/projects/:slug/episodes/:code/timeline/preflight
+ *   POST   /api/projects/:slug/episodes/:code/timeline/render
  */
 import { Router } from 'express'
 import type { Response } from 'express'
@@ -45,6 +46,13 @@ import {
   splitTimelineSegment,
   writeEpisodeTimeline,
 } from '../services/episode-timeline.js'
+import {
+  dispatchTimelineSegments,
+  maybeEnqueueTimelineAssembly,
+  selectTimelineVideoBuy,
+  timelineRenderSummary,
+  timelineVideoOperation,
+} from '../services/episode-timeline-render.js'
 import { readScenePlanForEpisode } from '../services/local-screening-episode-reader.js'
 import { resolveEpisodePathsByCode, resolveEpisodeTitleByCode } from '../services/utils.js'
 
@@ -218,6 +226,9 @@ router.get('/projects/:slug/episodes/:code/timeline', async (req, res) => {
         timeline,
         shares: timelineShares(timeline),
         can_build: false,
+        // Durable per-segment render state; live queued/running jobs overlay
+        // it on the page through the existing job stream.
+        render: await timelineRenderSummary(slug, code),
       })
     }
     const paths = await resolveEpisodePathsByCode(slug, code)
@@ -346,6 +357,74 @@ router.post('/projects/:slug/episodes/:code/timeline/merge', async (req, res) =>
 })
 
 // ── POST /timeline/preflight — credits and duration before any render ────
+/**
+ * The one quote: live catalogue numbers priced through the same helper the
+ * render endpoint charges against. Video segments are priced with the exact
+ * published clip the executor will buy (`selectTimelineVideoBuy`), so the
+ * shown total is the charged total; an unpublished price stays `null`.
+ */
+async function priceTimelineResponse(timeline: EpisodeTimeline, imageModelId: string): Promise<Record<string, any>> {
+  const { images, videos } = await liveCatalogue()
+  // A timeline validation refusal is reported before any number is shown —
+  // pricing a broken timeline would dress up a broken answer.
+  validateTimeline(timeline, { hasPublishedVideoModel: hasPublishedVideoModel(videos) })
+
+  const selected = images.find(model => model.id === imageModelId) || null
+  const imageCreditsPerImage = publishedImageCredits(selected)
+  const videoCreditsPerSecond = publishedVideoCreditsPerSecond(videos)
+
+  // A total that omits a media type whose price is unknown would read as a
+  // complete number; `preflightTimeline` reports `null` instead — its
+  // `videoSegmentCredits` returns null when no buyable row exists, and any
+  // null (image price, video buy) propagates to the whole total.
+  const stockIds = [...new Set(
+    timeline.segments
+      .filter(segment => segment.media_type === 'stock' && segment.footage_sha256)
+      .map(segment => segment.footage_sha256!),
+  )]
+  const stockById = new Map<string, number>(
+    await Promise.all(stockIds.map(async id => [id, await stockCredits(id)] as const)),
+  )
+
+  const result = preflightTimeline(timeline, {
+    imageCredits: () => imageCreditsPerImage ?? null,
+    videoCreditsPerSecond: () => videoCreditsPerSecond ?? null,
+    videoSegmentCredits: segment => {
+      const buy = selectTimelineVideoBuy(videos, timelineVideoOperation(segment.media_type))
+      return buy ? buy.variant.credits_per_video : null
+    },
+    stockCredits: sha256 => stockById.get(sha256) ?? 0,
+    segmentSeconds: mediaType => SEGMENT_SECONDS[mediaType],
+    assemblySeconds: totalSeconds => totalSeconds * ASSEMBLY_SECONDS_PER_EPISODE_SECOND,
+  })
+
+  return {
+    has_published_video_model: hasPublishedVideoModel(videos),
+    image: {
+      model_id: selected?.id ?? imageModelId,
+      model_label: selected?.display_name ?? null,
+      credits_per_image: imageCreditsPerImage,
+      price: imageCreditsPerImage === null ? 'price not published' : 'published',
+    },
+    video: {
+      credits_per_second: videoCreditsPerSecond,
+      price: videoCreditsPerSecond === null ? 'price not published' : 'published',
+    },
+    // The figures below are starting estimates, not measurements.
+    timing_note: 'Estimated time uses starting constants for each media type plus assembly — an estimate, not a measurement.',
+    preflight: {
+      segments: result.segments,
+      duration_seconds: result.duration_seconds,
+      estimated_seconds: result.estimated_seconds,
+      assembly_seconds: result.assembly_seconds,
+      ...(result.credits === null
+        ? { credits: null, credits_note: 'price not published' }
+        : { credits: result.credits }),
+      ...(result.credits === null ? {} : { by_media: result.by_media }),
+    },
+  }
+}
+
 router.post('/projects/:slug/episodes/:code/timeline/preflight', async (req, res) => {
   const { slug, code } = req.params
   try {
@@ -354,65 +433,46 @@ router.post('/projects/:slug/episodes/:code/timeline/preflight', async (req, res
     if (!imageModelId) {
       return res.status(400).json({ detail: 'Choose an image model to price the stills with.' })
     }
-    const { images, videos } = await liveCatalogue()
-    // A timeline validation refusal is reported before any number is shown —
-    // pricing a broken timeline would dress up a broken answer.
-    validateTimeline(timeline, { hasPublishedVideoModel: hasPublishedVideoModel(videos) })
-
-    const selected = images.find(model => model.id === imageModelId) || null
-    const imageCreditsPerImage = publishedImageCredits(selected)
-    const videoCreditsPerSecond = publishedVideoCreditsPerSecond(videos)
-
-    const needsImage = timeline.segments.some(segment => segment.media_type === 't2i')
-    const needsVideo = timeline.segments.some(segment => VIDEO_MEDIA_TYPES.has(segment.media_type))
-    // A total that omits a media type whose price is unknown would read as a
-    // complete number; it is reported as unknown instead.
-    const creditsKnown = (!needsImage || imageCreditsPerImage !== null)
-      && (!needsVideo || videoCreditsPerSecond !== null)
-
-    const stockIds = [...new Set(
-      timeline.segments
-        .filter(segment => segment.media_type === 'stock' && segment.footage_sha256)
-        .map(segment => segment.footage_sha256!),
-    )]
-    const stockById = new Map<string, number>(
-      await Promise.all(stockIds.map(async id => [id, await stockCredits(id)] as const)),
-    )
-
-    const result = preflightTimeline(timeline, {
-      imageCredits: () => imageCreditsPerImage ?? null,
-      videoCreditsPerSecond: () => videoCreditsPerSecond ?? null,
-      stockCredits: sha256 => stockById.get(sha256) ?? 0,
-      segmentSeconds: mediaType => SEGMENT_SECONDS[mediaType],
-      assemblySeconds: totalSeconds => totalSeconds * ASSEMBLY_SECONDS_PER_EPISODE_SECOND,
-    })
-
-    return res.json({
-      has_published_video_model: hasPublishedVideoModel(videos),
-      image: {
-        model_id: selected?.id ?? imageModelId,
-        model_label: selected?.display_name ?? null,
-        credits_per_image: imageCreditsPerImage,
-        price: imageCreditsPerImage === null ? 'price not published' : 'published',
-      },
-      video: {
-        credits_per_second: videoCreditsPerSecond,
-        price: videoCreditsPerSecond === null ? 'price not published' : 'published',
-      },
-      // The figures below are starting estimates, not measurements.
-      timing_note: 'Estimated time uses starting constants for each media type plus assembly — an estimate, not a measurement.',
-      preflight: {
-        segments: result.segments,
-        duration_seconds: result.duration_seconds,
-        estimated_seconds: result.estimated_seconds,
-        assembly_seconds: result.assembly_seconds,
-        ...(creditsKnown
-          ? { credits: result.credits }
-          : { credits: null, credits_note: 'price not published' }),
-        ...(creditsKnown ? { by_media: result.by_media } : {}),
-      },
-    })
+    return res.json(await priceTimelineResponse(timeline, imageModelId))
   } catch (error) {
     failEdit(res, error, 'Could not price this timeline')
+  }
+})
+
+// ── POST /timeline/render — dispatch one job per segment ─────────────────
+/**
+ * The render entry point. It re-quotes with the SAME helper the Preflight
+ * button uses, refuses when any price is unpublished (`credits: null` — never
+ * a blind spend, never a 0), then dispatches one job per unfinished segment.
+ * A segment already `done` at the same fingerprint is reused, not re-bought.
+ */
+router.post('/projects/:slug/episodes/:code/timeline/render', async (req, res) => {
+  const { slug, code } = req.params
+  try {
+    const timeline = await requireTimeline(slug, code)
+    const imageModelId = typeof req.body?.image_model_id === 'string' ? req.body.image_model_id.trim() : ''
+    if (!imageModelId) {
+      return res.status(400).json({ detail: 'Choose an image model to price the stills with.' })
+    }
+    const quote = await priceTimelineResponse(timeline, imageModelId)
+    if (quote.preflight.credits === null) {
+      return res.status(409).json({
+        detail: 'The Gateway publishes no price for part of this timeline, so nothing was rendered — a render must know what it charges before it spends.',
+        image: quote.image,
+        video: quote.video,
+        preflight: quote.preflight,
+      })
+    }
+    const segmentIds = Array.isArray(req.body?.segment_ids)
+      ? req.body.segment_ids.filter((value: unknown): value is string => typeof value === 'string')
+      : undefined
+    const dispatched = await dispatchTimelineSegments(slug, code, {
+      image_model_id: imageModelId,
+      ...(segmentIds?.length ? { segment_ids: segmentIds } : {}),
+    })
+    const assembly_queued = await maybeEnqueueTimelineAssembly(slug, code)
+    return res.json({ ...quote, ...dispatched, assembly_queued })
+  } catch (error) {
+    failEdit(res, error, 'Could not render this timeline')
   }
 })

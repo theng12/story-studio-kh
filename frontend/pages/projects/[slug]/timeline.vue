@@ -65,6 +65,15 @@
             >
               {{ busy ? 'Working…' : 'Preflight' }}
             </button>
+            <button
+              type="button"
+              class="btn btn-secondary"
+              :disabled="busy || !imageModelId"
+              title="Dispatch one job per segment, then assemble the timeline in order"
+              @click="runRender()"
+            >
+              Render timeline
+            </button>
           </div>
         </div>
         <p v-if="imageModelsError" class="tl-note">{{ imageModelsError }}</p>
@@ -114,7 +123,9 @@
               {{ bucket.credits }} credits
             </li>
           </ul>
+          <p v-if="assemblyLabel" class="tl-note">Assembly: {{ assemblyLabel }}</p>
         </div>
+        <p v-else-if="assemblyLabel" class="tl-note">Assembly: {{ assemblyLabel }}</p>
       </section>
 
       <!-- The segmented timeline itself. -->
@@ -136,6 +147,13 @@
               <span class="tl-share">{{ shares[index] ?? 0 }}%</span>
               <span class="tl-media-badge" :data-media="segment.media_type">
                 {{ mediaLabel(segment.media_type) }}
+              </span>
+              <span
+                class="tl-media-badge tl-render-badge"
+                :data-status="renderInfoFor(segment.id)?.status || 'not_rendered'"
+                :title="renderInfoFor(segment.id)?.error || ''"
+              >
+                {{ renderStatusLabel(segment.id) }}
               </span>
               <span v-if="segment.prompt" class="tl-prompt" :title="segment.prompt">
                 {{ segment.prompt }}
@@ -192,8 +210,23 @@
                 >
                   Merge with next
                 </button>
+                <button
+                  v-if="renderInfoFor(segment.id)?.status === 'error'"
+                  type="button"
+                  class="btn btn-secondary btn-sm"
+                  :disabled="busy"
+                  title="Re-dispatch just this segment"
+                  @click="runRender([segment.id])"
+                >
+                  Retry
+                </button>
               </div>
             </div>
+
+            <!-- Why this segment failed, in its own words, beside its Retry. -->
+            <p v-if="renderInfoFor(segment.id)?.error" class="tl-note tl-error">
+              {{ renderInfoFor(segment.id).error }}
+            </p>
 
             <!-- Two neighbouring segments that disagree on media: the choice is
                  the operator's, never decided here. -->
@@ -443,12 +476,88 @@ function applyAnswer(answer: any) {
       }
     }
   }
+  if (answer?.render) renderState.value = answer.render
 }
+
+// ── Render: one job per segment, then one assembly ─────────────────────
+/** Durable per-segment state from GET /timeline; live queue progress shows on the Jobs page. */
+const renderState = ref<any>(null)
+let renderPoll: ReturnType<typeof setInterval> | null = null
+
+function renderInfoFor(segmentId: string): any {
+  return renderState.value?.segments?.[segmentId] || null
+}
+
+function renderStatusLabel(segmentId: string): string {
+  const info = renderInfoFor(segmentId)
+  if (!info || info.status === 'not_rendered') return 'Not rendered'
+  if (info.status === 'rendering') return 'Rendering…'
+  if (info.status === 'done') return 'Rendered'
+  if (info.status === 'error') return 'Failed'
+  return String(info.status)
+}
+
+const assemblyLabel = computed(() => {
+  const assembly = renderState.value?.assembly
+  const infos = segments.value.map(segment => renderInfoFor(segment.id))
+  const allRendered = infos.length > 0 && infos.every(info => info?.status === 'done')
+  if (!assembly || assembly.status === 'none') {
+    return allRendered ? 'queued — waiting for every segment' : ''
+  }
+  if (assembly.status === 'done') return `done — ${assembly.output_path}`
+  if (assembly.status === 'error') return `failed — ${assembly.error}`
+  return ''
+})
+
+function stopRenderPoll() {
+  if (renderPoll) {
+    clearInterval(renderPoll)
+    renderPoll = null
+  }
+}
+
+async function loadRender() {
+  if (!episodeId.value) return
+  try {
+    const answer = await get(`/projects/${slug.value}/episodes/${encodeURIComponent(episodeId.value)}/timeline`)
+    if (answer?.render) renderState.value = answer.render
+  } catch {
+    // Keep the last durable answer on screen; a failed refresh is not a state.
+  }
+}
+
+/** Bounded poll: stops when every segment and the assembly have a terminal
+ *  state, or after five minutes — a render never leaves a spinner running. */
+function startRenderPoll() {
+  stopRenderPoll()
+  const deadline = Date.now() + 5 * 60_000
+  renderPoll = setInterval(async () => {
+    if (Date.now() > deadline) {
+      stopRenderPoll()
+      return
+    }
+    await loadRender()
+    const infos = segments.value.map(segment => renderInfoFor(segment.id))
+    const settled = infos.length > 0 && infos.every(info => info && (info.status === 'done' || info.status === 'error'))
+    const anyFailed = infos.some(info => info?.status === 'error')
+    const assembly = renderState.value?.assembly
+    const assemblySettled = assembly && (assembly.status === 'done' || assembly.status === 'error')
+    if (settled && (assemblySettled || anyFailed)) {
+      stopRenderPoll()
+      status.value = anyFailed
+        ? 'Render finished with failures — each one names its segment below.'
+        : 'Render finished — every segment and the assembly are done.'
+    }
+  }, 2_000)
+}
+
+onUnmounted(stopRenderPoll)
 
 async function loadTimeline() {
   error.value = ''
   status.value = ''
   preflight.value = null
+  renderState.value = null
   mergeChoiceFor.value = ''
   stockFor.value = ''
   if (!episodeId.value) {
@@ -705,6 +814,41 @@ async function runPreflight() {
   }
 }
 
+/**
+ * Dispatch one job per segment (reusing anything already rendered), then let
+ * the bounded poll surface each segment's result. `segmentIds` narrows the
+ * dispatch to a Retry on one failed row.
+ */
+async function runRender(segmentIds?: string[]) {
+  if (!imageModelId.value) {
+    error.value = 'Choose an image model to price and render the stills with.'
+    return
+  }
+  busy.value = true
+  error.value = ''
+  status.value = 'Pricing against the live catalogue and dispatching one job per segment…'
+  try {
+    const answer = await post(
+      `/projects/${slug.value}/episodes/${encodeURIComponent(episodeId.value)}/timeline/render`,
+      { image_model_id: imageModelId.value, ...(segmentIds?.length ? { segment_ids: segmentIds } : {}) },
+    )
+    preflight.value = answer
+    hasPublishedVideoModel.value = answer.has_published_video_model === true
+    const parts = [`Dispatched ${answer.dispatched?.length ?? 0} segment job(s)`]
+    if (answer.reused?.length) parts.push(`${answer.reused.length} already rendered, reused`)
+    if (answer.already_queued?.length) parts.push(`${answer.already_queued.length} already queued`)
+    if (answer.assembly_queued) parts.push('assembly queued')
+    status.value = `${parts.join(' · ')}.`
+    await loadRender()
+    startRenderPoll()
+  } catch (e) {
+    status.value = ''
+    error.value = detailOf(e)
+  } finally {
+    busy.value = false
+  }
+}
+
 watch(episodeId, () => {
   if (!episodeId.value) {
     loadTimeline()
@@ -876,6 +1020,20 @@ watch(episodeId, () => {
   background: var(--surface-muted, #f3f4f6);
 }
 
+.tl-render-badge[data-status='done'] {
+  background: var(--success-muted, #ecfdf5);
+}
+
+.tl-render-badge[data-status='error'] {
+  background: var(--danger-muted, #fef2f2);
+  color: var(--danger, #c0392b);
+}
+
+.tl-render-badge[data-status='rendering'] {
+  background: var(--surface-muted, #f3f4f6);
+  color: var(--text-muted, #6b7280);
+}
+
 .tl-prompt {
   flex: 1 1 12rem;
   min-width: 0;
@@ -889,7 +1047,7 @@ watch(episodeId, () => {
 .tl-row-controls {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.75rem;
+  gap: 0.6rem;
   align-items: flex-end;
 }
 

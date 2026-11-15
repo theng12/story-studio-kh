@@ -1646,6 +1646,14 @@ const queues: Record<JobType, QueueState> = {
   // Episode Builder "Polish Scene Prompts": one writing-model call; its own lane so a long pool wait
   // never holds up a stitch.
   music_scene_polish: { pending: [], running: false, executor: null },
+  // v1.4.402 — Timeline: one lane per media family so a slow video segment never
+  // blocks a local chart; assembly is local FFmpeg and buys nothing.
+  timeline_image: { pending: [], running: false, executor: null },
+  timeline_sketch: { pending: [], running: false, executor: null },
+  timeline_chart: { pending: [], running: false, executor: null },
+  timeline_stock: { pending: [], running: false, executor: null },
+  timeline_video: { pending: [], running: false, executor: null },
+  timeline_assemble: { pending: [], running: false, executor: null },
   metadata: { pending: [], running: false, executor: null },
   video_assembly: { pending: [], running: false, executor: null },
   episode_shorts: { pending: [], running: false, executor: null },

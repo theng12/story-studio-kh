@@ -2822,6 +2822,9 @@ export const JOB_TYPES = [
    * whose `story_entity_automation` is on; never adds to the inventory.
    */
   'story_entities_extract',
+  /** v1.4.402 — one timeline per episode: one queue job per segment, then one local assembly. */
+  'timeline_image', 'timeline_sketch', 'timeline_chart', 'timeline_stock', 'timeline_video',
+  'timeline_assemble',
 ] as const
 
 export type JobType = typeof JOB_TYPES[number]

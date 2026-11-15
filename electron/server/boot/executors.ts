@@ -581,6 +581,19 @@ export function registerAllExecutors(options: { loadSettings?: boolean } = {}): 
     const { generateMusicScenePolish } = await import('../generators/music-scene-polish.js')
     await generateMusicScenePolish(job)
   })
+  // v1.4.402 — Timeline segments and the final assembly. Their outputs live in
+  // episode_dir/timeline-render, which is not media-root-routed, so no guardMedia
+  // (same reasoning as scene_image_generate).
+  for (const timelineType of ['timeline_image', 'timeline_sketch', 'timeline_chart', 'timeline_stock', 'timeline_video'] as const) {
+    registerExecutor(timelineType, async (job) => {
+      const { runTimelineSegmentJob } = await import('../services/episode-timeline-render.js')
+      await runTimelineSegmentJob(job)
+    })
+  }
+  registerExecutor('timeline_assemble', async (job) => {
+    const { runTimelineAssembleJob } = await import('../services/episode-timeline-render.js')
+    await runTimelineAssembleJob(job)
+  })
   registerExecutor('audio', guardMedia(generateAudio))
   registerExecutor('audio_merge', guardMedia(generateAudioMerge))
   registerExecutor('metadata', generateMetadata)
