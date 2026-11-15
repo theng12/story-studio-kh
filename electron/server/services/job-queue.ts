@@ -6421,9 +6421,21 @@ function pipelineHandoffNonPauseBlocked(job: Job): boolean {
 }
 
 function pipelineHandoffBlocked(job: Job): boolean {
-  return job.pause_requested === true
-    || job.status === 'paused'
-    || pipelineHandoffNonPauseBlocked(job)
+  return pipelineHandoffBlockedReason(job) !== null
+}
+
+/** The same decision, named. A pending continuation that is not dispatched says why. */
+export function pipelineHandoffBlockedReason(job: Job): string | null {
+  if (job.pause_requested === true || job.status === 'paused') return 'the job is paused'
+  if (job.status === 'cancelled') return 'the job was cancelled'
+  if (job.force_abandoned) return 'the job was force-abandoned'
+  const providerCompletionVerified = job.result?.provider_settled === 'succeeded'
+    && job.result?.output_audited === 'provider-settlement'
+    && Boolean(job.genstudio_jobs?.length)
+    && job.genstudio_jobs!.every(entry => entry.state === 'succeeded')
+  if (hasCancellationContext(job) && !providerCompletionVerified) return 'its cancellation evidence is unresolved'
+  if (hasUnsettledProviderEvidence(job)) return 'provider evidence is unsettled'
+  return null
 }
 
 async function failClosedPipelineHandoff(job: Job, message: string): Promise<void> {
@@ -6472,7 +6484,15 @@ async function drainPendingPipelineHandoff(parentJobId: string): Promise<void> {
       }
       return
     }
-    if (pipelineHandoffBlocked(parent)) return
+    const blockedReason = pipelineHandoffBlockedReason(parent)
+    if (blockedReason) {
+      if (!parent.output_lines.some(line => line.startsWith('Pipeline continuation not queued:'))) {
+        parent.output_lines.push(`Pipeline continuation not queued: ${blockedReason}. Nothing was re-run; the saved step stays ready for when the block clears.`)
+        await persistJob(parent)
+        emitUpdate(parent)
+      }
+      return
+    }
 
     let authoritative = await loadAuthoritativeJob(parent.project_slug, parent.job_id)
     const durableMarker = authoritative && pipelineHandoffOf(authoritative)

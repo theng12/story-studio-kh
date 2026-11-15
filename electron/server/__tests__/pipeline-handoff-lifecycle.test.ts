@@ -1450,3 +1450,31 @@ test('a saved continuation left non-pending with no child is reported, never sil
   assert.match(jq.pipelineHandoffSkipReason({ state: 'failed' }, false)!, /failed/)
   assert.match(jq.pipelineHandoffSkipReason(null, false)!, /no saved continuation/)
 })
+
+test('a recovery-owned chain is reported in the job log', async t => {
+  const f = await retainedFixture(t, 'Chain recovery-owned visibility')
+  f.restoreWith(jq._setExecutorForTesting('outline_only', async job => auditedSuccess(job)))
+  const job = jq.enqueuePreparedForTest({
+    project_slug: f.project.slug,
+    type: 'outline_only',
+    episode_id: 'PR0100',
+    title: 'recovery-owned chain',
+    params: { episode_recovery_id: 'plan-1', pipeline_chain: [{ type: 'expand_chapters', params: {} }] },
+  })
+  await waitFor(() => jq.getJob(job.job_id)?.status === 'done', { label: 'the recovery-owned parent to finish' })
+  assert.ok(
+    jq.getJob(job.job_id)!.output_lines.some(line => line.startsWith('Pipeline continuation not queued by this job: its episode-recovery plan owns the remaining steps.')),
+    'a chain owned by the recovery plan is named, never silently dropped',
+  )
+})
+
+test('a blocked pending continuation has a named reason, and a clear one has none', () => {
+  assert.match(jq.pipelineHandoffBlockedReason({ pause_requested: true } as any)!, /paused/)
+  assert.match(jq.pipelineHandoffBlockedReason({ status: 'paused' } as any)!, /paused/)
+  assert.match(jq.pipelineHandoffBlockedReason({ status: 'cancelled' } as any)!, /cancelled/)
+  assert.match(jq.pipelineHandoffBlockedReason({ force_abandoned: true } as any)!, /force-abandoned/)
+  assert.match(jq.pipelineHandoffBlockedReason({
+    genstudio_jobs: [{ operation: 'chat.response', state: 'requested', id: 'job-1' }],
+  } as any)!, /unsettled/)
+  assert.equal(jq.pipelineHandoffBlockedReason({ status: 'done' } as any), null)
+})
