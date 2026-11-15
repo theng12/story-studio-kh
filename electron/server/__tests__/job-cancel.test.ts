@@ -1273,18 +1273,30 @@ describe('cancelled history cleanup waits for a live worker to return', () => {
         assert.equal(followOnWork, 0, 'cancelled work must not continue after its held executor resumes')
         assert.equal(nonOriginalRuns, replacement ? 2 : 1,
           'only the replacement and marker may run after the original worker leaves')
-        assert.equal(jq.getJob(original.job_id), null, 'the retired original row must not reappear')
+        if (retirement === 'retry') {
+          const retained = jq.getJob(original.job_id)
+          assert.ok(retained, 'a retry RETIRES the original row instead of erasing it')
+          assert.equal(retained!.superseded?.superseded_by, replacement!.job_id,
+            'the retained original names the run that replaced it')
+        } else {
+          assert.equal(jq.getJob(original.job_id), null, 'the retired original row must not reappear')
+        }
         assert.equal(jq.isCancelled(original.job_id), false, 'the retired original flag is cleared after worker exit')
         if (replacement) {
           assert.equal(jq.isCancelled(replacement.job_id), false, 'Retry replacement must be uncancelled')
         }
         await jq._waitForJobPersistenceForTesting()
         const disk = JSON.parse(await fs.readFile(path.join(pm.getProjectDir(project.slug)!, 'jobs.json'), 'utf8'))
-        assert.equal(
-          disk.jobs.some((candidate: { job_id: string }) => candidate.job_id === original.job_id),
-          false,
-          'the retired original row must stay absent from jobs.json',
-        )
+        if (retirement === 'retry') {
+          const retained = disk.jobs.find((candidate: { job_id: string }) => candidate.job_id === original.job_id)
+          assert.ok(retained?.superseded, 'the superseded original stays on disk with its evidence')
+        } else {
+          assert.equal(
+            disk.jobs.some((candidate: { job_id: string }) => candidate.job_id === original.job_id),
+            false,
+            'the retired original row must stay absent from jobs.json',
+          )
+        }
       } finally {
         release()
         await jq.setQueuePaused(false)

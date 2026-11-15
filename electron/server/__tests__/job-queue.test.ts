@@ -543,7 +543,11 @@ describe('retryTerminalJob()', () => {
     jq.registerExecutor('research_run', async job => { received = job.params })
     const retried = jq.retryTerminalJob(proj.slug, original.job_id)
     assert.notEqual(retried.job_id, original.job_id)
-    assert.equal(jq.getJob(original.job_id), null)
+    // Retire, not erase: the original stays terminal with its evidence and
+    // names the run that replaced it.
+    assert.equal(jq.getJob(original.job_id)?.status, 'error')
+    assert.equal(jq.getJob(original.job_id)?.superseded?.superseded_by, retried.job_id)
+    assert.equal(retried.previous_job_id, original.job_id)
 
     const retryDeadline = Date.now() + 2_000
     while (Date.now() < retryDeadline && jq.getJob(retried.job_id)?.status !== 'done') {
@@ -1954,7 +1958,8 @@ describe('manual Gateway chat retries', () => {
 
     assert.equal(retry.params.model, 'current-live-model')
     assert.equal(retry.genstudio_chat_retry_scope, `terminal:job-terminal-current-params:${failed.job_id}`)
-    assert.equal(jq.getJob(failed.job_id), null)
+    assert.equal(jq.getJob(failed.job_id)?.superseded?.superseded_by, retry.job_id,
+      'the terminal original is retired with a superseded marker, not erased')
     await waitForTerminalJob(retry.job_id)
   })
 

@@ -8521,6 +8521,8 @@ interface EnqueuePreparedOptions extends EnqueueOptions {
   manual_failed_item_replacement?: Job['manual_failed_item_replacement']
   /** Chat keys whose settled answer this app already rejected locally. Server-only: no request body may name one. */
   rejected_idempotency_keys?: Job['rejected_idempotency_keys']
+  /** The terminal row this replacement retires. Server-only: no request body may name one. */
+  previous_job_id?: string
 }
 
 function withoutPaidImageReplacementParam(params: EnqueueOptions['params']): EnqueueOptions['params'] {
@@ -8776,6 +8778,7 @@ function enqueuePrepared(
     ...(opts.genstudio_chat_recovery_chapters?.length ? { genstudio_chat_recovery_chapters: opts.genstudio_chat_recovery_chapters } : {}),
     ...(opts.genstudio_chat_recovery_keys?.length ? { genstudio_chat_recovery_keys: opts.genstudio_chat_recovery_keys } : {}),
     ...(opts.genstudio_chat_recovery_preview ? { genstudio_chat_recovery_preview: opts.genstudio_chat_recovery_preview } : {}),
+    ...(opts.previous_job_id ? { previous_job_id: opts.previous_job_id } : {}),
   }
 
   jobs.set(jobId, job)
@@ -9085,8 +9088,8 @@ export async function countJobs(projectSlug: string): Promise<JobStats> {
   const stats: JobStats = { running: 0, queued: 0, paused: 0, done: 0, error: 0, total: 0 }
   for (const job of jobs.values()) {
     if (job.project_slug !== projectSlug) continue
-    // Hidden rows are off the list, so they are in no badge (see getQueueStats).
-    if (isJobHidden(job)) continue
+    // Hidden and superseded rows are off the list, so they are in no badge (see getQueueStats).
+    if (isJobHidden(job) || isJobSuperseded(job)) continue
     stats.total += 1
     if (countsAsRunning(job)) stats.running += 1
     else if (job.status === 'queued') stats.queued += 1
@@ -9224,11 +9227,16 @@ function historyFacets(scopeJobs: readonly Job[], filter: JobHistoryFilter): Job
   const status: Record<string, number> = {}
   const clearable = { finished: 0, failed: 0 }
   let hidden = 0
+  let superseded = 0
   for (const job of scopeJobs) {
     // A hidden row is not on the list, so it is in no badge, no chip and no
     // bulk-action count — and it is never a silent zero: `hidden` below is the
     // one number that says how many records are being kept out of sight.
     if (isJobHidden(job)) { hidden += 1; continue }
+    // A superseded row is retired by a retry the same way: off the list, in no
+    // other count, and counted here — `superseded` is the Superseded control's
+    // number, and each row carries the job that replaced it.
+    if (isJobSuperseded(job)) { superseded += 1; continue }
     const display = rawDisplayStatus(job)
     stats.total += 1
     if (display === 'recovered') stats.recovered += 1
@@ -9241,7 +9249,7 @@ function historyFacets(scopeJobs: readonly Job[], filter: JobHistoryFilter): Job
     if (bucket === 'finished') clearable.finished += 1
     else if (bucket === 'failed') clearable.failed += 1
   }
-  return { stats, active_by_type, status, clearable, hidden }
+  return { stats, active_by_type, status, clearable, hidden, superseded }
 }
 
 export function encodeHistoryCursor(job: Job | RendererJob): string {
@@ -9373,9 +9381,10 @@ export async function moveQueuedJob(
 /**
  * Requeue a failed/cancelled continuity render in place for the Jobs-page
  * Finish missing images action.  This is deliberately separate from the
- * generic retry path: retryTerminalJob creates a fresh history row and drops
- * the original provider evidence, while this action must let the continuity
- * executor recover the saved manifest identities on the same row.
+ * generic retry path: retryTerminalJob creates a fresh history row and RETIRES
+ * the original with a `superseded` marker (its provider evidence stays on the
+ * old row), while this action must let the continuity executor recover the
+ * saved manifest identities on the same row.
  */
 export async function finishMissingImagesInPlace(
   projectSlug: string,
@@ -10065,19 +10074,34 @@ export function retryTerminalJob(
         ? { genstudio_chat_recovery_preview: structuredClone(recovery.preview) }
         : {}),
     } : pendingKeys.length ? { genstudio_chat_recovery_keys: pendingKeys } : {}),
+    // The new row names the terminal row it replaces; that row is marked
+    // `superseded` below rather than deleted.
+    previous_job_id: jobId,
   }, original.content_pack_provenance)
 
+  // RETIRE, never erase (owner, 2026-11-15: "nothing deleted for good"). The
+  // original keeps its status, provider evidence, error, params, cost and
+  // timestamps exactly as they were; only a marker is added, naming the run
+  // that replaced it. `isJobSuperseded` then keeps it off the active list and
+  // out of every "needs attention" count, and the Superseded history control
+  // reads it back with the old→new link.
+  const supersededAt = new Date().toISOString()
+  original.superseded = {
+    at: supersededAt,
+    by: 'Story Studio',
+    reason: 'retried',
+    superseded_by: retried.job_id,
+  }
   // An old worker must still observe cancellation until its finally runs.
   if (!activeRunJobIds.has(jobId)) cancelled.delete(jobId)
-  jobs.delete(jobId)
-  emitCleared(projectSlug, [jobId])
-  void persistProjectMutation(projectSlug, { kind: 'delete', jobId }).catch((error) => {
-    console.warn('[job-queue] failed to persist retried job replacement', {
+  void persistJob(original).catch((error) => {
+    console.warn('[job-queue] failed to persist superseded original', {
       projectSlug,
       jobId,
       error: error?.message,
     })
   })
+  emitUpdate(original)
   return retried
 }
 
@@ -10089,8 +10113,12 @@ export function retryTerminalJob(
 export async function replaceFailedItems(projectSlug: string, jobId: string): Promise<Job> {
   return withLock(`replace-failed-items:${projectSlug}:${jobId}`, async () => {
     await loadPersistedJobs(projectSlug)
+    // The retired original keeps its own `source_job_id` marker and stays in
+    // the map, so the search must not hand back the row being asked about —
+    // only a DIFFERENT row can be the existing replacement.
     const existingChild = Array.from(jobs.values()).find(job => (
       job.project_slug === projectSlug
+      && job.job_id !== jobId
       && job.params?.jobs_replace_failed_items?.source_job_id === jobId
     ))
     if (existingChild) return serializeJob(existingChild) as Job
@@ -10735,6 +10763,17 @@ export function isJobHidden(job: Pick<Job, 'hidden_at'>): boolean {
 }
 
 /**
+ * A terminal row a retry or replacement RETIRED (2026-11-15). Same rule as
+ * `isJobHidden`: absent `superseded` means active, and the marker is the only
+ * thing that takes the row off the list — its evidence never moves. Off the
+ * active list, out of every "needs attention" count, back only through the
+ * Superseded history control, which shows `superseded.superseded_by`.
+ */
+export function isJobSuperseded(job: Pick<Job, 'superseded'>): boolean {
+  return Boolean(job.superseded)
+}
+
+/**
  * The owner took this row off the Jobs list WITHOUT deleting anything (owner,
  * 2026-11-02: nothing deleted for good). Error details, `output_lines`,
  * Retry admission and every provider receipt stay on the record exactly as
@@ -10918,8 +10957,10 @@ export async function noteOnFinishedJob(
  */
 function historyClearBucket(job: Job): JobHistoryClearStatus | null {
   // Already off the list — a bulk hide must not count it a second time, and it
-  // must not be the reason a visible row's count reads differently.
-  if (isJobHidden(job)) return null
+  // must not be the reason a visible row's count reads differently. A
+  // superseded row is off the list for the same reason and is never bulk-hidden
+  // into a second state on top of its marker.
+  if (isJobHidden(job) || isJobSuperseded(job)) return null
   if (!isFinishedStatus(job.status) || hasFinalRenderFence(job)) return null
   if (!job.force_abandoned && (hasUnsettledProviderEvidence(job) || job.music_results_awaiting_import?.length)) return null
   if (!jobControlsOf(job).some(control => control.enabled && control.action === 'clear-history')) return null
@@ -11012,7 +11053,7 @@ export async function hideFinished(projectSlug: string, status?: JobHistoryClear
   let count = 0
   const hiddenIds: string[] = []
   for (const [id, job] of jobs.entries()) {
-    if (job.project_slug !== projectSlug || isJobHidden(job) || hasFinalRenderFence(job)) continue
+    if (job.project_slug !== projectSlug || isJobHidden(job) || isJobSuperseded(job) || hasFinalRenderFence(job)) continue
     if (!matchesHistoryClearStatus(job, status)) continue
     if (!job.force_abandoned && (hasUnsettledProviderEvidence(job) || job.music_results_awaiting_import?.length)) continue
     job.hidden_at = new Date().toISOString()
@@ -11037,10 +11078,11 @@ export async function hideFinished(projectSlug: string, status?: JobHistoryClear
 export function getQueueStats(projectSlug?: string): JobStats {
   let jobList = Array.from(jobs.values())
   if (projectSlug) jobList = jobList.filter(j => j.project_slug === projectSlug)
-  // Hidden rows are off the list, so they are in no badge. They are not lost —
-  // the history read's `hidden` facet and the page's Hidden filter both count
-  // them — they simply do not add to "Needs attention" or "Done".
-  jobList = jobList.filter(j => !isJobHidden(j))
+  // Hidden and superseded rows are off the list, so they are in no badge. They
+  // are not lost — the history read's `hidden` and `superseded` facets and the
+  // page's Hidden/Superseded filters both count them — they simply do not add
+  // to "Needs attention" or "Done".
+  jobList = jobList.filter(j => !isJobHidden(j) && !isJobSuperseded(j))
   return {
     running: jobList.filter(countsAsRunning).length,
     queued: jobList.filter(j => j.status === 'queued').length,

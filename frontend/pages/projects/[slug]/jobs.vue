@@ -312,6 +312,12 @@
         Nothing was deleted: each keeps its error details, logs and Retry/Recover, and Restore puts it back.
         Hidden rows are not counted in Needs attention or in the Hide Failed total while they are here.
       </p>
+      <p v-if="statusFilter === 'superseded'" class="jobs-hidden-hint" role="status">
+        {{ supersededScopedJobs.length }} superseded {{ supersededScopedJobs.length === 1 ? 'row' : 'rows' }}.
+        A retry replaced each one — the row was retired, not deleted: its log, provider evidence, cost and
+        timestamps all stay, and each card names the run that took its place. Superseded rows are not counted
+        in Needs attention or in the Hide Failed total.
+      </p>
     </div>
 
     <!-- Sort Bar -->
@@ -690,6 +696,9 @@
           </ul>
         </AdvancedDisclosure>
 
+        <p v-if="job.previous_job_id" class="job-control-reason" role="status">
+          Retry of {{ job.previous_job_id }} — the earlier attempt was retired, not deleted; its evidence stays under Superseded.
+        </p>
         <p
           v-if="primaryJobControl(job)"
           class="job-control-reason"
@@ -895,6 +904,13 @@
             class="job-control-reason"
             role="status"
           >{{ discardNotes[job.job_id] }}</p>
+          <p v-if="job.superseded" class="job-control-reason" role="status">
+            Superseded by {{ job.superseded?.superseded_by }} — a newer run replaced this row.
+            It was retired, not deleted: its log, provider evidence, cost and timestamps all stay.
+          </p>
+          <p v-if="job.previous_job_id" class="job-control-reason" role="status">
+            Retry of {{ job.previous_job_id }} — the earlier attempt was retired, not deleted; its evidence stays under Superseded.
+          </p>
           <p
             v-if="primaryJobControl(job)"
             class="job-control-reason"
@@ -1673,9 +1689,15 @@ function jobExceptions(job: RJob) {
 
 /** One line that answers "how did it end?" for the compact History table. */
 function historyRowSummary(job: RJob): string {
-  if (job.status === 'error') return jobAttentionSummary(job) || firstErrorLine(customerJobText(job.error || 'Failed', job))
-  if (job.status === 'cancelled') return job.resolved?.reason || job.skipped?.reason || 'Cancelled'
-  return getSummaryLine(job)
+  const base = job.status === 'error'
+    ? jobAttentionSummary(job) || firstErrorLine(customerJobText(job.error || 'Failed', job))
+    : job.status === 'cancelled'
+      ? job.resolved?.reason || job.skipped?.reason || 'Cancelled'
+      : getSummaryLine(job)
+  // The old→new link rides the same line: the table has no card to carry it.
+  if (job.superseded) return `${base} · superseded by ${job.superseded.superseded_by}`
+  if (job.previous_job_id) return `${base} · retry of ${job.previous_job_id}`
+  return base
 }
 
 /**
@@ -2317,9 +2339,16 @@ function reviewFailures() {
 // ── Filter tabs ─────────────────────────────────────────────────────────
 
 const activeFilter = ref('all')
+/**
+ * The rows this scope holds for the list, minus the ones a retry retired.
+ * A superseded row is off the list everywhere — badges, counts, bulk actions
+ * — and comes back only through the Superseded control.
+ */
 const projectScopedJobs = computed(() => {
-  if (!isUniversal.value || projectFilter.value === 'all') return jobs.value
-  return jobs.value.filter(job => job.project_slug === projectFilter.value)
+  if (!isUniversal.value || projectFilter.value === 'all') {
+    return jobs.value.filter(job => !isJobSuperseded(job))
+  }
+  return jobs.value.filter(job => job.project_slug === projectFilter.value && !isJobSuperseded(job))
 })
 /**
  * The server owns the one hidden state: `hidden_at` is set by Hide and cleared
@@ -2327,6 +2356,12 @@ const projectScopedJobs = computed(() => {
  * scope's saved history) hides and restores the same way.
  */
 function isJobHidden(job: RJob): boolean { return Boolean(job.hidden_at) }
+/**
+ * The server owns this state too: `superseded` is stamped by a retry that
+ * replaced the row (the row itself is never deleted — its evidence stays),
+ * so the card can name the run that took its place.
+ */
+function isJobSuperseded(job: RJob): boolean { return Boolean(job.superseded) }
 function canHideJob(job: RJob): boolean { return ['done', 'recovered', 'skipped'].includes(jobDisplayStatus(job)) }
 /**
  * Discard removes the row for good (owner 2026-11-13: "i need the button to discard the job").
@@ -2476,11 +2511,27 @@ const hiddenScopedJobs = computed(() => {
 const hiddenTypeScopedJobs = computed(() => activeFilter.value === 'all'
   ? hiddenScopedJobs.value
   : hiddenScopedJobs.value.filter(job => job.type === activeFilter.value))
-const typeScopedJobs = computed(() => statusFilter.value === 'hidden'
-  ? hiddenTypeScopedJobs.value
-  : visibleTypeScopedJobs.value)
+// The rows a retry retired, scoped like the visible ones. They are a third
+// set of records — neither on the list nor hidden — so their own control
+// reads them and nothing else counts them.
+const supersededAllScopedJobs = computed(() => {
+  const list = jobs.value.filter(job => isJobSuperseded(job) && !isJobHidden(job))
+  if (!isUniversal.value || projectFilter.value === 'all') return list
+  return list.filter(job => job.project_slug === projectFilter.value)
+})
+const supersededScopedJobs = computed(() => {
+  const list = supersededAllScopedJobs.value
+  return activeFilter.value === 'all'
+    ? list
+    : list.filter(job => job.type === activeFilter.value)
+})
+const typeScopedJobs = computed(() => {
+  if (statusFilter.value === 'hidden') return hiddenTypeScopedJobs.value
+  if (statusFilter.value === 'superseded') return supersededScopedJobs.value
+  return visibleTypeScopedJobs.value
+})
 // v1.0.x — status filter (independent of the type tabs).
-const statusFilter = ref<'all' | 'running' | 'queued' | 'paused' | 'error' | 'done' | 'recovered' | 'cancelled' | 'skipped' | 'hidden'>('all')
+const statusFilter = ref<'all' | 'running' | 'queued' | 'paused' | 'error' | 'done' | 'recovered' | 'cancelled' | 'skipped' | 'hidden' | 'superseded'>('all')
 const failureBatchFilter = ref<string | null>(null)
 const historySection = ref<HTMLElement | null>(null)
 const historyHeading = ref<HTMLElement | null>(null)
@@ -2498,6 +2549,9 @@ const STATUS_FILTERS: Array<{ key: typeof statusFilter.value; label: string }> =
   // entirely, not another display status, which is why their count comes from
   // `hiddenHistory` and not from the visible rows every other chip counts.
   { key: 'hidden', label: 'Hidden' },
+  // The rows a retry retired. Again a different set of records: counted from
+  // its own bucket, each card naming the run that replaced it.
+  { key: 'superseded', label: 'Superseded' },
 ]
 // `?status=error` (the dashboard's "Repair N failed jobs" link) opens the list already filtered.
 function statusFromQuery(value: unknown): typeof statusFilter.value | null {
@@ -2526,7 +2580,9 @@ const statusFilters = computed(() => STATUS_FILTERS.map(s => ({
   ...s,
   count: s.key === 'hidden'
     ? hiddenTypeScopedJobs.value.length
-    : s.key === 'all'
+    : s.key === 'superseded'
+      ? supersededScopedJobs.value.length
+      : s.key === 'all'
       ? visibleTypeScopedJobs.value.length
       : visibleTypeScopedJobs.value.filter(j => jobDisplayStatus(j) === s.key).length,
 })))
@@ -2626,9 +2682,10 @@ function toggleSort(key: string) {
 const filteredJobs = computed(() => {
   return filterJobsForView(typeScopedJobs.value, {
     type: 'all',
-    // `typeScopedJobs` is already the hidden read here; "hidden" is not a
-    // display status, so passing it through would filter every row out.
-    status: statusFilter.value === 'hidden' ? 'all' : statusFilter.value,
+    // `typeScopedJobs` is already the hidden (or superseded) read here;
+    // neither is a display status, so passing either through would filter
+    // every row out.
+    status: statusFilter.value === 'hidden' || statusFilter.value === 'superseded' ? 'all' : statusFilter.value,
     project: 'all',
     batch: failureBatchFilter.value,
   }).filter(job => matchesEpisodeSearch(job, episodeSearch.value))
