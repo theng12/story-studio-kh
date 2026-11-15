@@ -101,7 +101,7 @@ router.put('/app-settings/thumbnail-style-text-limit', async (req, res) => {
   try {
     res.json({ limit: await setThumbnailStyleTextLimit(req.body?.limit), default: THUMBNAIL_STYLE_TEXT_MAX })
   } catch (e: any) {
-    res.status(e?.statusCode || 400).json(humanizeBackendError(e, 'Failed to save the thumbnail lettering limit'))
+    res.status(e?.statusCode || 500).json(humanizeBackendError(e, 'Failed to save the thumbnail lettering limit'))
   }
 })
 

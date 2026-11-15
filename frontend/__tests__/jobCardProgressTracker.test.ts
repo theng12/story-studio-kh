@@ -53,8 +53,12 @@ const composable = read('../composables/useJobEta.ts')
 
 /** The page's markup only — the script block is not what a customer reads. */
 const template = page.slice(0, page.indexOf('<script setup'))
-/** Both drawers: the Active card's and the History card's. */
-const drawers = template.match(/<AdvancedDisclosure[\s\S]*?<\/AdvancedDisclosure>/g) || []
+/**
+ * Both Technical details drawers: the Active card's and the History card's. The cards carry a
+ * Timing disclosure too (1.4.402), so the split names the drawer these tests are about.
+ */
+const drawers = (template.match(/<AdvancedDisclosure[\s\S]*?<\/AdvancedDisclosure>/g) || [])
+  .filter(block => /label="Technical details"/.test(block))
 /** Everything a customer sees WITHOUT opening anything. */
 const defaultView = drawers.reduce((rest, block) => rest.replace(block, ''), template)
 

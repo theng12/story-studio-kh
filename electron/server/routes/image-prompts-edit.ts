@@ -781,7 +781,7 @@ router.post('/projects/:slug/episodes/:episodeId/image-prompts/options/duplicate
         return res.json(result)
       })
     } catch (error: any) {
-      return res.status(500).json({ detail: error?.message || 'Could not duplicate this thumbnail option.' })
+      return res.status(error?.statusCode || 500).json({ detail: error?.message || 'Could not duplicate this thumbnail option.' })
     }
   })
 

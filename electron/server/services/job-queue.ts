@@ -5176,21 +5176,6 @@ function markInterruptedByRestart(j: Job): void {
   scheduleRestartRetry(j.job_id)
 }
 
-/**
- * End a row locally on the Gateway's own terminal verdict. Deliberately does NOT schedule the
- * automatic restart retry: the provider work is over, so a retry would buy fresh work behind the
- * owner's back — the one direction this queue must never take on its own. Retry stays available as
- * the owner's explicit action.
- */
-function markEndedOnTerminalEvidence(j: Job, line: string): void {
-  j.status = 'error'
-  j.error = 'Ended on the Gateway\'s terminal verdict'
-  j.finished_at = j.finished_at || new Date().toISOString()
-  j.local_execution_complete = false
-  j.output_lines = Array.isArray(j.output_lines) ? j.output_lines : []
-  j.output_lines.push(line)
-}
-
 function scheduleRestartRetry(jobId: string): void {
   setTimeout(() => {
     retryInterruptedJob(jobId).catch(error => console.warn('[job-queue] automatic retry after restart skipped', { job_id: jobId, error: (error as Error)?.message }))
@@ -5573,14 +5558,7 @@ async function readPersistedJobs(projectSlug: string): Promise<Job[]> {
               resumedTypes.add(j.type as JobType)
             } else {
               observePersistedRunningJobLoadStage(j, 'cancellation-reconciliation')
-              if (!hasCancellationContext(j) && (j.genstudio_jobs || []).length > 0
-                && !(j.genstudio_jobs || []).some(isUnsettledProviderEntry)) {
-                // No recovery kind and no outstanding provider work: waiting for credentials or
-                // polling cannot recover local output. Keep the remote verdict and end locally.
-                observePersistedRunningJobLoadStage(j, 'interrupted-terminalization')
-                markEndedOnTerminalEvidence(j, 'Story Studio reconciled this row from the Gateway\'s terminal verdict; no provider outcome was invented.')
-                interrupted.push(j)
-              } else if (requiresCancellationReconciliation(j)) {
+              if (requiresCancellationReconciliation(j)) {
                 // The provider request already has a durable identity. Never convert it to an
                 // interrupted error or requeue it into a generation lane.
                 j.local_execution_complete = true

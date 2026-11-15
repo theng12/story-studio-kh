@@ -43,7 +43,9 @@ describe('the card face carries one summary and one credit line', () => {
   test('there is exactly one summary line per card, and it is on the face', () => {
     assert.equal((template.match(/class="job-summary-line"/g) || []).length, 2, 'the Active card and the History card')
     // …and it is NOT inside a drawer: the face shows it without a click.
-    const drawers = template.match(/<AdvancedDisclosure[\s\S]*?<\/AdvancedDisclosure>/g) || []
+    // The cards also carry a Timing disclosure (1.4.402); this is about the details drawer.
+    const drawers = (template.match(/<AdvancedDisclosure[\s\S]*?<\/AdvancedDisclosure>/g) || [])
+      .filter(block => /label="Technical details"/.test(block))
     assert.equal(drawers.length, 2)
     for (const drawer of drawers) assert.doesNotMatch(drawer, /class="job-summary-line"/)
   })
