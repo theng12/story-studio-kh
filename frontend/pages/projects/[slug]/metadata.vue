@@ -36,6 +36,12 @@
       </p>
     </div>
 
+    <!-- Format pool (owner 2026-11-15): the member this episode runs under —
+         the same one shapes its thumbnail and its YouTube title — shown and
+         overridable here, before upload. Renders nothing while the channel's
+         switch is off. -->
+    <FormatPoolEpisodeRow v-if="episodeId" :slug="slug" :episode-id="episodeId" />
+
     <p v-if="episodeId && statusKnown && !scriptReady && !isMusic && !finalizationChecking" class="workspace-command-copy">
       No finished script yet for <strong>{{ episodeId }}</strong>. If some chapters are still unwritten, finish them first.
       <NuxtLink :to="`/projects/${slug}/scripts?episode_id=${encodeURIComponent(episodeId)}`" class="btn btn-secondary btn-sm">Open Script Generator</NuxtLink>

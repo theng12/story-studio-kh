@@ -262,3 +262,67 @@ router.post('/safety-checks/apply-to-all', async (req, res) => {
   }
   res.json({ ok: true, applied })
 })
+
+/**
+ * The format pool's per-episode assignment (owner 2026-11-15). The GET is a
+ * pure read — it never creates the episode's assignment file; the pool's
+ * deterministic pick is shown either way. The PUT is the override before
+ * upload: a member id pins that format, null hands the episode back to the
+ * pool's pick. Off = `enabled: false` and the UI shows nothing.
+ */
+router.get('/projects/:slug/episodes/:episodeId/format-assignment', async (req, res) => {
+  try {
+    const slug = String(req.params.slug)
+    const episodeId = String(req.params.episodeId)
+    const config = await pm.getConfig(slug)
+    if (!config) return res.status(404).json({ detail: 'Project not found' })
+    const { formatPoolFromConfig, resolveEpisodeFormatAssignment } = await import('../services/format-pool.js')
+    const pool = formatPoolFromConfig(config)
+    if (!pool) return res.json({ enabled: false, member: null, source: null, index: null, members: [] })
+    const assignment = await resolveEpisodeFormatAssignment(slug, episodeId, pool)
+    return res.json({
+      enabled: true,
+      member: assignment?.member || null,
+      source: assignment?.source || null,
+      index: assignment?.index ?? null,
+      members: pool.members,
+    })
+  } catch (error: any) {
+    return res.status(400).json({ detail: error?.message || 'Could not read this episode’s format assignment.' })
+  }
+})
+
+router.put('/projects/:slug/episodes/:episodeId/format-assignment', async (req, res) => {
+  try {
+    const slug = String(req.params.slug)
+    const episodeId = String(req.params.episodeId)
+    const config = await pm.getConfig(slug)
+    if (!config) return res.status(404).json({ detail: 'Project not found' })
+    const { formatPoolFromConfig, resolveEpisodeFormatAssignment, writeEpisodeFormatAssignment } = await import('../services/format-pool.js')
+    const pool = formatPoolFromConfig(config)
+    if (!pool) {
+      return res.status(400).json({ detail: 'The format pool is off for this channel. Turn it on in Settings → Writing & style first.' })
+    }
+    const raw = req.body?.member_id
+    if (raw !== null && typeof raw !== 'string') {
+      return res.status(400).json({ detail: 'Choose a format from the pool, or null to follow the pool’s pick.' })
+    }
+    if (typeof raw === 'string') {
+      if (!raw.trim()) return res.status(400).json({ detail: 'Choose a format from the pool, or null to follow the pool’s pick.' })
+      if (!pool.members.some(member => member.id === raw)) {
+        return res.status(400).json({ detail: 'That format is not in this channel’s pool.' })
+      }
+    }
+    await writeEpisodeFormatAssignment(slug, episodeId, raw === null ? null : String(raw))
+    const assignment = await resolveEpisodeFormatAssignment(slug, episodeId, pool)
+    return res.json({
+      enabled: true,
+      member: assignment?.member || null,
+      source: assignment?.source || null,
+      index: assignment?.index ?? null,
+      members: pool.members,
+    })
+  } catch (error: any) {
+    return res.status(400).json({ detail: error?.message || 'Could not save this episode’s format assignment.' })
+  }
+})

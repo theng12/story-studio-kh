@@ -1570,6 +1570,12 @@ export async function getSafeConfig(slug: string): Promise<any | null> {
       : undefined,
     thumbnail_reference_asset: (config as any).thumbnail_reference_asset || undefined,
     thumbnail_shell_id: typeof config.thumbnail_shell_id === 'string' ? config.thumbnail_shell_id : undefined,
+    // 1.4.403 — the format pool (owner 2026-11-15). This allow-list would
+    // otherwise strip it on every GET and the settings page would read back
+    // nothing it had just saved (the recurring echo bug class above).
+    format_pool: (config as any).format_pool && typeof (config as any).format_pool === 'object'
+      ? (config as any).format_pool
+      : undefined,
     thumbnail_reference_strength: config.thumbnail_reference_strength,
     // v1.0.337 — continuity guide cast density (0–100; undefined = 40% default).
     character_density: typeof (config as any).character_density === 'number' ? (config as any).character_density : undefined,

@@ -24,6 +24,7 @@
  */
 
 import { z } from 'zod'
+import { FormatPoolSchema, type FormatPool } from './format-pool.js'
 import {
   MAX_PROJECT_LABELS,
   MAX_PROJECT_LABEL_LENGTH,
@@ -504,6 +505,13 @@ export const UpdateConfigSchema = z.object({
   style_presets: z.array(z.any()).optional(),
   active_style_preset_id: z.string().max(200).optional(),
   thumbnail_shell_id: z.string().max(300).optional(),
+  /**
+   * 1.4.403 — the format pool (owner 2026-11-15): "randomize from a pool of
+   * 1-10 formats so each episode doesn't have the style 'type'". OFF by
+   * default; an absent or disabled pool leaves today's single thumbnail
+   * format and single title style untouched (contracts/format-pool.ts).
+   */
+  format_pool: FormatPoolSchema.optional(),
   thumbnail_reference_strength: z.enum(['loose', 'balanced', 'strong']).optional(),
   /**
    * 2026-10-31 — this channel's name as a saved starting point for a NEW channel
@@ -712,6 +720,8 @@ export interface SafeProjectConfigResponse {
   }
   /** 1.4.392 — reusable thumbnail prompt approval default. Absent = ON. */
   auto_approve_thumbnail_prompts?: boolean
+  /** 1.4.403 — the format pool; absent/disabled = today's single format (contracts/format-pool.ts). */
+  format_pool?: FormatPool
   image_models: Record<string, any>
   voice_presets: Array<{
     name: string

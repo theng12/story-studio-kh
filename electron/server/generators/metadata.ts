@@ -256,10 +256,25 @@ async function episodeAiDisclosureSections(job: Job, slug: string, episode_id: s
 
 export async function generateMetadata(job: Job): Promise<void> {
   const { project_slug, episode_id, params } = job
-  const req = params as MetadataParams
+  let req = params as MetadataParams
 
   const config = await pm.getConfig(project_slug)
   if (!config) throw new Error('Project config not found')
+  // The format pool (owner 2026-11-15): the assigned member drives this
+  // episode's title style (mode, channel prefix/suffix — and the tone read in
+  // the prompt below) — the SAME member that drives its thumbnail, so the two
+  // cannot disagree. Absent/off: req is untouched, byte-identical to before.
+  const { formatPoolFromConfig, overlayTitleRequest, resolveEpisodeFormatAssignment } = await import('../services/format-pool.js')
+  const formatPool = formatPoolFromConfig(config)
+  const formatAssignment = formatPool
+    ? await resolveEpisodeFormatAssignment(project_slug, episode_id, formatPool, { persist: true })
+    : null
+  if (formatAssignment) {
+    req = overlayTitleRequest(req, formatAssignment.member)
+    job.output_lines.push(
+      `Format pool: ${formatAssignment.member.label || formatAssignment.member.id} — member ${formatAssignment.index + 1} of ${formatPool!.members.length} styles this episode's title; the same member drives its thumbnail.`,
+    )
+  }
   // The project's content language is the authority for audience-facing text:
   // description, title options and tags. Empty = legacy, byte-identical.
   const audienceLanguageDirective = languageDirective(await getContentLanguage(project_slug))
@@ -641,7 +656,7 @@ export async function generateMetadata(job: Job): Promise<void> {
       // for anything the owner adds later, and the tone is no longer a string
       // an engineer owns: it is data, editable per niche and per format.
       const titlePurpose = musicStitch.music ? MUSIC_TITLE_PURPOSE : fmtMeta?.purposeNote || DEFAULT_TITLE_PURPOSE
-      const titleTone = formula?.titleGuidance || fmtMeta?.titleStyleHint || DEFAULT_TITLE_TONE
+      const titleTone = formatAssignment?.member.title_guidance || formula?.titleGuidance || fmtMeta?.titleStyleHint || DEFAULT_TITLE_TONE
       const titlePrompt = `Generate ${title_count} SEO-optimized video title options ${titlePurpose}.${audienceLanguageDirective ? `\n${audienceLanguageDirective}` : ''}
 Episode: ${episode_id} — ${title}
 Story context:

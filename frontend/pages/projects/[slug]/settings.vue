@@ -780,6 +780,14 @@
         </p>
         <span v-if="thumbnailPromptAutoApproveMessage" class="text-muted" style="font-size: var(--font-xs)">{{ thumbnailPromptAutoApproveMessage }}</span>
       </div>
+
+      <!-- Format pool — owner 2026-11-15. Default off; the pool editor only
+           appears once the switch is on. The per-episode pick and override
+           live on the YouTube Finalizer page. -->
+      <div class="form-group" data-setting="format-pool">
+        <label>Format pool</label>
+        <FormatPoolSettings :pool="config?.format_pool" :slug="slug" />
+      </div>
           </section>
 
           <CollapsibleCard title="Writing instructions" description="Channel guidance and intro rules, with reusable presets" data-setting="writing-instructions">

@@ -105,6 +105,7 @@ export const SETTINGS_INDEX: SettingEntry[] = [
   { section: 'writing', anchor: 'art-style', label: 'Art style', keywords: 'art style visual style images look' },
   { section: 'writing', anchor: 'writing-instructions', label: 'Writing instructions', keywords: 'writing instructions standards intro rules presets prompt' },
   { section: 'writing', anchor: 'style-library', label: 'Custom art styles', keywords: 'style library custom styles create' },
+  { section: 'writing', anchor: 'format-pool', label: 'Format pool (thumbnail + title styles)', keywords: 'format pool thumbnail title style vary randomize mix styles per episode differ' },
 
   { section: 'publishing', anchor: 'upload-schedule', label: 'Upload schedule', keywords: 'upload plan schedule cadence publishing days time zone timezone weekly when publish' },
   { section: 'publishing', anchor: 'youtube-channel', label: 'YouTube channel for this project', keywords: 'youtube channel assign account' },

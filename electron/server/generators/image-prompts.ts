@@ -531,13 +531,28 @@ export async function episodeCast(projectSlug: string, episodeId: string): Promi
 
 export async function generateImagePrompts(job: Job): Promise<void> {
   const { project_slug: projectSlug, episode_id: episodeId, params } = job
-  const req = params as ThumbnailPromptsParams
+  let req = params as ThumbnailPromptsParams
   if (req.mode && req.mode !== 'thumbnails') {
     throw new Error('Legacy visual-prompt generation is retired. Generate visual prompts in Scene Plan.')
   }
 
   const config = await pm.getConfig(projectSlug)
   if (!config) throw new Error('Project config not found')
+  // The format pool (owner 2026-11-15): the assigned member drives this
+  // episode's shell, template and lettering — and the SAME member styles its
+  // metadata title at Finalize, so picture and title cannot disagree.
+  // Absent/off: req is untouched and every line below behaves as before.
+  const { formatPoolFromConfig, overlayThumbnailRequest, resolveEpisodeFormatAssignment } = await import('../services/format-pool.js')
+  const formatPool = formatPoolFromConfig(config)
+  const formatAssignment = formatPool
+    ? await resolveEpisodeFormatAssignment(projectSlug, episodeId, formatPool, { persist: true })
+    : null
+  if (formatAssignment) {
+    req = overlayThumbnailRequest(req, formatAssignment.member)
+    job.output_lines.push(
+      `Format pool: ${formatAssignment.member.label || formatAssignment.member.id} — member ${formatAssignment.index + 1} of ${formatPool!.members.length} drives this episode's thumbnail format; the same member styles its title at Finalize.`,
+    )
+  }
 
   /**
    * AN EPISODE CODE IS NOT A HEADLINE.
