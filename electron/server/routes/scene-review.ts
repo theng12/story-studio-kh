@@ -33,6 +33,7 @@ import { readSceneStoryContext, sceneStoryStateSuffix, writeSceneStoryContext } 
 import type { SceneStoryContextEntry } from '../contracts/scene-story-context.js'
 import { resolveEpisodeMergedAudioChoice } from '../lib/merged-audio-selection.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
+import { assemblyAlreadyExists, repairContinuationFrom } from '../services/pipeline-repair-continuation.js'
 import { parseHttpByteRange } from '../lib/http-byte-range.js'
 import { decodableImageSignature, isDecodableImage, peekDecodableImageSignature } from '../lib/image-validation.js'
 import { imageMediaTypeForBytes } from '../lib/image-media-type.js'
@@ -1798,6 +1799,24 @@ router.post('/projects/:slug/scene-review/:episodeId/continuity-render', async (
     })
   }
 
+  // A BULK repair inherits the saved continuation a failed step left behind (EP0018): the parent
+  // keeps its historical row, and this child drains the chain exactly once when the images finish.
+  let adoptedFrom = ''
+  if (!singleSceneId) {
+    const jobs = await jq.findJobs(slug, () => true)
+    const continuation = repairContinuationFrom(jobs, episodeId, { assemblyExists: assemblyAlreadyExists(jobs, episodeId) })
+    if (continuation) {
+      const adopted = params as typeof params & {
+        pipeline_chain?: unknown[]
+        pipeline_batch_id?: string
+        pipeline_chain_adopted_from?: string
+      }
+      adopted.pipeline_chain = continuation.chain
+      if (continuation.batchId) adopted.pipeline_batch_id = continuation.batchId
+      adopted.pipeline_chain_adopted_from = continuation.fromJobId
+      adoptedFrom = continuation.fromJobId
+    }
+  }
   let job
   try {
     job = await jq.enqueue({
@@ -1811,6 +1830,10 @@ router.post('/projects/:slug/scene-review/:episodeId/continuity-render', async (
       dedupeParams,
       params,
     })
+    if (adoptedFrom) {
+      job.output_lines.push(`Adopted the remaining Final Video step from failed job ${adoptedFrom}; nothing was re-run.`)
+      await jq.checkpointJobState(job)
+    }
   } catch (e: any) {
     // Lost the atomic dedupe race — surface as a clean 409 (no async error
     // boundary in this app, so an unhandled throw would hang the request).
