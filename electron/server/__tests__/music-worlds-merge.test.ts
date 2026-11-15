@@ -62,3 +62,10 @@ test('renaming an existing world edits it in place: same id, same position, no n
   assert.equal(merged[1]!.name, 'Empty ballroom at dawn')
   assert.deepEqual(merged.map(w => w.id), ['a', 'b', 'c'])
 })
+
+test('renaming a world onto another world\'s name is refused, case-insensitively', () => {
+  assert.throws(() => mergeMusicWorlds(CURRENT, [{ id: 'b', name: 'RAIN ALLEY' }]), /already exists/)
+  assert.throws(() => mergeMusicWorlds(CURRENT, [{ id: 'b', name: 'Harbour fog' }]), /already exists/)
+  const kept = mergeMusicWorlds(CURRENT, [{ id: 'b', name: 'Empty ballroom' }])
+  assert.equal(kept[1]!.name, 'Empty ballroom', 'its own name (any case) is not a duplicate')
+})

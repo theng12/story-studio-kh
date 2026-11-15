@@ -158,6 +158,10 @@ export function mergeMusicWorlds(
 ): StoredMusicWorld[] {
   const byId = new Map<string, StoredMusicWorld>(current.map(world => [world.id, { ...world, scenes: [...world.scenes], music: [...world.music] }]))
   const removing = new Set(remove)
+  // Names are unique case-insensitively across the whole list: two worlds with the same display
+  // name are indistinguishable on screen, and a derived id alone would let that through.
+  const nameTaken = (name: string, exceptId?: string) => [...byId.values()]
+    .some(world => world.id !== exceptId && world.name.trim().toLowerCase() === name.trim().toLowerCase())
   // One id cannot be both edited and removed: the overlap is refused, never resolved by order.
   for (const entry of patch) {
     if (entry.id && removing.has(entry.id)) {
@@ -171,6 +175,9 @@ export function mergeMusicWorlds(
     if (entry.id) {
       const existing = byId.get(entry.id)
       if (!existing) throw new Error(`World "${entry.id}" was not found in this formula.`)
+      if (entry.name !== undefined && nameTaken(entry.name, entry.id)) {
+        throw new Error(`A world named "${entry.name}" already exists.`)
+      }
       byId.set(entry.id, {
         ...existing,
         ...(entry.name !== undefined ? { name: entry.name } : {}),
@@ -182,6 +189,7 @@ export function mergeMusicWorlds(
       continue
     }
     if (!entry.name) throw new Error('A new world needs a name.')
+    if (nameTaken(entry.name)) throw new Error(`A world named "${entry.name}" already exists.`)
     const id = worldIdFromName(entry.name)
     if (byId.has(id)) throw new Error(`A world named "${entry.name}" already exists.`)
     byId.set(id, {
