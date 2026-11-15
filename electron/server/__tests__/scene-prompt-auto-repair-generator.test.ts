@@ -763,10 +763,12 @@ test('HTTP action derives missing scope from disk, rejects client scene IDs, and
     request(app).post(`/api/projects/${f.project.slug}/jobs/paid-prompt-route/auto-repair-scene-prompts`).send({}),
     request(app).post(`/api/projects/${f.project.slug}/jobs/paid-prompt-route/auto-repair-scene-prompts`).send({}),
   ])
-  assert.deepEqual(responses.map(response => response.status).sort(), [202, 404])
+  assert.deepEqual(responses.map(response => response.status).sort(), [202, 409])
   const accepted = responses.find(response => response.status === 202)!
   assert.equal(accepted.body.missing_prompts, 1)
   const replacement = jq.getJob(accepted.body.job.job_id)!
+  assert.equal(jq.getJob('paid-prompt-route')!.superseded?.superseded_by, replacement.job_id)
+  assert.equal(replacement.previous_job_id, 'paid-prompt-route')
   assert.equal(replacement.params.episode_id, f.episodeId)
   assert.equal(replacement.params.model, f.params.model)
   assert.deepEqual(replacement.params.pipeline_chain, [{ type: 'continuity_render' }])

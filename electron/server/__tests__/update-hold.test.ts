@@ -14,6 +14,10 @@
  *   3. A restart with no DELETE dispatches again with no manual step: the hold
  *      writes nothing durable, so a fresh reader sees an unpaused queue.
  *   4. Hold, then no restart: dispatch resumes by itself after `pause_s`.
+ *
+ * The two 300 ms negative observation windows are explicitly counted in `_timing-baseline.json`:
+ * they prove nothing starts or replies during the hold, rather than waiting for work to finish.
+ * See `_timing.ts`: replacing a negative observation window with polling would lose that proof.
  */
 
 import { after, before, describe, test } from 'node:test'

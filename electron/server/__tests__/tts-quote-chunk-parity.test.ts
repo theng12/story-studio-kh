@@ -13,7 +13,7 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
-import { GenStudioApiError } from '../lib/genstudio-client.js'
+import { GenStudioApiError, requestGenStudioTtsQuote } from '../lib/genstudio-client.js'
 import { splitGenStudioApiRequests } from '../lib/genstudio-client.js'
 import { quoteNarrationRequests } from '../services/tts-narration-quote.js'
 import {
@@ -460,12 +460,15 @@ test('the status the Gateway answered with reaches the reader, not just the log'
   assert.match(page, /result\.unavailable_detail/)
 })
 
-test('a non-200 quote never becomes a quote object full of zeros', () => {
-  const client = readFileSync(new URL('../lib/genstudio-client.ts', import.meta.url), 'utf8')
-  // `readJson` throws GenStudioApiError for every non-2xx, carrying the real
-  // status and the server's `detail`, so the parse below it only ever runs on a
-  // 200. That is the property the whole S1 fix rests on.
-  assert.match(client, /if \(!response\.ok\) \{[\s\S]{0,400}throw new GenStudioApiError\(response\.status, detail/)
+test('a non-200 quote never becomes a quote object full of zeros', async (t) => {
+  t.mock.method(globalThis, 'fetch', async () => Response.json(
+    { detail: 'Quote service unavailable' }, { status: 503 },
+  ))
+  await assert.rejects(
+    requestGenStudioTtsQuote('fixture-key', { modelId: 'fixture-tts', voiceId: 'fixture-voice', text: 'A quote.' }),
+    (error: unknown) => error instanceof GenStudioApiError
+      && error.status === 503 && error.detail === 'Quote service unavailable',
+  )
 })
 
 test('an absent published figure stays absent through the quote parse — no `?? 0`', () => {

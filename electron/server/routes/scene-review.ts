@@ -1190,8 +1190,9 @@ export async function enqueueContinuityRender(
       params,
     })
     if (adoptedFrom) {
-      job.output_lines.push(`Adopted the remaining Final Video step from failed job ${adoptedFrom}; nothing was re-run.`)
-      await jq.checkpointJobState(job)
+      const note = `Adopted the remaining Final Video step from failed job ${adoptedFrom}; nothing was re-run.`
+      await jq.appendJobOutputLine(job.job_id, note)
+      job.output_lines.push(note)
     }
     return job
   })
@@ -1859,8 +1860,9 @@ router.post('/projects/:slug/scene-review/:episodeId/continuity-render', async (
         params,
       })
       if (adoptedFrom) {
-        queued.output_lines.push(`Adopted the remaining Final Video step from failed job ${adoptedFrom}; nothing was re-run.`)
-        await jq.checkpointJobState(queued)
+        const note = `Adopted the remaining Final Video step from failed job ${adoptedFrom}; nothing was re-run.`
+        await jq.appendJobOutputLine(queued.job_id, note)
+        queued.output_lines.push(note)
       }
       return queued
     })

@@ -471,6 +471,8 @@ export const SERIAL_TEST_FILES = [
   'content-store-commerce-state.test.ts',
   // MEASURED — bulk evidence is timed against wall clock, not a mocked one.
   'publishing-overview-bulk-evidence.test.ts',
+  // MEASURED, 2026-11-15 — cached median 144.7 ms pooled, 71.9 ms alone; the owner's 100 ms budget is unchanged.
+  'performance-budgets.test.ts',
   // MEASURED, 2026-08-28 — "Cannot read properties of undefined (reading 'watchedMtimes')" under load.
   'episode-status-warm-list.test.ts',
   // DECLARED — "expected <10s, took Nms" around real ffmpeg work.

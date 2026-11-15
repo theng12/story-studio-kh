@@ -115,6 +115,10 @@ export async function updateThumbnailOptionSettings(
   slug: string,
   episodeId: string,
   update: (settings: ThumbnailOptionSettings) => ThumbnailOptionSettings,
+  options: {
+    /** Exact initialization edge. Any simultaneous user edit is merged in; the supplied defaults never bypass new-prose validation. */
+    initializeNewOptions?: Readonly<Record<'thumb_font_style' | 'thumb_text_style', string | undefined>>
+  } = {},
 ): Promise<ThumbnailOptionSettings> {
   const dir = await episodeDir(slug, episodeId)
   if (!existsSync(dir)) {
@@ -124,7 +128,7 @@ export async function updateThumbnailOptionSettings(
   return withLock(file, async () => {
     const current = await readThumbnailOptionSettings(slug, episodeId)
     const settings = update(current)
-    await assertStyleTextWithinLimit(current, settings)
+    await assertStyleTextWithinLimit(current, settings, options.initializeNewOptions)
     ThumbnailOptionSettingsSchema.parse(settings)
     await writeJsonAtomic(file, settings)
     return settings
@@ -168,6 +172,8 @@ export function thumbnailOptionApproved(
 async function assertStyleTextWithinLimit(
   previous: ThumbnailOptionSettings,
   next: ThumbnailOptionSettings,
+  /** The template's own shipped defaults, written once when an option is first initialized. */
+  templateDefaults?: Readonly<Record<'thumb_font_style' | 'thumb_text_style', string | undefined>>,
 ): Promise<void> {
   const limit = await getThumbnailStyleTextLimit()
   for (const [key, option] of Object.entries(next.options ?? {})) {
@@ -175,6 +181,9 @@ async function assertStyleTextWithinLimit(
     for (const field of ['thumb_font_style', 'thumb_text_style'] as const) {
       const value = option?.[field]
       if (typeof value !== 'string' || value === before?.[field]) continue
+      // A template's own default is not prose the customer wrote, so it is admitted even when the
+      // owner has lowered the ceiling below it. Only the exact shipped bytes get this exemption.
+      if (before?.[field] === undefined && value === templateDefaults?.[field]) continue
       if (value.length <= limit) continue
       const which = field === 'thumb_font_style' ? 'font' : 'text'
       throw Object.assign(
@@ -187,18 +196,32 @@ async function assertStyleTextWithinLimit(
   }
 }
 
+/**
+ * One option's lettering/headline values a stored row may receive unchanged from its template.
+ * `null` values are selections the option editor carries, not prose saved into the sidecar.
+ */
+export function thumbnailOptionStyleTextDefaults(recipe: unknown): Record<'thumb_font_style' | 'thumb_text_style', string | undefined> {
+  const defaults = (recipe && typeof recipe === 'object') ? recipe as Record<string, unknown> : {}
+  return {
+    thumb_font_style: typeof defaults.default_font_style === 'string' ? defaults.default_font_style : undefined,
+    thumb_text_style: typeof defaults.default_text_style === 'string' ? defaults.default_text_style : undefined,
+  }
+}
+
 export async function initializeThumbnailOptions(
   slug: string,
   episodeId: string,
   numbers: number[],
   defaults: Omit<ThumbnailOptionStored, 'approved_prompt_sha256'> = {},
+  /** The selected template's own shipped defaults: admitted even under a ceiling the owner lowered. */
+  templateDefaults?: Readonly<Record<'thumb_font_style' | 'thumb_text_style', string | undefined>>,
 ): Promise<void> {
   await updateThumbnailOptionSettings(slug, episodeId, settings => {
     for (const number of numbers) {
       if (!settings.options[String(number)]) settings = mergeThumbnailOption(settings, number, defaults)
     }
     return settings
-  })
+  }, { initializeNewOptions: templateDefaults })
 }
 
 /** Legacy episodes without metadata inherit the channel default like any other. */

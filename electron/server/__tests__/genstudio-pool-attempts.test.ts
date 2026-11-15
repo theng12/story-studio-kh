@@ -98,7 +98,8 @@ test('a settled terminal failure records the walk with its job and model ids', (
 })
 
 test('the sanitizer keeps a real reason and drops every key shape', () => {
-  assert.equal(sanitizeAttemptDetail('Bearer abcdefghijklmnop'), '[key removed]')
+  // The shared redactor masks Bearer values before the header-specific scrub runs.
+  assert.equal(sanitizeAttemptDetail('Bearer abcdefghijklmnop'), 'Bearer [REDACTED]')
   assert.equal(sanitizeAttemptDetail('x-api-key: sk-abc123456789'), '[key removed]')
   assert.equal(sanitizeAttemptDetail('invalid x-api-key (401)'), 'invalid x-api-key (401)')
   assert.equal(sanitizeAttemptDetail('   '), null)

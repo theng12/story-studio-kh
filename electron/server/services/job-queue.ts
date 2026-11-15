@@ -4693,6 +4693,14 @@ export async function checkpointJobState(job: Job): Promise<void> {
   if (job.type === 'continuity_render') noteAdaptiveImageTailEvent()
 }
 
+/** Queue readers return copies; a route's note must update the live record before its next checkpoint. */
+export async function appendJobOutputLine(jobId: string, line: string): Promise<void> {
+  const job = jobs.get(jobId)
+  if (!job) throw Object.assign(new Error('Job not found'), { status: 404, expose: true })
+  job.output_lines.push(line)
+  await checkpointJobState(job)
+}
+
 /**
  * A progress checkpoint that is only a recovery hint (a finished clip or scene, a queue-state
  * change). It is applied in order at once but its jobs.json rewrite may be shared with others up
@@ -5168,6 +5176,21 @@ function markInterruptedByRestart(j: Job): void {
   scheduleRestartRetry(j.job_id)
 }
 
+/**
+ * End a row locally on the Gateway's own terminal verdict. Deliberately does NOT schedule the
+ * automatic restart retry: the provider work is over, so a retry would buy fresh work behind the
+ * owner's back — the one direction this queue must never take on its own. Retry stays available as
+ * the owner's explicit action.
+ */
+function markEndedOnTerminalEvidence(j: Job, line: string): void {
+  j.status = 'error'
+  j.error = 'Ended on the Gateway\'s terminal verdict'
+  j.finished_at = j.finished_at || new Date().toISOString()
+  j.local_execution_complete = false
+  j.output_lines = Array.isArray(j.output_lines) ? j.output_lines : []
+  j.output_lines.push(line)
+}
+
 function scheduleRestartRetry(jobId: string): void {
   setTimeout(() => {
     retryInterruptedJob(jobId).catch(error => console.warn('[job-queue] automatic retry after restart skipped', { job_id: jobId, error: (error as Error)?.message }))
@@ -5550,7 +5573,14 @@ async function readPersistedJobs(projectSlug: string): Promise<Job[]> {
               resumedTypes.add(j.type as JobType)
             } else {
               observePersistedRunningJobLoadStage(j, 'cancellation-reconciliation')
-              if (requiresCancellationReconciliation(j)) {
+              if (!hasCancellationContext(j) && (j.genstudio_jobs || []).length > 0
+                && !(j.genstudio_jobs || []).some(isUnsettledProviderEntry)) {
+                // No recovery kind and no outstanding provider work: waiting for credentials or
+                // polling cannot recover local output. Keep the remote verdict and end locally.
+                observePersistedRunningJobLoadStage(j, 'interrupted-terminalization')
+                markEndedOnTerminalEvidence(j, 'Story Studio reconciled this row from the Gateway\'s terminal verdict; no provider outcome was invented.')
+                interrupted.push(j)
+              } else if (requiresCancellationReconciliation(j)) {
                 // The provider request already has a durable identity. Never convert it to an
                 // interrupted error or requeue it into a generation lane.
                 j.local_execution_complete = true

@@ -305,9 +305,13 @@ test('a job with no other way out can always be abandoned, and re-run from the s
     assert.notEqual(replacement.job_id, 'abandon-me')
     assert.equal(replacement.episode_id, 'EP0053')
     assert.equal(replacement.type, 'continuity_render')
-    // Retry replaces the row, as it always has: the abandoned job is gone and
-    // its successor is queued in its place.
-    assert.equal(jq.getJob('abandon-me'), null)
+    // Retry retains the terminal evidence and links the new attempt in both directions.
+    const retired = jq.getJob('abandon-me')!
+    assert.equal(retired.status, 'cancelled')
+    assert.deepEqual(retired.force_abandoned, abandoned.force_abandoned)
+    assert.deepEqual(retired.genstudio_jobs, abandoned.genstudio_jobs)
+    assert.equal(retired.superseded?.superseded_by, replacement.job_id)
+    assert.equal(replacement.previous_job_id, 'abandon-me')
 
     // Stop the successor before this test's temp directory goes away, so a
     // half-started render cannot outlive the fixture and write outside it.

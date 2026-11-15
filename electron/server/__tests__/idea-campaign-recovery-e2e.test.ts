@@ -711,7 +711,7 @@ test('a new freeform batch asks the published maximum and expects the count floo
   try {
     await env.refreshCatalogue([{
       id: MODEL, display_name: 'Mock Chat', description: 'primary', available: true,
-      qualification_only: false, context_window_tokens: 0, max_output_tokens: 128_000,
+      qualification_only: false, context_window_tokens: null, max_output_tokens: 128_000,
       max_structured_items_per_request: null, controls: ['temperature', 'top_p', 'max_output_tokens'],
       activation_blockers: [], supports_structured_output: true, structured_output_mode: 'request_json_schema',
     }])

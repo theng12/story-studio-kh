@@ -17,6 +17,7 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import request from 'supertest'
 import { useTempDataDir } from './_helpers.js'
+import { waitFor } from './_timing.js'
 import { router as jobsRouter } from '../routes/jobs.js'
 
 const VERDICT_LINE = 'Story Studio reconciled this row from the Gateway\'s terminal verdict; no provider outcome was invented.'
@@ -73,15 +74,6 @@ async function seed(slug: string, rows: unknown[]): Promise<void> {
   const directory = path.join(tempDir, 'projects', slug)
   await fs.mkdir(directory, { recursive: true })
   await fs.writeFile(path.join(directory, 'jobs.json'), JSON.stringify({ jobs: rows }))
-}
-
-async function waitFor(check: () => boolean, timeoutMs = 8_000): Promise<void> {
-  const deadline = Date.now() + timeoutMs
-  while (Date.now() < deadline) {
-    if (check()) return
-    await new Promise(resolve => setTimeout(resolve, 25))
-  }
-  assert.fail('Timed out waiting for the row to settle')
 }
 
 test('a stuck running row ends terminal, with its evidence and log retained', async () => {

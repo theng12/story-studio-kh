@@ -690,14 +690,19 @@ export async function generateImagePrompts(job: Job): Promise<void> {
     }
     const outputPath = path.join(thumbDir, `${episodeId}_Thumbnail_Prompts.md`)
     if (targetNumbers.length) {
-      const { initializeThumbnailOptions } = await import('../services/thumbnail-option-settings.js')
+      const { initializeThumbnailOptions, thumbnailOptionStyleTextDefaults } = await import('../services/thumbnail-option-settings.js')
+      const { resolveThumbnailShell } = await import('../services/thumbnail-shell.js')
+      const shell = await resolveThumbnailShell(projectSlug, req, config).catch(() => null)
+      const templateDefaults = thumbnailOptionStyleTextDefaults(shell?.template?.recipe)
       await initializeThumbnailOptions(projectSlug, episodeId, thumbnails.map(item => Number(item.number)), {
         thumbnail_template_id: req.thumbnail_template_id || '',
         style_tag: req.style_tag || '',
+        // The sidecar stores the SELECTION the prompts were written under ('auto' when the request
+        // named none); the template's own defaults are passed only as the exemption below.
         thumb_font_style: req.thumb_font_style || 'auto',
         thumb_text_style: textFree ? 'none' : req.thumb_text_style || 'auto',
         thumb_text_position: req.thumb_text_position || 'auto',
-      })
+      }, templateDefaults)
     }
     await buildImagePromptsDocx(output, episodeId, title, outputPath)
     job.output_lines.push(`Saved thumbnails → ${path.basename(outputPath)}`)

@@ -28,7 +28,8 @@ import { moveToTrashSync, trashRootFor } from '../lib/trash-move.js'
 import { measureTrackSeconds } from './music-render.js'
 import type { Job, MusicLibraryTrack, MusicLibraryUsageEntry } from '../models/types.js'
 
-export const MUSIC_LIBRARY_DIRNAME = sp.MUSIC_LIBRARY_DIRNAME
+// Re-export the live binding: copying it here reads song-pool before its import cycle finishes.
+export { MUSIC_LIBRARY_DIRNAME } from './song-pool.js'
 
 export interface LibraryTrack extends MusicLibraryTrack {
   /** Absolute path on disk. */
@@ -246,7 +247,7 @@ export async function removeTrack(slug: string, filename: string): Promise<void>
   await sp.updatePool(slug, p => {
     const s = p.songs.find(x => x.id === song.id)!
     const file = path.join(dir, s.file)
-    if (existsSync(file)) moveToTrashSync(file, path.join(trashRootFor(path.dirname(dir), path.dirname(dir), slug), MUSIC_LIBRARY_DIRNAME, s.file), 'music')
+    if (existsSync(file)) moveToTrashSync(file, path.join(trashRootFor(path.dirname(dir), path.dirname(dir), slug), sp.MUSIC_LIBRARY_DIRNAME, s.file), 'music')
     s.status = 'rejected'
   })
 }

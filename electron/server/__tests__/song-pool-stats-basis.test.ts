@@ -46,7 +46,8 @@ async function makeProject(pm: any, sp: any, name: string, count: number, target
       duration_s: AVG_S, rating: null, episodes: [] as Array<{ code: string; project_slug: string; used_at: string }>,
     })
   }
-  const { pool } = await sp.updatePool(created, (value: any) => { value.songs.push(...songs) })
+  // The folder scan already indexed these files; replace that fixture metadata instead of duplicating it.
+  const { pool } = await sp.updatePool(created, (value: any) => { value.songs = songs })
   return { slug: created, poolId: pool.pool_id }
 }
 
