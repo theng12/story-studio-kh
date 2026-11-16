@@ -29,6 +29,7 @@
  * silent (`report.fallback_family`).
  */
 
+import { existsSync } from 'fs'
 import sharp from 'sharp'
 import type { OverlayOptions } from 'sharp'
 import type { ThumbnailTextRenderReport, ThumbnailTextStyle, TextAnchor, TextFill } from '../contracts/thumbnail-text.js'
@@ -167,6 +168,19 @@ export interface RenderBranding {
   position: TextAnchor
   /** Distance from the nearest edge, in percent of the canvas. */
   margin_pct: number
+  /**
+   * An optional accepted accent (badge/tag/banner PNG with alpha) drawn on its own anchor, separate
+   * from the mark row. Absent or disabled draws nothing, so every existing caller is byte-identical.
+   */
+  accent?: {
+    enabled: boolean
+    path: string | null
+    /** Accent width, in percent of the canvas width. */
+    width_pct: number
+    opacity: number
+    anchor: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' | 'top' | 'bottom'
+    margin_pct: number
+  }
 }
 
 /** A refusal the route turns into a plain 400 with the message intact. */
@@ -592,6 +606,25 @@ export function placementBox(style: ThumbnailTextStyle, canvasWidth: number, can
   }
 }
 
+/** One accepted accent PNG on its own corner. Absent, disabled or missing = no layer. */
+async function buildAccentLayer(
+  accent: RenderBranding['accent'] | undefined,
+  canvas: { width: number; height: number },
+): Promise<{ png: Buffer; left: number; top: number } | null> {
+  if (!accent?.enabled || !accent.path) return null
+  if (!existsSync(accent.path)) return null
+  const width = Math.max(1, Math.round(canvas.width * Math.min(100, Math.max(1, accent.width_pct)) / 100))
+  const base = await sharp(accent.path).resize({ width }).ensureAlpha().png().toBuffer()
+  const png = await applyOpacity(base, Math.min(1, Math.max(0, accent.opacity)))
+  const meta = await sizeOf(png)
+  const margin = Math.round(canvas.width * Math.min(50, Math.max(0, accent.margin_pct)) / 100)
+  const left = accent.anchor.endsWith('right') ? canvas.width - meta.width - margin
+    : accent.anchor.endsWith('left') ? margin
+      : Math.round((canvas.width - meta.width) / 2)
+  const top = accent.anchor.startsWith('top') ? margin : canvas.height - meta.height - margin
+  return { png, left: Math.max(0, left), top: Math.max(0, top) }
+}
+
 // ── Branding (handle + logo) ───────────────────────────────────────────────
 
 /** Gap between the logo and the handle inside the mark row, at a 1080px short edge. */
@@ -885,6 +918,8 @@ export async function renderThumbnailText(input: RenderInput): Promise<RenderedT
       const at = brandingBox(input.branding, row, canvas)
       layers.push({ input: row.png, left: at.left, top: at.top })
     }
+    const accent = await buildAccentLayer(input.branding.accent, canvas)
+    if (accent) layers.push({ input: accent.png, left: accent.left, top: accent.top })
   }
 
   const overlay = await sharp({
