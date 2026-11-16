@@ -393,11 +393,27 @@ export function thumbnailSaveOverhead(opts: ThumbnailPromptElements): AssemblyOv
   ])
 }
 
+/**
+ * A headline and the style bible must not contradict each other. Several style packs end with
+ * "Do not reserve a title block or assemble a promotional montage." — written for a text-free
+ * picture — and Story then appends its own headline clause after it. Measured on a-world-before-us
+ * (2026-11-16): prompts carrying both instructions produced thumbnails with no large headline, or
+ * the headline lettered into the small FOR SLEEP badge. When a headline is requested, only the
+ * montage half of that rule survives.
+ */
+export function reconcileHeadlineStyleRule(prompt: string, headlineRequested: boolean): string {
+  if (!headlineRequested) return prompt
+  return prompt.replace(/Do not reserve a title block or assemble a promotional montage\./g,
+    'Do not assemble a promotional montage.')
+}
+
 export function enforceThumbnailPromptElements(prompt: string, opts: ThumbnailPromptElements): string {
   const out = stripEpisodeLabelFromDrawnText((prompt || '').trim())
   if (!out) return out
+  const texts = thumbnailPromptClauseTexts(opts)
   const clauses = thumbnailPromptClauses(out, opts)
-  return clauses.length ? `${out}\n\n${clauses.join(' ')}` : out
+  const reconciled = reconcileHeadlineStyleRule(out, Boolean(texts.title))
+  return clauses.length ? `${reconciled}\n\n${clauses.join(' ')}` : reconciled
 }
 
 export function buildThumbnailPrompt(args: {

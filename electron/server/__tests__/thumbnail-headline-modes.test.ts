@@ -17,7 +17,7 @@ import {
   DEFAULT_HEADLINE_MODE, PREFERRED_NEW_HEADLINE_MODE, HEADLINE_MODES, HEADLINE_MODE_IDS,
   headlineInstruction, headlineMode,
 } from '../models/thumbnail-headlines.js'
-import { buildThumbnailDirective } from '../generators/image-prompts.js'
+import { buildThumbnailDirective, enforceThumbnailPromptElements, reconcileHeadlineStyleRule } from '../generators/image-prompts.js'
 
 describe('the modes the owner asked for exist', () => {
   test('his three, by name', () => {
@@ -173,4 +173,30 @@ test('the generator hands the ROW\'s hook (not the episode title) to the enforce
   const { readFileSync } = await import('node:fs')
   const src = readFileSync(new URL('../generators/image-prompts.ts', import.meta.url), 'utf8')
   assert.match(src, /title: headlineInvents\(headlineMode\) \? String\(item\.title \|\| ''\)\.trim\(\) \|\| title : title,\n\s+textStyle:/)
+})
+
+describe('a headline and the style bible cannot contradict each other', () => {
+  const body = 'A scene of a river at dawn. Do not reserve a title block or assemble a promotional montage. Adapt period and place.'
+
+  test('when a headline is requested, only the montage half of the rule survives', () => {
+    const out = enforceThumbnailPromptElements(body, {
+      headlineMode: 'episode-title', title: 'ROME', textStyle: 'shadow', aspectRatio: '16:9',
+    })
+    assert.doesNotMatch(out, /Do not reserve a title block/, 'the contradictory instruction is gone')
+    assert.match(out, /Do not assemble a promotional montage\./)
+    assert.match(out, /Render the exact title "ROME"/)
+  })
+
+  test('with no headline the style bible is left byte-identical', () => {
+    const out = enforceThumbnailPromptElements(body, {
+      headlineMode: 'none', title: 'ROME', textStyle: 'shadow', aspectRatio: '16:9',
+    })
+    assert.ok(out.startsWith(body), 'the body is untouched')
+    assert.match(out, /Do not reserve a title block/)
+  })
+
+  test('a style bible without the phrase is unchanged either way', () => {
+    const plain = 'A scene of a river at dawn.'
+    assert.equal(reconcileHeadlineStyleRule(plain, true), plain)
+  })
 })
