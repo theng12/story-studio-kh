@@ -221,13 +221,15 @@ describe('Image Pool: the retry does not change the shape of the run', () => {
     has('for (const filename of failedFiles) if (!missing.includes(filename)) missing.push(filename)',
       'the completion report is untouched')
 
-    // Progress is only advanced once an item has actually settled. Counting a
-    // waiting item as done would report more images finished than exist on
-    // disk — the same quiet miscount this whole change exists to stop.
+    // Progress is only advanced once an item has actually settled, and only by
+    // the items that SETTLED SUCCESSFULLY. Counting a waiting item as done would
+    // report more images finished than exist on disk; counting a failed one would
+    // report progress for work that produced nothing (the HMH0113 defect). Both
+    // quiet miscounts are forbidden by the same line.
     has(`      if (!retryItem) {
         processed++
-        job.progress = Math.round((processed / total) * 90)
-      }`, 'an item still waiting on the fleet has not settled and must not count')
+        job.progress = Math.round(((processed - failed) / total) * 90)
+      }`, 'an item still waiting on the fleet has not settled, and a failed one is not progress')
   })
 
   test('(g) insufficient credits still rethrows first and is never treated as a busy fleet', async () => {
