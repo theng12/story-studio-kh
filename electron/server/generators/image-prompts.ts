@@ -421,34 +421,64 @@ export type HeadlineReplacement =
   | { ok: true; prompt: string; changed: boolean; replacements: number }
   | { ok: false; reason: string }
 
+interface HeadlineHit {
+  start: number
+  end: number
+}
+
+/** Words that name the picture's independent text, never its headline. */
+const NON_HEADLINE_CONTEXT = /\b(badge|label|sign|caption|stamp|plaque)\b/i
+const HEADLINE_CONTEXT = /\b(headline|hook|title|reading|line of capitals|serif line|line)\b/i
+
+/**
+ * Where `text` is written as the picture's own headline: right after "reading"/"line"/"the line
+ * of", with the complete phrase followed by punctuation or a sentence join — never a prefix of a
+ * longer headline — or quoted inside a clause that names a headline and not a badge/label/sign.
+ */
+function headlineHits(prompt: string, text: string): HeadlineHit[] {
+  const hits: HeadlineHit[] = []
+  const lead = /(reading|reads|line of|serif line|the line of|line)\s+(?:exactly\s+)?/gi
+  for (let match = lead.exec(prompt); match; match = lead.exec(prompt)) {
+    const start = match.index + match[0].length
+    if (!prompt.startsWith(text, start)) continue
+    const end = start + text.length
+    const rest = prompt.slice(end)
+    const complete = /^\s*(?:[,.;:]|$)/.test(rest)
+      || /^\s+(?:and|with|in|on|beside|above|below|against|across|inside|at)\b/i.test(rest)
+    if (!complete) continue
+    const before = prompt.slice(Math.max(0, match.index - 40), match.index)
+    if (NON_HEADLINE_CONTEXT.test(before)) continue
+    hits.push({ start, end })
+  }
+  const quoted = new RegExp(`["\u201c](${escapeRegExp(text)})["\u201d]`, 'g')
+  for (let match = quoted.exec(prompt); match; match = quoted.exec(prompt)) {
+    const before = prompt.slice(Math.max(0, match.index - 90), match.index)
+    if (!HEADLINE_CONTEXT.test(before) || NON_HEADLINE_CONTEXT.test(before)) continue
+    hits.push({ start: match.index + 1, end: match.index + 1 + text.length })
+  }
+  return hits.sort((a, b) => b.start - a.start)
+}
+
 export function replaceHeadlineInPrompt(prompt: string, from: string, to: string): HeadlineReplacement {
   const oldText = String(from || '').trim()
   const newText = String(to || '').trim()
   if (!oldText || !newText) return { ok: false, reason: 'Both the old and the new headline are needed.' }
-  let out = String(prompt || '')
-  let replacements = 0
-  const quoted = [`"${oldText}"`, `“${oldText}”`]
-  for (const form of quoted) {
-    if (out.includes(form)) {
-      replacements += out.split(form).length - 1
-      out = out.split(form).join(`"${newText}"`)
+  const source = String(prompt || '')
+  const hits = headlineHits(source, oldText)
+  if (!hits.length) {
+    // Idempotence is proven by the NEW words sitting in a headline position, never by a substring
+    // somewhere else in the prompt (a place name, a scene caption, the badge).
+    if (headlineHits(source, newText).length) {
+      return { ok: true, prompt: source, changed: false, replacements: 0 }
     }
-  }
-  for (const lead of ['reading', 'line', 'the line of']) {
-    const pattern = new RegExp(`(\\b${lead}\\s+(?:exactly\\s+)?)${escapeRegExp(oldText)}(?=\\b|[,.;:])`, 'gi')
-    out = out.replace(pattern, (_match, prefix: string) => {
-      replacements += 1
-      return `${prefix}${newText}`
-    })
-  }
-  if (!replacements) {
-    if (out.includes(newText)) return { ok: true, prompt: out, changed: false, replacements: 0 }
     return {
       ok: false,
-      reason: `The prompt does not contain the old headline "${oldText}", so it was not changed. Edit the prompt directly, or pass the headline exactly as the prompt writes it.`,
+      reason: `The prompt does not contain the old headline "${oldText}" in a headline position, so it was not changed. Edit the prompt directly, or pass the headline exactly as the prompt writes it.`,
     }
   }
-  return { ok: true, prompt: out, changed: out !== String(prompt || ''), replacements }
+  let out = source
+  for (const hit of hits) out = out.slice(0, hit.start) + newText + out.slice(hit.end)
+  return { ok: true, prompt: out, changed: out !== source, replacements: hits.length }
 }
 
 function escapeRegExp(value: string): string {

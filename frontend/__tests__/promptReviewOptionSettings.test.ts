@@ -458,3 +458,22 @@ test('duplicate posts its operation id, then refreshes prompts and settings from
       'both the prompt list and the settings re-read after duplicating')
   } finally { panel.unmount() }
 })
+
+test('the prompt editor exposes the supported headline change', () => {
+  const row = readFileSync(fileURLToPath(new URL('../components/PromptReviewPanelRow.vue', import.meta.url)), 'utf8')
+  const panel = readFileSync(fileURLToPath(new URL('../components/PromptReviewPanel.vue', import.meta.url)), 'utf8')
+
+  {
+    assert.match(row, /Change the headline in this prompt/)
+    assert.match(row, /aria-label="Current headline"/)
+    assert.match(row, /aria-label="New headline"/)
+    assert.match(row, /emit\('replaceHeadline'/)
+    assert.doesNotMatch(row, /window\.confirm|window\.alert|window\.prompt/)
+  }
+  {
+    assert.match(panel, /@replace-headline="replaceHeadline\(row\.number, \$event\)"/)
+    assert.match(panel, /replace_headline: payload/)
+    assert.match(panel, /Could not replace the headline/)
+    assert.doesNotMatch(panel, /window\.confirm|window\.alert|window\.prompt/)
+  }
+})

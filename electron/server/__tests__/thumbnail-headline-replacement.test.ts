@@ -34,13 +34,13 @@ test('the “line …” form is replaced too, and nothing is appended', () => {
   assert.match(result.prompt, /FOR SLEEP/)
 })
 
-test('a quoted headline is replaced in either quote style', () => {
-  const straight = replaceHeadlineInPrompt('Then draw "OLD TITLE" large.', 'OLD TITLE', 'NEW TITLE')
+test('a quoted headline is replaced only where the clause names a headline', () => {
+  const straight = replaceHeadlineInPrompt('Then draw the headline "OLD TITLE" large.', 'OLD TITLE', 'NEW TITLE')
   assert.ok(straight.ok)
-  assert.equal(straight.prompt, 'Then draw "NEW TITLE" large.')
-  const curly = replaceHeadlineInPrompt('Then draw “OLD TITLE” large.', 'OLD TITLE', 'NEW TITLE')
+  assert.equal(straight.prompt, 'Then draw the headline "NEW TITLE" large.')
+  const curly = replaceHeadlineInPrompt('Then draw the headline “OLD TITLE” large.', 'OLD TITLE', 'NEW TITLE')
   assert.ok(curly.ok)
-  assert.equal(curly.prompt, 'Then draw "NEW TITLE" large.')
+  assert.equal(curly.prompt, 'Then draw the headline “NEW TITLE” large.', 'the original quote style is kept')
 })
 
 test('repeating the same edit changes nothing', () => {
@@ -69,4 +69,32 @@ test('the save contract accepts a headline replacement without a full prompt, an
   assert.equal(UpdatePromptSchema.safeParse({ kind: 'thumbnail', number: 4, title: 'ROME', replace_headline: { from: 'FIFTEEN MILES', to: 'ROME' } }).success, true)
   assert.equal(UpdatePromptSchema.safeParse({ kind: 'thumbnail', number: 4, title: 'ROME', prompt: 'A scene, long enough to pass.' }).success, true)
   assert.equal(UpdatePromptSchema.safeParse({ kind: 'thumbnail', number: 4, title: 'ROME' }).success, false)
+})
+
+test('the same words in a sign or badge are left alone (review finding 1)', () => {
+  const prompt = 'Draw a large headline reading OLD TITLE beside a museum sign "OLD TITLE".'
+  const result = replaceHeadlineInPrompt(prompt, 'OLD TITLE', 'NEW TITLE')
+  assert.ok(result.ok)
+  assert.equal(result.replacements, 1)
+  assert.equal(result.prompt, 'Draw a large headline reading NEW TITLE beside a museum sign "OLD TITLE".')
+})
+
+test('a same-word badge is not changed', () => {
+  const prompt = 'The top band reads HELLO. A small badge reading HELLO sits bottom-left.'
+  const result = replaceHeadlineInPrompt(prompt, 'HELLO', 'GOODBYE')
+  assert.ok(result.ok)
+  assert.equal(result.replacements, 1)
+  assert.match(result.prompt, /top band reads GOODBYE/)
+  assert.match(result.prompt, /badge reading HELLO/, 'the badge keeps its own words')
+})
+
+test('idempotence needs the new headline in a headline position, not a substring (finding 2)', () => {
+  const result = replaceHeadlineInPrompt('A trip to ROME. Draw headline reading PARIS.', 'LONDON', 'ROME')
+  assert.equal(result.ok, false, 'ROME as a place name is not proof the headline changed')
+  assert.match(!result.ok ? result.reason : '', /does not contain the old headline "LONDON"/)
+})
+
+test('a prefix of a longer headline is not a match (finding 3)', () => {
+  const result = replaceHeadlineInPrompt('The headline reading ROME CITY sits on top.', 'ROME', 'PARIS')
+  assert.equal(result.ok, false)
 })
