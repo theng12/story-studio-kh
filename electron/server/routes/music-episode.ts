@@ -23,6 +23,7 @@
  */
 
 import { Router } from 'express'
+import { jobTypeForStep, musicEpisodeStepParams, stampPipelineStepFacts, type BatchStep } from './pipeline.js'
 import fs from 'fs/promises'
 import { existsSync } from 'fs'
 import path from 'path'
@@ -465,12 +466,28 @@ router.post('/projects/:slug/music-episodes/:code/build', async (req, res) => {
     if (jq.isDuplicate(slug, code, 'music_episode_build' as JobType)) {
       return res.status(409).json({ detail: `${code} is already being stitched.` })
     }
+    // A finished stitch is not the end of the episode: Scene Review and Final Video follow, exactly as
+    // the music Pipeline orders them (`MUSIC_STEPS`). The chain is captured on the build job, so the
+    // existing durable handoff enqueues the next stage when the stitch completes — never a silent
+    // "Ready for Video Assembly" with nothing queued. A step the channel cannot run refuses here,
+    // before anything is stitched.
+    const chain: Array<{ type: string; title: string; params: Record<string, any> }> = []
+    for (const step of ['scene_review', 'video_assembly'] as BatchStep[]) {
+      const built = await musicEpisodeStepParams(slug, code, step, { episode_id: code })
+      if ('skip' in built) return res.status(409).json({ detail: `blocked: ${built.skip}` })
+      chain.push({
+        type: jobTypeForStep(step),
+        title: `Pipeline: ${step === 'scene_review' ? 'Scene Review' : 'Final Video'} — ${code}`,
+        params: built.params,
+      })
+    }
+    stampPipelineStepFacts(chain, 'scene_plan', true)
     const job = await jq.enqueue({
       project_slug: slug,
       type: 'music_episode_build' as JobType,
       episode_id: code,
       title: `Music episode — ${code} (stitch, no credits)`,
-      params: { episode_id: code },
+      params: { episode_id: code, pipeline_chain: chain },
     })
     res.status(201).json(job)
   } catch (e) {
