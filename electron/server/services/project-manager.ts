@@ -1576,6 +1576,11 @@ export async function getSafeConfig(slug: string): Promise<any | null> {
     format_pool: (config as any).format_pool && typeof (config as any).format_pool === 'object'
       ? (config as any).format_pool
       : undefined,
+    // 1.4.405 — branded typography. Echoed for the same reason as the pool above: this response is an
+    // allow-list, so a saved setting that is not listed here would write to disk and read back as absent.
+    branded_typography: (config as any).branded_typography && typeof (config as any).branded_typography === 'object'
+      ? (config as any).branded_typography
+      : undefined,
     thumbnail_reference_strength: config.thumbnail_reference_strength,
     // v1.0.337 — continuity guide cast density (0–100; undefined = 40% default).
     character_density: typeof (config as any).character_density === 'number' ? (config as any).character_density : undefined,

@@ -128,10 +128,89 @@ export async function listUploadThumbnails(input: ResolveUploadMetadataInput): P
     is_pinned: filename === pinned,
   })))
 
-  // A pin that is still on disk but was dropped as a STALE TEXT LAYER must not be answered with a
-  // silent fall back to different artwork (2026-10-25). It is reported as a refusal by the caller
-  // that can say so; here it is simply not offered as the pinned choice.
-  return options
+  return await filterForBrandedTypography(input.slug, paths.thumb_dir, options)
+}
+
+/**
+ * What an upload may be offered while branded typography is on.
+ *
+ * OFF (the default, and every channel that never turned it on): branded files are derivatives of
+ * the model's art, never the art itself, so they are not offered at all — byte-identical behaviour
+ * to before this feature.
+ *
+ * ON: the branded picture IS the thumbnail (the model drew art without lettering). Only branded
+ * files whose sidecar is faithful to the art on disk are offered; a stale one — the art changed
+ * after it was drawn — is dropped here and refused by name at the upload instead of sent.
+ */
+/**
+ * Why this file cannot be the upload's thumbnail while branded typography is ON, or null.
+ *
+ * One implementation for the automatic pick and for an explicitly requested filename, so both say
+ * the same thing: the branded picture is the one the customer composed, and the model's text-free
+ * art, a stale composite, or a missing one is named instead of quietly sent.
+ */
+async function brandedRequestRefusal(slug: string, episodeCode: string, filename: string, dir: string): Promise<string | null> {
+  let enabled = false
+  try {
+    const { readBrandedTypography } = await import('../services/branded-typography.js')
+    enabled = (await readBrandedTypography(slug))?.enabled === true
+  } catch {
+    enabled = false
+  }
+  if (!enabled) return null
+  const { isBrandedFile, brandedStaleness } = await import('../services/branded-thumbnail.js')
+  if (!isBrandedFile(filename)) {
+    return `Branded typography is on for this channel, so ${episodeCode} must publish its branded thumbnail. `
+      + `"${filename}" is the model's art before the headline was drawn — choose the branded picture, or turn branded typography off in Settings. `
+      + 'Nothing was uploaded.'
+  }
+  const staleness = await brandedStaleness(path.join(dir, filename), dir)
+  if (staleness.stale) return `${staleness.reason} Nothing was uploaded.`
+  return null
+}
+
+/**
+ * Refuse an upload whose thumbnail is not the branded picture the channel publishes.
+ *
+ * Runs only when the channel's switch is ON. A read that fails leaves today's behaviour untouched —
+ * an unreadable setting is OFF, the same answer an absent one gives.
+ */
+async function assertBrandedThumbnailUploadable(slug: string, episodeCode: string, thumbnailPath: string): Promise<void> {
+  if (!thumbnailPath) {
+    const { readBrandedTypography } = await import('../services/branded-typography.js')
+    const enabled = (await readBrandedTypography(slug).catch(() => null))?.enabled === true
+    if (!enabled) return
+    throw new Error(
+      `Branded typography is on for this channel, but ${episodeCode} has no branded thumbnail yet, so nothing was uploaded. `
+      + 'Make the thumbnails (or open Upload preview) so the headline and accent are drawn, then publish again.',
+    )
+  }
+  const refusal = await brandedRequestRefusal(slug, episodeCode, path.basename(thumbnailPath), path.dirname(thumbnailPath))
+  if (refusal) throw new Error(refusal)
+}
+
+async function filterForBrandedTypography(
+  slug: string,
+  dir: string,
+  options: UploadThumbnailOption[],
+): Promise<UploadThumbnailOption[]> {
+  let enabled = false
+  try {
+    const { readBrandedTypography } = await import('../services/branded-typography.js')
+    enabled = (await readBrandedTypography(slug))?.enabled === true
+  } catch {
+    // A brand setting that cannot be read is OFF, exactly as an absent one is.
+    enabled = false
+  }
+  const { isBrandedFile, brandedStaleness } = await import('../services/branded-thumbnail.js')
+  if (!enabled) return options.filter(option => !isBrandedFile(option.filename))
+  const kept: UploadThumbnailOption[] = []
+  for (const option of options) {
+    if (!isBrandedFile(option.filename)) continue
+    const staleness = await brandedStaleness(option.path, dir)
+    if (!staleness.stale) kept.push(option)
+  }
+  return kept
 }
 
 /**
@@ -414,8 +493,11 @@ export async function resolveUploadMetadata(input: ResolveUploadMetadataInput): 
         // A text layer that exists on disk but names changed artwork is refused by name: "choose
         // another image" would hide the reason and invite the same mistake again (AGENTS §8).
         const staleTextLayer = await assertVariantUploadable(safeFilename, paths.thumb_dir)
-        throw new Error(staleTextLayer
-          || `Thumbnail "${requested}" is no longer available for ${input.episode_code}. Reopen Upload preview and choose another image.`)
+        if (staleTextLayer) throw new Error(staleTextLayer)
+        // A branded channel that names its model art gets the real reason, not "no longer available".
+        const brandedRefusal = await brandedRequestRefusal(input.slug, input.episode_code, safeFilename, paths.thumb_dir)
+        if (brandedRefusal) throw new Error(brandedRefusal)
+        throw new Error(`Thumbnail "${requested}" is no longer available for ${input.episode_code}. Reopen Upload preview and choose another image.`)
       }
       thumbnailPath = exact.path
     } else {
@@ -437,6 +519,12 @@ export async function resolveUploadMetadata(input: ResolveUploadMetadataInput): 
     // staleness rule exists to prevent.
     if (error instanceof Error && /re-apply it to the current artwork/.test(error.message)) throw error
   }
+
+  // Branded typography ON: the picture the customer is about to publish is the COMPOSITED one. A
+  // missing, unbranded or stale file is refused with its own reason — uploading the model's
+  // text-free art instead would publish a thumbnail nobody composed. An explicit "no thumbnail"
+  // choice is untouched.
+  if (input.thumbnail_filename !== null) await assertBrandedThumbnailUploadable(input.slug, input.episode_code, thumbnailPath)
 
   return {
     title: title.trim(),

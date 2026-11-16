@@ -4,6 +4,7 @@
  */
 
 import { existsSync } from 'fs'
+import { createHash } from 'node:crypto'
 import path from 'path'
 import { findDirsLevelOrder } from '../lib/dir-search.js'
 import { episodeDirNameMatchesCode } from '../services/asset-status.js'
@@ -15,7 +16,7 @@ import { SpeedTracker, throttle } from '../lib/speed-tracker.js'
 import { registry } from '../providers/registry.js'
 import { recordTask, recordTaskStrict, hashInput, type TaskManifestEntry } from '../services/task-manifest.js'
 import { trashRootFor } from '../lib/trash-move.js'
-import { resolveSubfolderNames, resolveEpisodePathsByCode } from '../services/utils.js'
+import { resolveSubfolderNames, resolveEpisodePathsByCode, resolveEpisodeTitleByCode } from '../services/utils.js'
 import { resolveReadPath } from '../lib/episode-artifacts.js'
 import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
@@ -68,6 +69,15 @@ import {
 } from '../services/image-paid-replacement.js'
 import { isFreeFleetModelId } from '../contracts/provider-task-state.js'
 import { resolveThumbnailShell, stageThumbnailShellImage } from '../services/thumbnail-shell.js'
+import { brandedFromConfig } from '../services/branded-typography.js'
+import type { BrandedTypography } from '../contracts/branded-typography.js'
+import {
+  brandThumbVariant,
+  brandedFilenameFor,
+  brandedSidecarPathFor,
+  promptHookText,
+  stripTitleTextDirective,
+} from '../services/branded-thumbnail.js'
 
 // NOTE (v1.0.224): the old `enhanceThumbnailPrompt` + hardcoded gold/glowing
 // `THUMB_TEXT_STYLES` were removed. They force-appended a sleep-story title
@@ -623,6 +633,24 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
   await fs.mkdir(thumbDir, { recursive: true })
 
   const thumbnailShell = mode === 'thumbs' ? await resolveThumbnailShell(project_slug, req, config) : null
+  /**
+   * Branded typography (2026-11-16) — its OWN switch, read once per run and independent of the
+   * format pool. OFF (absent or disabled, which is every channel that never turned it on) reads
+   * nothing further and changes nothing below: the prompt goes to the model exactly as before.
+   */
+  const brandedSettings: BrandedTypography | null = mode === 'thumbs' ? brandedFromConfig(config) : null
+  const brandingOn = brandedSettings?.enabled === true
+  const brandingMember = brandingOn && brandedSettings
+    ? (await import('../services/format-pool.js')).formatPoolFromConfig(config)
+    : null
+  const brandingMemberId = brandingMember
+    ? (await (await import('../services/format-pool.js')).resolveEpisodeFormatAssignment(
+        project_slug, episode_id, brandingMember, { persist: false },
+      ))?.member.id ?? null
+    : null
+  const brandedEpisodeTitle = brandingOn
+    ? await resolveEpisodeTitleByCode(project_slug, episode_id).catch(() => '')
+    : ''
   const projectRootDir = pm.getProjectDir(project_slug) || path.join(pm.projectsRoot(), project_slug)
   const trashDirFor = (anchor: string, kind: string) => path.join(trashRootFor(anchor, projectRootDir, project_slug), kind)
   const savedThumbnailReference = thumbnailShell?.guidanceAsset
@@ -1444,6 +1472,56 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
     }
   }
 
+  /**
+   * Draw the branded pictures for every saved variant of one thumbnail (branded typography ON).
+   *
+   * Called after a save AND on the "art already on disk" path, because turning the switch on after
+   * a channel already has artwork must produce the branded files for that artwork too — otherwise
+   * an upload would refuse every existing episode with nothing to fix. A variant whose branded
+   * file already matches the current source sha and accent settings is left alone.
+   */
+  async function ensureBrandedForStem(thumb: { number: number; title: string; prompt: string }): Promise<void> {
+    if (!brandingOn || !brandedSettings) return
+    const stem = `${episode_id.toUpperCase()}_Thumb${thumb.number.toString().padStart(2, '0')}`
+    const sources = (await fs.readdir(thumbDir).catch(() => [] as string[]))
+      .filter(name => new RegExp(`^${stem}_v\\d+\\.png$`, 'i').test(name))
+      .sort()
+    if (!sources.length) return
+    const caption = brandedSettings.title.source === 'separate-hook'
+      ? (promptHookText(thumb.prompt) || brandedEpisodeTitle)
+      : (brandedEpisodeTitle || thumb.title)
+    for (const source of sources) {
+      const brandedPath = path.join(thumbDir, brandedFilenameFor(source))
+      const sidecarPath = brandedSidecarPathFor(brandedPath)
+      // Already drawn from THIS source under a `branded` state? Then it is the same picture.
+      const current = existsSync(sidecarPath) && existsSync(brandedPath)
+        ? await fs.readFile(sidecarPath, 'utf8').then(text => JSON.parse(text) as {
+            state?: string; source_sha256?: string; accent_id?: string | null
+          }).catch(() => null)
+        : null
+      const sourceSha = current
+        ? createHash('sha256').update(await fs.readFile(path.join(thumbDir, source))).digest('hex')
+        : ''
+      if (current?.state === 'branded' && current.source_sha256 === sourceSha) {
+        job.output_lines.push(`Branded typography: ${brandedFilenameFor(source)} is current (accent ${current.accent_id}).`)
+        continue
+      }
+      const result = await brandThumbVariant({
+        slug: project_slug,
+        projectDir: projectRootDir,
+        episodeCode: episode_id,
+        sourcePath: path.join(thumbDir, source),
+        caption,
+        memberId: brandingMemberId,
+        settings: brandedSettings,
+        template: thumbnailShell?.template || null,
+      })
+      job.output_lines.push(result.state === 'branded'
+        ? `Branded typography: drew ${result.filename} from ${source} — headline in ${brandedSettings.title.font_id}, the accent its own layer.`
+        : `Branded typography: ${source} was not branded — ${result.reason}`)
+    }
+  }
+
   async function runThumb(thumb: { number: number; title: string; prompt: string }) {
     const stem = `${episode_id.toUpperCase()}_Thumb${thumb.number.toString().padStart(2, '0')}`
     const v1Path = path.join(thumbDir, `${stem}_v1.png`)
@@ -1466,6 +1544,11 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
         })
       }
       job.output_lines.push(`Skipping ${stem} (exists)`)
+      // The art is already paid for; with branded typography on, its branded pictures may not exist
+      // yet (the switch was turned on later). A failure here must never fail the skip itself.
+      await ensureBrandedForStem(thumb).catch((error: any) => {
+        job.output_lines.push(`Branded typography was not checked for ${stem}: ${error?.message || error}`)
+      })
       completedCount++
       publishProgress()
       return
@@ -1492,6 +1575,13 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
       // continuity matters less for a 1-shot title card. Resolved ONCE —
       // none of it changes between a route-exhaustion retry's attempts.
       const styleKeywords = resolveSceneStyleKeywords(thumb.prompt)
+      // Branded typography ON asks the model for TEXT-FREE art: the headline and the accent are drawn
+      // by Story Studio afterwards, so the drawing instruction is removed from the COPY the model
+      // receives. The stored prompt on disk is never rewritten.
+      const promptForModel = brandingOn ? stripTitleTextDirective(thumb.prompt) : thumb.prompt
+      if (brandingOn) {
+        job.output_lines.push(`Branded typography is on: the model is asked for art without lettering, and Story Studio draws the headline and the accent.`)
+      }
       // v1.0.416 — optional render-time guidance from the generator tab,
       // appended before style keywords so it influences the image without
       // editing the stored prompt.
@@ -1502,7 +1592,7 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
       // ONE assembly, shared with the character ceiling the thumbnail prompt
       // was written under, so the prompt that was measured and the prompt the
       // model receives are the same text.
-      const finalPrompt = assembleThumbnailRenderPrompt(thumb.prompt, {
+      const finalPrompt = assembleThumbnailRenderPrompt(promptForModel, {
         extraDetails: extra,
         referenceGuidance,
         styleKeywords,
@@ -1697,6 +1787,9 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
               `Thumbnail ${thumb.number}/${totalToProcess}: ${thumb.title} — recovered ` +
               `${recovered.urls.length} variant(s) from existing task ${recovered.taskId.slice(0, 12)}… (no charge)`,
             )
+            await ensureBrandedForStem(thumb).catch((error: any) => {
+              job.output_lines.push(`Branded typography failed for ${stem}: ${error?.message || error}`)
+            })
             return
           }
           const replacementEntry = current.paidReplacement
@@ -1787,6 +1880,9 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
           }
           completedCount++
           job.output_lines.push(`Thumbnail ${thumb.number}/${totalToProcess}: ${thumb.title} — saved ${urls.length} variant(s)`)
+          await ensureBrandedForStem(thumb).catch((error: any) => {
+            job.output_lines.push(`Branded typography failed for ${stem}: ${error?.message || error}`)
+          })
           return
         } catch (e: any) {
           if (isGenStudioPaymentRefusal(e)) throw e

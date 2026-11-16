@@ -378,7 +378,10 @@ describe('the refusal is never retried in place', () => {
 
 describe('the ceiling is wired where it belongs', () => {
   test('the render measures the ASSEMBLED prompt, not the stored one', () => {
-    assert.match(imagesGenerator, /const finalPrompt = assembleThumbnailRenderPrompt\(thumb\.prompt, \{/)
+    // 1.4.405 — the assembly takes the copy the MODEL receives: `thumb.prompt` when branded
+    // typography is off (byte-identical), the same prompt minus its drawing directive when it is on.
+    assert.match(imagesGenerator, /const promptForModel = brandingOn \? stripTitleTextDirective\(thumb\.prompt\) : thumb\.prompt/)
+    assert.match(imagesGenerator, /const finalPrompt = assembleThumbnailRenderPrompt\(promptForModel, \{/)
     assert.match(imagesGenerator, /assertPromptWithinCap\(finalPrompt, resolvedModelConfig\.prompt_char_cap, \{/)
     // The scene path measures the same way.
     assert.equal(imagesGenerator.match(/assertPromptWithinCap\(finalPrompt, resolvedModelConfig\.prompt_char_cap/g)?.length, 2)

@@ -26,6 +26,8 @@
 import { z } from 'zod'
 import { FormatPoolSchema } from './format-pool-schema.js'
 import type { FormatPool } from './format-pool.js'
+import { BrandedTypographySchema } from './branded-typography.js'
+import type { BrandedTypography } from './branded-typography.js'
 import {
   MAX_PROJECT_LABELS,
   MAX_PROJECT_LABEL_LENGTH,
@@ -513,6 +515,11 @@ export const UpdateConfigSchema = z.object({
    * format and single title style untouched (contracts/format-pool.ts).
    */
   format_pool: FormatPoolSchema.optional(),
+  /**
+   * 1.4.405 — branded typography (owner condition 2026-11-16): its OWN default-off switch,
+   * independent of the format pool. Absent/disabled = the model-lettered thumbnail, byte-identical.
+   */
+  branded_typography: BrandedTypographySchema.optional(),
   thumbnail_reference_strength: z.enum(['loose', 'balanced', 'strong']).optional(),
   /**
    * 2026-10-31 — this channel's name as a saved starting point for a NEW channel
@@ -723,6 +730,8 @@ export interface SafeProjectConfigResponse {
   auto_approve_thumbnail_prompts?: boolean
   /** 1.4.403 — the format pool; absent/disabled = today's single format (contracts/format-pool.ts). */
   format_pool?: FormatPool
+  /** 1.4.405 — branded typography; absent/disabled = the model-lettered thumbnail (contracts/branded-typography.ts). */
+  branded_typography?: BrandedTypography
   image_models: Record<string, any>
   voice_presets: Array<{
     name: string

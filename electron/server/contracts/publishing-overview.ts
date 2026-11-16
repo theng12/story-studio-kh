@@ -130,6 +130,12 @@ export interface PublishingOverviewPlannedSlot {
   confirmed: boolean
   /** A locally chosen episode date sits on this slot's day. Intent, not coverage. */
   planned: boolean
+  /**
+   * A VERIFIED release made outside Story covers this slot's day. Absent on payloads from an older
+   * build, and absent while the channel has no such release — so a channel that publishes only
+   * through Story keeps a byte-identical payload.
+   */
+  external?: boolean
 }
 
 /** A locally chosen episode date — the real "planned" event, with its identity. */
@@ -145,6 +151,26 @@ export interface PublishingOverviewAssignment {
   at: string
   /** True when a YouTube-confirmed schedule sits on this same local day. */
   confirmed: boolean
+  /** True when a VERIFIED outside release sits on this same local day (additive). */
+  external?: boolean
+}
+
+/**
+ * The channel's publications made outside Story — present only when the channel has imported any,
+ * so an empty or absent `external_publications.json` leaves every existing payload byte-identical.
+ *
+ * `verified_count` counts VERIFIED rows with a real date, and only those. `days` are those dates as
+ * local `YYYY-MM-DD`; `overlapping_local` are the days this channel's own schedule already covers.
+ */
+export interface PublishingOverviewExternal {
+  /** One of `ok` / `absent`; `unreadable` is carried with `error` and makes the count null. */
+  status: 'absent' | 'ok' | 'unreadable'
+  error?: string
+  /** Null when the file could not be READ — unknown, never zero. */
+  verified_count: number | null
+  imported_count: number
+  days: string[]
+  overlapping_local: string[]
 }
 
 /** A concrete next step for one episode, pointing at an EXISTING supported route. */
@@ -211,6 +237,12 @@ export interface PublishingOverviewChannel {
 
   /** Absent on older payloads means not checked, rather than no episodes. */
   timeline?: { episodes: PublishingTimelineEpisode[]; error?: string }
+
+  /**
+   * This channel's OWN outside releases (additive, 1.4.405). Absent unless the channel has imported
+   * any — a channel that publishes only through Story keeps exactly the payload it had before.
+   */
+  external?: PublishingOverviewExternal
 
   confirmed: {
     /** The next confirmed publishAt, or null. */
@@ -375,7 +407,11 @@ export interface PublishingOverviewChannel {
 export interface PublishingOverviewCalendarEntry {
   channel_slug: string
   channel_name: string
-  kind: 'confirmed' | 'planned'
+  /**
+   * `external` is a release the channel made elsewhere and a human VERIFIED here (1.4.405). It is
+   * never YouTube-confirmed: the two marks stay distinct on purpose.
+   */
+  kind: 'confirmed' | 'planned' | 'external'
   at: string
   episode_code?: string
   video_id?: string

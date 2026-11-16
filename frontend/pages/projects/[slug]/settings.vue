@@ -788,6 +788,13 @@
         <label>Format pool</label>
         <FormatPoolSettings :pool="config?.format_pool" :slug="slug" />
       </div>
+
+      <!-- Branded typography — owner condition 2026-11-16. Its OWN default-off
+           switch, independent of the format pool above. -->
+      <div class="form-group" data-setting="branded-typography">
+        <label>Branded typography</label>
+        <BrandedTypographySettings :settings="config?.branded_typography" :slug="slug" />
+      </div>
           </section>
 
           <CollapsibleCard title="Writing instructions" description="Channel guidance and intro rules, with reusable presets" data-setting="writing-instructions">

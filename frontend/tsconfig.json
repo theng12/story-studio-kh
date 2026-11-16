@@ -20,6 +20,8 @@
       "@shared/narration-plausibility": ["../electron/server/contracts/narration-plausibility.ts"],
       "@shared/thumbnail-text": ["../electron/server/contracts/thumbnail-text.ts"],
       "@shared/format-pool": ["../electron/server/contracts/format-pool.ts"],
+      "@shared/branded-typography": ["../electron/server/contracts/branded-typography.ts"],
+      "@shared/external-publications": ["../electron/server/contracts/external-publications.ts"],
       "@shared/thumbnail-overlay": ["../electron/server/contracts/thumbnail-overlay.ts"],
       "@shared/thumbnail-counts": ["../electron/server/contracts/thumbnail-counts.ts"],
       "@shared/scene-effects": ["../electron/server/contracts/scene-effects.ts"],

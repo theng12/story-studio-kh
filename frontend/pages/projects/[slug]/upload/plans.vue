@@ -72,6 +72,10 @@
           <span v-if="draft.id && dirty" class="hint">Save Changes before making this plan active.</span>
         </div>
       </form>
+
+      <!-- Releases this channel made outside Story. Verified rows cover their own day; a day this
+           channel's own schedule already covers shows that overlap instead of counting twice. -->
+      <ExternalPublicationsCard :slug="slug" />
     </template>
   </div>
 </template>

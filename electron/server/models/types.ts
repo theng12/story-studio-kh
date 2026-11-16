@@ -2712,6 +2712,8 @@ export interface UpdateConfigRequest {
   thumbnail_template_id?: string
   thumbnail_shell_id?: string
   thumbnail_reference_strength?: 'loose' | 'balanced' | 'strong'
+  /** 1.4.405 — branded typography: its own default-off switch (contracts/branded-typography.ts). */
+  branded_typography?: import('../contracts/branded-typography.js').BrandedTypography
   /**
    * Declared rather than cast, for the same reason as the music fields below:
    * `applyConfigRequest` is a pass-through with an exclude list, so this was

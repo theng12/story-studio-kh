@@ -65,6 +65,7 @@ import { episodeStepJobStates, STEP_JOB_TYPES } from '../contracts/episode-step-
 import { projectTimelineEpisode } from './publishing-timeline.js'
 import type { PublishingTimelineEpisode } from '../contracts/publishing-overview.js'
 import type { ObservedPublication } from './youtube-publication-cache.js'
+import { parseExternalPublishedAt } from '../contracts/external-publications.js'
 import {
   isChannelStatus,
   type ChannelStatus,
@@ -662,10 +663,37 @@ export async function buildChannelOverview(
 
   const confirmedDaySet = new Set(confirmed.schedules.map(entry => localDayKeyInTz(new Date(entry.scheduled_for), tz)))
 
+  /**
+   * Releases made OUTSIDE Story (1.4.405) — imported bytes only, never a provider call.
+   *
+   * A channel with no such file has `externalEntries === null` below and every line that follows
+   * behaves exactly as it did before, so its payload stays byte-identical. An UNREADABLE file is not
+   * an empty one: coverage reads unknown (null), never zero.
+   */
+  const externalRead = await (await import('./external-publications-store.js')).readExternalPublications(slug)
+    .catch(() => ({ status: 'unreadable' as const, entries: [], error: 'the outside-publications file could not be read' }))
+  const externalEntries = externalRead.status === 'absent' && externalRead.entries.length === 0
+    ? null
+    : externalRead.entries
+  const verifiedExternal = (externalEntries || []).filter(entry =>
+    entry.state === 'verified' && parseExternalPublishedAt(entry.published_at))
+  const externalDayOf = (publishedAt: string): string => (
+    /^\d{4}-\d{2}-\d{2}$/.test(publishedAt)
+      // A calendar day IS a local day — converting it through a zone would move it.
+      ? publishedAt
+      : localDayKeyInTz(new Date(publishedAt), tz)
+  )
+  const externalDays = [...new Set(verifiedExternal.map(entry => externalDayOf(entry.published_at)))].sort()
+  const localPlannedDays = new Set(localPlanned.map(entry => localDayKeyInTz(new Date(entry.at), tz)))
+  const overlappingLocal = externalDays.filter(day => localPlannedDays.has(day))
+
   // Two independent day multisets, each consumed one-per-slot: one video covers
   // at most one slot, and a local plan cannot clear a confirmed gap.
   const confirmedByDay = countByDay(confirmed.schedules.map(entry => entry.scheduled_for), tz)
   const plannedByDay = countByDay(localPlanned.map(entry => entry.at), tz)
+  // A verified outside release is real coverage of its own day — the same one-per-slot rule.
+  const externalByDay = new Map<string, number>()
+  for (const day of externalDays) externalByDay.set(day, (externalByDay.get(day) ?? 0) + 1)
 
   const slots: PublishingOverviewPlannedSlot[] = []
   let nextSlotAt: string | null = null
@@ -678,13 +706,19 @@ export async function buildChannelOverview(
       const day = localDayKeyInTz(new Date(at), tz)
       const confirmedCount = confirmedByDay.get(day) ?? 0
       const plannedCount = plannedByDay.get(day) ?? 0
+      const externalCount = externalByDay.get(day) ?? 0
       const confirmedHere = confirmedCount > 0
       const plannedHere = plannedCount > 0
+      const externalHere = externalCount > 0
       if (confirmedHere) confirmedByDay.set(day, confirmedCount - 1)
       if (plannedHere) plannedByDay.set(day, plannedCount - 1)
-      slots.push({ at, confirmed: confirmedHere, planned: plannedHere })
-      if (!nextUncoveredSlotAt && !confirmedHere) nextUncoveredSlotAt = at
-      if (!nextUnplannedSlotAt && !confirmedHere && !plannedHere) nextUnplannedSlotAt = at
+      if (externalHere) externalByDay.set(day, externalCount - 1)
+      slots.push({
+        at, confirmed: confirmedHere, planned: plannedHere,
+        ...(externalHere ? { external: true } : {}),
+      })
+      if (!nextUncoveredSlotAt && !confirmedHere && !externalHere) nextUncoveredSlotAt = at
+      if (!nextUnplannedSlotAt && !confirmedHere && !plannedHere && !externalHere) nextUnplannedSlotAt = at
     }
     nextSlotAt = computed[0] ?? null
     lastSlotAt = computed.at(-1) ?? null
@@ -736,13 +770,19 @@ export async function buildChannelOverview(
     // Its own multiset: the horizon walk above consumes slots one-per-slot and
     // this must not borrow from it.
     const coverageByDay = countByDay(confirmed.schedules.map(entry => entry.scheduled_for), tz)
+    // A verified outside release covers its own day here too — never a second mark for a day a
+    // YouTube-confirmed schedule already cleared, because the two are consumed in order.
+    const externalCoverageByDay = new Map<string, number>()
+    for (const day of externalDays) externalCoverageByDay.set(day, (externalCoverageByDay.get(day) ?? 0) + 1)
     const windowSlots = computeSlots(usable, FOUR_WEEK_WALK, { notBefore: new Date(now) })
       .filter(at => Date.parse(at) < windowEnd)
     let missing = 0
     for (const at of windowSlots) {
       const day = localDayKeyInTz(new Date(at), tz)
       const here = coverageByDay.get(day) ?? 0
+      const externalHere = externalCoverageByDay.get(day) ?? 0
       if (here > 0) coverageByDay.set(day, here - 1)
+      else if (externalHere > 0) externalCoverageByDay.set(day, externalHere - 1)
       else missing++
     }
     missingSlots4w = missing
@@ -763,12 +803,16 @@ export async function buildChannelOverview(
     .map(entry => localDayKeyInTz(new Date(entry.at), tz))
     .sort().at(-1) ?? null
 
-  const assignments: PublishingOverviewAssignment[] = localPlanned.map(entry => ({
-    ...(acceptedCodes.has(entry.code) ? { episode_code: entry.code } : {}),
-    ...(identityUnknown(entry.code) ? { identity_unknown: true as const } : {}),
-    at: entry.at,
-    confirmed: confirmedDaySet.has(localDayKeyInTz(new Date(entry.at), tz)),
-  }))
+  const assignments: PublishingOverviewAssignment[] = localPlanned.map(entry => {
+    const day = localDayKeyInTz(new Date(entry.at), tz)
+    return {
+      ...(acceptedCodes.has(entry.code) ? { episode_code: entry.code } : {}),
+      ...(identityUnknown(entry.code) ? { identity_unknown: true as const } : {}),
+      at: entry.at,
+      confirmed: confirmedDaySet.has(day),
+      ...(externalDays.includes(day) ? { external: true as const } : {}),
+    }
+  })
 
   // The very next expected slot with no confirmed schedule on it is the urgent case.
   // Only a KNOWN plan can be at risk: an unreadable one is not evidence of a gap.
@@ -811,6 +855,24 @@ export async function buildChannelOverview(
       ...(identityUnknown(entry.code) ? { identity_unknown: true as const } : {}),
     })
   }
+  // A release made outside Story, VERIFIED by a human — its own kind, never merged into a confirmed
+  // schedule (the page must be able to say which is which). A day that already shows a confirmed or
+  // planned marker keeps that marker: one day never shows two markers for one event.
+  for (const entry of verifiedExternal) {
+    const day = externalDayOf(entry.published_at)
+    if (confirmedDaySet.has(day)) continue
+    if (emittedPlannedDays.has(day)) continue
+    emittedPlannedDays.add(day)
+    calendar.push({
+      channel_slug: slug,
+      channel_name: name,
+      kind: 'external',
+      at: entry.published_at,
+      ...(entry.episode_code ? { episode_code: entry.episode_code } : {}),
+      ...(entry.video_id ? { video_id: entry.video_id } : {}),
+      title: entry.title,
+    })
+  }
   for (const slot of slots) {
     const day = localDayKeyInTz(new Date(slot.at), tz)
     if (slot.confirmed || slot.planned) continue
@@ -846,8 +908,7 @@ export async function buildChannelOverview(
         assignments,
       },
       coverage: {
-        last_confirmed_date: lastConfirmedDate,
-        last_planned_date: lastPlannedDate,
+        last_confirmed_date: lastConfirmedDate,        last_planned_date: lastPlannedDate,
         next_uncovered_slot: nextUncoveredSlotAt,
         scheduled_video_count: confirmed.count,
         planned_date_count: localPlanned.length,
@@ -857,6 +918,18 @@ export async function buildChannelOverview(
         oldest_checked_stale: oldestObserved?.stale ?? false,
         at_risk: atRisk,
       },
+      // Present only once this channel has imported outside releases — an absent or empty file
+      // leaves every existing payload byte-identical. An unreadable file is unknown, never zero.
+      ...(externalEntries ? {
+        external: {
+          status: externalRead.status,
+          ...(externalRead.error ? { error: externalRead.error } : {}),
+          verified_count: externalRead.status === 'unreadable' ? null : verifiedExternal.length,
+          imported_count: externalEntries.length,
+          days: externalDays,
+          overlapping_local: overlappingLocal,
+        },
+      } : {}),
       readiness,
       priority,
       recommendations,
