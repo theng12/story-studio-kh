@@ -91,3 +91,4 @@ graphify-out/
 .superpowers/**/.env
 .superpowers/**/.env.*
 .test-work
+/_trash
