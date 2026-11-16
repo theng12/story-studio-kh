@@ -473,6 +473,16 @@ export async function preparePrivateFinalRenderDescriptor(
     await checkpointJobState(opts.job)
   }
 
+  // Say what happens NEXT, before the row goes quiet.
+  //
+  // EP0105 (2026-11-16) ran about 11.5 hours for an 885-second video and the
+  // last line it ever wrote was "Logo shape: rounded corners (20%) · 96x96".
+  // Everything after it — sealing the intent, uploading the packet, waiting on
+  // the paired Mac — said nothing, so a hang and a long upload looked identical.
+  // The staging and reconciler phases now name themselves as they start.
+  opts.job.output_lines.push('Final render: staging the packet for the paired Mac — upload and monitor follow, one line per phase.')
+  await checkpointJobState(opts.job)
+
   return stageFinalRenderIntent({
     job: opts.job,
     description,

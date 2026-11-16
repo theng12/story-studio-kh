@@ -25,6 +25,26 @@ const MAX_BACKOFF_MS = 30 * 60_000
 const ACTION_PREFIX = FINAL_RENDER_ATTENTION_PREFIX
 const MAX_CAUSE_CHARS = 400
 
+/**
+ * One phase of one row may not hold this process longer than this.
+ *
+ * Owner, 2026-11-16: EP0105's `video_assembly` ran about 11.5 hours for an
+ * 885-second video with progress and bytes null. The reconciler retried it
+ * forever with a 30 s–30 min backoff, and because one pass walked its rows one
+ * after another (`runShared` was single-flight) a single request that never
+ * answered froze EVERY final-render row on that Mac. A ceiling is the difference
+ * between "slow" and "stuck", and the row hears it as its own actionable cause.
+ */
+let phaseStallMs = 5 * 60_000
+
+/** A row that spent longer than its phase ceiling. Named, so the cause says where. */
+class FinalRenderStallError extends Error {
+  constructor(readonly phase: string) {
+    super(`The ${phase} phase did not finish or answer within ${Math.round(phaseStallMs / 60_000)} minutes`)
+    this.name = 'FinalRenderStallError'
+  }
+}
+
 type Identity = { project_slug: string; job_id: string }
 type Failure = { count: number; retryAt: number; message?: string }
 
@@ -32,6 +52,9 @@ let started = false
 let firstTick: NodeJS.Timeout | null = null
 let interval: NodeJS.Timeout | null = null
 let inFlight: Promise<void> | null = null
+/** Test seams: one row's turn and the candidate list, so isolation can be driven directly. */
+let reconcileOneForTesting: ((identity: Identity) => Promise<boolean>) | null = null
+let candidatesForTesting: Identity[] | null = null
 let cursor: Identity | null = null
 const failures = new Map<string, Failure>()
 
@@ -94,6 +117,59 @@ async function clearActionableFailure({ project_slug, job_id }: Identity): Promi
 
 const IMPORT_PHASES = new Set(['output_ready', 'importing', 'imported', 'acknowledged'])
 
+const lastNotedPhase = new Map<string, string>()
+
+/**
+ * One log line per phase, so a row that goes quiet says where it is.
+ *
+ * "Logo shape: rounded corners (20%) · 96x96" was the last line EP0105 ever
+ * wrote, and everything after it — the staged intent, the upload, the monitor
+ * wait — said nothing at all. A long stretch with no line cannot be told apart
+ * from a hang, and a phase name in the log is the cheapest fix for that.
+ */
+async function noteFinalRenderPhase(identity: Identity, phase: string | null): Promise<void> {
+  if (!phase) return
+  const label = phase.replaceAll('_', ' ')
+  const key = identityKey(identity)
+  if (lastNotedPhase.get(key) === label) return
+  lastNotedPhase.set(key, label)
+  try {
+    await mutateAuthoritativeJob(identity.project_slug, identity.job_id, job => {
+      if (job.type !== 'video_assembly' || job.status !== 'running') return null
+      const line = `Final render: ${label}.`
+      if (job.output_lines.includes(line)) return null
+      job.output_lines.push(line)
+      return job
+    })
+  } catch { /* visibility is best-effort; the ceiling still protects the pass */ }
+}
+
+/** The row's own phase, for the log line and the ceiling's reason. */
+async function currentPhase(identity: Identity): Promise<string | null> {
+  const job = await loadAuthoritativeJob(identity.project_slug, identity.job_id)
+  const phase = (job?.final_render_remote_wait as { phase?: unknown } | undefined)?.phase
+  return typeof phase === 'string' && phase ? phase : null
+}
+
+/**
+ * Bound one row's turn. The underlying request keeps its own `AbortSignal`
+ * deadline; this is what stops one stuck row from owning the whole pass.
+ */
+async function withStallCeiling<T>(phase: string, work: Promise<T>): Promise<T> {
+  let timer: NodeJS.Timeout | undefined
+  try {
+    return await Promise.race([
+      work,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new FinalRenderStallError(phase)), phaseStallMs)
+        timer.unref()
+      }),
+    ])
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
+}
+
 /**
  * Route one row by its persisted receipt. Sending and importing never run while the queue is paused or
  * the setting is off (cancellation still does); monitor phases only ever look up the original key.
@@ -133,42 +209,54 @@ async function reconcileOne({ project_slug, job_id }: Identity): Promise<boolean
 }
 
 async function runPass(now: number): Promise<void> {
-  if (!areBootJobsLoaded()) throw new Error('Final render reconciliation requires completed queue boot recovery.')
-  const candidates = listFinalRenderReconcileCandidates(cursor, 8)
+  // Only real rows need boot recovery: a supplied candidate list is already its own authority.
+  if (!candidatesForTesting && !areBootJobsLoaded()) {
+    throw new Error('Final render reconciliation requires completed queue boot recovery.')
+  }
+  const candidates = candidatesForTesting ?? listFinalRenderReconcileCandidates(cursor, 8)
   if (candidates.length === 0) {
     cursor = null
     return
   }
-  for (const identity of candidates) {
-    cursor = identity
-    const key = identityKey(identity)
-    const failure = failures.get(key)
-    if (failure && failure.retryAt > now) continue
-    let transientHold = false
-    try {
-      // The previous attempt's cause has had its time; clear it while the row is still running so a
-      // successful retry never completes carrying a stale attention message. Completion clears any
-      // cause this process could not know about (a restart empties the map).
-      if (failure?.message) await clearActionableFailure(identity)
-      const didWork = await reconcileOne(identity)
-      if (didWork && hasFinalRenderMonitorTransientHold(identity.project_slug, identity.job_id)) {
-        transientHold = true
-        throw new Error('Final render monitor response requires bounded retry.')
-      }
-      // Nothing ran (paused queue, setting off, nothing to do): the cause was not fixed.
-      if (!didWork && failure?.message) await writeActionableMessage(identity, failure.message)
-      failures.delete(key)
-    } catch (error) {
-      const count = (failure?.count ?? 0) + 1
-      const delay = Math.min(TICK_MS * (2 ** Math.min(count - 1, 16)), MAX_BACKOFF_MS)
-      // A monitor hold is expected to clear on its own; anything else is the row's real cause.
-      const message = transientHold
-        ? failure?.message
-        : await recordActionableFailure(identity, error)
-      // The clear above must not leave a row with no visible cause during a hold window.
-      if (transientHold && message) await writeActionableMessage(identity, message)
-      failures.set(key, { count, retryAt: now + delay, ...(message ? { message } : {}) })
+  // Rows run INDEPENDENTLY. One row's turn is already bounded by its phase
+  // ceiling, but walking them one after another still meant the pass took as
+  // long as their sum — and one row that never answered froze every other
+  // final-render row on this Mac (EP0105, 2026-11-16). Each row owns its own
+  // failure bookkeeping, so a rejection can no longer be shared.
+  await Promise.allSettled(candidates.map(identity => reconcileRow(identity, now)))
+}
+
+async function reconcileRow(identity: Identity, now: number): Promise<void> {
+  cursor = identity
+  const key = identityKey(identity)
+  const failure = failures.get(key)
+  if (failure && failure.retryAt > now) return
+  let transientHold = false
+  try {
+    // The previous attempt's cause has had its time; clear it while the row is still running so a
+    // successful retry never completes carrying a stale attention message. Completion clears any
+    // cause this process could not know about (a restart empties the map).
+    if (failure?.message) await clearActionableFailure(identity)
+    const phase = (await currentPhase(identity)) ?? 'prepare'
+    await noteFinalRenderPhase(identity, phase)
+    const didWork = await withStallCeiling(phase, (reconcileOneForTesting ?? reconcileOne)(identity))
+    if (didWork && hasFinalRenderMonitorTransientHold(identity.project_slug, identity.job_id)) {
+      transientHold = true
+      throw new Error('Final render monitor response requires bounded retry.')
     }
+    // Nothing ran (paused queue, setting off, nothing to do): the cause was not fixed.
+    if (!didWork && failure?.message) await writeActionableMessage(identity, failure.message)
+    failures.delete(key)
+  } catch (error) {
+    const count = (failure?.count ?? 0) + 1
+    const delay = Math.min(TICK_MS * (2 ** Math.min(count - 1, 16)), MAX_BACKOFF_MS)
+    // A monitor hold is expected to clear on its own; anything else is the row's real cause.
+    const message = transientHold
+      ? failure?.message
+      : await recordActionableFailure(identity, error)
+    // The clear above must not leave a row with no visible cause during a hold window.
+    if (transientHold && message) await writeActionableMessage(identity, message)
+    failures.set(key, { count, retryAt: now + delay, ...(message ? { message } : {}) })
   }
 }
 
@@ -195,6 +283,17 @@ export function startFinalRenderReconciler(): void {
   interval.unref()
 }
 
+/** Test-only: replace one row's turn, shorten the ceiling, or supply candidates. */
+export function _setFinalRenderReconcileForTesting(input: {
+  reconcileOne?: ((identity: Identity) => Promise<boolean>) | null
+  candidates?: Identity[] | null
+  phaseStallMs?: number | null
+}): void {
+  if ('reconcileOne' in input) reconcileOneForTesting = input.reconcileOne ?? null
+  if ('candidates' in input) candidatesForTesting = input.candidates ?? null
+  if ('phaseStallMs' in input) phaseStallMs = typeof input.phaseStallMs === 'number' ? input.phaseStallMs : 5 * 60_000
+}
+
 export async function runFinalRenderReconcilePassForTesting(now = Date.now()): Promise<void> {
   await runShared(now)
 }
@@ -209,4 +308,8 @@ export async function _resetFinalRenderReconcilerForTesting(): Promise<void> {
   if (captured) await captured
   cursor = null
   failures.clear()
+  lastNotedPhase.clear()
+  reconcileOneForTesting = null
+  candidatesForTesting = null
+  phaseStallMs = 5 * 60_000
 }
