@@ -1255,6 +1255,13 @@ async function refreshFinishedJobProviderEvidence(jobId: string): Promise<void> 
       }
       await persistJob(job)
       emitUpdate(job)
+      // This check was the only thing still holding the job's saved Pipeline
+      // continuation, and nothing else was ever going to look again. PR0051
+      // (2026-11-16) settled done with its video_assembly link unstarted and this
+      // exact sentence as the last line in its log — the block cleared here and
+      // no drain ran. One call, and the saved step starts the moment its block is
+      // gone; on a job with no continuation the drain returns immediately.
+      await drainPendingPipelineHandoff(jobId)
       return
     }
     await recordHistoryEvidenceCheck(
@@ -6524,8 +6531,27 @@ export function pipelineHandoffSkipReason(
   return `its saved continuation is ${state} and no child job exists`
 }
 
+/**
+ * A saved continuation that was not queued says so, once.
+ *
+ * PR0051 (2026-11-16) settled `done` with the `video_assembly` link still in its
+ * own `pipeline_chain`, no child, and nothing in the log explaining the gap —
+ * the drain had declined at a bare `return`. "The owner should not have to
+ * re-derive by hand what the queue already knew" (AGENTS.md §8): every decline
+ * that leaves a saved step unstarted is a sentence on the parent, not silence.
+ */
+async function notePipelineHandoffNotQueued(parent: Job, why: string, advice: string): Promise<void> {
+  if (parent.output_lines.some(line => line.startsWith('Pipeline continuation not queued:'))) return
+  parent.output_lines.push(`Pipeline continuation not queued: ${why}. ${advice}`)
+  await persistJob(parent)
+  emitUpdate(parent)
+}
+
 async function drainPendingPipelineHandoff(parentJobId: string): Promise<void> {
   await withLock(`pipeline-handoff-parent:${parentJobId}`, async () => {
+    // Silences below this line are only allowed when NO saved step is lost: the
+    // row is gone, it never captured a continuation, or a live run still owns
+    // the drain and will reach this same code when it finishes.
     const parent = jobs.get(parentJobId)
     if (!parent || !hasPipelineHandoffField(parent)
       || activeRunJobIds.has(parentJobId) || providerFinalizing.has(parentJobId)) return
@@ -6538,27 +6564,37 @@ async function drainPendingPipelineHandoff(parentJobId: string): Promise<void> {
     if (marker.state !== 'pending') {
       const hasChild = !!jobs.get(String(marker.child_job_id || ''))
       const why = pipelineHandoffSkipReason(marker, hasChild)
-      if (why && !parent.output_lines.some(line => line.startsWith('Pipeline continuation not queued:'))) {
-        parent.output_lines.push(`Pipeline continuation not queued: ${why}. Nothing was re-run; start the remaining step from the episode's Pipeline.`)
-        await persistJob(parent)
-        emitUpdate(parent)
+      if (why) {
+        await notePipelineHandoffNotQueued(parent, why,
+          'Nothing was re-run; start the remaining step from the episode\'s Pipeline.')
       }
       return
     }
     const blockedReason = pipelineHandoffBlockedReason(parent)
     if (blockedReason) {
-      if (!parent.output_lines.some(line => line.startsWith('Pipeline continuation not queued:'))) {
-        parent.output_lines.push(`Pipeline continuation not queued: ${blockedReason}. Nothing was re-run; the saved step stays ready for when the block clears.`)
-        await persistJob(parent)
-        emitUpdate(parent)
-      }
+      await notePipelineHandoffNotQueued(parent, blockedReason,
+        'Nothing was re-run; the saved step stays ready for when the block clears.')
       return
     }
 
     let authoritative = await loadAuthoritativeJob(parent.project_slug, parent.job_id)
     const durableMarker = authoritative && pipelineHandoffOf(authoritative)
-    if (!authoritative || !durableMarker || !isDeepStrictEqual(durableMarker, marker)) return
-    if (pipelineHandoffBlocked(authoritative) || authoritative.local_execution_complete !== true) return
+    if (!authoritative || !durableMarker || !isDeepStrictEqual(durableMarker, marker)) {
+      // The row on disk no longer carries this continuation — retired history, or
+      // a durable copy that changed under us. Starting a child from the stale
+      // in-memory marker is exactly what the identity check exists to prevent, so
+      // the step is not started; it is also not dropped in silence.
+      await notePipelineHandoffNotQueued(parent,
+        'its saved record could not be read back unchanged',
+        'Nothing was re-run; start the remaining step from the episode\'s Pipeline.')
+      return
+    }
+    if (pipelineHandoffBlocked(authoritative) || authoritative.local_execution_complete !== true) {
+      await notePipelineHandoffNotQueued(parent,
+        'its saved record has no verified local completion',
+        'Nothing was re-run; Retry this step, or start the remaining step from the episode\'s Pipeline.')
+      return
+    }
 
     if (authoritative.status === 'running') {
       parent.status = 'done'
