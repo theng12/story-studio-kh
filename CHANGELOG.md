@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.404 — 2026-11-16
+
+- **Changing a thumbnail's headline no longer leaves the old one in the prompt.** The prompt editor has a **Change the headline in this prompt** action: give the words the prompt already uses and the new headline, and Story replaces that one line in place — the scene and the separate badge keep their own words. If the prompt does not contain the old words, or it carries two different headlines, the change is refused with the reason and nothing is written; editing the full prompt is then the clear way through. Repeating the same change does nothing. A headline no longer sits in a prompt beside the style pack's "do not reserve a title block" instruction.
+
 ## v1.4.403 — 2026-11-15
 
 - **One Timeline for the whole episode — and it now renders.** Every second of the episode belongs to one segment, and each segment picks its own media: a generated still, a chart, stock footage, text-to-video or image-to-video. Charts are drawn locally and cost nothing. Segments must join exactly — a gap or an overlap is refused with the second it happens at. **Preflight** prices the whole timeline from the Gateway's live figures before anything renders, and says "price not published" rather than quoting a number of its own; an unpublished price refuses the render instead of spending blind. **Render timeline** sends one job per segment, reuses any segment already done (so a catalogue change never re-buys anything and a model switch re-buys deliberately), then assembles them into one video at the timeline's exact duration, with a status and a plain reason on every segment and a Retry where one failed. Sketch segments are not drawn yet and say so.
