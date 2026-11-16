@@ -18,6 +18,7 @@ import fs from 'fs/promises'
 import path from 'path'
 import { registry } from '../providers/registry.js'
 import { saveGenStudioImage } from '../lib/genstudio-artifacts.js'
+import { completedPercent } from '../lib/job-progress.js'
 import { resolveOutputFormat } from '../services/generation-compression.js'
 import { isDecodableImage } from '../lib/image-validation.js'
 import * as pm from '../services/project-manager.js'
@@ -591,7 +592,9 @@ export async function generateImagePoolImages(job: Job): Promise<jq.JobExecutorR
           made++
           job.output_lines.push(`✓ ${successfulFiles.size}/${total} — recovered accepted task ${recovery.taskId.slice(0, 12)}… (no charge)`)
           processed++
-          job.progress = Math.round((processed / total) * 90)
+          // Completions only (see `lib/job-progress.ts`) — a failed item is on
+          // the row as `failed` and must not push the bar forward.
+          job.progress = Math.round(((processed - failed) / total) * 90)
           // Labelled because this `continue` now sits inside the per-item
           // attempt loop: it means "this item is finished", exactly as it did
           // before, and must not be read as "take another attempt".
@@ -675,8 +678,8 @@ export async function generateImagePoolImages(job: Job): Promise<jq.JobExecutorR
           onQueueState: async state => {
             job.item_progress = {
               total,
-              completed: processed,
-              failed: 0,
+              completed: processed - failed,
+              failed,
               concurrency: 1,
               active: [{
                 label: item.filename,
@@ -842,7 +845,7 @@ export async function generateImagePoolImages(job: Job): Promise<jq.JobExecutorR
       // done than it has images for.
       if (!retryItem) {
         processed++
-        job.progress = Math.round((processed / total) * 90)
+        job.progress = Math.round(((processed - failed) / total) * 90)
       }
     }
   }
@@ -850,7 +853,9 @@ export async function generateImagePoolImages(job: Job): Promise<jq.JobExecutorR
   // Index the new files (image mode) so they're thumbnailed + selectable.
   job.output_lines.push('Indexing new images into the pool…')
   const scan = await scanPoolFolder(pool.folder_path, undefined, 'image')
-  job.progress = 100
+  // Not a blanket 100: a run that ends with images missing reads its real share
+  // and then fails loudly in the audit below (see `lib/job-progress.ts`).
+  job.progress = completedPercent(processed - failed, total)
   const missing: string[] = []
   for (const item of items) if (!await isUsable(item.filename)) missing.push(item.filename)
   for (const filename of failedFiles) if (!missing.includes(filename)) missing.push(filename)

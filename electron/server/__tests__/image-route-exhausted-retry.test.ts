@@ -278,11 +278,12 @@ test('images.ts reuses the retry-scope chain and progress machinery instead of i
   // Live per-item state, published on every transition including the wait.
   assert.match(source, /job\.item_progress = \{/)
   assert.match(source, /state: 'waiting_retry'/)
-  assert.match(source, /job\.progress = totalToProcess > 0/)
 
-  // Progress is driven by settled counts, never by cursor/index position —
-  // the thing that would make it jump around under concurrency.
-  assert.match(source, /completedCount \+ failedCount/)
+  // Progress is COMPLETIONS over the planned total — never `completed + failed`
+  // (owner, 2026-11-16: HMH0113 read 94% with 0 of 18 done). It is a running
+  // count, not a cursor, so it stays correct under concurrency.
+  assert.match(source, /job\.progress = completedPercent\(completedCount, totalToProcess\)/)
+  assert.doesNotMatch(source, /completedCount \+ failedCount/)
 
   // The fan-out width is local staging only. The keyed live burst is advisory;
   // GenStudio's exact admission permit owns remote image placement.
