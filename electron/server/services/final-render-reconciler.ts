@@ -218,12 +218,29 @@ async function runPass(now: number): Promise<void> {
     cursor = null
     return
   }
-  // Rows run INDEPENDENTLY. One row's turn is already bounded by its phase
-  // ceiling, but walking them one after another still meant the pass took as
-  // long as their sum — and one row that never answered froze every other
-  // final-render row on this Mac (EP0105, 2026-11-16). Each row owns its own
-  // failure bookkeeping, so a rejection can no longer be shared.
-  await Promise.allSettled(candidates.map(identity => reconcileRow(identity, now)))
+  // Rows run independently ACROSS projects, and one at a time WITHIN a project.
+  //
+  // One row's turn is bounded by its phase ceiling, but walking all of them one
+  // after another still meant the pass took as long as their sum — and one row
+  // that never answered froze every other final-render row on this Mac (EP0105,
+  // 2026-11-16). Each row owns its own failure bookkeeping, so a rejection can no
+  // longer be shared.
+  //
+  // Within one project the rows stay sequential on purpose: staging and commit
+  // read-modify-write that project's durable jobs file, and two rows doing it at
+  // once can lose one of the two receipts (`final-render-import.test.ts`, "a
+  // final render staged by the queue … comes back done" — both rows lost their V3
+  // receipt when this ran fully in parallel). Isolation is what the stuck row
+  // must not take away, and a different project's rows never touch this file.
+  const byProject = new Map<string, Identity[]>()
+  for (const identity of candidates) {
+    const group = byProject.get(identity.project_slug)
+    if (group) group.push(identity)
+    else byProject.set(identity.project_slug, [identity])
+  }
+  await Promise.allSettled([...byProject.values()].map(async group => {
+    for (const identity of group) await reconcileRow(identity, now)
+  }))
 }
 
 async function reconcileRow(identity: Identity, now: number): Promise<void> {
