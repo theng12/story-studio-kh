@@ -480,8 +480,11 @@ export async function preparePrivateFinalRenderDescriptor(
   // Everything after it — sealing the intent, uploading the packet, waiting on
   // the paired Mac — said nothing, so a hang and a long upload looked identical.
   // The staging and reconciler phases now name themselves as they start.
+  // No extra durable write here on purpose: this line is carried by the staging
+  // write that follows. A checkpoint of its own put a project snapshot before the
+  // staging guard, which is the path `final-render-transport.test.ts` pins for a
+  // disabled-preparation refusal.
   opts.job.output_lines.push('Final render: staging the packet for the paired Mac — upload and monitor follow, one line per phase.')
-  await checkpointJobState(opts.job)
 
   return stageFinalRenderIntent({
     job: opts.job,
