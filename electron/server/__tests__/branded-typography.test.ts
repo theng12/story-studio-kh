@@ -114,8 +114,10 @@ test('an enabled accent draws on its own corner', async () => {
   })
   assert.notEqual(withAccent.png.toString('base64'), plain.png.toString('base64'))
   const { data, info } = await sharp(withAccent.png).raw().toBuffer({ resolveWithObject: true })
-  const x = info.width - 20
-  const y = info.height - 20
+  // Inside the accent box: margin 3% of the canvas, the accent sits just past it.
+  const inset = Math.round(info.width * 0.03) + 10
+  const x = info.width - inset
+  const y = info.height - inset
   const offset = (y * info.width + x) * info.channels
   assert.ok(data[offset]! > 150 && data[offset + 1]! < 90, `bottom-right pixel is the red accent, got ${data[offset]},${data[offset + 1]}`)
 })
