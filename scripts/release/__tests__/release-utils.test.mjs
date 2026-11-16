@@ -306,6 +306,44 @@ describe('staged DMG packaging', () => {
     assert.ok(fs.lstatSync(path.dirname(trash)).isSymbolicLink())
   })
 
+  // Owner, 2026-11-16: he empties `~/Desktop/_trash` whenever he likes, and the
+  // checkout's `_trash` compatibility link then points at nothing. That is what
+  // stopped the 1.4.405 DMG build — the packaging step must recreate the target.
+  test('an emptied Desktop trash behind the compatibility link is recreated, not fatal', t => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'staged-dmg-dangling-'))
+    t.after(() => fs.rmSync(root, { recursive: true, force: true }))
+    const dist = path.join(root, 'dist')
+    const desktopTrash = path.join(root, 'Desktop', '_trash', 'Story Studio KH')
+    const trash = path.join(root, '_trash', 'dist')
+    fs.mkdirSync(dist)
+    fs.mkdirSync(path.dirname(desktopTrash), { recursive: true })
+    fs.symlinkSync(desktopTrash, path.join(root, '_trash'))
+    fs.rmSync(desktopTrash, { recursive: true, force: true })
+
+    const stage = createDmgBuildDirectory(dist, trash)
+
+    assert.ok(fs.existsSync(stage), 'the build must still be able to stage a candidate')
+    assert.ok(fs.lstatSync(path.join(root, '_trash')).isSymbolicLink(),
+      'the compatibility link must stay a link, not be replaced by a real folder')
+    assert.ok(fs.statSync(desktopTrash).isDirectory(), 'the emptied trash target is recreated')
+  })
+
+  test('a link whose whole target chain is gone is recreated too', t => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'staged-dmg-nodir-'))
+    t.after(() => fs.rmSync(root, { recursive: true, force: true }))
+    const dist = path.join(root, 'dist')
+    const desktopTrash = path.join(root, 'Desktop', '_trash', 'Story Studio KH')
+    fs.mkdirSync(dist)
+    fs.symlinkSync(desktopTrash, path.join(root, '_trash'))
+
+    const stage = createDmgBuildDirectory(dist, path.join(root, '_trash', 'dist'))
+
+    assert.ok(fs.existsSync(stage))
+    assert.ok(fs.statSync(desktopTrash).isDirectory(),
+      'the whole missing target chain is created behind the link')
+    assert.ok(fs.lstatSync(path.join(root, '_trash')).isSymbolicLink())
+  })
+
   test('unusable recovery storage fails before allocating a candidate directory', t => {
     const { root, dist, trash } = fixture(t)
     fs.renameSync(path.dirname(trash), path.join(root, 'retained-recovery'))
