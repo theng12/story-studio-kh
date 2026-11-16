@@ -407,6 +407,54 @@ export function reconcileHeadlineStyleRule(prompt: string, headlineRequested: bo
     'Do not assemble a promotional montage.')
 }
 
+/**
+ * Replace the ONE headline a saved thumbnail prompt already carries, without appending a second
+ * instruction (the defect measured 2026-11-16: a repair appended "exactly ROME" beside the existing
+ * "reading FIFTEEN MILES", and the model omitted the headline or lettered it into the badge).
+ *
+ * Only the forms a headline is written in are touched: a quoted headline, or the words right after
+ * "reading"/"line"/"the line of". Everything else — scene prose, the FOR SLEEP badge, unrelated
+ * quoted text — is left byte-identical. `ok: false` means the prompt was NOT changed, and the
+ * caller must refuse rather than guess or append.
+ */
+export type HeadlineReplacement =
+  | { ok: true; prompt: string; changed: boolean; replacements: number }
+  | { ok: false; reason: string }
+
+export function replaceHeadlineInPrompt(prompt: string, from: string, to: string): HeadlineReplacement {
+  const oldText = String(from || '').trim()
+  const newText = String(to || '').trim()
+  if (!oldText || !newText) return { ok: false, reason: 'Both the old and the new headline are needed.' }
+  let out = String(prompt || '')
+  let replacements = 0
+  const quoted = [`"${oldText}"`, `“${oldText}”`]
+  for (const form of quoted) {
+    if (out.includes(form)) {
+      replacements += out.split(form).length - 1
+      out = out.split(form).join(`"${newText}"`)
+    }
+  }
+  for (const lead of ['reading', 'line', 'the line of']) {
+    const pattern = new RegExp(`(\\b${lead}\\s+(?:exactly\\s+)?)${escapeRegExp(oldText)}(?=\\b|[,.;:])`, 'gi')
+    out = out.replace(pattern, (_match, prefix: string) => {
+      replacements += 1
+      return `${prefix}${newText}`
+    })
+  }
+  if (!replacements) {
+    if (out.includes(newText)) return { ok: true, prompt: out, changed: false, replacements: 0 }
+    return {
+      ok: false,
+      reason: `The prompt does not contain the old headline "${oldText}", so it was not changed. Edit the prompt directly, or pass the headline exactly as the prompt writes it.`,
+    }
+  }
+  return { ok: true, prompt: out, changed: out !== String(prompt || ''), replacements }
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
 export function enforceThumbnailPromptElements(prompt: string, opts: ThumbnailPromptElements): string {
   const out = stripEpisodeLabelFromDrawnText((prompt || '').trim())
   if (!out) return out
