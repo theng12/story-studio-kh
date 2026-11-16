@@ -64,6 +64,24 @@
           placeholder="e.g. Make the title treatment more premium, push the hero subject closer, keep stronger negative space behind the lettering."
         />
       </div>
+      <details class="prr-field prr-headline-change">
+        <summary class="prr-label">Change the headline in this prompt</summary>
+        <p class="text-muted text-xs" style="margin: 6px 0">
+          Replaces the one headline this prompt already uses, in place. The scene and the separate badge text stay untouched. If the prompt does not contain the old words, it is refused rather than appended to.
+        </p>
+        <div class="prr-label-row" style="gap: 8px; flex-wrap: wrap">
+          <input v-model="headlineFrom" type="text" class="input prr-input" style="flex: 1 1 220px" maxlength="300" placeholder="The words the prompt says now" aria-label="Current headline">
+          <input v-model="headlineTo" type="text" class="input prr-input" style="flex: 1 1 220px" maxlength="300" placeholder="The new headline" aria-label="New headline">
+          <button
+            type="button"
+            class="btn btn-sm btn-secondary"
+            :disabled="busy || saving || !headlineFrom.trim() || !headlineTo.trim()"
+            @click="emitHeadlineChange"
+          >
+            Replace headline
+          </button>
+        </div>
+      </details>
       <div class="prr-actions">
         <button
           type="button"
@@ -132,9 +150,12 @@ const props = defineProps<{
   /** Friendly model label for the tooltip ("Seedream", "Nano Banana"). */
   modelLabel?: string
 }>()
+const headlineFrom = ref('')
+const headlineTo = ref('')
 const emit = defineEmits<{
   (e: 'regenerate', payload: { title: string; prompt: string; notes: string; reword?: boolean }): void
   (e: 'save', payload: { title: string; prompt: string }): void
+  (e: 'replaceHeadline', payload: { from: string; to: string }): void
 }>()
 
 const expanded = ref(false)
@@ -178,6 +199,15 @@ const charBadgeTooltip = computed(() => {
 function resetDraft(): void {
   draftTitle.value = props.row.title || ''
   draftPrompt.value = props.row.prompt || ''
+}
+
+function emitHeadlineChange(): void {
+  const from = headlineFrom.value.trim()
+  const to = headlineTo.value.trim()
+  if (!from || !to || props.busy || props.saving) return
+  emit('replaceHeadline', { from, to })
+  headlineFrom.value = ''
+  headlineTo.value = ''
 }
 
 function emitSave(): void {

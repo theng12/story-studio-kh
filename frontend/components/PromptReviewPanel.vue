@@ -57,6 +57,7 @@
             :cap="thumbnailPromptCap ?? null"
             :model-label="thumbnailModelLabel"
             @save="saveOne(row.number, $event)"
+            @replace-headline="replaceHeadline(row.number, $event)"
             @regenerate="regenerateOne(row.number, $event)"
           />
           <!-- This thumbnail's own metadata (recipe, style, lettering,
@@ -316,6 +317,41 @@ async function regenerateOne(
     const next = new Set(busy.value)
     next.delete(key)
     busy.value = next
+  }
+}
+
+async function replaceHeadline(number: number, payload: { from: string; to: string }): Promise<void> {
+  const kind = 'thumbnail'
+  const key = `${kind}-${number}`
+  if (saving.value.has(key)) return
+  const episodeId = props.episodeId
+  const episodeTitle = props.title || ''
+  saving.value = new Set([...saving.value, key])
+  errors.value = { ...errors.value, [key]: '' }
+  try {
+    const data = await put<{ number: number; title: string; prompt: string }>(
+      `/projects/${props.projectSlug}/episodes/${episodeId}/image-prompts/item?title=${encodeURIComponent(episodeTitle)}`,
+      { kind, number, title: payload.to, replace_headline: payload },
+    )
+    success(`Thumbnail ${number} headline replaced with “${payload.to}”`)
+    if (episodeId !== props.episodeId) return
+    const idx = thumbnails.value.findIndex(p => p.number === number)
+    if (idx >= 0) {
+      thumbnails.value = [
+        ...thumbnails.value.slice(0, idx),
+        { number: data.number, title: data.title, prompt: data.prompt },
+        ...thumbnails.value.slice(idx + 1),
+      ]
+    }
+    markPromptChanged(number)
+  } catch (e: any) {
+    const msg = e?.data?.detail || e?.message || 'Could not replace the headline'
+    if (episodeId === props.episodeId) errors.value = { ...errors.value, [key]: msg }
+    showError(msg)
+  } finally {
+    const next = new Set(saving.value)
+    next.delete(key)
+    saving.value = next
   }
 }
 

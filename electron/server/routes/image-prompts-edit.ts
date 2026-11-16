@@ -26,7 +26,7 @@ import { resolveEpisodePaths } from '../services/utils.js'
 import { resolveReadPath, toMdPath } from '../lib/episode-artifacts.js'
 import { parseImagePromptsDocx, _clearImagePromptsParseCache } from '../lib/docx-parser.js'
 import { buildImagePromptsDocx } from '../lib/docx-builder.js'
-import { buildThumbnailDirective, enforceThumbnailPromptElements, thumbnailSaveOverhead, episodeCast } from '../generators/image-prompts.js'
+import { buildThumbnailDirective, enforceThumbnailPromptElements, replaceHeadlineInPrompt, thumbnailSaveOverhead, episodeCast } from '../generators/image-prompts.js'
 import { HEADLINE_MODE_IDS, headlineInvents } from '../models/thumbnail-headlines.js'
 import {
   addAssemblyOverhead,
@@ -142,11 +142,19 @@ const RegenerateSchema = z.object({
   reword: z.boolean().optional(),
 })
 
-const UpdatePromptSchema = z.object({
+export const UpdatePromptSchema = z.object({
   kind: z.literal('thumbnail'),
   number: z.number().int().safe().min(1),
   title: z.string().trim().min(1).max(300),
-  prompt: z.string().trim().min(10).max(12000),
+  prompt: z.string().trim().min(10).max(12000).optional(),
+  // The supported way to change a headline: name the old and new words and let the route replace
+  // the ONE headline in place. A prompt missing the old headline is refused, never appended to.
+  replace_headline: z.object({
+    from: z.string().trim().min(1).max(300),
+    to: z.string().trim().min(1).max(300),
+  }).strict().optional(),
+}).strict().refine(input => input.prompt !== undefined || input.replace_headline !== undefined, {
+  message: 'Send the prompt, or replace_headline with the old and new headline.',
 })
 
 /**
@@ -581,7 +589,8 @@ router.put(
   validateBody(UpdatePromptSchema),
   async (req, res) => {
     const { slug, episodeId } = req.params
-    const { kind, number, title, prompt } = req.body as z.infer<typeof UpdatePromptSchema>
+    const { kind, number, title, replace_headline } = req.body as z.infer<typeof UpdatePromptSchema>
+    let prompt: string | undefined = (req.body as z.infer<typeof UpdatePromptSchema>).prompt
     const titleParam = (req.query.title as string) || ''
 
     try {
@@ -608,8 +617,19 @@ router.put(
         })
       }
 
+      const stored = list[targetIdx]!
+      if (replace_headline) {
+        const base = prompt ?? String(stored.prompt || '')
+        const replaced = replaceHeadlineInPrompt(base, replace_headline.from, replace_headline.to)
+        if (!replaced.ok) return res.status(400).json({ detail: replaced.reason })
+        prompt = replaced.prompt
+      }
+      if (prompt === undefined) {
+        return res.status(400).json({ detail: 'Send the prompt, or replace_headline with the old and new headline.' })
+      }
+      const savedPrompt: string = prompt
       const updatedList = list.map((p, i) => (i === targetIdx
-        ? { number, title, prompt }
+        ? { number, title, prompt: savedPrompt }
         : p
       ))
       const serialised = serialiseList(updatedList)

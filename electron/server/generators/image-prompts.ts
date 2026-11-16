@@ -393,11 +393,141 @@ export function thumbnailSaveOverhead(opts: ThumbnailPromptElements): AssemblyOv
   ])
 }
 
+/**
+ * A headline and the style bible must not contradict each other. Several style packs end with
+ * "Do not reserve a title block or assemble a promotional montage." — written for a text-free
+ * picture — and Story then appends its own headline clause after it. Measured on a-world-before-us
+ * (2026-11-16): prompts carrying both instructions produced thumbnails with no large headline, or
+ * the headline lettered into the small FOR SLEEP badge. When a headline is requested, only the
+ * montage half of that rule survives.
+ */
+export function reconcileHeadlineStyleRule(prompt: string, headlineRequested: boolean): string {
+  if (!headlineRequested) return prompt
+  return prompt.replace(/Do not reserve a title block or assemble a promotional montage\./g,
+    'Do not assemble a promotional montage.')
+}
+
+/**
+ * Replace the ONE headline a saved thumbnail prompt already carries, without appending a second
+ * instruction (the defect measured 2026-11-16: a repair appended "exactly ROME" beside the existing
+ * "reading FIFTEEN MILES", and the model omitted the headline or lettered it into the badge).
+ *
+ * Only the forms a headline is written in are touched: a quoted headline, or the words right after
+ * "reading"/"line"/"the line of". Everything else — scene prose, the FOR SLEEP badge, unrelated
+ * quoted text — is left byte-identical. `ok: false` means the prompt was NOT changed, and the
+ * caller must refuse rather than guess or append.
+ */
+export type HeadlineReplacement =
+  | { ok: true; prompt: string; changed: boolean; replacements: number }
+  | { ok: false; reason: string }
+
+interface HeadlineHit {
+  start: number
+  end: number
+}
+
+/** Words that name the picture's independent text, never its headline. */
+const NON_HEADLINE_CONTEXT = /\b(badge|label|sign|caption|stamp|plaque)\b/i
+const HEADLINE_CONTEXT = /\b(headline|hook|title|reading|line of capitals|serif line|line)\b/i
+
+/**
+ * Where `text` is written as the picture's own headline: right after "reading"/"line"/"the line
+ * of", with the complete phrase followed by punctuation or a sentence join — never a prefix of a
+ * longer headline — or quoted inside a clause that names a headline and not a badge/label/sign.
+ */
+function clauseBefore(prompt: string, index: number): string {
+  const start = Math.max(
+    prompt.lastIndexOf('.', index - 1),
+    prompt.lastIndexOf('!', index - 1),
+    prompt.lastIndexOf('?', index - 1),
+    prompt.lastIndexOf('\n', index - 1),
+  )
+  return prompt.slice(start + 1, index)
+}
+
+/** Every words-as-headline phrase this prompt states, for the multi-headline refusal. */
+function statedHeadlines(prompt: string): string[] {
+  const found: string[] = []
+  const pattern = /(?:reading|reads|line of|serif line|the line of|line)\s+(?:exactly\s+)?([A-Z][A-Z0-9 '’\-]{1,60}?)(?=[,.;:]|\s+(?:and|with|in|on|beside|above|below|against|across|inside|at)\b|$)/g
+  for (let match = pattern.exec(prompt); match; match = pattern.exec(prompt)) {
+    const clause = clauseBefore(prompt, match.index)
+    if (NON_HEADLINE_CONTEXT.test(clause)) continue
+    found.push(match[1]!.trim())
+  }
+  const quoted = /["\u201c]([^"\u201d]{2,60})["\u201d]/g
+  for (let match = quoted.exec(prompt); match; match = quoted.exec(prompt)) {
+    const clause = clauseBefore(prompt, match.index)
+    if (!HEADLINE_CONTEXT.test(clause) || NON_HEADLINE_CONTEXT.test(clause)) continue
+    found.push(match[1]!.trim())
+  }
+  return [...new Set(found.map(value => value.toUpperCase()))]
+}
+
+function headlineHits(prompt: string, text: string): HeadlineHit[] {
+  const hits: HeadlineHit[] = []
+  const lead = /(reading|reads|line of|serif line|the line of|line)\s+(?:exactly\s+)?/gi
+  for (let match = lead.exec(prompt); match; match = lead.exec(prompt)) {
+    const start = match.index + match[0].length
+    if (!prompt.startsWith(text, start)) continue
+    const end = start + text.length
+    const rest = prompt.slice(end)
+    const complete = /^\s*(?:[,.;:]|$)/.test(rest)
+      || /^\s+(?:and|with|in|on|beside|above|below|against|across|inside|at)\b/i.test(rest)
+    if (!complete) continue
+    const clause = clauseBefore(prompt, match.index)
+    if (NON_HEADLINE_CONTEXT.test(clause)) continue
+    hits.push({ start, end })
+  }
+  const quoted = new RegExp(`["\u201c](${escapeRegExp(text)})["\u201d]`, 'g')
+  for (let match = quoted.exec(prompt); match; match = quoted.exec(prompt)) {
+    const clause = clauseBefore(prompt, match.index)
+    if (!HEADLINE_CONTEXT.test(clause) || NON_HEADLINE_CONTEXT.test(clause)) continue
+    hits.push({ start: match.index + 1, end: match.index + 1 + text.length })
+  }
+  return hits.sort((a, b) => b.start - a.start)
+}
+
+export function replaceHeadlineInPrompt(prompt: string, from: string, to: string): HeadlineReplacement {
+  const oldText = String(from || '').trim()
+  const newText = String(to || '').trim()
+  if (!oldText || !newText) return { ok: false, reason: 'Both the old and the new headline are needed.' }
+  const source = String(prompt || '')
+  const stated = statedHeadlines(source)
+  const conflicting = stated.filter(value => value !== oldText.toUpperCase() && value !== newText.toUpperCase())
+  if (conflicting.length) {
+    return {
+      ok: false,
+      reason: `The prompt states more than one headline (${[...new Set([...stated])].join(', ')}), so it was not changed. Edit the prompt directly to leave one headline.`,
+    }
+  }
+  const hits = headlineHits(source, oldText)
+  if (!hits.length) {
+    // Idempotence is proven by the NEW words sitting in a headline position, never by a substring
+    // somewhere else in the prompt (a place name, a scene caption, the badge).
+    if (headlineHits(source, newText).length) {
+      return { ok: true, prompt: source, changed: false, replacements: 0 }
+    }
+    return {
+      ok: false,
+      reason: `The prompt does not contain the old headline "${oldText}" in a headline position, so it was not changed. Edit the prompt directly, or pass the headline exactly as the prompt writes it.`,
+    }
+  }
+  let out = source
+  for (const hit of hits) out = out.slice(0, hit.start) + newText + out.slice(hit.end)
+  return { ok: true, prompt: out, changed: out !== source, replacements: hits.length }
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
 export function enforceThumbnailPromptElements(prompt: string, opts: ThumbnailPromptElements): string {
   const out = stripEpisodeLabelFromDrawnText((prompt || '').trim())
   if (!out) return out
+  const texts = thumbnailPromptClauseTexts(opts)
   const clauses = thumbnailPromptClauses(out, opts)
-  return clauses.length ? `${out}\n\n${clauses.join(' ')}` : out
+  const reconciled = reconcileHeadlineStyleRule(out, Boolean(texts.title))
+  return clauses.length ? `${reconciled}\n\n${clauses.join(' ')}` : reconciled
 }
 
 export function buildThumbnailPrompt(args: {
