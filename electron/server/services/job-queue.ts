@@ -81,7 +81,7 @@ import {
 } from '../contracts/jobs-history.js'
 import { FLEET_BUSY_FAILURE_CODES } from '../lib/genstudio-fleet-busy.js'
 import { assertManualGenerationRedoAction } from '../lib/fresh-generation-action.js'
-import { evidenceHoldsUnknownOutcome, holdsUnknownOutcome, isSubmissionUncertainCode } from '../lib/genstudio-client.js'
+import { evidenceHoldsUnknownOutcome, GenStudioCatalogUnavailableError, holdsUnknownOutcome, isSubmissionUncertainCode } from '../lib/genstudio-client.js'
 import { isRetryableZeroSettlementImageFailureCode } from './image-paid-replacement.js'
 import { getApiKey } from './app-secrets-store.js'
 import type { JobControl } from '../models/types.js'
@@ -1553,6 +1553,14 @@ async function finalizeSettledProviderJob(jobId: string): Promise<void> {
 // names the operation token that took the hold, or null for the owner's own pause.
 // The two move in ONE atomic settings write (see setQueuePausedUnlocked), so a
 // crash never leaves a paused queue owned by a token that no longer holds it.
+/** How long a pre-submission catalogue refusal may wait for a fresh copy before
+ *  the job fails with that reason and its attempts still intact. */
+let catalogRefusalCeilingMs = 10 * 60_000
+/** Test-only: compress the ceiling so a suite does not wait ten minutes. */
+export function _setCatalogRefusalCeilingForTesting(ms: number | null): void {
+  catalogRefusalCeilingMs = typeof ms === 'number' && Number.isFinite(ms) && ms >= 0 ? Math.floor(ms) : 10 * 60_000
+}
+
 let queuePaused = false
 let queuePauseOwner: string | null = null
 let queuePauseLoaded = false
@@ -6853,6 +6861,8 @@ async function runJob(type: JobType, job: Job): Promise<void> {
       // earns a fresh retry budget. The best count only ever falls, so this ends.
       let lastAttempt = retryPolicy.max_attempts
       let fewestRemaining = Infinity
+      /** When this run first refused to submit for a stale catalogue; null until then. */
+      let catalogRefusalStartedAt: number | null = null
       let chatOutcomeUnknown = false
       for (let attempt = 1; attempt <= lastAttempt; attempt++) {
         if (hasFinalRenderFence(job)) {
@@ -6965,6 +6975,31 @@ async function runJob(type: JobType, job: Job): Promise<void> {
           // A proven, uncharged quota stop. Do not consume a worker slot on
           // local retry backoff; the outer lifecycle parks it.
           if (isQuotaWait(job, error)) throw error
+          // A refusal BEFORE submission accepted nothing, so it must not spend an
+          // attempt. HMH0110 (2026-11-16) burned 3 of 3 on a Gateway voice-model
+          // catalogue that was 31 minutes stale: nothing was requested, no Mac was
+          // tried, no credit was charged, and the row still arrived at
+          // "auto_retry exhausted". Gateway 0.2.263 already treats a refusal that
+          // accepted nothing as not spending an attempt; Story now agrees.
+          if (error instanceof GenStudioCatalogUnavailableError) {
+            catalogRefusalStartedAt ??= Date.now()
+            const waitedMs = Date.now() - catalogRefusalStartedAt
+            if (waitedMs < catalogRefusalCeilingMs) {
+              // Same attempt number again: the loop's `attempt++` is cancelled here.
+              attempt -= 1
+              job.auto_retry = { ...job.auto_retry!, attempt: attempt + 1 }
+              const remainingWait = Math.max(0, catalogRefusalCeilingMs - waitedMs)
+              const line = '⏳ The Gateway catalogue could not be read, so nothing was submitted and no attempt was '
+                + `used. Waiting up to ${Math.max(1, Math.round(remainingWait / 60_000))} more minute(s) for a fresh catalogue.`
+              if (!job.output_lines.includes(line)) job.output_lines.push(line)
+              await persistJob(job)
+              emitUpdate(job)
+              await waitForLocalRetry(job.job_id, Math.min(retryPolicy.delays_ms.at(-1) ?? 30_000, 30_000))
+              continue
+            }
+            // Ceiling reached: fail with the plain reason, attempts untouched.
+            throw error
+          }
           const completion = job.result?.completion
           const remaining = completion && Number.isSafeInteger(completion.expected) && Number.isSafeInteger(completion.completed)
             ? completion.expected - completion.completed
