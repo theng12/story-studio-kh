@@ -288,4 +288,55 @@ describe('Episode Builder', () => {
       assert.match(t, /The headline "Café Nights" printed once, large, in big clean legible letters, spelled exactly "Café Nights" letter for letter/)
     }
   })
+  test('a build carries the Scene Review → Final Video chain, not a dead end', async () => {
+    const jq = await import('../services/job-queue.js')
+    let releaseBuild!: () => void
+    const buildGate = new Promise<void>(resolve => { releaseBuild = resolve })
+    const restore = jq._setExecutorForTesting('music_episode_build', async (job: any) => {
+      await buildGate
+      job.result = { ...(job.result || {}), scenes: 4 }
+    })
+    try {
+      const created = await request(app).post(`/api/projects/${slug}/music-episodes`).send({ title: 'Chain episode' })
+      assert.equal(created.status, 201)
+      const chainCode = created.body.code
+      const drawn = await request(app).post(`/api/projects/${slug}/music-episodes/${chainCode}/draw`).send({
+        settings: {
+          pools: ['pool_cello', 'pool_piano'], target_length_s: 70, order: 'manual',
+          join: { style: 'crossfade', seconds: 1 }, theme: 'Cosy', no_repeat_episodes: 0,
+        },
+      })
+      assert.equal(drawn.status, 200, JSON.stringify(drawn.body))
+      assert.equal(drawn.body.songs.length, 4, 'the chain test episode has songs')
+
+      const res = await request(app).post(`/api/projects/${slug}/music-episodes/${chainCode}/build`)
+      assert.equal(res.status, 201, JSON.stringify(res.body))
+      const chain = res.body.params.pipeline_chain
+      assert.equal(chain.length, 2, 'Scene Review then Final Video')
+      assert.equal(chain[0].type, 'continuity_render')
+      assert.equal(chain[0].params.pipeline_step, 'scene_review')
+      assert.deepEqual(chain[0].params.pipeline_requires, ['music_build'])
+      assert.equal(chain[1].type, 'video_assembly')
+      assert.equal(chain[1].params.pipeline_step, 'video_assembly')
+      assert.deepEqual(chain[1].params.pipeline_requires, ['scene_review', 'music_build'])
+      assert.ok(Object.keys(chain[1].params).length > 2,
+        'the Final Video link carries the episode\'s own render settings')
+
+      const again = await request(app).post(`/api/projects/${slug}/music-episodes/${chainCode}/build`)
+      assert.equal(again.status, 409, 'one stitch at a time — no second build row')
+      assert.match(String(again.body.detail), /already being stitched/)
+    } finally {
+      releaseBuild()
+      restore()
+    }
+  })
+
+  test('a build is refused without songs', async () => {
+    const created = await request(app).post(`/api/projects/${slug}/music-episodes`).send({ title: 'Empty episode' })
+    assert.equal(created.status, 201)
+    const refused = await request(app).post(`/api/projects/${slug}/music-episodes/${created.body.code}/build`)
+    assert.equal(refused.status, 409)
+    assert.equal(refused.body.detail, 'Draw songs first.')
+  })
+
 })

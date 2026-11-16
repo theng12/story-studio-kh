@@ -130,7 +130,7 @@ export const router = Router()
 // The `script-only` step is also expanded, at chain-build time, into the
 // outline-first pair `outline_only` → `expand_chapters` (both auto-approved)
 // to match what the Scripts page actually runs by hand.
-type BatchStep =
+export type BatchStep =
   | 'research'
   | 'script-only'
   | 'introduction-only'
