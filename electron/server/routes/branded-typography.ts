@@ -168,6 +168,10 @@ router.post('/projects/:slug/episodes/:code/branded-typography/preview', async (
       source, accent_id: resolved.pick.accent.id, source_kind: resolved.pick.source,
       projected: !(await readBrandedAssignments(projectDir))[code], filename: brandedSiblingName(source),
       clamp_reason: resolved.reason, font_px: rendered.report.font_px,
+      // The accent goes where the channel says. Nothing measured the corner for contrast or
+      // overlaps — the preview says so rather than pretending a detector ran.
+      placement_checked: false,
+      placement_note: 'The accent sits on the corner you chose; Story Studio did not measure that corner for contrast or overlap.',
     }))
     res.type('png').send(rendered.png)
   } catch (error: any) { fail(res, error, 'Could not draw the branded preview.') }

@@ -1581,6 +1581,7 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
       const promptForModel = brandingOn ? stripTitleTextDirective(thumb.prompt) : thumb.prompt
       if (brandingOn) {
         job.output_lines.push(`Branded typography is on: the model is asked for art without lettering, and Story Studio draws the headline and the accent.`)
+        job.output_lines.push(`The accent sits on the ${brandedSettings?.placement.anchor || 'bottom-left'} corner you chose; that corner was not measured for contrast or overlap.`)
       }
       // v1.0.416 — optional render-time guidance from the generator tab,
       // appended before style keywords so it influences the image without
