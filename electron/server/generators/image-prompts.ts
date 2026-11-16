@@ -435,6 +435,34 @@ const HEADLINE_CONTEXT = /\b(headline|hook|title|reading|line of capitals|serif 
  * of", with the complete phrase followed by punctuation or a sentence join — never a prefix of a
  * longer headline — or quoted inside a clause that names a headline and not a badge/label/sign.
  */
+function clauseBefore(prompt: string, index: number): string {
+  const start = Math.max(
+    prompt.lastIndexOf('.', index - 1),
+    prompt.lastIndexOf('!', index - 1),
+    prompt.lastIndexOf('?', index - 1),
+    prompt.lastIndexOf('\n', index - 1),
+  )
+  return prompt.slice(start + 1, index)
+}
+
+/** Every words-as-headline phrase this prompt states, for the multi-headline refusal. */
+function statedHeadlines(prompt: string): string[] {
+  const found: string[] = []
+  const pattern = /(?:reading|reads|line of|serif line|the line of|line)\s+(?:exactly\s+)?([A-Z][A-Z0-9 '’\-]{1,60}?)(?=[,.;:]|\s+(?:and|with|in|on|beside|above|below|against|across|inside|at)\b|$)/g
+  for (let match = pattern.exec(prompt); match; match = pattern.exec(prompt)) {
+    const clause = clauseBefore(prompt, match.index)
+    if (NON_HEADLINE_CONTEXT.test(clause)) continue
+    found.push(match[1]!.trim())
+  }
+  const quoted = /["\u201c]([^"\u201d]{2,60})["\u201d]/g
+  for (let match = quoted.exec(prompt); match; match = quoted.exec(prompt)) {
+    const clause = clauseBefore(prompt, match.index)
+    if (!HEADLINE_CONTEXT.test(clause) || NON_HEADLINE_CONTEXT.test(clause)) continue
+    found.push(match[1]!.trim())
+  }
+  return [...new Set(found.map(value => value.toUpperCase()))]
+}
+
 function headlineHits(prompt: string, text: string): HeadlineHit[] {
   const hits: HeadlineHit[] = []
   const lead = /(reading|reads|line of|serif line|the line of|line)\s+(?:exactly\s+)?/gi
@@ -446,14 +474,14 @@ function headlineHits(prompt: string, text: string): HeadlineHit[] {
     const complete = /^\s*(?:[,.;:]|$)/.test(rest)
       || /^\s+(?:and|with|in|on|beside|above|below|against|across|inside|at)\b/i.test(rest)
     if (!complete) continue
-    const before = prompt.slice(Math.max(0, match.index - 40), match.index)
-    if (NON_HEADLINE_CONTEXT.test(before)) continue
+    const clause = clauseBefore(prompt, match.index)
+    if (NON_HEADLINE_CONTEXT.test(clause)) continue
     hits.push({ start, end })
   }
   const quoted = new RegExp(`["\u201c](${escapeRegExp(text)})["\u201d]`, 'g')
   for (let match = quoted.exec(prompt); match; match = quoted.exec(prompt)) {
-    const before = prompt.slice(Math.max(0, match.index - 90), match.index)
-    if (!HEADLINE_CONTEXT.test(before) || NON_HEADLINE_CONTEXT.test(before)) continue
+    const clause = clauseBefore(prompt, match.index)
+    if (!HEADLINE_CONTEXT.test(clause) || NON_HEADLINE_CONTEXT.test(clause)) continue
     hits.push({ start: match.index + 1, end: match.index + 1 + text.length })
   }
   return hits.sort((a, b) => b.start - a.start)
@@ -464,6 +492,14 @@ export function replaceHeadlineInPrompt(prompt: string, from: string, to: string
   const newText = String(to || '').trim()
   if (!oldText || !newText) return { ok: false, reason: 'Both the old and the new headline are needed.' }
   const source = String(prompt || '')
+  const stated = statedHeadlines(source)
+  const conflicting = stated.filter(value => value !== oldText.toUpperCase() && value !== newText.toUpperCase())
+  if (conflicting.length) {
+    return {
+      ok: false,
+      reason: `The prompt states more than one headline (${[...new Set([...stated])].join(', ')}), so it was not changed. Edit the prompt directly to leave one headline.`,
+    }
+  }
   const hits = headlineHits(source, oldText)
   if (!hits.length) {
     // Idempotence is proven by the NEW words sitting in a headline position, never by a substring

@@ -91,10 +91,32 @@ test('a same-word badge is not changed', () => {
 test('idempotence needs the new headline in a headline position, not a substring (finding 2)', () => {
   const result = replaceHeadlineInPrompt('A trip to ROME. Draw headline reading PARIS.', 'LONDON', 'ROME')
   assert.equal(result.ok, false, 'ROME as a place name is not proof the headline changed')
-  assert.match(!result.ok ? result.reason : '', /does not contain the old headline "LONDON"/)
+  assert.match(!result.ok ? result.reason : '', /more than one headline|does not contain the old headline "LONDON"/)
 })
 
 test('a prefix of a longer headline is not a match (finding 3)', () => {
   const result = replaceHeadlineInPrompt('The headline reading ROME CITY sits on top.', 'ROME', 'PARIS')
   assert.equal(result.ok, false)
+})
+
+test('a scene sign more than forty characters away still excludes the line (review edge case)', () => {
+  const prompt = "The museum's tall iron sign stands at the far edge of the square line OLD TITLE sits below it."
+  const result = replaceHeadlineInPrompt(prompt, 'OLD TITLE', 'NEW TITLE')
+  assert.equal(result.ok, false, 'the sign clause is not a headline')
+  if (!result.ok) assert.match(result.reason, /does not contain the old headline/)
+})
+
+test('two different authoritative headline instructions are refused, not guessed between', () => {
+  const prompt = 'The top band is reserved for the line reading OLD TITLE. IMPORTANT — headline: the frame MUST carry exactly "OTHER TITLE".'
+  const result = replaceHeadlineInPrompt(prompt, 'OLD TITLE', 'NEW TITLE')
+  assert.equal(result.ok, false)
+  assert.match(!result.ok ? result.reason : '', /more than one headline/)
+  assert.match(!result.ok ? result.reason : '', /Edit the prompt directly/)
+})
+
+test('the same intended headline stated twice is not a conflict', () => {
+  const prompt = 'The top band reads ROME. IMPORTANT — headline: carry exactly "ROME".'
+  const result = replaceHeadlineInPrompt(prompt, 'FIFTEEN MILES', 'ROME')
+  assert.ok(result.ok)
+  assert.equal(result.changed, false, 'nothing to replace; the intended headline is already there')
 })

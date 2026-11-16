@@ -477,3 +477,55 @@ test('the prompt editor exposes the supported headline change', () => {
     assert.doesNotMatch(panel, /window\.confirm|window\.alert|window\.prompt/)
   }
 })
+
+// ── Headline change: real row interaction ──────────────────────────────────
+
+async function mountHeadlineRow(error: string | null = null) {
+  const Row = await loadComponent('PromptReviewPanelRow.vue', '')
+  const emitted: Array<{ from: string; to: string }> = []
+  const Root = defineComponent({
+    setup() {
+      return () => h(Row as any, {
+        row: { number: 4, title: 'FIFTEEN MILES', prompt: 'A river at dusk. The top band is reserved for the line reading FIFTEEN MILES, and a badge reading FOR SLEEP sits bottom-left.' },
+        prefix: 'Thumbnail', titleLabel: 'Title', busy: false, saving: false, error, cap: 12000, modelLabel: 'Qwen',
+        onReplaceHeadline: (payload: { from: string; to: string }) => emitted.push(payload),
+      })
+    },
+  })
+  const host = document.body.appendChild(document.createElement('div'))
+  const app = createApp(Root)
+  app.component('LoadingSpinner', SpinnerStub)
+  app.mount(host)
+  await flush()
+  return { host, emitted, unmount: () => { app.unmount(); host.remove() } }
+}
+
+test('the row takes focus, accepts the old and new headline, and emits the change', async () => {
+  const view = await mountHeadlineRow()
+  try {
+    buttonByText(view.host, /Thumbnail — FIFTEEN MILES/).click()
+    await flush()
+    const from = view.host.querySelector('input[aria-label="Current headline"]') as HTMLInputElement
+    const to = view.host.querySelector('input[aria-label="New headline"]') as HTMLInputElement
+    assert.ok(from && to, 'both headline inputs render')
+    from.focus()
+    assert.equal(document.activeElement, from, 'the old-headline field is keyboard focusable')
+    from.value = 'FIFTEEN MILES'
+    from.dispatchEvent(new Event('input', { bubbles: true }))
+    to.value = 'ROME'
+    to.dispatchEvent(new Event('input', { bubbles: true }))
+    await flush()
+    buttonByText(view.host, /Replace headline/).click()
+    await flush()
+    assert.deepEqual(view.emitted, [{ from: 'FIFTEEN MILES', to: 'ROME' }])
+  } finally { view.unmount() }
+})
+
+test('a refusal from the parent is shown in the row', async () => {
+  const view = await mountHeadlineRow('The prompt does not contain the old headline "LONDON", so it was not changed.')
+  try {
+    buttonByText(view.host, /Thumbnail — FIFTEEN MILES/).click()
+    await flush()
+    assert.match(view.host.textContent || '', /does not contain the old headline "LONDON"/)
+  } finally { view.unmount() }
+})
