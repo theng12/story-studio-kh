@@ -575,7 +575,7 @@ async function recoverInterruptedRemix(
   let record: any = null
   try { record = JSON.parse(await fs.readFile(recordPath, 'utf-8')) } catch { /* torn or absent */ }
   const name = record?.output_filename
-  // The MP3 and its record are the whole proof (1.4.407: a merge writes no master beside them).
+  // The MP3 and its record are the whole proof.
   let adoptable = typeof name === 'string' && name !== intent.base_filename
   if (adoptable) {
     const mp3 = await fs.stat(path.join(track.dir, name)).catch(() => null)

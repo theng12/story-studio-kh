@@ -1307,8 +1307,8 @@ export async function generateAudioMerge(job: Job): Promise<void> {
     // it was broken — the same class of "silent partial artifact" bug as
     // video.ts's outputFile.
     let mixSucceeded = false
-    // 1.4.281 — the mix is levelled here, to the channel's target, so a level problem shows up now,
-    // before any video work.
+    // The mix is levelled here, to the channel's target, so a level problem shows up before any
+    // video work.
     let rawMixPath = path.join(tempDir, 'merged_raw.flac')
     try {
       const ambientEnabled = parallelLayers.length > 0
@@ -1519,14 +1519,11 @@ export async function generateAudioMerge(job: Job): Promise<void> {
 }
 
 /**
- * Level the merged mix (`raw`) and write the MP3 the episode ships, in one pass from the raw mix.
+ * Level the merged mix and write the episode's MP3, in one pass from the raw mix. This MP3 is the one
+ * audio file Audio Assembly writes and the file Video Assembly reads; nothing else is kept beside it.
  * Its peak is checked as the final video's AAC ships it (levelAndCheck); a mix that cannot reach the
- * target fails Audio Assembly, before any video work.
- *
- * The owner's rule (2026-11-17): Audio Assembly makes the MP3 and nothing else. Do not write a
- * lossless `.master.flac` beside it, not even as a cache — an MP3 that turns out short is re-mixed
- * from the chapter audio and the mix settings in `completion.json` (`original_mix`), never recovered
- * from a master.
+ * target fails Audio Assembly, before any video work. A short MP3 is re-mixed from the chapter audio
+ * and the mix settings in `completion.json` (`original_mix`).
  */
 export async function levelMergedAudio(opts: {
   raw: string; mp3: string; loudness: LoudnessTarget; tempDir: string; lines: string[]
@@ -1959,8 +1956,8 @@ async function mixAudioLayers(opts: MixOptions): Promise<void> {
     ...inputs,
     '-filter_complex', filterComplex,
     '-map', '[out]',
-    // The merge keeps a lossless master; a short preview is an MP3 so the
-    // page can play it in the browser.
+    // The mix keeps the container its name chooses: FLAC for the intermediate file, MP3 for a short
+    // preview the page plays in the browser.
     ...(/\.mp3$/i.test(outputPath) ? ['-c:a', 'libmp3lame', '-b:a', '192k'] : ['-c:a', 'flac', '-sample_fmt', 's16']),
     outputPath,
   ]

@@ -1,9 +1,8 @@
 /**
- * The owner's rule (2026-11-17): "all the work just make the mp3."
+ * Audio Assembly writes exactly one audio file per merge: the episode's MP3.
  *
- * Audio Assembly used to keep a levelled lossless `.master.flac` beside every merged
- * MP3. This runs a REAL merge and reads its output folder: exactly one audio file.
- * Nothing here asserts a flag — the folder itself is the proof.
+ * This runs a REAL merge and reads its output folder. Nothing here asserts a flag —
+ * the folder itself is the proof.
  */
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
@@ -71,10 +70,10 @@ test('a real merge leaves exactly one audio file in its output folder: the MP3',
   const dir = job.output_dir as string
   const audio = (await fs.readdir(dir)).filter(name => AUDIO.test(name))
   assert.deepEqual(audio, ['EP001_merged_audio.mp3'],
-    `the merge's output folder held: ${audio.join(', ') || '(no audio)'} — the owner's rule is the MP3 and nothing else`)
+    `the merge's output folder held: ${audio.join(', ') || '(no audio)'} — it must hold the MP3 and nothing else`)
   assert.equal(await fs.stat(path.join(dir, 'EP001_merged_audio.master.flac')).catch(() => null), null)
 
   const record = JSON.parse(await fs.readFile(path.join(dir, 'EP001_merged_audio.completion.json'), 'utf8'))
-  assert.equal(record.master_filename, undefined, 'the record names no master, so Video Assembly levels the MP3 itself')
+  assert.equal(record.master_filename, undefined)
   assert.equal(record.output_filename, 'EP001_merged_audio.mp3')
 })

@@ -347,10 +347,10 @@ describe('the sound is settled before the picture (1.4.281)', () => {
     assert.equal(body.match(/plan: settledPlan/g)?.length, 2)
   })
 
-  test('Audio Assembly writes the MP3 alone — no lossless master — and its level is checked as the final AAC ships it (real ffmpeg)', async () => {
+  test('Audio Assembly writes the MP3 alone, and its level is checked as the final AAC ships it (real ffmpeg)', async () => {
     const { levelMergedAudio } = await import('../generators/audio-merge.js')
-    const { mergedAudioMaster, FINAL_AAC_ARGS } = await import('../lib/level-audio.js')
-    const { mkdir, stat, writeFile } = await import('node:fs/promises')
+    const { FINAL_AAC_ARGS } = await import('../lib/level-audio.js')
+    const { mkdir, stat } = await import('node:fs/promises')
     const merged = path.join(dir, 'merged')
     await mkdir(merged, { recursive: true })
     // A quiet narration-like mix, about -30 LUFS.
@@ -366,19 +366,13 @@ describe('the sound is settled before the picture (1.4.281)', () => {
     console.log(`merged mp3 once encoded: ${m.lufs} LUFS, peak ${m.true_peak_db} dBTP | ${lines.join(' | ')}`)
     assert.equal(finalLoudnessIssue(m, loudnessTarget({})), null)
     assert.ok((await stat(mp3)).size > 0)
-    // The owner's rule (2026-11-17): nothing lossless is left beside the MP3, not even as a cache.
+    // The merge's output folder holds the MP3 as its only audio file.
     assert.equal(await stat(path.join(merged, 'EP0001_merged_audio.master.flac')).catch(() => null), null)
     assert.ok(!lines.some(line => /Lossless master/i.test(line)), lines.join(' | '))
-    // A record written by this merge names no master, so Video Assembly levels the MP3 itself.
-    const record = path.join(merged, 'EP0001_merged_audio.completion.json')
-    await writeFile(record, JSON.stringify({ output_filename: path.basename(mp3), bytes: (await stat(mp3)).size }))
-    assert.equal(await mergedAudioMaster(mp3, 'EP0001'), null)
-    // An episode merged before 1.4.407 still has its master read, and only while it matches this MP3.
-    const master = path.join(merged, 'EP0001_merged_audio.master.flac')
-    await writeFile(master, 'old master')
-    await writeFile(record, JSON.stringify({ output_filename: path.basename(mp3), bytes: (await stat(mp3)).size, master_filename: path.basename(master) }))
-    assert.equal(await mergedAudioMaster(mp3, 'EP0001'), master)
-    await writeFile(record, JSON.stringify({ output_filename: path.basename(mp3), bytes: 1, master_filename: path.basename(master) }))
-    assert.equal(await mergedAudioMaster(mp3, 'EP0001'), null, 'an MP3 replaced since is mixed from itself')
+    // No reader survives the writer: neither helper is exported, and Video Assembly names no master.
+    const levelAudio = readFileSync(path.join(serverDir, 'lib', 'level-audio.ts'), 'utf8')
+    assert.doesNotMatch(levelAudio, /master_filename|mergedAudioMaster|master\.flac/i)
+    const video = readFileSync(path.join(serverDir, 'generators', 'video.ts'), 'utf8')
+    assert.doesNotMatch(video, /mergedAudioMaster|master\.flac/i)
   })
 })

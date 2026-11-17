@@ -128,8 +128,8 @@ export async function resolveProjectClosingTail(slug: string, episodeId: string)
  *
  * The record is written once per episode code and overwritten, so a record that
  * names a different file (a `write_mode: 'new'` `_v2` beside the base) says
- * nothing about this one and is ignored — the same guard `mergedAudioMaster`
- * and `describeMergedAudioOpening` apply.
+ * nothing about this one and is ignored — the same guard `describeMergedAudioOpening`
+ * applies.
  */
 export async function mergedClosingTailSec(mergedAudioPath: string, code: string): Promise<number> {
   try {

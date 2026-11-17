@@ -138,7 +138,7 @@ type Action = 'macos' | 'delete'
 
 const KINDS: Record<string, string> = {
   final_video: 'Final videos', images: 'Scene images', chapter_audio: 'Chapter narration', narration_parts: 'Narration parts',
-  merged_audio: 'Merged narration', master_audio: 'Full-quality audio', motion_clips: 'Motion clips', audio: 'Older narration takes',
+  merged_audio: 'Merged narration', motion_clips: 'Motion clips', audio: 'Older narration takes',
   'preview-cache': 'Preview cache', script: 'Scripts', subtitles: 'Subtitles', research: 'Research', 'covered-topics': 'Covered-topics map',
   music: 'Music', leftovers: 'Leftover files', episode: 'Removed ideas and episodes', 'moved-source': 'Originals of moved folders',
   'unverified-copy': 'Copies that did not verify', 'character-picture': 'Character pictures', outline: 'Living Picture outlines', 'launch-agent': 'Open at Login setting',

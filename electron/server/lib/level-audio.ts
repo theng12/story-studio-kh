@@ -78,24 +78,6 @@ export async function levelAndCheck(opts: {
   return best.plan
 }
 
-/**
- * The lossless master of a merged MP3, when that MP3 is the one its Audio Assembly recorded with it
- * (`{code}_merged_audio.completion.json`: same file name and size, and a `master_filename`). Null for an
- * episode merged before 1.4.281, a Sound Design mix, or an MP3 replaced since: Video Assembly then
- * levels the MP3 itself, as before.
- *
- * Read-only, for episodes Audio Assembly merged before 1.4.407. It no longer writes a master: the
- * owner's rule is that the merge makes the MP3 and nothing else (see `levelMergedAudio`).
- */
-export async function mergedAudioMaster(mp3: string, code: string): Promise<string | null> {
-  try {
-    const rec = JSON.parse(await fs.readFile(path.join(path.dirname(mp3), `${code}_merged_audio.completion.json`), 'utf8'))
-    const master = path.join(path.dirname(mp3), String(rec.master_filename || ''))
-    if (!rec.master_filename || rec.output_filename !== path.basename(mp3) || rec.bytes !== (await fs.stat(mp3)).size) return null
-    return (await fs.stat(master)).size > 0 ? master : null
-  } catch { return null }
-}
-
 /** The channel's loudness target: its active Video Assembly preset's export settings, else -14 LUFS / -1 dBTP / 20%. */
 export async function channelLoudnessTarget(slug: string): Promise<LoudnessTarget> {
   try {
