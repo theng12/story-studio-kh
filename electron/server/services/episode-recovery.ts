@@ -959,6 +959,17 @@ export async function dispatchEpisodeRecoveryStep(
     return
   }
   const params: Job['params'] = { ...node.params, episode_id: plan.episode_id, episode_recovery_id: plan.id }
+  // A DELIBERATE fresh redo must carry a NEW request identity, or it asks the Gateway for the very
+  // key it is stuck on. Scene Plan's chat key is derived from the request content
+  // (`genstudio-chat-<sha256>`), so a retry that re-sends the same scenes replays the dead hold
+  // forever and re-parks on "Checking the earlier prompt request" (Production 2026-11-17: ten
+  // episodes, 45 minutes each, and run-batch did not escape it either — it sends no fresh action,
+  // so its key was byte-identical). Stamping a `generation_action` of kind `fresh` changes the
+  // identity and nothing else: the collect pass still reads every accepted answer back by its
+  // saved key before any new request goes out, so nothing already paid for is asked for twice.
+  if (step === 'scene_plan_run' && admissionSource === 'owner') {
+    Object.assign(params, stampFreshGenerationAction(params, randomUUID()))
+  }
   if (step === 'subtitle_sections') {
     assertSectionScope(node.params)
     params.sections = (facts.missing || []).filter(section => !Array.isArray(node.params.sections) || node.params.sections.includes(section))

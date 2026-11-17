@@ -154,6 +154,56 @@ test('a cancel the Gateway cannot honour names the way out instead of ending at 
   } finally { await temp.cleanup() }
 })
 
+test('an owner retry of Scene Plan asks for a NEW request identity, not the dead one', async () => {
+  const temp = await useTempDataDir()
+  const jq = await import('../services/job-queue.js')
+  try {
+    const pm = await import('../services/project-manager.js')
+    await jq.setQueuePaused(true)
+    const { createEpisodeRecoveryPlan, dispatchEpisodeRecoveryStep } = await import('../services/episode-recovery.js')
+    const { freshGenerationRequestIdentity } = await import('../lib/fresh-generation-action.js')
+
+    const project = await pm.createProject({ name: 'Fresh redo identity' })
+    const source = recoveryRow(project.slug, 'error', 'dead-scene-plan', 'plan-fresh')
+    // The dead hold this row is stuck on, exactly as Production's ten episodes carried it.
+    source.genstudio_jobs = [{
+      operation: 'chat.response', id: 'held-job', state: 'failed',
+      recovery_state: 'unknown_outcome', request_key: 'story-chat-dead',
+      request: { idempotency_key: 'story-chat-dead', messages: [], response_format: null },
+    } as any]
+    await jq.writeAuthoritativeJob(source as any)
+    await jq.getJobs(project.slug)
+
+    const plan = createEpisodeRecoveryPlan([source])
+    plan.owner_requested_at = new Date().toISOString()
+    plan.steps.scene_plan_run = {
+      job_id: 'recovery-fresh-scene_plan_run', type: 'scene_plan_run', title: 'Scene Plan',
+      params: { episode_id: 'EP0026' }, source_job_id: source.job_id,
+    }
+    plan.completed = ['audio_merge', 'subtitle_sections', 'subtitle_stitch']
+    plan.first_unresolved = 'scene_plan_run'
+    await dispatchEpisodeRecoveryStep(
+      plan,
+      { verified: { ...ORDER_COVERED }, message: 'Retry after a dead hold' },
+      await jq.getJobs(project.slug),
+      [source.job_id], 'owner',
+    )
+
+    const queued = jq.getJob('recovery-fresh-scene_plan_run')!
+    assert.ok(queued, 'the owner retry queued its own row')
+    const identity = freshGenerationRequestIdentity(queued as any, 'scene-plan-visual-pack')
+    assert.ok(identity, 'the row carries a fresh generation action, so its request identity changes')
+    assert.match(identity!, /:fresh:/, `a fresh identity is namespaced, got ${identity}`)
+    assert.equal(queued.params?.generation_action?.kind, 'fresh',
+      'the redo is recorded as a deliberate fresh action on the row itself')
+
+    // And the accepted answers are still collected first: the saved key rides along on the new row.
+    const collected = (queued.params?.scene_prompt_recoveries || []).map((item: any) => item.idempotency_key)
+    assert.ok(collected.includes('story-chat-dead'),
+      `the saved request is collected by its key before any new work — got ${JSON.stringify(collected)}`)
+  } finally { await jq._waitForJobPersistenceForTesting(); await temp.cleanup() }
+})
+
 test('Retry answers 202 only when it actually queued something', async () => {
   const temp = await useTempDataDir()
   const jq = await import('../services/job-queue.js')

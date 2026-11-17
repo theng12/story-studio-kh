@@ -9,6 +9,7 @@
  * create (`withSavedPromptCollection`), because a new row carries params but not the old children.
  */
 import type { Job } from '../models/types.js'
+import { holdsUnknownProviderOutcome } from '../contracts/provider-task-state.js'
 
 export interface ScenePromptCollectable {
   idempotency_key: string
@@ -51,7 +52,11 @@ export function collectableScenePromptChildren(
   const rejected = new Set(job.rejected_idempotency_keys || [])
   const found = new Map<string, ScenePromptCollectable>()
   for (const child of job.genstudio_jobs || []) {
-    if (child.operation !== 'chat.response' || NO_ANSWER.has(child.state) || child.cancelled === true) continue
+    // A `failed` child the Gateway still HOLDS is not settled: its answer may yet arrive and be
+    // collected. Skipping it would make a fresh redo ask for prompts this account already paid for,
+    // which is the one thing collect-first exists to prevent.
+    if (child.operation !== 'chat.response' || child.cancelled === true) continue
+    if (NO_ANSWER.has(child.state) && !holdsUnknownProviderOutcome(child)) continue
     // A pre-submit placeholder never reached the Gateway: nothing to read back.
     if (child.id.startsWith('pending:')) continue
     const key = (child.request?.idempotency_key || child.request_key || '').trim()
