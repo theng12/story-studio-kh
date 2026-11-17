@@ -28,7 +28,8 @@ import { respondWithError } from '../lib/humanize-backend-error.js'
 import { logLine } from '../services/logger.js'
 import { EpisodeShapePatchSchema, NicheSchema, SetProjectNicheSchema, TopicPackSchema } from '../contracts/index.js'
 import type { Niche, TopicPack } from '../models/types.js'
-import { MusicFormatPatchSchema } from '../contracts/song-formula.js'
+import { MusicFormatPatchSchema, mergeMusicWorlds } from '../contracts/song-formula.js'
+import { MusicWorldSchema } from '../content-packs/schemas.js'
 import { listVisualStyles } from '../services/visual-style-loader.js'
 import { installUserStylePack, listUserStylePacks } from '../services/user-style-packs.js'
 import { updateProjectContentSelections } from '../content-packs/project-pins.js'
@@ -446,6 +447,24 @@ router.patch('/niches/:id/music-format', async (req, res) => {
     if (parsed.data.episodeDefaults) next.musicFormat.episodeDefaults = parsed.data.episodeDefaults
     if (parsed.data.sceneSettings) next.musicFormat.sceneSettings = parsed.data.sceneSettings
     else if (parsed.data.sceneSettings === null) delete next.musicFormat.sceneSettings
+    // Worlds MERGE, never replace: a patch naming one world leaves every other world as it was.
+    if (parsed.data.worlds !== undefined || parsed.data.worlds_remove !== undefined) {
+      const merged = mergeMusicWorlds(
+        (current as any).musicFormat?.worlds || [],
+        parsed.data.worlds || [],
+        parsed.data.worlds_remove || [],
+      )
+      if (!merged.length) delete next.musicFormat.worlds
+      else {
+        for (const world of merged) {
+          const check = MusicWorldSchema.safeParse(world)
+          if (!check.success) {
+            return res.status(400).json({ detail: `World "${world.name || world.id}": ${check.error.issues.map(issue => issue.message).join('; ')}` })
+          }
+        }
+        next.musicFormat.worlds = merged
+      }
+    }
     await saveUserForkDocument(forkId, next, contentPackOptions)
     nl.invalidateNicheCache(forkId)
     res.json({ id: forkId, forked_from: isUserForkId(requestedId) ? null : requestedId, niche: next })

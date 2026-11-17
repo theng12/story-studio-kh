@@ -117,11 +117,104 @@ export const SceneSettingsSchema = z.array(z.string().trim().min(2, 'A scene set
   .transform(list => list.filter((w, i) => list.findIndex(x => x.toLowerCase() === w.toLowerCase()) === i))
   .pipe(z.array(z.string()).min(1, 'Give at least one scene setting').max(200, 'At most 200 scene settings'))
 
+/**
+ * One scene world, as a PATCH may describe it: an existing world is named by `id` and any field it
+ * omits is kept; a new world arrives without an id and its id is derived from its name. The merged
+ * list is validated against the stored shape, so a partial patch can never leave a world half-written.
+ */
+export const MusicWorldPatchSchema = z.object({
+  id: z.string().trim().min(1).max(120).optional(),
+  name: z.string().trim().min(1).max(120).optional(),
+  register: z.string().trim().min(1).max(60).optional(),
+  sight: z.string().trim().max(1000).optional(),
+  scenes: z.array(z.string().trim().min(1).max(120)).max(40).optional(),
+  music: z.array(z.string().trim().min(1).max(120)).max(40).optional(),
+}).strict()
+export type MusicWorldPatch = z.infer<typeof MusicWorldPatchSchema>
+
+export interface StoredMusicWorld {
+  id: string
+  name: string
+  register: string
+  sight: string
+  scenes: string[]
+  music: string[]
+}
+
+/** A world's id from its name: lower-case, letters and digits, single dashes. */
+export function worldIdFromName(name: string): string {
+  const slug = name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 120)
+  return slug || 'world'
+}
+
+/**
+ * MERGE worlds, never replace them: an id edits that world in place, an id-less entry adds one, and
+ * `worlds_remove` deletes by id. Every world the patch does not mention survives untouched.
+ */
+export function mergeMusicWorlds(
+  current: readonly StoredMusicWorld[],
+  patch: readonly MusicWorldPatch[],
+  remove: readonly string[] = [],
+): StoredMusicWorld[] {
+  const byId = new Map<string, StoredMusicWorld>(current.map(world => [world.id, { ...world, scenes: [...world.scenes], music: [...world.music] }]))
+  const removing = new Set(remove)
+  // Names are unique case-insensitively across the whole list: two worlds with the same display
+  // name are indistinguishable on screen, and a derived id alone would let that through.
+  const nameTaken = (name: string, exceptId?: string) => [...byId.values()]
+    .some(world => world.id !== exceptId && world.name.trim().toLowerCase() === name.trim().toLowerCase())
+  // One id cannot be both edited and removed: the overlap is refused, never resolved by order.
+  for (const entry of patch) {
+    if (entry.id && removing.has(entry.id)) {
+      throw new Error(`World "${entry.id}" is both edited and removed in this patch; do one or the other.`)
+    }
+  }
+  for (const id of remove) {
+    if (!byId.delete(id)) throw new Error(`World "${id}" was not found in this formula.`)
+  }
+  for (const entry of patch) {
+    if (entry.id) {
+      const existing = byId.get(entry.id)
+      if (!existing) throw new Error(`World "${entry.id}" was not found in this formula.`)
+      if (entry.name !== undefined && nameTaken(entry.name, entry.id)) {
+        throw new Error(`A world named "${entry.name}" already exists.`)
+      }
+      byId.set(entry.id, {
+        ...existing,
+        ...(entry.name !== undefined ? { name: entry.name } : {}),
+        ...(entry.register !== undefined ? { register: entry.register } : {}),
+        ...(entry.sight !== undefined ? { sight: entry.sight } : {}),
+        ...(entry.scenes !== undefined ? { scenes: [...entry.scenes] } : {}),
+        ...(entry.music !== undefined ? { music: [...entry.music] } : {}),
+      })
+      continue
+    }
+    if (!entry.name) throw new Error('A new world needs a name.')
+    if (nameTaken(entry.name)) throw new Error(`A world named "${entry.name}" already exists.`)
+    const id = worldIdFromName(entry.name)
+    if (byId.has(id)) throw new Error(`A world named "${entry.name}" already exists.`)
+    byId.set(id, {
+      id,
+      name: entry.name,
+      register: entry.register || '',
+      sight: entry.sight || '',
+      scenes: [...(entry.scenes || [])],
+      music: [...(entry.music || [])],
+    })
+  }
+  return [...byId.values()]
+}
+
 export const MusicFormatPatchSchema = z.object({
   songFormula: SongFormulaSchema.optional(),
   episodeDefaults: EpisodeDefaultsSchema.optional(),
   sceneSettings: SceneSettingsSchema.nullable().optional(),
-}).strict().refine(p => p.songFormula || p.episodeDefaults || p.sceneSettings !== undefined, { message: 'Nothing to save' })
+  worlds: z.array(MusicWorldPatchSchema).max(200).optional(),
+  worlds_remove: z.array(z.string().trim().min(1).max(120)).max(200).optional(),
+}).strict().refine(
+  p => p.songFormula || p.episodeDefaults || p.sceneSettings !== undefined
+    || p.worlds !== undefined || p.worlds_remove !== undefined,
+  { message: 'Nothing to save' },
+)
 
 
 const w = (value: string, weight = 1): Weighted => ({ value, weight })
