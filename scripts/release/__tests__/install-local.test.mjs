@@ -62,9 +62,32 @@ function install({ script, source, target, trash }) {
   return { status: result.status, output: (result.stdout || '') + (result.stderr || '') }
 }
 
-test('the built bundle this script installs exists', () => {
-  assert.ok(fs.existsSync(path.join(BUILT, 'Contents', 'Info.plist')),
-    'dist/mac-arm64/Story Studio KH.app is missing — build one with `npm run dist:smoke`')
+test('the built bundle this script installs exists', (t) => {
+  const plist = path.join(BUILT, 'Contents', 'Info.plist')
+  if (!fs.existsSync(plist)) {
+    // A fresh checkout has no dist/, and `npm test` must not need one (it would make every
+    // checkout red, and make the suite build first). The release gate packages before this lane.
+    t.skip('dist/mac-arm64/Story Studio KH.app is not built on this checkout — build one with `npm run dist:smoke`')
+    return
+  }
+  // A bundle left behind by an earlier build would satisfy a bare existence check while proving
+  // nothing about what ships: it must carry this release's version and be newer than its sources.
+  const version = fs.readFileSync(plist, 'utf8')
+    .match(/<key>CFBundleShortVersionString<\/key>\s*<string>([^<]+)<\/string>/)?.[1]
+  const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'))
+  assert.equal(version, pkg.version,
+    `the bundle in dist/ is v${version}, not this release's v${pkg.version} — rebuild with \`npm run dist:smoke\``)
+
+  const builtAt = fs.statSync(plist).mtimeMs
+  const tracked = spawnSync('git', ['ls-files', '-z', '--', 'electron', 'frontend'], { cwd: ROOT, encoding: 'utf8' }).stdout || ''
+  const newestSource = tracked.split('\0').filter(Boolean).reduce((newest, relative) => {
+    try {
+      const stat = fs.lstatSync(path.join(ROOT, relative))
+      return stat.isSymbolicLink() ? newest : Math.max(newest, stat.mtimeMs)
+    } catch { return newest }
+  }, 0)
+  assert.ok(builtAt >= newestSource,
+    'dist/ is older than the sources beside it — rebuild with `npm run dist:smoke`')
 })
 
 test('a replaced bundle is kept in the caller-supplied private trash', (t) => {
