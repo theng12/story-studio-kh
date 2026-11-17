@@ -1070,15 +1070,19 @@ test('v4 subtitle execution bounds are enforced from the published counters, and
     max_subtitle_font_bytes: 33_554_432, max_subtitle_fonts: 8,
   }
 
+  // Within every published subtitle ceiling: admitted.
   assert.equal(await privateFinalRenderBoundsViolation(description, v4), null)
   const exact = { ...v4, max_subtitle_ass_bytes: 2048, max_subtitle_font_bytes: 4096, max_subtitle_fonts: 1 }
   assert.equal(await privateFinalRenderBoundsViolation(description, exact), null, 'exact published limits are inclusive')
 
+  // One ASS document over its published byte ceiling is refused with the real figure.
   assert.match(await privateFinalRenderBoundsViolation(description, { ...exact, max_subtitle_ass_bytes: 2047 }) ?? '',
     /ASS document is 2048 bytes .* at most 2047 bytes per document/)
+  // One font over its published per-font ceiling is refused.
   assert.match(await privateFinalRenderBoundsViolation(description, { ...exact, max_subtitle_font_bytes: 4095 }) ?? '',
     /font is 4096 bytes .* at most 4095 bytes per font/)
 
+  // A font-count over the published cap is refused.
   description.source_requirements.push({ ...description.source_requirements[0]!, logical_id: 'subtitle_font_0001' })
   assert.match(await privateFinalRenderBoundsViolation(description, exact) ?? '', /sends 2 subtitle fonts .* at most 1/)
   description.source_requirements.pop()

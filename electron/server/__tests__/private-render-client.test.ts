@@ -100,7 +100,7 @@ const SUBTITLE_COMPILER_UTF8 = canonicalJson({
   render_contract_sha256: 'b'.repeat(64), final_render_compiler_sha256: 'c'.repeat(64),
 })
 const SUBTITLE_COMPILER_DIGEST = digestUtf8(SUBTITLE_COMPILER_UTF8)
-/** Synthetic v4 bounds exercise version 2 and the three required subtitle counters. */
+/** The frozen v4 subtitle bounds: version 2 plus the three required subtitle counters. */
 const SUBTITLE_BOUNDS = {
   bounds_version: 2, canvas_range: { max_edge: 3840, max_pixels: 8_294_400 },
   working_fps: [24, 25, 30, 60], max_duration_sec: 10_800, max_operations: 32,
@@ -617,7 +617,9 @@ test('a subtitle-scoped read admits only matching v4 descriptors and complete li
   assert.equal(noSubtitleAuthority.late_labels?.format, 'studio.render.late-label.v3')
   assert.equal(noSubtitleAuthority.subtitles, undefined)
 
-  // Matching synthetic v4 descriptors expose their published subtitle ceilings.
+  // The frozen v4 descriptor triple is admitted: profile studio.render.profile.v4 with the
+  // subtitle implementation, compiler hub-final-render-subtitle-v1, and the three subtitle
+  // execution counters present. Its execution bounds carry the published subtitle ceilings.
   answer({
     profile_descriptor_utf8: SUBTITLE_PROFILE_UTF8,
     profile_digest: SUBTITLE_PROFILE_DIGEST,
@@ -635,6 +637,25 @@ test('a subtitle-scoped read admits only matching v4 descriptors and complete li
   await assert.rejects(
     client.getFinalRenderCapabilities(undefined, { requestedSubtitles: true }),
     /profile|compiler|unsupported|invalid/i,
+  )
+  // A subtitle-scoped v4 profile missing a required subtitle counter is refused.
+  answer({
+    profile_descriptor_utf8: canonicalJson({
+      ...JSON.parse(SUBTITLE_PROFILE_UTF8),
+      execution_bounds: Object.fromEntries(
+        Object.entries(SUBTITLE_BOUNDS).filter(([key]) => key !== 'max_subtitle_font_bytes')),
+    }),
+    profile_digest: digestUtf8(canonicalJson({
+      ...JSON.parse(SUBTITLE_PROFILE_UTF8),
+      execution_bounds: Object.fromEntries(
+        Object.entries(SUBTITLE_BOUNDS).filter(([key]) => key !== 'max_subtitle_font_bytes')),
+    })),
+    compiler: { descriptor_utf8: SUBTITLE_COMPILER_UTF8, digest: SUBTITLE_COMPILER_DIGEST },
+    subtitles: SUBTITLE_CAPABILITIES,
+  })
+  await assert.rejects(
+    client.getFinalRenderCapabilities(undefined, { requestedSubtitles: true }),
+    /execution_bounds|subtitle|invalid|exact/i,
   )
   const rejectSubtitleProfile = async (changes: Record<string, unknown>) => {
     const profile = canonicalJson({ ...JSON.parse(SUBTITLE_PROFILE_UTF8), ...changes })

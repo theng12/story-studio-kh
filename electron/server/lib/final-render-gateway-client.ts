@@ -99,9 +99,12 @@ export interface FinalRenderCapabilities {
   late_labels?: FinalRenderLateLabelsCapability
   /**
    * Present only in a subtitle-scoped response that requested this exact contract.
-   * Requires the v4 subtitle profile/compiler schema and all three subtitle counters.
-   * Descriptor digests and dependency links are checked here; installed pins and execution
-   * authority are checked separately by the prepare path.
+   * Admitted only against the frozen v4 descriptor triple (profile `studio.render.profile.v4`
+   * with implementation `story-classic-subtitle-v1`, compiler `hub-final-render-subtitle-v1`,
+   * and the profile's three subtitle execution counters); any other descriptor pair is refused
+   * at parse, so a capability flag alone never grants subtitle authority. Descriptor digests
+   * and dependency links are checked here; installed pins and execution authority are checked
+   * separately by the prepare path.
    */
   subtitles?: FinalRenderSubtitlesCapability
   execution_bounds?: FinalRenderExecutionBounds
@@ -749,7 +752,10 @@ function parseCapabilities(
     invalid('capabilities response advertised subtitles Story never requested')
   }
   if (requestedSubtitles && hasSubtitles) {
-    // The descriptor parsers below must also admit the matching subtitle schema.
+    // Admitted only against the frozen v4 descriptor triple: the profile and compiler
+    // parsers below re-check the exact subtitle literals against the supplied digests,
+    // and the execution-bounds parser requires this profile's three subtitle counters.
+    // A subtitle-scoped envelope that carries any other descriptor pair is refused there.
     parseSubtitlesCapability(result.subtitles)
   }
   const useLateLabelDescriptors = requestedLateLabels && hasLateLabels

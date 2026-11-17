@@ -199,7 +199,10 @@ export async function privateFinalRenderBoundsViolation(
     return `the sources total ${Math.ceil(total / (1024 * 1024))} MB and the paired Gateway accepts at `
       + `most ${Math.floor(bounds.max_total_input_bytes / (1024 * 1024))} MB`
   }
-  // Check the live subtitle limits before staging so oversized packets stay local.
+  // The v4 subtitle profile publishes its own per-asset ceilings for the singleton ASS
+  // document and each bundled font, plus a font-count cap. These are the profile's own
+  // figures (§1), enforced here at the same time as the general asset bounds so a
+  // subtitle packet that exceeds them stays local rather than being refused after send.
   if ('max_subtitle_ass_bytes' in bounds) {
     const fontSources = sources.filter(source => source.role === 'subtitle_font')
     if (fontSources.length > bounds.max_subtitle_fonts) {
