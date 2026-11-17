@@ -3,6 +3,11 @@ node_modules
 
 # Build / compile outputs
 dist/
+# A tracked build symlink cannot keep an absolute path: whichever checkout built last rewrites it,
+# and `git add -A` then commits THIS machine's worktree path into the tree — so `main` ends up
+# pointing into a worktree that gets retired. Packaging reads frontend/.output/public directly
+# (electron-builder.json), so the link is local convenience only and the build recreates it.
+/frontend/dist
 /.release-dist.lock
 .nuxt/
 .output/

@@ -197,6 +197,21 @@ test('an owner retry of Scene Plan asks for a NEW request identity, not the dead
     assert.equal(queued.params?.generation_action?.kind, 'fresh',
       'the redo is recorded as a deliberate fresh action on the row itself')
 
+    // THE ASSERTION THE PEER ASKED FOR: the KEY, not the plan. `request_identity` is only one
+    // digest component, so assert the digest itself differs — otherwise this is the run-batch
+    // mistake with a fresh coat of paint (a new plan whose key is byte-identical).
+    const { buildGenStudioChatIdempotencyKey } = await import('../lib/genstudio-client.js')
+    const deadKey = buildGenStudioChatIdempotencyKey({
+      modelId: 'mock-chat-v1', system: 'sys', userMessage: 'the same scenes',
+      temperature: 0.5, maxOutputTokens: 2048,
+    })
+    const redoneKey = buildGenStudioChatIdempotencyKey({
+      modelId: 'mock-chat-v1', system: 'sys', userMessage: 'the same scenes',
+      temperature: 0.5, maxOutputTokens: 2048, requestIdentity: identity!,
+    })
+    assert.notEqual(redoneKey, deadKey,
+      'the redo must ask for a DIFFERENT key than the dead hold, or the Gateway replays it')
+
     // And the accepted answers are still collected first: the saved key rides along on the new row.
     const collected = (queued.params?.scene_prompt_recoveries || []).map((item: any) => item.idempotency_key)
     assert.ok(collected.includes('story-chat-dead'),
