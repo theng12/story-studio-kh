@@ -1541,7 +1541,7 @@ export interface GenStudioImageRequest extends GenStudioOperationContext {
   beforeSubmit?: () => void | Promise<void>
   /** Live image-catalog policy. Absent/false preserves the legacy direct route. */
   requiresAdmissionPermit?: boolean
-  onState?: (state: GenStudioJob['state']) => void
+  onState?: (state: GenStudioJob['state']) => void | Promise<void>
   onJobAccepted?: (jobId: string, idempotencyKey: string) => void | Promise<void>
 }
 
