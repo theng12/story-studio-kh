@@ -53,6 +53,22 @@ export async function loadRelease383AudioMerge(): Promise<{
   await fs.mkdir(workRoot, { recursive: true })
   const dir = await fs.mkdtemp(path.join(workRoot, 'release-383-audio-'))
   const outfile = path.join(dir, 'audio-merge.383.mjs')
+
+  // The pinned generator imports `mergedAudioMasterPath` from level-audio. 1.4.408 removed that symbol
+  // with the MP3-only change (76af7d4a0), and this harness resolves the old file's relative imports
+  // against the current checkout — so the baseline stopped loading with "does not provide an export
+  // named 'mergedAudioMasterPath'". The shim restores that one pure function, reproduced exactly from
+  // 1883af817:electron/server/lib/level-audio.ts, and re-exports everything else from the real module:
+  // the old generator runs as it was written, and the current tree still supplies all its other helpers.
+  const levelAudioAbs = path.join(serverRoot, 'lib', 'level-audio.ts')
+  const shimPath = path.join(dir, 'level-audio.383-shim.ts')
+  await fs.writeFile(shimPath, [
+    "export * from '@current-level-audio'",
+    'export function mergedAudioMasterPath(mp3: string): string {',
+    '  return mp3.replace(/\\.mp3$/i, "") + ".master.flac"',
+    '}',
+    '',
+  ].join('\n'))
   await build({
     stdin: {
       contents: source,
@@ -72,10 +88,17 @@ export async function loadRelease383AudioMerge(): Promise<{
         // Every relative import in the pinned file resolves against this
         // checkout's generators dir and stays external, so the current
         // .ts source loads through the same tsx hook the suite already uses.
-        build.onResolve({ filter: /^\.\.?\// }, args => ({
-          path: pathToFileURL(path.resolve(args.resolveDir, args.path.replace(/\.js$/, '.ts'))).href,
+        // A file:// specifier is not something esbuild resolves; the shim asks for the real module by
+        // a name only this plugin knows, and it is emitted as an external URL like every other import.
+        build.onResolve({ filter: /^@current-level-audio$/ }, () => ({
+          path: pathToFileURL(levelAudioAbs).href,
           external: true,
         }))
+        build.onResolve({ filter: /^\.\.?\// }, args => {
+          const resolved = path.resolve(args.resolveDir, args.path.replace(/\.js$/, '.ts'))
+          if (resolved === levelAudioAbs) return { path: shimPath }
+          return { path: pathToFileURL(resolved).href, external: true }
+        })
       },
     }],
   })
