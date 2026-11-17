@@ -1398,7 +1398,12 @@ async function saveRecencyLookback() {
 
 async function clearRecencyLog() {
   if (recencyClearing.value) return
-  if (!confirm('Clear the entire recency log for this channel? The LLM will be free to repeat recent items on the next generation.')) return
+  if (!await ask({
+    title: 'Clear the recency log?',
+    message: 'Clear the entire recency log for this channel? Recent items can be used again on the next generation. This cannot be undone.',
+    confirmLabel: 'Clear Log',
+    danger: true,
+  })) return
   recencyClearing.value = true
   try {
     await del(`/projects/${slug.value}/recency`)

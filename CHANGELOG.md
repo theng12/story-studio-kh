@@ -12,6 +12,7 @@ What's new in each release. Newest first.
 - **Storage cleanup lists merged narration as one item.** The separate “Full-quality audio” category is gone along with the file it used to clean.
 - **Scene worlds for your music can now be edited in the app.** On the Music formula page each world's name, register, sight, scenes and music are editable, and you can add or remove worlds. Saving merges into the formula instead of replacing it; a rename keeps the world where it was; editing and removing the same world in one save is refused rather than guessed. Remove them all and the page says what happens next — each song's scene idea falls back to the formula's register labels, and nothing is lost.
 - **A subtitle render is checked against the paired Mac's own limits before anything is sent.** Story reads the subtitle sizes and font count that Mac publishes, and a packet over any of those figures stays on this Mac with the real reason instead of being refused after upload. A Mac that publishes a subtitle profile without those figures is not used for subtitles.
+- **Recency Log removals now open the app's own confirmation dialog.** Removing an entry, clearing a kind, or clearing the entire log from Script Generator or the Recency Log page now prompts in Story Studio's own dialog instead of a native confirm that packaged windows ignore.
 
 ## v1.4.406 — 2026-11-16
 

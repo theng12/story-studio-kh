@@ -56,3 +56,29 @@ test('a forced confirmation ignores a saved skip preference, and a second call s
   c.confirm(true)
   assert.equal(await second, true)
 })
+
+test('recency deletions in scripts.vue and recency.vue avoid bare confirm() and route through useConfirm', () => {
+  const bareNativeDialog = /(^|[^.\w$])(confirm|alert|prompt)\(/m
+  const scripts = src('pages/projects/[slug]/scripts.vue')
+  const recency = src('pages/projects/[slug]/recency.vue')
+
+  assert.match(scripts, /const \{\s*ask\s*\}\s*=\s*useConfirm\(\)/)
+  assert.match(recency, /const \{\s*ask\s*\}\s*=\s*useConfirm\(\)/)
+
+  const clearLog = body('pages/projects/[slug]/scripts.vue', 'clearRecencyLog')
+  assert.doesNotMatch(clearLog, bareNativeDialog, 'scripts.vue clearRecencyLog must not call bare confirm/alert/prompt')
+  assert.match(clearLog, /await ask\(\{[\s\S]*danger: true/, 'scripts.vue clearRecencyLog routes through useConfirm ask()')
+
+  for (const fn of ['removeEntry', 'clearByKind', 'clearAll']) {
+    const fnBody = body('pages/projects/[slug]/recency.vue', fn)
+    assert.doesNotMatch(fnBody, bareNativeDialog, `recency.vue ${fn} must not call bare confirm/alert/prompt`)
+    assert.match(fnBody, /await ask\(\{[\s\S]*danger: true/, `recency.vue ${fn} routes through useConfirm ask()`)
+  }
+
+  // Whole-file guard on both pages (strip comments first so JSDoc mentions do not trip).
+  for (const [name, content] of [['scripts.vue', scripts], ['recency.vue', recency]] as const) {
+    const stripped = content.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+    assert.doesNotMatch(stripped, bareNativeDialog, `${name} has no bare native confirm/alert/prompt`)
+  }
+})
+

@@ -143,6 +143,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { useApi } from '~/composables/useApi'
+import { useConfirm } from '~/composables/useConfirm'
 import { useToast } from '~/composables/useToast'
 
 definePageMeta({ layout: 'dashboard' })
@@ -150,6 +151,7 @@ definePageMeta({ layout: 'dashboard' })
 const route = useRoute()
 const slug = computed(() => String(route.params.slug || ''))
 const { get, del } = useApi()
+const { ask } = useConfirm()
 const { success: toastSuccess, error: toastError } = useToast()
 
 interface LogEntry {
@@ -212,7 +214,12 @@ async function load() {
 }
 
 async function removeEntry(entry: LogEntry) {
-  if (!confirm(`Remove "${entry.item}" (used in ${entry.episode_code})? It becomes available again for the next generation.`)) return
+  if (!await ask({
+    title: `Remove "${entry.item}"?`,
+    message: `Recorded in ${entry.episode_code}. Removing it lets this item be used again on the next generation.`,
+    confirmLabel: 'Remove',
+    danger: true,
+  })) return
   try {
     await del(`/projects/${slug.value}/recency/entry`, {
       body: { episode_code: entry.episode_code, kind: entry.kind, item: entry.item },
@@ -227,7 +234,13 @@ async function removeEntry(entry: LogEntry) {
 async function clearByKind() {
   if (!filterKind.value) return
   const count = state.value?.kind_counts?.[filterKind.value] || 0
-  if (!confirm(`Clear all ${count} "${kindLabel(filterKind.value)}" entries? They can all be used again.`)) return
+  const label = kindLabel(filterKind.value)
+  if (!await ask({
+    title: `Clear ${count} "${label}" ${count === 1 ? 'entry' : 'entries'}?`,
+    message: 'All of these items can be used again on future generations. This cannot be undone.',
+    confirmLabel: 'Clear Entries',
+    danger: true,
+  })) return
   try {
     await del(`/projects/${slug.value}/recency?kind=${encodeURIComponent(filterKind.value)}`)
     toastSuccess(`Cleared ${count} "${kindLabel(filterKind.value)}" entries`)
@@ -240,7 +253,13 @@ async function clearByKind() {
 
 async function clearAll() {
   if (!state.value?.log_size) return
-  if (!confirm(`Clear all ${state.value.log_size} recency entries? Every tracked item becomes available again. This can't be undone.`)) return
+  const count = state.value.log_size
+  if (!await ask({
+    title: `Clear all ${count} recency ${count === 1 ? 'entry' : 'entries'}?`,
+    message: 'Every tracked item becomes available again on future generations. This cannot be undone.',
+    confirmLabel: 'Clear All',
+    danger: true,
+  })) return
   try {
     await del(`/projects/${slug.value}/recency`)
     toastSuccess(`Cleared ${state.value.log_size} entries`)
