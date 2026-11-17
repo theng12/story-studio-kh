@@ -4,6 +4,14 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.409 — 2026-11-18
+
+- **A recovery retry can no longer sit forever.** Retrying a scene plan that had an earlier request at the Gateway could park on "Checking the earlier prompt request" with no end — ten episodes waited 45 minutes with nothing under it. That check now has its own limit, one writing request's own time budget, and when it runs out the row stops and says why, naming Retry and Abandon. It no longer borrows the week-long limit meant for a long render.
+- **Retry asks for new work instead of the request it is already stuck on.** The Gateway recognised the retry as the same request it was holding, so it handed back the dead one. A retry you press now carries a new request identity and asks for fresh work. Prompts you already paid for are still collected first, by their saved key, so nothing is bought twice.
+- **A blocked retry now tells you why instead of pretending it worked.** Retry used to answer "queued" whether or not anything was queued, so a row that could not be re-run looked like it had been. It now answers with the real reason, in Story Studio's own words.
+- **Cancel says what actually stops a stuck row.** When the Gateway cannot stop work it already started, the message now names Abandon — the control that does end the wait — instead of pointing only at Pause, which pauses nothing on a row that is not sending anything.
+- **A build can no longer record one machine's folder in the source.** The build's `frontend/dist` link is no longer tracked, so a build on any checkout cannot commit its own local path. Nothing else changes: the build makes the link where it needs it.
+
 ## v1.4.408 — 2026-11-17
 
 - **Audio Assembly now makes one audio file: the MP3.** A merged episode no longer leaves a second, much larger lossless copy beside it, so the episode folder holds the MP3 alone and audio takes far less disk.
