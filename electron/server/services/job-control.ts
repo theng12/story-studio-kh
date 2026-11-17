@@ -401,7 +401,12 @@ function classifyProviderJobControl(
 
   if (continuing.length) {
     const work = describeProviderWork(continuing.filter(entry => isRemoteOperation(entry.operation)).map(entry => entry.operation as JobRemoteOperation))
-    return control('pause-submissions', canPauseNewSubmissions(job), 'Pause new work', `${capitalise(work.text)} already started and will finish — it can't be cancelled now. Pause stops anything new from being sent.`, 'PROVIDER_WORK_ALREADY_STARTED', 'provider-work-may-settle')
+    // The sentence has to name the exit that works. "It can't be cancelled now" is true, and on its
+    // own it left ten episodes (Production, 2026-11-17) sitting on a row whose only offered button
+    // paused new submissions that were never being sent. The Gateway publishes `cancellable: false`
+    // for work it may hold at `running` indefinitely, so Abandon — offered beside this control — is
+    // the exit, and it is named here rather than left to be discovered.
+    return control('pause-submissions', canPauseNewSubmissions(job), 'Pause new work', `${capitalise(work.text)} already started and will finish — the Gateway cannot stop it, so Cancel cannot either. Pause stops anything new from being sent; Abandon this job stops Story Studio waiting for it.`, 'PROVIDER_WORK_ALREADY_STARTED', 'provider-work-may-settle')
   }
 
   // Every request this job sent has a final Gateway answer and nothing is being cancelled, so there

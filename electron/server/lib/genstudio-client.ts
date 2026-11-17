@@ -234,6 +234,21 @@ export async function languageSubmitTimeoutMs(): Promise<number> {
 export async function effectiveChatSubmitTimeoutMs(allowanceSeconds: number): Promise<number> {
   return effectiveChatTimeoutMs(await getLanguageTimeoutMs(), allowanceSeconds)
 }
+
+/**
+ * How long a by-idempotency-key COLLECT may wait for the Gateway to settle the request it is
+ * re-reading.
+ *
+ * One writing request's own budget — the owner's dial or this request's computed allowance,
+ * whichever is longer — and deliberately not `GENSTUDIO_LONG_JOB_TIMEOUT_MS`. That week-long valve
+ * exists so a render is never abandoned on Story's own clock; a collect is the opposite case: it
+ * re-reads a request Story already lost track of, and the Gateway may hold it at `running` with
+ * `cancellable:false` and never move it again (the behaviour Production reported on 2026-11-17).
+ * Waiting a week there is not patience, it is a row with no ceiling.
+ */
+export async function recoveryCollectTimeoutMs(allowanceSeconds = 0): Promise<number> {
+  return effectiveChatSubmitTimeoutMs(allowanceSeconds)
+}
 export const GENSTUDIO_MAX_TRANSCRIPTION_BYTES = 100 * 1024 * 1024
 
 export type GenStudioQueueState =
@@ -8086,12 +8101,19 @@ async function recoverChatByIdempotencyKey(
   apiKey: string,
   idempotencyKey: string,
   request: GenStudioChatRequest,
-  prepared: Pick<PreparedChatSubmission, 'outputContract' | 'maxOutputTokens'>,
+  prepared: Pick<PreparedChatSubmission, 'outputContract' | 'maxOutputTokens'> & Partial<Pick<PreparedChatSubmission, 'chatAllowanceSeconds'>>,
   requestPreview?: GenStudioRequestPreview,
   baseUrlOverride?: string,
 ): Promise<GenStudioChatResult> {
   const baseUrl = baseUrlOverride ?? await getGenStudioUrl()
-  const deadline = Date.now() + GENSTUDIO_LONG_JOB_TIMEOUT_MS
+  // The collect has its OWN ceiling, not the week-long safety valve. That valve exists so a long
+  // render is never abandoned on Story's own clock; a recovery collect is a different wait — it is
+  // re-reading a request this app already gave up on — and bounding it by a week is what let ten
+  // episodes sit on "Checking the earlier prompt request" for 45 minutes with no ceiling and no
+  // failure (Production, 2026-11-17). The budget is one writing request's own: the owner's dial,
+  // capped exactly as a submission is, so a slow pack is not cut short.
+  const recoveryBudgetMs = await recoveryCollectTimeoutMs(prepared.chatAllowanceSeconds ?? 0)
+  const deadline = Date.now() + recoveryBudgetMs
   let initial: GenStudioChatJob
   try {
     initial = await requestJsonWithRetry(
@@ -8124,7 +8146,7 @@ async function recoverChatByIdempotencyKey(
   }
   const completed = initial.state === 'succeeded'
     ? initial
-    : await waitForChatJob(baseUrl, apiKey, initial, request, deadline)
+    : await waitForChatJob(baseUrl, apiKey, initial, request, deadline, recoveryBudgetMs)
   return finishChatJob(apiKey, request, { ...prepared, idempotencyKey }, completed)
 }
 
@@ -8150,6 +8172,8 @@ async function waitForChatJob(
   job: GenStudioChatJob,
   request: GenStudioChatRequest,
   deadline: number,
+  /** Set for a by-key recovery collect: its deadline is one request's own budget, not the valve. */
+  recoveryBudgetMs: number | null = null,
 ): Promise<GenStudioChatJob> {
   let current = job
   let reportedState: string | null = null
@@ -8175,10 +8199,14 @@ async function waitForChatJob(
       throw new Error('Cancelled by user')
     }
     if (Date.now() >= deadline) {
-      // A slow job can never hang a pipeline step forever: the deadline is set
-      // once at submission from GENSTUDIO_LONG_JOB_TIMEOUT_MS and every poll,
-      // retry and backoff inside this loop is bounded by it.
-      throw new Error('Gateway language job timed out while waiting for completion')
+      // Every poll, retry and backoff inside this loop is bounded by the caller's deadline: the
+      // week-long valve for a submitted job, one request's own budget for a recovery collect.
+      // The sentence names what to do next, because a bounded wait that ends without saying so is
+      // the same dead end as an unbounded one.
+      throw new Error(recoveryBudgetMs === null
+        ? 'Gateway language job timed out while waiting for completion'
+        : `The Gateway did not settle this earlier request within ${Math.round(recoveryBudgetMs / 60_000)} minutes, so Story Studio stopped waiting for it. `
+          + 'Nothing new was started under its identity. Retry this row to check that request once more, or Abandon it and run the step again.')
     }
     await poller.wait(deadline, request, current)
     current = await requestJsonWithRetry(

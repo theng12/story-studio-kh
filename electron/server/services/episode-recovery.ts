@@ -1075,12 +1075,18 @@ export async function recoverEpisode(projectSlug: string, episodeId: string, cre
       const store = await readPlans(file)
       let plan = store.plans[episodeId]
       if (plan && repairEpisodeRecoveryPlanParams(plan, jobs)) await writeJsonAtomic(file, store)
-      if (selected.some(job => !job || !episodeRecoveryStep(job.type) || job.force_abandoned
+      // An ABANDONED row is an owner's deliberate stop, not a row to refuse: its own log promises
+      // "Retry on this row starts it fresh", so Retry has to mean that. Refusing here was the third
+      // half of the 2026-11-17 report — a control that exists and does nothing, on a row the app had
+      // just told the owner to press it on.
+      if (selected.some(job => !job || !episodeRecoveryStep(job.type)
         || (!['error', 'cancelled'].includes(job.status)
           && !Object.values(plan?.steps || {}).some(node => node.job_id === job.job_id)))) throw new Error('Recovery source must be an owned failed or cancelled episode job.')
       let planDirty = false
-      // Explicit cancellation and a new server-stamped narration refresh own new identities.
-      const newCancellationIntent = selected.some(job => job!.status === 'cancelled' && !plan?.retry_source_job_ids?.includes(job!.job_id))
+      // Explicit cancellation (including an abandon, which ends the row `cancelled`) and a new
+      // server-stamped narration refresh own new identities.
+      const newCancellationIntent = selected.some(job => (job!.status === 'cancelled' || job!.force_abandoned)
+        && !plan?.retry_source_job_ids?.includes(job!.job_id))
       // The repair Assembly reuses the owner's last ordinary mix: a finished merge, never a
       // quality-refresh merge (its marker would replay that old action).
       const priorMerge = jobs.filter(job => job.type === 'audio_merge' && job.status === 'done' && !job.force_abandoned
