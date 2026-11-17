@@ -153,3 +153,32 @@ test('a cancel the Gateway cannot honour names the way out instead of ending at 
       'the sentence must name the escape that works, because Cancel alone cannot end this row')
   } finally { await temp.cleanup() }
 })
+
+test('Retry answers 202 only when it actually queued something', async () => {
+  const temp = await useTempDataDir()
+  const jq = await import('../services/job-queue.js')
+  try {
+    const pm = await import('../services/project-manager.js')
+    const express = (await import('express')).default
+    const { router } = await import('../routes/jobs.js')
+    const request = (await import('supertest')).default
+    const app = express().use(express.json()).use(router)
+    const project = await pm.createProject({ name: 'Retry 202 honesty' })
+    await jq.setQueuePaused(true)
+
+    // A scene-plan row whose retry routes into recovery, with no narration to recover from: the
+    // plan comes back blocked, so nothing was queued.
+    const source = { ...recoveryRow(project.slug, 'error', 'recovery-honest-scene_plan_run', 'plan-honest') }
+    source.created_at = '2026-11-17T18:06:00Z'
+    await jq.writeAuthoritativeJob(source as any)
+    await jq.getJobs(project.slug)
+    const row = jq.getJob(source.job_id)!
+    assert.equal(row.type, 'scene_plan_run')
+
+    const response = await request(app).post(`/jobs/all/${row.job_id}/retry`).send({})
+    assert.equal(response.status, 409,
+      `a retry that queued nothing must not answer 202 — got ${response.status} ${JSON.stringify(response.body).slice(0, 200)}`)
+    assert.match(response.body.detail, /Audio Assembly|narration|script/i,
+      'and the refusal carries the plan\'s own reason, not a generic failure')
+  } finally { await jq._waitForJobPersistenceForTesting(); await temp.cleanup() }
+})

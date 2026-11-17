@@ -694,7 +694,22 @@ router.post('/jobs/all/:jobId/retry', async (req, res) => {
   const admissionError = retryAdmissionError(existing)
   if (admissionError) return res.status(409).json({ detail: admissionError })
   if (episodeRecoveryStep(existing.type) && !(existing.type === 'subtitles_transcribe' && isScopedChapterTranscription(existing.params))) {
-    return res.status(202).json({ ok: true, plan: await recoverEpisode(existing.project_slug, existing.episode_id, true, [existing.job_id], [], true) })
+    // A refusal here is the answer, not a server fault: an unhandled throw became a 500 with no
+    // message, which is the same as the control doing nothing for the person pressing it.
+    let plan
+    try {
+      plan = await recoverEpisode(existing.project_slug, existing.episode_id, true, [existing.job_id], [], true)
+    } catch (error) {
+      return res.status(409).json({ ok: false, detail: error instanceof Error ? error.message : 'Episode recovery is unavailable.' })
+    }
+    // 202 is a promise that work was queued. A plan that comes back blocked queued nothing, and
+    // answering 202 there is how Retry became the control that does nothing (Production,
+    // 2026-11-17: "Retry returns 202 and recreates the same already-cancelled row"). The plan's own
+    // sentence is the reason, so the owner gets it instead of a success they cannot see.
+    if (plan?.dispatch_status === 'blocked') {
+      return res.status(409).json({ ok: false, detail: plan.message, plan })
+    }
+    return res.status(202).json({ ok: true, plan })
   }
   const job = jq.retryTerminalJob(existing.project_slug, req.params.jobId, retryReplacementParams(existing))
   logRegeneration(existing, job)
