@@ -1,6 +1,6 @@
 /**
  * Level a mix to the loudness target and check its peak as it ships (1.4.281: shared by Audio Assembly,
- * which levels the merged master, and Video Assembly, which levels its pre-mix before any scene clip).
+ * which levels the merged mix, and Video Assembly, which levels its pre-mix before any scene clip).
  */
 import fs from 'fs/promises'
 import path from 'path'
@@ -76,26 +76,6 @@ export async function levelAndCheck(opts: {
   }
   if (n < attempts.length) lines.push(`Loudness: kept attempt ${n} (${said(best.got)}), the closest to the target.`)
   return best.plan
-}
-
-/** Where Audio Assembly keeps the levelled lossless master of `X.mp3` (1.4.281): `X.master.flac`. */
-export function mergedAudioMasterPath(mp3: string): string {
-  return `${mp3.replace(/\.mp3$/i, '')}.master.flac`
-}
-
-/**
- * The lossless master of a merged MP3, when that MP3 is the one its Audio Assembly recorded with it
- * (`{code}_merged_audio.completion.json`: same file name and size, and a `master_filename`). Null for an
- * episode merged before 1.4.281, a Sound Design mix, or an MP3 replaced since: Video Assembly then
- * levels the MP3 itself, as before.
- */
-export async function mergedAudioMaster(mp3: string, code: string): Promise<string | null> {
-  try {
-    const rec = JSON.parse(await fs.readFile(path.join(path.dirname(mp3), `${code}_merged_audio.completion.json`), 'utf8'))
-    const master = path.join(path.dirname(mp3), String(rec.master_filename || ''))
-    if (!rec.master_filename || rec.output_filename !== path.basename(mp3) || rec.bytes !== (await fs.stat(mp3)).size) return null
-    return (await fs.stat(master)).size > 0 ? master : null
-  } catch { return null }
 }
 
 /** The channel's loudness target: its active Video Assembly preset's export settings, else -14 LUFS / -1 dBTP / 20%. */

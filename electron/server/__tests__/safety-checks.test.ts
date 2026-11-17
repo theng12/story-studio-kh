@@ -112,7 +112,7 @@ test('a silent merged narration stops Audio Assembly by default (it used to carr
   const { loudnessTarget } = await import('../lib/final-loudness.js')
   const raw = path.join(temp.dir, 'silent-raw.flac')
   execFileSync('ffmpeg', ['-y', '-loglevel', 'error', '-f', 'lavfi', '-i', 'anullsrc=r=44100:cl=stereo', '-t', '3', '-c:a', 'flac', raw])
-  const out = (name: string) => ({ master: path.join(temp.dir, `${name}.flac`), mp3: path.join(temp.dir, `${name}.mp3`) })
+  const out = (name: string) => ({ mp3: path.join(temp.dir, `${name}.mp3`) })
   await assert.rejects(
     levelMergedAudio({ raw, ...out('a'), loudness: loudnessTarget({}), tempDir: temp.dir, lines: [], slug }),
     /merged narration is silent/,

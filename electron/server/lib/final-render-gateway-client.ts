@@ -564,6 +564,28 @@ async function readJson(response: Response, label: string, expectedStatus: numbe
   }
 }
 
+/**
+ * Every Gateway control call gets its own deadline.
+ *
+ * Owner, 2026-11-16: Brain-wise EP0105's `video_assembly` row ran about 11.5
+ * hours for an 885-second video with progress and bytes null, and the log
+ * stopped after "Logo shape: rounded corners (20%) · 96x96". Every one of these
+ * routes is a small JSON request — a body measured in kilobytes — and none of
+ * them had an `AbortSignal`, so a Gateway that accepted the connection and then
+ * went quiet held the row open forever. A request that cannot finish in a
+ * minute is not slow, it is stuck, and the row must hear that as an error it
+ * can act on rather than as nothing at all.
+ *
+ * Bulk bytes are NOT covered here on purpose: an upload or a download of a real
+ * video legitimately takes minutes, and it is bounded by its own byte ceiling.
+ */
+const CONTROL_REQUEST_TIMEOUT_MS = 60_000
+
+function controlSignal(init: RequestInit): AbortSignal {
+  const timeout = AbortSignal.timeout(CONTROL_REQUEST_TIMEOUT_MS)
+  return init.signal ? AbortSignal.any([init.signal, timeout]) : timeout
+}
+
 async function fetchJson(
   access: Pick<PrivateRenderConnection, 'origin' | 'bearer' | 'story_instance_id'>,
   route: string,
@@ -575,7 +597,9 @@ async function fetchJson(
   headers.set('Authorization', `Bearer ${access.bearer}`)
   headers.set('X-Story-Instance', access.story_instance_id)
   headers.set('Accept', 'application/json')
-  const response = await fetch(`${access.origin}${route}`, { ...init, headers, redirect: 'error' })
+  const response = await fetch(`${access.origin}${route}`, {
+    ...init, headers, redirect: 'error', signal: controlSignal(init),
+  })
   return readJson(response, label, expectedStatus)
 }
 

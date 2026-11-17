@@ -149,7 +149,7 @@ import {
   type EncodeTier,
 } from '../lib/final-render-core.js'
 import { isStaticImagePath as isFinalRenderStaticImagePath } from '../lib/final-render-export.js'
-import { levelAndCheck, mergedAudioMaster } from '../lib/level-audio.js'
+import { levelAndCheck } from '../lib/level-audio.js'
 import { safetyGate, safetyMode } from '../services/safety-checks.js'
 import {
   normalizeContextualCueConfig,
@@ -3553,12 +3553,10 @@ export async function generateVideo(job: Job): Promise<VideoAssemblyDisposition>
     const audioGap = req.audio_gap ?? 5
 
     if (useMergedAudio) {
-      // Use pre-merged audio directly — skip chapter concatenation. 1.4.281: its levelled lossless master
-      // when Audio Assembly kept one, so the final AAC is not encoded from an MP3.
-      const master = await mergedAudioMaster(req.merged_audio_path!, code)
-      narrationFilePath = master ?? req.merged_audio_path!
-      job.output_lines.push(`Merged audio duration: ${narrationDuration!.toFixed(1)}s`
-        + (master ? ` (mixed from its lossless master ${path.basename(master)})` : ''))
+      // Use pre-merged audio directly — skip chapter concatenation. Audio Assembly's merged MP3 is
+      // the file the episode ships.
+      narrationFilePath = req.merged_audio_path!
+      job.output_lines.push(`Merged audio duration: ${narrationDuration!.toFixed(1)}s`)
     } else if (hasChapters && audioGap > 0) {
       narrationFilePath = await prepareNarrationWithGaps(narrationChapters, audioGap, tempDir, job)
       // Re-measure duration after adding gaps

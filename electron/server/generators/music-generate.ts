@@ -28,6 +28,7 @@ import path from 'path'
 import { createHash, randomBytes } from 'crypto'
 
 import { runFfmpeg } from '../lib/ffmpeg-utils.js'
+import { completedPercent } from '../lib/job-progress.js'
 import { withLock } from '../lib/atomic-store.js'
 import { TRASH_DIRNAME, moveToTrashSync, trashRootFor } from '../lib/trash-move.js'
 import { musicWindowSizer, runRollingWindow } from '../lib/music-window.js'
@@ -732,7 +733,9 @@ export async function generateMusicLibraryTracks(job: Job): Promise<void> {
     }
     if (failuresByIndex[index]) job.item_progress!.failed++
     else job.item_progress!.completed++
-    job.progress = Math.round(((job.item_progress!.completed + job.item_progress!.failed) / planned.length) * 100)
+    // Completions only (see `lib/job-progress.ts`) — a failed track is on the
+    // row as `failed` and must not push the bar forward.
+    job.progress = completedPercent(job.item_progress!.completed, planned.length)
   }, () => !!stop)
   if (stop) throw stop
   const saved = savedByIndex.flat()

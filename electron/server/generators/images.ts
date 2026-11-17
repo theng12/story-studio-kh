@@ -7,6 +7,7 @@ import { existsSync } from 'fs'
 import { createHash } from 'node:crypto'
 import path from 'path'
 import { findDirsLevelOrder } from '../lib/dir-search.js'
+import { completedPercent } from '../lib/job-progress.js'
 import { episodeDirNameMatchesCode } from '../services/asset-status.js'
 import { parseImagePromptsDocx, type ParsedPrompts } from '../lib/docx-parser.js'
 import { saveGenStudioImage } from '../lib/genstudio-artifacts.js'
@@ -1017,12 +1018,10 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
   let paidImageWaitRequested = false
   const activeItems = new Map<string, JobItemAttempt>()
   function publishProgress(): void {
-    // Matches `generators/audio.ts`'s convention: an empty batch (e.g. a
-    // single-scene re-render whose target was already filtered away) reports
-    // 100, not an indeterminate bar, since there is genuinely nothing left.
-    job.progress = totalToProcess > 0
-      ? Math.round(((completedCount + failedCount) / totalToProcess) * 100)
-      : 100
+    // Completions only (see `lib/job-progress.ts`): a failed scene is on the
+    // row as `failed`, and counting it here made a batch that produced nothing
+    // run its bar to the end.
+    job.progress = completedPercent(completedCount, totalToProcess)
     job.item_progress = {
       total: totalToProcess,
       completed: completedCount,

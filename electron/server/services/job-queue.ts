@@ -81,7 +81,7 @@ import {
 } from '../contracts/jobs-history.js'
 import { FLEET_BUSY_FAILURE_CODES } from '../lib/genstudio-fleet-busy.js'
 import { assertManualGenerationRedoAction } from '../lib/fresh-generation-action.js'
-import { evidenceHoldsUnknownOutcome, holdsUnknownOutcome, isSubmissionUncertainCode } from '../lib/genstudio-client.js'
+import { evidenceHoldsUnknownOutcome, GenStudioCatalogUnavailableError, holdsUnknownOutcome, isSubmissionUncertainCode } from '../lib/genstudio-client.js'
 import { isRetryableZeroSettlementImageFailureCode } from './image-paid-replacement.js'
 import { getApiKey } from './app-secrets-store.js'
 import type { JobControl } from '../models/types.js'
@@ -1255,6 +1255,13 @@ async function refreshFinishedJobProviderEvidence(jobId: string): Promise<void> 
       }
       await persistJob(job)
       emitUpdate(job)
+      // This check was the only thing still holding the job's saved Pipeline
+      // continuation, and nothing else was ever going to look again. PR0051
+      // (2026-11-16) settled done with its video_assembly link unstarted and this
+      // exact sentence as the last line in its log — the block cleared here and
+      // no drain ran. One call, and the saved step starts the moment its block is
+      // gone; on a job with no continuation the drain returns immediately.
+      await drainPendingPipelineHandoff(jobId)
       return
     }
     await recordHistoryEvidenceCheck(
@@ -1553,6 +1560,14 @@ async function finalizeSettledProviderJob(jobId: string): Promise<void> {
 // names the operation token that took the hold, or null for the owner's own pause.
 // The two move in ONE atomic settings write (see setQueuePausedUnlocked), so a
 // crash never leaves a paused queue owned by a token that no longer holds it.
+/** How long a pre-submission catalogue refusal may wait for a fresh copy before
+ *  the job fails with that reason and its attempts still intact. */
+let catalogRefusalCeilingMs = 10 * 60_000
+/** Test-only: compress the ceiling so a suite does not wait ten minutes. */
+export function _setCatalogRefusalCeilingForTesting(ms: number | null): void {
+  catalogRefusalCeilingMs = typeof ms === 'number' && Number.isFinite(ms) && ms >= 0 ? Math.floor(ms) : 10 * 60_000
+}
+
 let queuePaused = false
 let queuePauseOwner: string | null = null
 let queuePauseLoaded = false
@@ -6524,8 +6539,27 @@ export function pipelineHandoffSkipReason(
   return `its saved continuation is ${state} and no child job exists`
 }
 
+/**
+ * A saved continuation that was not queued says so, once.
+ *
+ * PR0051 (2026-11-16) settled `done` with the `video_assembly` link still in its
+ * own `pipeline_chain`, no child, and nothing in the log explaining the gap —
+ * the drain had declined at a bare `return`. "The owner should not have to
+ * re-derive by hand what the queue already knew" (AGENTS.md §8): every decline
+ * that leaves a saved step unstarted is a sentence on the parent, not silence.
+ */
+async function notePipelineHandoffNotQueued(parent: Job, why: string, advice: string): Promise<void> {
+  if (parent.output_lines.some(line => line.startsWith('Pipeline continuation not queued:'))) return
+  parent.output_lines.push(`Pipeline continuation not queued: ${why}. ${advice}`)
+  await persistJob(parent)
+  emitUpdate(parent)
+}
+
 async function drainPendingPipelineHandoff(parentJobId: string): Promise<void> {
   await withLock(`pipeline-handoff-parent:${parentJobId}`, async () => {
+    // Silences below this line are only allowed when NO saved step is lost: the
+    // row is gone, it never captured a continuation, or a live run still owns
+    // the drain and will reach this same code when it finishes.
     const parent = jobs.get(parentJobId)
     if (!parent || !hasPipelineHandoffField(parent)
       || activeRunJobIds.has(parentJobId) || providerFinalizing.has(parentJobId)) return
@@ -6538,27 +6572,37 @@ async function drainPendingPipelineHandoff(parentJobId: string): Promise<void> {
     if (marker.state !== 'pending') {
       const hasChild = !!jobs.get(String(marker.child_job_id || ''))
       const why = pipelineHandoffSkipReason(marker, hasChild)
-      if (why && !parent.output_lines.some(line => line.startsWith('Pipeline continuation not queued:'))) {
-        parent.output_lines.push(`Pipeline continuation not queued: ${why}. Nothing was re-run; start the remaining step from the episode's Pipeline.`)
-        await persistJob(parent)
-        emitUpdate(parent)
+      if (why) {
+        await notePipelineHandoffNotQueued(parent, why,
+          'Nothing was re-run; start the remaining step from the episode\'s Pipeline.')
       }
       return
     }
     const blockedReason = pipelineHandoffBlockedReason(parent)
     if (blockedReason) {
-      if (!parent.output_lines.some(line => line.startsWith('Pipeline continuation not queued:'))) {
-        parent.output_lines.push(`Pipeline continuation not queued: ${blockedReason}. Nothing was re-run; the saved step stays ready for when the block clears.`)
-        await persistJob(parent)
-        emitUpdate(parent)
-      }
+      await notePipelineHandoffNotQueued(parent, blockedReason,
+        'Nothing was re-run; the saved step stays ready for when the block clears.')
       return
     }
 
     let authoritative = await loadAuthoritativeJob(parent.project_slug, parent.job_id)
     const durableMarker = authoritative && pipelineHandoffOf(authoritative)
-    if (!authoritative || !durableMarker || !isDeepStrictEqual(durableMarker, marker)) return
-    if (pipelineHandoffBlocked(authoritative) || authoritative.local_execution_complete !== true) return
+    if (!authoritative || !durableMarker || !isDeepStrictEqual(durableMarker, marker)) {
+      // The row on disk no longer carries this continuation — retired history, or
+      // a durable copy that changed under us. Starting a child from the stale
+      // in-memory marker is exactly what the identity check exists to prevent, so
+      // the step is not started; it is also not dropped in silence.
+      await notePipelineHandoffNotQueued(parent,
+        'its saved record could not be read back unchanged',
+        'Nothing was re-run; start the remaining step from the episode\'s Pipeline.')
+      return
+    }
+    if (pipelineHandoffBlocked(authoritative) || authoritative.local_execution_complete !== true) {
+      await notePipelineHandoffNotQueued(parent,
+        'its saved record has no verified local completion',
+        'Nothing was re-run; Retry this step, or start the remaining step from the episode\'s Pipeline.')
+      return
+    }
 
     if (authoritative.status === 'running') {
       parent.status = 'done'
@@ -6853,6 +6897,8 @@ async function runJob(type: JobType, job: Job): Promise<void> {
       // earns a fresh retry budget. The best count only ever falls, so this ends.
       let lastAttempt = retryPolicy.max_attempts
       let fewestRemaining = Infinity
+      /** When this run first refused to submit for a stale catalogue; null until then. */
+      let catalogRefusalStartedAt: number | null = null
       let chatOutcomeUnknown = false
       for (let attempt = 1; attempt <= lastAttempt; attempt++) {
         if (hasFinalRenderFence(job)) {
@@ -6965,6 +7011,31 @@ async function runJob(type: JobType, job: Job): Promise<void> {
           // A proven, uncharged quota stop. Do not consume a worker slot on
           // local retry backoff; the outer lifecycle parks it.
           if (isQuotaWait(job, error)) throw error
+          // A refusal BEFORE submission accepted nothing, so it must not spend an
+          // attempt. HMH0110 (2026-11-16) burned 3 of 3 on a Gateway voice-model
+          // catalogue that was 31 minutes stale: nothing was requested, no Mac was
+          // tried, no credit was charged, and the row still arrived at
+          // "auto_retry exhausted". Gateway 0.2.263 already treats a refusal that
+          // accepted nothing as not spending an attempt; Story now agrees.
+          if (error instanceof GenStudioCatalogUnavailableError) {
+            catalogRefusalStartedAt ??= Date.now()
+            const waitedMs = Date.now() - catalogRefusalStartedAt
+            if (waitedMs < catalogRefusalCeilingMs) {
+              // Same attempt number again: the loop's `attempt++` is cancelled here.
+              attempt -= 1
+              job.auto_retry = { ...job.auto_retry!, attempt: attempt + 1 }
+              const remainingWait = Math.max(0, catalogRefusalCeilingMs - waitedMs)
+              const line = '⏳ The Gateway catalogue could not be read, so nothing was submitted and no attempt was '
+                + `used. Waiting up to ${Math.max(1, Math.round(remainingWait / 60_000))} more minute(s) for a fresh catalogue.`
+              if (!job.output_lines.includes(line)) job.output_lines.push(line)
+              await persistJob(job)
+              emitUpdate(job)
+              await waitForLocalRetry(job.job_id, Math.min(retryPolicy.delays_ms.at(-1) ?? 30_000, 30_000))
+              continue
+            }
+            // Ceiling reached: fail with the plain reason, attempts untouched.
+            throw error
+          }
           const completion = job.result?.completion
           const remaining = completion && Number.isSafeInteger(completion.expected) && Number.isSafeInteger(completion.completed)
             ? completion.expected - completion.completed

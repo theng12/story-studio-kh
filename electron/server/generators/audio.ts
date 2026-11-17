@@ -8,6 +8,7 @@ import { existsSync } from 'fs'
 import fs from 'fs/promises'
 import path from 'path'
 import { parseNarrationDocx } from '../lib/docx-parser.js'
+import { completedPercent } from '../lib/job-progress.js'
 import { createProjectFactsCache, projectDirFor, resolveEpisodePathsByCode, resolveEpisodePathsByCodeWithSidecar, type ProjectFactsCache } from '../services/utils.js'
 import { SpeedTracker, throttle } from '../lib/speed-tracker.js'
 import { resolveDeliveryInstruction, resolveTtsControlValues } from '../lib/tts-controls.js'
@@ -965,9 +966,10 @@ export async function generateAudio(job: Job): Promise<void> {
   const writtenChunkPaths = new Set<string>()
   const activeTasks = new Map<string, JobItemAttempt>()
   function publishProgress(): void {
-    job.progress = tasks.length
-      ? Math.round(((completedTasks + failedTasks) / tasks.length) * 100)
-      : 100
+    // Completions only. A failed chapter is on the row as `failed`; it is not
+    // work this batch produced and must not move the bar (HMH0113 ran to 94%
+    // on 17 failures and 0 completions).
+    job.progress = completedPercent(completedTasks, tasks.length)
     job.item_progress = {
       total: tasks.length,
       completed: completedTasks,

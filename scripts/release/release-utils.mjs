@@ -297,11 +297,41 @@ function realDirectory(directory) {
   if (!info.isDirectory() || info.isSymbolicLink()) throw new Error(`Expected a real directory: ${directory}`)
 }
 
+/**
+ * The real directory `target` names, created if it is not there yet.
+ *
+ * The canonical Story checkout reaches its trash through a `_trash`
+ * compatibility LINK into `~/Desktop/_trash/<app>`, and the owner is the only
+ * one who empties that folder. When he does, the link stays and its target is
+ * gone — and a plain `fs.realpathSync(parent)` then failed with ENOENT, which
+ * is what broke the 1.4.405 DMG build (owner, 2026-11-16). So: resolve whatever
+ * exists, follow the link by hand when its target does not, and create what the
+ * link names. Never replace the link with a real directory — the app's other
+ * tooling reaches the same trash through it.
+ */
+function realDirectoryCreating(target) {
+  try {
+    return fs.realpathSync(target)
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error
+  }
+  const parent = path.dirname(target)
+  if (parent === target) throw new Error(`Cannot resolve a real directory for ${target}`)
+  let linkTarget = null
+  try {
+    if (fs.lstatSync(target).isSymbolicLink()) linkTarget = fs.readlinkSync(target)
+  } catch { /* not there, or not a link: the parent is what is missing */ }
+  const realParent = realDirectoryCreating(parent)
+  const resolved = linkTarget ? path.resolve(realParent, linkTarget) : path.join(realParent, path.basename(target))
+  fs.mkdirSync(resolved, { recursive: true })
+  return fs.realpathSync(resolved)
+}
+
 function dmgTrashDirectory(trashDist) {
-  const parent = path.dirname(trashDist)
-  fs.mkdirSync(parent, { recursive: true })
-  // Canonical Story has an existing _trash compatibility link; preserve it.
-  const resolved = path.join(fs.realpathSync(parent), path.basename(trashDist))
+  // Resolve the `_trash` link FIRST and create its target, so an emptied Desktop
+  // trash is recreated instead of ending the build.
+  const parent = realDirectoryCreating(path.dirname(trashDist))
+  const resolved = path.join(parent, path.basename(trashDist))
   realDirectory(resolved)
   return resolved
 }
