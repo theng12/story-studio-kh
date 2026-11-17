@@ -4,6 +4,13 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.407 — 2026-11-17
+
+- **Audio Assembly now makes one audio file: the MP3.** A merged episode no longer leaves a second, much larger lossless copy beside it, so the episode folder holds the MP3 alone and audio takes far less disk.
+- **The final video mixes from that same MP3.** Video Assembly no longer looks for a second audio file; it reads the MP3 the merge wrote.
+- **Re-mixing an older episode works from what was recorded.** When an episode is re-mixed — for example to add a closing tail — Story re-mixes its chapter audio with the mix settings saved with the original merge.
+- **Storage cleanup lists merged narration as one item.** The separate “Full-quality audio” category is gone along with the file it used to clean.
+
 ## v1.4.406 — 2026-11-16
 
 - **A job's bar now shows work that actually finished.** Narration, scene images, music top-ups and the image pool were counting failures as progress, so a batch where nothing succeeded could walk to 94% and then 100% (18 chapters planned, 0 made, 17 failed). The bar now counts completed items only; failed, held and cancelled items each keep their own count on the same row.
