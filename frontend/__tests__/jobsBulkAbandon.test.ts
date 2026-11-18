@@ -17,7 +17,7 @@ function job(id: string, project: string, action = 'force-abandon', status = 'er
     controls: [{ action, enabled: true, reason: 'Stops local tracking; accepted provider work may finish. Files and billing records stay intact.' }] }
 }
 
-function harness(rows = [job('one', 'alpha'), job('two', 'beta', 'clear-history', 'done')]) {
+function harness(rows = [job('one', 'alpha', 'force-abandon', 'error'), job('two', 'beta', 'force-abandon', 'running')]) {
   assert.ok(functions.includes('async function abandonAndClearSelected'), 'bulk action must exist')
   const c = {
     selectedCleanupIds: ref(new Set(rows.map(j => j.job_id))),
@@ -39,12 +39,15 @@ function harness(rows = [job('one', 'alpha'), job('two', 'beta', 'clear-history'
     const loadJobHistory = async () => { c.historyReloads += 1 };
     const jobControls = job => job.controls || [];
     const jobDisplayStatus = job => job.status;
+    const canClearJob = job => ['done', 'recovered', 'skipped', 'error', 'cancelled'].includes(job.status);
+    const logClearFailure = () => {};
+    const loadCleared = async () => {};
     const jobProjectSlug = job => job.project_slug;
     const projectName = slug => slug;
     const jobQueuePath = job => '/projects/' + job.project_slug + '/jobs/' + job.job_id;
     const customerJobText = value => String(value);
     const useConfirm = () => ({ ask: async options => { c.confirms.push(options); return c.approved; } });
-    const post = async url => { c.requests.push(url); if (c.pendingPost) await c.pendingPost;
+    const post = async (url, body) => { c.requests.push(url); if (c.pendingPost) await c.pendingPost;
       if (c.failDelete && url.includes(c.failDelete)) throw {data:{detail:'Cannot clear yet'}};
       return { job: { job_id: url.split('/').at(-2), controls: [{action:'clear-history',enabled:true}] } }; };
     const projectQueue = {applyUpdate: j => c.updates.push(j.job_id), removeJobs: ids => c.removed.push(...ids)};
@@ -59,14 +62,14 @@ test('bulk cleanup confirms once and touches only selected jobs in their own pro
   const h = harness()
   await h.abandonAndClearSelected()
   assert.equal(h.confirms.length, 1)
-  assert.match(h.confirms[0].message, /Nothing is deleted/)
-  assert.deepEqual(h.requests, ['/projects/alpha/jobs/one/abandon', '/projects/alpha/jobs/one/hide', '/projects/beta/jobs/two/hide'])
-  assert.deepEqual(h.updates, ['one'])
+  assert.match(h.confirms[0].message, /kept in Recently cleared, restorable/)
+  assert.deepEqual(h.requests, ['/jobs/all/one/clear', '/projects/beta/jobs/two/abandon'])
+  assert.deepEqual(h.updates, ['two'])
   assert.deepEqual(h.removed, [])
-  assert.deepEqual(h.historyRemoved, [], 'hide leaves the rows to the authoritative reload')
-  assert.equal(h.historyReloads, 1, 'one authoritative reload after the bulk hide')
+  assert.deepEqual(h.historyRemoved, [], 'clear leaves the rows to the authoritative reload')
+  assert.equal(h.historyReloads, 1, 'one authoritative reload after the bulk clear')
   assert.equal(h.clearingSelected.value, false)
-  assert.equal(h.selectedCleanupIds.value.size, 0)
+  assert.deepEqual([...h.selectedCleanupIds.value], ['two'], 'the abandoned row stays selected')
 })
 
 test('declining bulk cleanup makes no request', async () => {
@@ -79,12 +82,12 @@ test('declining bulk cleanup makes no request', async () => {
 })
 
 test('one failed clear stays selected and reported while other selected jobs complete', async () => {
-  const h = harness(); h.failDelete = '/alpha/jobs/one'
+  const h = harness(); h.failDelete = '/jobs/all/one/clear'
   await h.abandonAndClearSelected()
   assert.deepEqual(h.removed, [])
   assert.deepEqual(h.historyRemoved, [])
-  assert.equal(h.historyReloads, 1)
-  assert.deepEqual([...h.selectedCleanupIds.value], ['one'])
+  assert.equal(h.historyReloads, 0)
+  assert.deepEqual([...h.selectedCleanupIds.value], ['one', 'two'])
   assert.equal(h.cleanupFailures.value.length, 1)
   assert.match(h.cleanupFailures.value[0].reason, /Cannot clear yet/)
 })
@@ -108,12 +111,12 @@ test('automatic selection follows current filtered eligibility and can target ne
   h.selectCleanupJobs(false)
   assert.deepEqual([...h.selectedCleanupIds.value], ['failed', 'running'])
   assert.equal(h.jobCleanupAction({ controls: [{action:'force-abandon',enabled:false}] }), null)
-  assert.equal(h.jobCleanupAction({ controls: [{action:'clear-history',enabled:true}, {action:'force-abandon',enabled:true}] }), 'clear-history')
+  assert.equal(h.jobCleanupAction({ status: 'done', controls: [{action:'force-abandon',enabled:true}] }), 'clear')
 })
 
 test('selection controls are available for both active and history cards', () => {
   assert.equal((source.match(/@change="toggleCleanupJob\(job\)"/g) || []).length, 2)
   assert.match(source, /Select Needs Attention/)
   assert.match(source, /Select All Matching/)
-  assert.match(source, /Abandon and Hide From List/)
+  assert.match(source, /Abandon and Clear/)
 })

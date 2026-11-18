@@ -8,17 +8,15 @@ const jobs = readFileSync(
   'utf8',
 )
 
-test('the Jobs page has one hidden state: the server\'s hidden_at', () => {
-  assert.match(jobs, /function isJobHidden\(job: RJob\): boolean \{ return Boolean\(job\.hidden_at\) \}/)
-  assert.match(jobs, /await post\(`\$\{jobQueuePath\(job\)\}\/hide`, \{\}\)/)
-  assert.match(jobs, /await post\(`\$\{jobQueuePath\(job\)\}\/unhide`, \{\}\)/)
-  assert.doesNotMatch(jobs, /HIDDEN_JOBS_KEY|hiddenJobIds|story-studio:hidden-jobs/)
-})
-
-test('the Hidden filter reads the hidden history instead of a display status', () => {
-  // Neither "hidden" nor "superseded" is a display status: both are separate
-  // record sets the server owns, so the view filter must pass "all" for both.
-  assert.match(jobs, /status: statusFilter\.value === 'hidden' \|\| statusFilter\.value === 'superseded' \? 'all' : statusFilter\.value/)
-  assert.match(jobs, /hiddenHistory\.load\('\/jobs\/all\/history', \{ \.\.\.query, hidden: '1' \}\)/)
-  assert.match(jobs, /hiddenHistory\.load\(`\/projects\/\$\{slug\.value\}\/jobs\/history`, \{ hidden: '1' \}\)/)
+// Owner, 2026-11-18: "why have a hidden instead of just a clear and make it
+// gone." Hide is gone from the page; Clear (recoverable) is the only removal.
+test('Hide and Discard are gone from the Jobs page', () => {
+  assert.doesNotMatch(jobs, /Hide From Jobs/)
+  assert.doesNotMatch(jobs, /Hide Finished From List|Hide Failed From List/)
+  assert.doesNotMatch(jobs, /Hidden filter|statusFilter === 'hidden'|key: 'hidden'/)
+  assert.doesNotMatch(jobs, /\/hide|\/unhide/)
+  assert.doesNotMatch(jobs, /Discard/)
+  assert.doesNotMatch(jobs, /cannot be undone|for good|permanently/i)
+  assert.match(jobs, /function canClearJob\(job: RJob\): boolean/)
+  assert.match(jobs, /@click="clearJob\(job\)"/)
 })

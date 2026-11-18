@@ -142,8 +142,7 @@ export const MORE_ACTION_HINTS = {
   repair: 'Per failed job: asks the gateway about that job’s own recorded requests and downloads any that finished late. Never generates or charges.',
   queue: 'Holds new work in every channel. Work already sent keeps going.',
   resume: 'Continues paused jobs from where they stopped.',
-  clearFinished: 'Hides finished rows from this list. Nothing is deleted — the Hidden filter restores them.',
-  clearFailed: 'Hides settled failed rows from this list. Their error details, logs and Retry/Recover stay, and the Hidden filter restores them.',
+  clearAll: 'Removes finished and settled failed job records from the list and the record store. Their files stay on disk, and Recently cleared puts them back.',
   // Clear, not Hide: the record itself goes, and Recently cleared is the undo.
   clearJobsFinished: 'Removes finished job records from the list and the record store. Their files stay on disk, and Recently cleared puts them back.',
   clearJobsFailed: 'Removes settled failed job records from the list and the record store. Their files stay on disk, and Recently cleared puts them back.',
