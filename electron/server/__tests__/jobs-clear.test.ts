@@ -23,6 +23,7 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import request from 'supertest'
 import { useTempDataDir } from './_helpers.js'
+import { flushLogLines } from '../services/logger.js'
 
 let tempDir: string
 let cleanup: () => Promise<void>
@@ -245,7 +246,7 @@ test('the preview count and bytes are what the bulk clear removes', async () => 
     expected_count: preview.body.count + 1,
     expected_bytes: preview.body.bytes,
   }).expect(409)
-  assert.match(mismatch.body.detail, /Nothing was cleared/)
+  assert.match(mismatch.body.detail, /nothing was cleared/i)
   assert.ok(jq.getJob('bulk-done'), 'a mismatch moved nothing')
 
   const cleared = await request(app).post('/api/jobs/all/clear').send({
@@ -311,8 +312,120 @@ test('a channel-scoped clear never touches another channel', async () => {
     expected_count: scoped.body.count + 1,
     expected_bytes: scoped.body.bytes,
   }).expect(409)
-  assert.match(mismatch.body.detail, /Nothing was cleared/)
+  assert.match(mismatch.body.detail, /nothing was cleared/i)
   assert.ok(jq.getJob('scope-b-done'), 'the refused clear left channel B alone')
+})
+
+test('all includes hidden rows and keeps their hidden_at as cleared_at', async () => {
+  const project = await pm.createProject({ name: 'Clear all includes hidden' })
+  await seed(project.slug, [
+    historyRow('all-visible', project.slug, 'done'),
+    historyRow('all-hidden', project.slug, 'done'),
+  ])
+  await request(app).post('/api/jobs/all/all-hidden/hide').expect(200)
+  const hiddenAt = jq.getJob('all-hidden')!.hidden_at
+  assert.ok(hiddenAt)
+
+  const preview = await request(app)
+    .get(`/api/jobs/clear-preview?status=all&project=${project.slug}`)
+    .expect(200)
+  assert.deepEqual(preview.body.ids.sort(), ['all-hidden', 'all-visible'])
+  const finishedOnly = await request(app)
+    .get(`/api/jobs/clear-preview?status=finished&project=${project.slug}`)
+    .expect(200)
+  assert.deepEqual(finishedOnly.body.ids, ['all-visible'], 'the hidden row is only in the all subset')
+
+  const cleared = await request(app).post('/api/jobs/all/clear').send({
+    status: 'all',
+    project: project.slug,
+    expected_count: preview.body.count,
+    expected_bytes: preview.body.bytes,
+  }).expect(200)
+  assert.equal(cleared.body.cleared, 2)
+  assert.match(cleared.body.detail, /Recently cleared/)
+  await jq._waitForJobPersistenceForTesting()
+  assert.equal(jq.getJob('all-hidden'), null)
+  assert.equal(jq.getJob('all-visible'), null)
+
+  const archive = await readJson(clearedPath(project.slug))
+  const hiddenEntry = archive.cleared.find((entry: any) => entry.job.job_id === 'all-hidden')
+  assert.ok(hiddenEntry, 'the hidden row was archived, not dropped')
+  assert.equal(hiddenEntry.cleared_at, hiddenAt, 'the moment it was hidden is preserved')
+  assert.equal(hiddenEntry.job.hidden_at, hiddenAt, 'the full row keeps its own marker')
+})
+
+test('the first load moves a project\'s hidden rows into Recently cleared, once', async () => {
+  const project = await pm.createProject({ name: 'Clear hidden migration' })
+  const hiddenAt = '2026-09-09T00:00:30.000Z'
+  await seed(project.slug, [
+    historyRow('migrate-hidden', project.slug, 'done', { hidden_at: hiddenAt }),
+    historyRow('migrate-visible', project.slug, 'done'),
+  ])
+  await jq._waitForJobPersistenceForTesting()
+
+  assert.equal(jq.getJob('migrate-hidden'), null, 'the hidden row moved')
+  assert.ok(jq.getJob('migrate-visible'), 'the visible row stayed')
+  const archive = await readJson(clearedPath(project.slug))
+  assert.equal(archive.cleared.length, 1)
+  assert.equal(archive.cleared[0].job.job_id, 'migrate-hidden')
+  assert.equal(archive.cleared[0].cleared_at, hiddenAt, 'cleared_at comes from hidden_at')
+  assert.deepEqual((await readJson(jobsPath(project.slug))).jobs.map((row: any) => row.job_id), ['migrate-visible'])
+
+  // Loading again is a no-op: no duplicate archive entry, nothing else moves.
+  jq._restartProjectForTesting(project.slug)
+  await jq.getJobs(project.slug)
+  await jq._waitForJobPersistenceForTesting()
+  assert.equal((await readJson(clearedPath(project.slug))).cleared.length, 1, 'idempotent')
+})
+
+test('a failed archive write leaves the hidden rows hidden for the next load', async () => {
+  const project = await pm.createProject({ name: 'Clear migration retry' })
+  const hiddenAt = '2026-09-09T00:00:30.000Z'
+  const directory = path.join(tempDir, 'projects', project.slug)
+  await fs.mkdir(directory, { recursive: true })
+  await fs.writeFile(jobsPath(project.slug), JSON.stringify({ jobs: [
+    historyRow('retry-hidden', project.slug, 'done', { hidden_at: hiddenAt }),
+  ] }))
+  // A directory where the archive file goes makes the atomic rename fail.
+  await fs.mkdir(clearedPath(project.slug), { recursive: true })
+
+  await jq.getJobs(project.slug)
+  await jq._waitForJobPersistenceForTesting()
+  const stillHidden = jq.getJob('retry-hidden')
+  assert.ok(stillHidden, 'the failed migration left the row in place')
+  assert.equal(stillHidden!.hidden_at, hiddenAt)
+  assert.deepEqual((await readJson(jobsPath(project.slug))).jobs.map((row: any) => row.job_id), ['retry-hidden'])
+
+  // Clear the blocker and load again: the next load retries and succeeds.
+  await fs.rm(clearedPath(project.slug), { recursive: true, force: true })
+  jq._restartProjectForTesting(project.slug)
+  await jq.getJobs(project.slug)
+  await jq._waitForJobPersistenceForTesting()
+  assert.equal(jq.getJob('retry-hidden'), null)
+  const archive = await readJson(clearedPath(project.slug))
+  assert.deepEqual(archive.cleared.map((entry: any) => entry.job.job_id), ['retry-hidden'])
+})
+
+test('every Clear refusal logs one line and carries a detail', async () => {
+  const project = await pm.createProject({ name: 'Clear refusals are loud' })
+  await seed(project.slug, [historyRow('log-running', project.slug, 'done')])
+  assert.equal(jq._setJobRecordForTesting('log-running', { status: 'running', finished_at: null }), true)
+
+  const refused = await request(app).post('/api/jobs/all/log-running/clear').expect(409)
+  assert.equal(typeof refused.body.detail, 'string')
+  assert.match(refused.body.detail, /Nothing was archived/)
+
+  const badQuery = await request(app).get('/api/jobs/clear-preview?status=bogus').expect(400)
+  assert.equal(typeof badQuery.body.detail, 'string')
+
+  await flushLogLines()
+  const logFile = path.join(tempDir, 'logs', `server-${new Date().toISOString().slice(0, 10)}.log`)
+  const lines = (await fs.readFile(logFile, 'utf-8')).trim().split('\n').map(line => JSON.parse(line))
+  const single = lines.filter((line: any) => line.route === 'POST /jobs/all/:jobId/clear' && line.job_id === 'log-running')
+  assert.equal(single.length, 1, 'exactly one line for the refused single clear')
+  assert.match(single[0].reason, /only finished jobs/)
+  const preview = lines.filter((line: any) => line.route === 'GET /jobs/clear-preview' && /status must be/.test(line.reason))
+  assert.equal(preview.length, 1, 'exactly one line for the refused preview')
 })
 
 test('Hide still only hides: the record stays, nothing is archived', async () => {

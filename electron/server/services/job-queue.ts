@@ -25,6 +25,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { isDeepStrictEqual } from 'node:util'
 import { mergeGenerationReplacementAttempts } from './generation-paid-replacement.js'
 import { projectsRoot, getConfig, getProjectDir, getUserDataDir } from './project-manager.js'
+import { logLine } from './logger.js'
 import { readYouTubeConnectionRegistry } from './youtube-connection-store.js'
 import { readYouTubeQuota } from './youtube-quota-ledger.js'
 import { validateUploadPacingPolicy } from './upload-pacing.js'
@@ -5676,6 +5677,7 @@ async function loadPersistedJobs(projectSlug: string): Promise<void> {
   const loading = (async () => {
     await initializeQueuePauseState()
     interrupted = await readPersistedJobs(projectSlug)
+    await migrateHiddenJobsToCleared(projectSlug)
     const released = await transitionPausedJobsToQueuedByProject(
       [...jobs.values()].filter(job => (
         job.project_slug === projectSlug
@@ -11055,6 +11057,8 @@ export type ClearedJobSummary = {
 export type ClearPreview = { count: number; ids: string[]; bytes: number; media_bytes: number }
 export type ClearRefusalReason = 'not_found' | 'not_terminal' | 'final_render' | 'unsettled'
 export type ClearJobResult = { ok: true; cleared: ClearedJobSummary } | { ok: false; reason: ClearRefusalReason }
+/** Clear replaces Hide: `all` reaches every terminal, settled row, including hidden and superseded ones. */
+export type JobClearStatus = JobHistoryClearStatus | 'all'
 
 const CLEARED_JOBS_FILE = 'cleared-jobs.json'
 
@@ -11077,7 +11081,14 @@ function clearedRow(job: Job): Job {
 
 function clearedEntry(job: Job): ClearedJob {
   const row = clearedRow(job)
-  return { id: randomUUID(), job: row, cleared_at: new Date().toISOString(), record_bytes: Buffer.byteLength(JSON.stringify(row)) }
+  // A row that was already hidden keeps the moment the owner took it off the
+  // list; a visible row is cleared now.
+  return {
+    id: randomUUID(),
+    job: row,
+    cleared_at: job.hidden_at || new Date().toISOString(),
+    record_bytes: Buffer.byteLength(JSON.stringify(row)),
+  }
 }
 
 function clearedSummary(entry: ClearedJob): ClearedJobSummary {
@@ -11111,21 +11122,29 @@ async function archiveClearedJobs(projectSlug: string, jobsToClear: Job[]): Prom
 
 /**
  * The rows a Clear of this subset would remove — the same rule `clearFinished`
- * applies, so a preview count is the number that disappears. Reads memory and
- * the saved history file, because a scope the queue never loaded keeps its
- * rows only on disk.
+ * applies, so a preview count is the number that disappears. `all` widens it to
+ * every terminal, settled row, hidden or superseded included (Clear replaces
+ * Hide). Reads memory and the saved history file, because a scope the queue
+ * never loaded keeps its rows only on disk.
  */
-async function clearCandidates(projectSlug: string, status: JobHistoryClearStatus): Promise<Job[]> {
+function matchesClearStatus(job: Job, status: JobClearStatus): boolean {
+  if (status !== 'all') return matchesHistoryClearStatus(job, status)
+  if (!TERMINAL_JOB_STATUSES.has(job.status) || hasFinalRenderFence(job)) return false
+  if (!job.force_abandoned && (hasUnsettledProviderEvidence(job) || job.music_results_awaiting_import?.length)) return false
+  return true
+}
+
+async function clearCandidates(projectSlug: string, status: JobClearStatus): Promise<Job[]> {
   await loadPersistedJobs(projectSlug)
   const candidates = new Map<string, Job>()
   for (const job of jobs.values()) {
     if (job.project_slug !== projectSlug) continue
-    if (matchesHistoryClearStatus(job, status)) candidates.set(job.job_id, job)
+    if (matchesClearStatus(job, status)) candidates.set(job.job_id, job)
   }
   const alreadyRemoved = projectPersistence.get(projectSlug)?.deletedIds
   for (const job of await savedHistoryRows(projectSlug)) {
     if (job.project_slug !== projectSlug || jobs.has(job.job_id) || alreadyRemoved?.has(job.job_id)) continue
-    if (matchesHistoryClearStatus(job, status)) candidates.set(job.job_id, job)
+    if (matchesClearStatus(job, status)) candidates.set(job.job_id, job)
   }
   return [...candidates.values()]
 }
@@ -11133,7 +11152,7 @@ async function clearCandidates(projectSlug: string, status: JobHistoryClearStatu
 /** What a Clear would take, measured from the real rows. Media is reported separately because it stays on disk. */
 export async function previewClear(
   projectSlug: string,
-  status: JobHistoryClearStatus,
+  status: JobClearStatus,
   { measureMedia = true }: { measureMedia?: boolean } = {},
 ): Promise<ClearPreview> {
   const candidates = await clearCandidates(projectSlug, status)
@@ -11151,7 +11170,7 @@ export async function previewClear(
 /** Remove a whole terminal subset, recoverably. Returns the count and the measured record bytes. */
 export async function clearFinishedToArchive(
   projectSlug: string,
-  status: JobHistoryClearStatus,
+  status: JobClearStatus,
 ): Promise<{ count: number; bytes: number }> {
   const candidates = await clearCandidates(projectSlug, status)
   if (!candidates.length) return { count: 0, bytes: 0 }
@@ -11209,7 +11228,8 @@ export async function listClearedJobs(projectSlug: string): Promise<{ items: Cle
 /**
  * Put a cleared row back exactly as it was: same job_id, same evidence, same
  * stored fields. If a retry already re-created the row, it is not overwritten —
- * the cleared entry is simply retired.
+ * the cleared entry is simply retired. Clear replaces Hide, so a restored row
+ * goes back on the list instead of back into the Hidden filter.
  */
 export async function restoreClearedJob(
   projectSlug: string,
@@ -11221,9 +11241,11 @@ export async function restoreClearedJob(
   if (!entry) return null
   const existing = jobs.get(entry.job.job_id)
   if (!existing) {
-    jobs.set(entry.job.job_id, entry.job)
-    await persistJob(entry.job)
-    emitPublicUpdate(entry.job)
+    const row = { ...entry.job }
+    delete row.hidden_at
+    jobs.set(row.job_id, row)
+    await persistJob(row)
+    emitPublicUpdate(row)
   }
   await withLock(jobsPath(projectSlug), async () => {
     const current = await readClearedJobs(projectSlug)
@@ -11232,6 +11254,42 @@ export async function restoreClearedJob(
     }, { compact: true })
   })
   return { already_present: Boolean(existing), job_id: entry.job.job_id }
+}
+
+/**
+ * Clear replaces Hide (owner, 2026-11-18: "why have a hidden instead of just a
+ * clear and make it gone"). Rows hidden under the old control would otherwise
+ * be unreachable once the UI stops offering Hide, so the first load of a
+ * project moves them into the same Recently cleared store Clear uses.
+ *
+ * One batch, one line, idempotent. If the archive write or the durable delete
+ * fails, the rows are left hidden and the next load retries; nothing is
+ * deleted from disk.
+ */
+async function migrateHiddenJobsToCleared(projectSlug: string): Promise<void> {
+  const hidden = [...jobs.values()].filter(job => (
+    job.project_slug === projectSlug && isJobHidden(job) && matchesClearStatus(job, 'all')
+  ))
+  if (!hidden.length) return
+  try {
+    const entries = await archiveClearedJobs(projectSlug, hidden)
+    await Promise.all(hidden.map(job => persistProjectMutation(projectSlug, { kind: 'delete', jobId: job.job_id })))
+    for (const job of hidden) jobs.delete(job.job_id)
+    emitCleared(projectSlug, hidden.map(job => job.job_id))
+    logLine('info', `[job-queue] moved ${entries.length} hidden rows from ${projectSlug} into Cleared jobs`, {
+      route: 'jobs:clear-migration',
+      reason: 'hidden rows folded into Clear',
+      project: projectSlug,
+      count: entries.length,
+    })
+  } catch (error: any) {
+    logLine('warn', `[job-queue] could not move ${hidden.length} hidden rows from ${projectSlug} into Cleared jobs`, {
+      route: 'jobs:clear-migration',
+      reason: error?.message || 'archive write failed',
+      project: projectSlug,
+      count: hidden.length,
+    })
+  }
 }
 
 
