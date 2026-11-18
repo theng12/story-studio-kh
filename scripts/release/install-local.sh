@@ -36,7 +36,7 @@ set -u
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 SOURCE="${1:-$ROOT/dist/mac-arm64/Story Studio KH.app}"
 TARGET="${STORY_STUDIO_INSTALL_TARGET:-/Applications/Story Studio KH.app}"
-TRASH="${STORY_STUDIO_INSTALL_TRASH:-$ROOT/_trash/app}"
+TRASH="${STORY_STUDIO_INSTALL_TRASH:-${STORY_STUDIO_TRASH_DIR:-$HOME/Desktop/_trash/story-studio-kh}/app}"
 
 if [ ! -d "$SOURCE" ]; then
   echo "No built bundle at: $SOURCE"

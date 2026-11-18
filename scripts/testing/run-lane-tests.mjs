@@ -49,6 +49,7 @@ import {
   resolveWorkRoot,
   retainedFsEvidenceFailure,
 } from './run-backend-tests.mjs'
+import { TRASH_ROOT_ENV, DEFAULT_TRASH_ROOT } from '../shared-paths.mjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
 const COVERAGE_REPORTER = path.join(ROOT, 'scripts', 'testing', 'suite-coverage-reporter.mjs')
@@ -129,6 +130,7 @@ function childEnv(sandbox, snapshotRoot, addRetainedAdapter) {
   env.TEMP = sandbox
   env.STORY_STUDIO_TEST_HARNESS_ROOT = sandbox
   env.STORY_STUDIO_RETAINED_SNAPSHOT_ROOT = snapshotRoot
+  env[TRASH_ROOT_ENV] = DEFAULT_TRASH_ROOT
   if (addRetainedAdapter) {
     env.NODE_OPTIONS = [env.NODE_OPTIONS, `--import ${pathToFileURL(RETAINED_FS_PRELOAD).href}`].filter(Boolean).join(' ')
   }

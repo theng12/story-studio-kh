@@ -40,6 +40,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
+import { resolveTrashRootSync } from '../shared-paths.mjs'
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url))
 const root = path.resolve(scriptDir, '..', '..')
@@ -105,14 +106,13 @@ export function shutdownMarkerLines(output) {
  * @param {{ settled: boolean, projectRoot?: string, warn?: (message: string) => void }} options
  * @returns {{ moved: boolean, path?: string, retained?: string }}
  */
-export function finalizeLaunchSandbox(sandbox, { settled, projectRoot = root, warn = console.warn } = {}) {
+export function finalizeLaunchSandbox(sandbox, { settled, warn = console.warn } = {}) {
   if (!settled) {
     warn(`Launch smoke sandbox retained at ${sandbox}: the packaged app did not exit after SIGTERM within ${TERM_GRACE_MS}ms (no SIGKILL was sent)`)
     return { moved: false, retained: sandbox }
   }
   try {
-    const trashRoot = path.join(projectRoot, '_trash')
-    fs.mkdirSync(trashRoot, { recursive: true })
+    const trashRoot = resolveTrashRootSync()
     const trashDir = fs.mkdtempSync(path.join(trashRoot, 'release-'))
     const destination = path.join(trashDir, path.basename(sandbox))
     fs.renameSync(sandbox, destination)

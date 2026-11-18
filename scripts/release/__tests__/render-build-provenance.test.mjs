@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { trashPath } from '../../shared-paths.mjs'
 import { test } from 'node:test'
 import {
   readSelectedStoryRenderProvenance,
@@ -28,7 +29,7 @@ const packageText = provenance => JSON.stringify({ name: 'story-studio-kh', main
 const selected = value => readSelectedStoryRenderProvenance(Buffer.from(JSON.stringify({ extraMetadata: { storyRenderProvenance: value } })))
 
 function fixture({ provenance = tool, mountedProvenance = provenance, outputPayload = 'same', mountedPayload = outputPayload, stat = {}, attachFails = false, detachFails = false, missingEntry = null } = {}) {
-  const parent = process.env.STORY_STUDIO_TEST_HARNESS_ROOT || path.join(root, '_trash', 'test-fixtures')
+  const parent = process.env.STORY_STUDIO_TEST_HARNESS_ROOT || trashPath('test-fixtures')
   fs.mkdirSync(parent, { recursive: true, mode: 0o700 })
   const dir = fs.realpathSync(fs.mkdtempSync(path.join(parent, 'render-provenance-contract-')))
   fs.chmodSync(dir, 0o700)

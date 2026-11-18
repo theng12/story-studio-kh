@@ -31,6 +31,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { resolveTrashRootSync } from './shared-paths.mjs'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const APP_NAME = 'Story Studio KH Helper'
@@ -85,7 +86,7 @@ if (check) {
   compile(binary, renderSources, 'render helper')
   const renderVersion = versionOf(binary, /^scene-clip \d+/, 'render helper')
   console.log(`build-scene-clip: ${renderVersion} (checked)`)
-  const trash = path.join(root, '_trash', 'scene-clip-build-checks')
+  const trash = path.join(resolveTrashRootSync(), 'scene-clip-build-checks')
   fs.mkdirSync(trash, { recursive: true })
   fs.renameSync(dir, path.join(trash, path.basename(dir)))
   process.exit(0)
@@ -98,7 +99,7 @@ const renderBinary = path.join(macos, APP_NAME)
 // Retire both old executables recoverably before replacing the swap helper.
 const oldBinaries = [renderBinary, path.join(resources, APP_NAME)].filter(file => fs.existsSync(file))
 if (oldBinaries.length) {
-  const retired = path.join(root, '_trash', 'story-helper-swap-20261113', `binaries-${Date.now()}`)
+  const retired = path.join(resolveTrashRootSync(), 'story-helper-swap-20261113', `binaries-${Date.now()}`)
   for (const file of oldBinaries) {
     const target = path.join(retired, path.basename(path.dirname(file)), APP_NAME)
     fs.mkdirSync(path.dirname(target), { recursive: true })
