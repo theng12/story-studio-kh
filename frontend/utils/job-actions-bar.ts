@@ -144,4 +144,7 @@ export const MORE_ACTION_HINTS = {
   resume: 'Continues paused jobs from where they stopped.',
   clearFinished: 'Hides finished rows from this list. Nothing is deleted — the Hidden filter restores them.',
   clearFailed: 'Hides settled failed rows from this list. Their error details, logs and Retry/Recover stay, and the Hidden filter restores them.',
+  // Clear, not Hide: the record itself goes, and Recently cleared is the undo.
+  clearJobsFinished: 'Removes finished job records from the list and the record store. Their files stay on disk, and Recently cleared puts them back.',
+  clearJobsFailed: 'Removes settled failed job records from the list and the record store. Their files stay on disk, and Recently cleared puts them back.',
 } as const

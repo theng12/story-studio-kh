@@ -142,6 +142,19 @@
               <small>{{ failedCount ? MORE_ACTION_HINTS.clearFailed : 'No settled failed rows to hide.' }}</small>
             </div>
           </div>
+          <div class="jobs-control-group" role="group" aria-label="Clear job records">
+            <span class="jobs-control-label">Clear · removes the job record, not its files · restorable from Recently cleared</span>
+            <div class="jobs-more-action">
+              <button class="btn btn-sm btn-secondary" :disabled="bulkActionBusy || finishedCount === 0"
+                @click="clearBucket('finished')">{{ clearingBucket === 'finished' ? 'Clearing…' : 'Clear Finished…' }}</button>
+              <small>{{ finishedCount ? MORE_ACTION_HINTS.clearJobsFinished : 'No finished jobs to clear.' }}</small>
+            </div>
+            <div class="jobs-more-action">
+              <button class="btn btn-sm btn-secondary" :disabled="bulkActionBusy || failedCount === 0"
+                @click="clearBucket('failed')">{{ clearingBucket === 'failed' ? 'Clearing…' : 'Clear Failed…' }}</button>
+              <small>{{ failedCount ? MORE_ACTION_HINTS.clearJobsFailed : 'No settled failed jobs to clear.' }}</small>
+            </div>
+          </div>
         </div>
       </div>
       <p v-if="retryAllStatusMessage" class="jobs-control-result" role="status">{{ retryAllStatusMessage }}</p>
@@ -318,6 +331,10 @@
         timestamps all stay, and each card names the run that took its place. Superseded rows are not counted
         in Needs attention or in the Hide Failed total.
       </p>
+      <p v-if="statusFilter === 'cleared'" class="jobs-hidden-hint" role="status">
+        {{ clearedRows.length }} cleared {{ clearedRows.length === 1 ? 'record' : 'records' }} ({{ formatBytes(clearedBytes) }} of job records).
+        Clear removes the record; the files it rendered stay on disk. Restore puts a row back on the list.
+      </p>
     </div>
 
     <!-- Sort Bar -->
@@ -375,12 +392,43 @@
     </WorkspaceNotice>
     <!-- Empty State -->
     <EmptyState
-      v-else-if="activeJobs.length === 0 && historyJobs.length === 0"
+      v-else-if="activeJobs.length === 0 && historyJobs.length === 0 && statusFilter !== 'cleared'"
       class="mt-2"
       icon="⚙️"
       :title="emptyTitle"
       :message="emptyMessage"
     />
+
+    <!-- Recently cleared: the records Clear removed, and the way back. -->
+    <section v-if="statusFilter === 'cleared'" class="jobs-section mt-2">
+      <div class="section-heading">
+        <h2>Recently cleared</h2>
+        <span class="section-count">{{ clearedRows.length }}</span>
+      </div>
+      <div v-if="clearedRows.length" class="job-table" role="table" aria-label="Recently cleared jobs">
+        <div class="job-table-head" role="row">
+          <span role="columnheader">Cleared</span>
+          <span role="columnheader">Episode</span>
+          <span role="columnheader">Type</span>
+          <span role="columnheader">Record size</span>
+          <span role="columnheader" class="job-table-actions-head">Action</span>
+        </div>
+        <div v-for="row in clearedRows" :key="row.id" class="job-table-row" role="row">
+          <span role="cell" class="job-table-time">{{ formatTime(row.cleared_at) }}</span>
+          <span role="cell" class="job-table-episode">{{ row.episode || '—' }}</span>
+          <span role="cell">{{ jobTypeLabel(row.type) }}</span>
+          <span role="cell">{{ formatBytes(row.record_bytes) }}</span>
+          <span role="cell" class="job-table-actions">
+            <button
+              class="btn btn-xs btn-secondary"
+              :disabled="restoringCleared.has(row.id)"
+              @click="restoreClearedJob(row)"
+            >{{ restoringCleared.has(row.id) ? 'Restoring…' : 'Restore' }}</button>
+          </span>
+        </div>
+      </div>
+      <p v-else class="text-muted mt-1">{{ clearedLoading ? 'Reading cleared jobs…' : 'Nothing has been cleared.' }}</p>
+    </section>
 
     <GroupedWarnings v-if="groupedJobWarnings.length" :entries="groupedJobWarnings" item-noun="jobs" />
 
@@ -886,6 +934,13 @@
               <button
                 v-if="canHideJob(job)"
                 class="btn btn-xs btn-ghost"
+                title="Remove this job record from the list. It can be put back from Recently cleared; its files stay on disk."
+                :disabled="controlBusy.has(job.job_id)"
+                @click="clearJob(job)"
+              >Clear…</button>
+              <button
+                v-if="canHideJob(job)"
+                class="btn btn-xs btn-ghost"
                 title="Remove this job for good. It cannot be undone."
                 @click="discardJob(job)"
               >Discard</button>
@@ -1174,8 +1229,19 @@ import { formatCredits } from '~/utils/genstudio-credit-cost'
 import { recoverEpisodeAssets, describeEpisodeAssetRecovery, type EpisodeAssetRecovery } from '~/utils/job-asset-recovery'
 import { groupEpisodeRecoveryRetries, isEpisodeRecoveryType, isRecoveredFailure, isSkippedJob, isVerifiedRecoveredSubtitleJob, jobDisplayStatus } from '~/utils/episode-recovery'
 import { effectiveGenStudioTaskState, holdsUnknownProviderOutcome, isFreeFleetWork } from '@shared/provider-task-state'
-import { bulkConfirmOptions, capList, controlLabel, deriveOutputDir, episodeQueryValue, isPaidWork, matchesEpisodeSearch, orderJobsForDisplay, pageCount, pageSlice, rowOutputLineCount, rowProgressCounter, rowSummaryLine } from '~/utils/jobs-list'
+import { bulkConfirmOptions, capList, controlLabel, deriveOutputDir, episodeQueryValue, isMissingJobError, isPaidWork, matchesEpisodeSearch, orderJobsForDisplay, pageCount, pageSlice, rowOutputLineCount, rowProgressCounter, rowSummaryLine } from '~/utils/jobs-list'
+import { formatBytes } from '~/composables/useFormat'
 type RJob = DeepReadonly<Job>
+/** A row in the server's Recently cleared bucket — the record Clear removed. */
+interface ClearedJobRow {
+  id: string | number
+  job_id: string
+  project_slug: string
+  type: string
+  episode: string | null
+  cleared_at: string
+  record_bytes: number
+}
 
 definePageMeta({ layout: 'dashboard' })
 useAppTitle('Jobs')
@@ -1202,6 +1268,12 @@ const history = useJobHistory()
 // can pick one up by accident — the Hidden filter is the only place that asks
 // for them back.
 const hiddenHistory = useJobHistory()
+// Clear removes a record on purpose, so the server keeps it in its own bucket.
+// This read is the way back: Recently cleared lists it and Restore puts it back.
+const clearedRows = ref<ClearedJobRow[]>([])
+const clearedBytes = ref(0)
+const clearedLoading = ref(false)
+const restoringCleared = ref(new Set<string | number>())
 // A failed history read must be visible: an empty list after a successful clear
 // otherwise looks like "nothing remains" instead of "the list could not reload".
 const historyError = computed(() => history.error.value)
@@ -1306,6 +1378,22 @@ watch(isUniversal, enabled => {
 // Narrowing to one channel DOES send the scope, because that is the difference
 // between a fleet's history and one channel's.
 let historyReload: ReturnType<typeof setTimeout> | null = null
+/**
+ * The cleared bucket is not history: these records are gone from every list
+ * and only this read can bring one back, so a failed read says so out loud.
+ */
+async function loadCleared() {
+  clearedLoading.value = true
+  try {
+    const body = await get<{ items?: ClearedJobRow[]; bytes?: number }>('/jobs/cleared', { cache: 'no-store' })
+    clearedRows.value = body?.items || []
+    clearedBytes.value = body?.bytes || 0
+  } catch (e: any) {
+    showError(e?.data?.detail || 'Recently cleared jobs could not be loaded.')
+  } finally {
+    clearedLoading.value = false
+  }
+}
 async function loadJobHistory() {
   if (isUniversal.value) {
     const query = projectFilter.value === 'all' ? {} : { project: projectFilter.value }
@@ -1338,6 +1426,8 @@ watch(() => universalQueue.jobs.value.map(job => `${job.job_id}:${job.status}`).
   if (isUniversal.value) scheduleHistoryRefresh(500)
 })
 onUnmounted(() => { if (historyReload) clearTimeout(historyReload) })
+// The Recently cleared chip shows its real count before the facet is opened.
+onMounted(() => { void loadCleared() })
 
 // Account attribution helpers. Populated by the resolver whenever it runs
 // under a jobId (see electron/server/providers/registry.ts). Present only
@@ -2457,6 +2547,98 @@ async function hideJob(job: RJob) {
 }
 
 /**
+ * Clear takes the job record off the list AND out of the record store — the
+ * removal the owner missed while every removal action only hid. The server
+ * keeps it in Recently cleared, so this is restorable; the rendered files are
+ * never touched.
+ */
+async function clearJob(job: RJob) {
+  if (isJobHidden(job) || !canHideJob(job) || controlBusy.value.has(job.job_id)) return
+  if (!await useConfirm().ask({
+    title: 'Clear this job?',
+    message: 'It leaves the list and the job record. You can put it back from Recently cleared. Its files stay on disk.',
+    confirmLabel: 'Clear',
+    danger: true,
+  })) return
+  controlBusy.value = new Set(controlBusy.value).add(job.job_id)
+  try {
+    await post(`/jobs/all/${job.job_id}/clear`, {})
+    success('Cleared. Its files stay on disk; Restore it from Recently cleared.')
+    await loadJobHistory()
+    await loadCleared()
+    await refreshVisibleJobs()
+  } catch (e: any) {
+    // "Job not found" is the goal already holding, not a refusal.
+    if (isMissingJobError(e)) {
+      info('That job was already gone. The list is refreshed.')
+      await loadJobHistory()
+      await refreshVisibleJobs()
+    } else showError(e?.data?.detail || 'Failed to clear this job')
+  } finally {
+    const next = new Set(controlBusy.value)
+    next.delete(job.job_id)
+    controlBusy.value = next
+  }
+}
+
+/**
+ * Bulk Clear: the preview measures what will go and what stays, the same
+ * numbers travel back as `expected_*`, and a mismatch is the server's call to
+ * refuse — never a partial clear the owner did not see.
+ */
+async function clearBucket(status: 'finished' | 'failed') {
+  if (bulkActionBusy.value) return
+  clearingBucket.value = status
+  try {
+    const preview = await get<{ count: number; ids: string[]; bytes: number; media_bytes: number }>(
+      `/jobs/clear-preview?status=${status}`, { cache: 'no-store' })
+    if (!preview?.count) {
+      info(`Nothing to clear — no settled ${status} jobs.`)
+      return
+    }
+    if (!await useConfirm().ask({
+      title: `Clear ${preview.count} ${status} job${preview.count === 1 ? '' : 's'}?`,
+      message: `This removes their job records (${formatBytes(preview.bytes)}). Their rendered media (${formatBytes(preview.media_bytes)}) stays on disk. You can put them back from Recently cleared.`,
+      confirmLabel: 'Clear',
+      danger: true,
+    })) return
+    const result = await post<{ ok: boolean; cleared: number; bytes: number }>('/jobs/all/clear', {
+      status,
+      expected_count: preview.count,
+      expected_bytes: preview.bytes,
+    })
+    success(`Cleared ${result.cleared} ${status} job record${result.cleared === 1 ? '' : 's'} (${formatBytes(result.bytes)}). Their media stays on disk; Restore them from Recently cleared.`)
+    history.invalidate()
+    await refreshVisibleJobs()
+    await loadJobHistory()
+    await loadCleared()
+  } catch (e: any) {
+    // The server's own sentence says why it refused (e.g. the list changed).
+    showError(e?.data?.detail || `Failed to clear ${status} jobs`)
+  } finally {
+    clearingBucket.value = null
+  }
+}
+
+/** Put a cleared record back on the list; the restore answers if it was already there. */
+async function restoreClearedJob(row: ClearedJobRow) {
+  if (restoringCleared.value.has(row.id)) return
+  restoringCleared.value = new Set(restoringCleared.value).add(row.id)
+  try {
+    const result = await post<{ ok: boolean; already_present?: boolean }>(`/jobs/cleared/${row.id}/restore`, {})
+    success(result?.already_present ? 'That job is already on the list.' : 'Restored to the list.')
+    await loadCleared()
+    await loadJobHistory()
+  } catch (e: any) {
+    showError(e?.data?.detail || 'Failed to restore this job.')
+  } finally {
+    const next = new Set(restoringCleared.value)
+    next.delete(row.id)
+    restoringCleared.value = next
+  }
+}
+
+/**
  * Put a hidden row back on the list (the server's `hidden_at`). Nothing was
  * deleted on the way out, so its error details, log and Retry/Recover are
  * still on the record — this only makes the row readable again.
@@ -2528,12 +2710,14 @@ const supersededScopedJobs = computed(() => {
     : list.filter(job => job.type === activeFilter.value)
 })
 const typeScopedJobs = computed(() => {
+  // Cleared rows are not jobs any more: they render from their own bucket below.
+  if (statusFilter.value === 'cleared') return []
   if (statusFilter.value === 'hidden') return hiddenTypeScopedJobs.value
   if (statusFilter.value === 'superseded') return supersededScopedJobs.value
   return visibleTypeScopedJobs.value
 })
 // v1.0.x — status filter (independent of the type tabs).
-const statusFilter = ref<'all' | 'running' | 'queued' | 'paused' | 'error' | 'done' | 'recovered' | 'cancelled' | 'skipped' | 'hidden' | 'superseded'>('all')
+const statusFilter = ref<'all' | 'running' | 'queued' | 'paused' | 'error' | 'done' | 'recovered' | 'cancelled' | 'skipped' | 'hidden' | 'superseded' | 'cleared'>('all')
 const failureBatchFilter = ref<string | null>(null)
 const historySection = ref<HTMLElement | null>(null)
 const historyHeading = ref<HTMLElement | null>(null)
@@ -2554,6 +2738,9 @@ const STATUS_FILTERS: Array<{ key: typeof statusFilter.value; label: string }> =
   // The rows a retry retired. Again a different set of records: counted from
   // its own bucket, each card naming the run that replaced it.
   { key: 'superseded', label: 'Superseded' },
+  // Clear removes the record instead of hiding it. This bucket is the undo, so
+  // it is listed apart from Hidden and counted from its own read.
+  { key: 'cleared', label: 'Recently cleared' },
 ]
 // `?status=error` (the dashboard's "Repair N failed jobs" link) opens the list already filtered.
 function statusFromQuery(value: unknown): typeof statusFilter.value | null {
@@ -2587,7 +2774,9 @@ const statusFilters = computed(() => STATUS_FILTERS.map(s => ({
       : s.key === 'all'
       ? visibleTypeScopedJobs.value.length
       : visibleTypeScopedJobs.value.filter(j => jobDisplayStatus(j) === s.key).length,
-})))
+}))
+  // The cleared bucket is counted from its own read, not from a display status.
+  .map(s => s.key === 'cleared' ? { ...s, count: clearedRows.value.length } : s))
 
 // Filter tabs at the top of the Jobs page. Order matches the production
 // pipeline so a user scanning left-to-right sees the same flow as the
@@ -2764,7 +2953,10 @@ onUnmounted(() => jobDetails.stop())
 
 // Reset page when either filter changes
 watch(activeFilter, () => { currentPage.value = 1 })
-watch(statusFilter, () => { currentPage.value = 1 })
+watch(statusFilter, () => {
+  currentPage.value = 1
+  if (statusFilter.value === 'cleared') void loadCleared()
+})
 watch(projectFilter, () => { currentPage.value = 1 })
 watch(historyTotalPages, total => { currentPage.value = Math.min(currentPage.value, total) })
 
@@ -2782,9 +2974,10 @@ const actionScopeLabel = computed(() => !isUniversal.value ? projectName(slug.va
   : projectFilter.value === 'all' ? 'All channels' : projectFilter.value === '_app_' ? 'App tools' : projectName(projectFilter.value))
 const hasQueueWork = computed(() => globalQueueWork.value !== false || jobs.value.some(job => ['queued', 'running'].includes(job.status)))
 const clearingHistory = ref<'finished' | 'failed' | null>(null)
+const clearingBucket = ref<'finished' | 'failed' | null>(null)
 const bulkActionMessage = ref('')
 const bulkActionBusy = computed(() => checkingAll.value || recheckingAll.value || recoveringAllEpisodes.value || recoveringEpisodes.value.size > 0
-  || repairingAllFailed.value || repairingJobs.value.size > 0 || retryingAllFailed.value || bulkResumeBusy.value || clearingHistory.value !== null || clearingSelected.value)
+  || repairingAllFailed.value || repairingJobs.value.size > 0 || retryingAllFailed.value || bulkResumeBusy.value || clearingHistory.value !== null || clearingBucket.value !== null || clearingSelected.value)
 
 // ── Duration helpers ────────────────────────────────────────────────────
 

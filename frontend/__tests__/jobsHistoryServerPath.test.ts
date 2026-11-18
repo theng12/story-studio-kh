@@ -176,8 +176,11 @@ test('a confirmed hide invalidates stale reads and reloads history in either sco
     'selected hides reload the active scope after confirmed hides')
   assert.match(page, /control\.action === 'clear-history'\) \{[\s\S]{0,520}await post\(`\$\{jobQueuePath\(job\)\}\/hide`, \{\}\)[\s\S]{0,120}await loadJobHistory\(\)/,
     'a single clear calls the hide endpoint and reloads; the server resolves a row that survives only in saved history')
-  assert.doesNotMatch(page, /isMissingJobError\(/,
-    'the page no longer short-circuits a missing job: /hide owns the saved-history fallback and a true 404 stays an error')
+  // Hide keeps its saved-history fallback; Clear is the one action whose 404
+  // means the goal already holds (the record is already gone).
+  const hideFlow = page.slice(page.indexOf('async function hideJob('), page.indexOf('async function clearJob('))
+  assert.doesNotMatch(hideFlow, /isMissingJobError\(/,
+    'the Hide path no longer short-circuits a missing job: /hide owns the saved-history fallback and a true 404 stays an error')
   assert.doesNotMatch(page, /history\.removeIds\(/,
     'the page does not drop rows before the authoritative reload — Hide keeps the record')
   assert.match(page, /if \(isUniversal\.value\) void refreshVisibleJobs\(\)\n\s*else await refreshVisibleJobs\(\)\n\s*await loadJobHistory\(\)/,
