@@ -2699,10 +2699,9 @@ function toggleSort(key: string) {
 const filteredJobs = computed(() => {
   return filterJobsForView(typeScopedJobs.value, {
     type: 'all',
-    // `typeScopedJobs` is already the hidden (or superseded) read here;
-    // neither is a display status, so passing either through would filter
-    // every row out.
-    status: statusFilter.value === 'hidden' || statusFilter.value === 'superseded' ? 'all' : statusFilter.value,
+    // `typeScopedJobs` is already the superseded read here; that is not a display
+    // status, so passing it through would filter every row out.
+    status: statusFilter.value === 'superseded' ? 'all' : statusFilter.value,
     project: 'all',
     batch: failureBatchFilter.value,
   }).filter(job => matchesEpisodeSearch(job, episodeSearch.value))
@@ -2796,7 +2795,7 @@ const failedCount = computed(() => removableJobs.value.filter(job =>
 const actionScopeLabel = computed(() => !isUniversal.value ? projectName(slug.value)
   : projectFilter.value === 'all' ? 'All channels' : projectFilter.value === '_app_' ? 'App tools' : projectName(projectFilter.value))
 const hasQueueWork = computed(() => globalQueueWork.value !== false || jobs.value.some(job => ['queued', 'running'].includes(job.status)))
-const clearingBucket = ref<'finished' | 'failed' | null>(null)
+const clearingBucket = ref<'finished' | 'failed' | 'all' | null>(null)
 const bulkActionMessage = ref('')
 const bulkActionBusy = computed(() => checkingAll.value || recheckingAll.value || recoveringAllEpisodes.value || recoveringEpisodes.value.size > 0
   || repairingAllFailed.value || repairingJobs.value.size > 0 || retryingAllFailed.value || bulkResumeBusy.value || clearingBucket.value !== null || clearingSelected.value)

@@ -21,6 +21,7 @@ import { runBootMigrations, isBootComplete } from './boot/migrations.js'
 import { signalBootFirstPaint } from './boot/deferred-boot.js'
 import { logLine, startLogPruning } from './services/logger.js'
 import { applyServerTimeouts, requestDeadline } from './lib/server-timeouts.js'
+import { setStallReporter } from './lib/stall-watch.js'
 import { migrateLegacyProjects } from './services/project-manager.js'
 import { applySecurityHeaders, requireAllowedHost } from './lib/security.js'
 import { installOutboundConnectionCap, OUTBOUND_CONNECTIONS_PER_ORIGIN } from './lib/outbound-connections.js'
@@ -297,6 +298,9 @@ if (shouldListen) {
   // whichever request happened to cross the hour boundary. Housekeeping belongs
   // on a timer, not on the path a person is waiting on.
   startLogPruning()
+  // Stall lines go to the app's own log; the watcher stays free of services/ so a
+  // lock primitive never drags the job queue into the frontend's type program.
+  setStallReporter((level, message, meta) => logLine(level, message, meta))
   // Loopback only: this backend has no login, and Node's default bind is every
   // interface (LAN + Tailscale). `HOST=0.0.0.0` opts back in deliberately.
   const server = app.listen(PORT, process.env.HOST || '127.0.0.1', () => {

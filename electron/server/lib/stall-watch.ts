@@ -9,14 +9,27 @@
  * `describeRequestHold()` (the request deadline). It observes waits; it never
  * cancels, times out or resolves one.
  *
- * The threshold is a setting read the way `server-timeouts.ts` reads its own:
- * cached in memory, refreshed on a settings write, never read from disk on a
- * request path. Loaded once at boot by `applyStallWatchSettings()`.
+ * The threshold is held in memory and handed in by `server-timeouts.ts`, which owns
+ * the setting read. This module deliberately imports nothing from services/: a lock
+ * primitive that pulled the settings store in would drag job-queue and every
+ * content-pack loader into anything importing `atomic-store` — including the
+ * frontend's type program, through models/types.ts.
  */
 
 import { AsyncLocalStorage } from 'node:async_hooks'
-import { getAppSetting, onAppSettingWritten } from '../services/app-settings.js'
-import { logLine } from '../services/logger.js'
+
+/**
+ * The line goes to whatever reporter boot installs (the app's own log). A default
+ * keeps the watcher usable on its own, and — more importantly — keeps `services/`
+ * out of this module's import graph: `logger` reaches project-manager, and through
+ * it the content packs, which the frontend's type program would inherit via
+ * models/types.ts -> task-manifest -> atomic-store.
+ */
+type StallReporter = (level: 'warn', message: string, meta?: Record<string, unknown>) => void
+let report: StallReporter = (level, message, meta) => console[level](message, meta ?? '')
+export function setStallReporter(fn: StallReporter | null): void {
+  report = fn ?? ((level, message, meta) => console[level](message, meta ?? ''))
+}
 
 export const STALL_LOG_SECONDS_KEY = 'stall_log_seconds'
 export const STALL_LOG_SECONDS_DEFAULT = 10
@@ -52,28 +65,14 @@ function clampSeconds(raw: unknown, fallback: number, min: number, max: number):
 }
 
 let cachedStallMs = STALL_LOG_SECONDS_DEFAULT * 1_000
-async function loadStallLogSeconds(): Promise<void> {
-  const seconds = clampSeconds(
-    await getAppSetting(STALL_LOG_SECONDS_KEY),
-    STALL_LOG_SECONDS_DEFAULT,
-    STALL_LOG_SECONDS_MIN,
-    STALL_LOG_SECONDS_MAX,
-  )
-  cachedStallMs = seconds * 1_000
+
+/** The setting's value, handed in by the module that reads settings (boot + on write). */
+export function setStallLogSeconds(raw: unknown): void {
+  cachedStallMs = clampSeconds(raw, STALL_LOG_SECONDS_DEFAULT, STALL_LOG_SECONDS_MIN, STALL_LOG_SECONDS_MAX) * 1_000
 }
 
-let settingsWired = false
-/** Boot-time wiring: read the threshold once, follow later writes. */
-export function applyStallWatchSettings(): void {
-  void loadStallLogSeconds().catch(() => { /* the default stands */ })
-  if (settingsWired) return
-  settingsWired = true
-  onAppSettingWritten(key => {
-    if (key === STALL_LOG_SECONDS_KEY) {
-      void loadStallLogSeconds().catch(() => { /* keep the last good value */ })
-    }
-  })
-}
+/** Test hook: the current threshold in ms. */
+export function stallLogMs(): number { return cachedStallMs }
 
 // Injectable clock so a test crosses the threshold in milliseconds.
 const defaultNow = (): number => Date.now()
@@ -101,7 +100,7 @@ function fireStallLog(entry: StallWait): void {
     ? ''
     : `; holder running ${Math.round(Math.max(0, nowMs() - entry.holderStartedAtMs) / 1000)} s`
   // Observed only: what is waiting, on what, for how long — never why.
-  logLine('warn', `request ${entry.label ? `${entry.label} ` : ''}has been waiting ${waitedS} s on ${entry.operation}${holder}`, {
+  report('warn', `request ${entry.label ? `${entry.label} ` : ''}has been waiting ${waitedS} s on ${entry.operation}${holder}`, {
     operation: entry.operation,
     label: entry.label ?? null,
     waited_s: waitedS,

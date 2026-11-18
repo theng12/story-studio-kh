@@ -24,9 +24,10 @@ import { withLock } from '../lib/atomic-store.js'
 import {
   _setStallWatchClockForTests,
   currentWaits,
+  setStallReporter,
 } from '../lib/stall-watch.js'
 import { getAppSetting } from '../services/app-settings.js'
-import { closeLogStream, flushLogLines } from '../services/logger.js'
+import { closeLogStream, flushLogLines, logLine } from '../services/logger.js'
 import { _setRequestDeadlineForTests, requestDeadline } from '../lib/server-timeouts.js'
 
 process.env.STORY_STUDIO_DISABLE_LISTEN = '1'
@@ -64,10 +65,13 @@ before(async () => {
   tempDir = isolated.dir
   cleanup = isolated.cleanup
   installFakeClock()
+  // app.ts installs this reporter at boot; the test asserts on the real log file.
+  setStallReporter((level, message, meta) => logLine(level, message, meta))
 })
 
 after(async () => {
   _setStallWatchClockForTests(null)
+  setStallReporter(null)
   _setRequestDeadlineForTests(null)
   closeLogStream()
   await cleanup()
@@ -105,7 +109,7 @@ test('a held lock key shows one wait, says one stall line, and clears on release
 
 test('a settings read that outlives the threshold says one line naming the read', async () => {
   const settingsPath = path.join(tempDir, 'app-settings.json')
-  const stalled: Array<() => Promise<string>> = []
+  const stalled: Array<() => Promise<void>> = []
   const realReadFile = (fsp as { readFile: (...args: any[]) => Promise<string> }).readFile
   ;(fsp as { readFile: unknown }).readFile = (target: unknown, ...rest: unknown[]) => {
     if (String(target) === settingsPath) {

@@ -48,7 +48,7 @@
 import type { Server } from 'http'
 import type { Request, Response, NextFunction } from 'express'
 import { getAppSetting, onAppSettingWritten } from '../services/app-settings.js'
-import { applyStallWatchSettings, describeRequestHold, runWithWaitScope } from './stall-watch.js'
+import { STALL_LOG_SECONDS_KEY, describeRequestHold, runWithWaitScope, setStallLogSeconds } from './stall-watch.js'
 
 export const REQUEST_DEADLINE_SECONDS_KEY = 'server_request_deadline_seconds'
 /** Ten minutes: clears the five-minute image preview and the four-minute kit
@@ -104,6 +104,15 @@ async function loadDeadline(): Promise<number> {
   )
   cachedDeadlineMs = seconds * 1_000
   return cachedDeadlineMs
+}
+
+/**
+ * The stall threshold, read here because this module already owns the settings
+ * read on this path; the watcher is handed the value so its own import graph
+ * stays free of services/.
+ */
+async function loadStallSeconds(): Promise<void> {
+  setStallLogSeconds(await getAppSetting(STALL_LOG_SECONDS_KEY))
 }
 
 /** Current deadline in ms. A plain read of a number; touches nothing. */
@@ -187,8 +196,10 @@ export async function applyServerTimeouts(server: Server): Promise<void> {
   // Read the owner's deadline once, here, so the first request after boot uses
   // his number rather than the default — and so the request path never has to.
   await loadDeadline().catch(() => { /* the default is a fine answer */ })
-  // The stall watcher's threshold is read the same way, at the same boot.
-  applyStallWatchSettings()
+  // The stall watcher's threshold is read the same way, at the same boot. It is
+  // handed to the watcher rather than read there: a lock primitive must not pull
+  // the settings store (and through it the job queue) into its import graph.
+  await loadStallSeconds().catch(() => { /* the default stands */ })
   // And keep it current without ever reading from a request: a settings write
   // is not a request, so this is the right place to spend the read.
   if (!deadlineWired) {
@@ -196,6 +207,9 @@ export async function applyServerTimeouts(server: Server): Promise<void> {
     onAppSettingWritten((key) => {
       if (key === REQUEST_DEADLINE_SECONDS_KEY) {
         void loadDeadline().catch(() => { /* keep the last good value */ })
+      }
+      if (key === STALL_LOG_SECONDS_KEY) {
+        void loadStallSeconds().catch(() => { /* keep the last good value */ })
       }
     })
   }
