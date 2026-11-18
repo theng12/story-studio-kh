@@ -1257,6 +1257,9 @@ const projectQueue = useJobs()
 const universalQueue = useAllJobs()
 const genStudioModels = useGenStudioModelDisplay()
 const isUniversal = computed(() => route.query.scope === 'all')
+// Clear is a destructive read over the same rows this page shows, so it is scoped to the channel
+// the page is on. Only the fleet view (scope=all) clears across channels.
+const clearProject = computed(() => isUniversal.value ? '' : slug.value)
 // The live streams carry slim jobs; the cards this page shows get their full Gateway evidence from
 // the per-job GET (see useJobDetails). `streamedJobs` is what the stream sent, `jobs` the merged view.
 const streamedJobs = computed(() => isUniversal.value ? universalQueue.jobs.value : projectQueue.jobs.value)
@@ -1385,7 +1388,8 @@ let historyReload: ReturnType<typeof setTimeout> | null = null
 async function loadCleared() {
   clearedLoading.value = true
   try {
-    const body = await get<{ items?: ClearedJobRow[]; bytes?: number }>('/jobs/cleared', { cache: 'no-store' })
+    const scope = clearProject.value ? `?project=${encodeURIComponent(clearProject.value)}` : ''
+    const body = await get<{ items?: ClearedJobRow[]; bytes?: number }>(`/jobs/cleared${scope}`, { cache: 'no-store' })
     clearedRows.value = body?.items || []
     clearedBytes.value = body?.bytes || 0
   } catch (e: any) {
@@ -2586,12 +2590,16 @@ async function clearJob(job: RJob) {
  * numbers travel back as `expected_*`, and a mismatch is the server's call to
  * refuse — never a partial clear the owner did not see.
  */
+function bulkClearScope(): string {
+  return clearProject.value ? `&project=${encodeURIComponent(clearProject.value)}` : ''
+}
+
 async function clearBucket(status: 'finished' | 'failed') {
   if (bulkActionBusy.value) return
   clearingBucket.value = status
   try {
     const preview = await get<{ count: number; ids: string[]; bytes: number; media_bytes: number }>(
-      `/jobs/clear-preview?status=${status}`, { cache: 'no-store' })
+      `/jobs/clear-preview?status=${status}${bulkClearScope()}`, { cache: 'no-store' })
     if (!preview?.count) {
       info(`Nothing to clear — no settled ${status} jobs.`)
       return
@@ -2604,6 +2612,7 @@ async function clearBucket(status: 'finished' | 'failed') {
     })) return
     const result = await post<{ ok: boolean; cleared: number; bytes: number }>('/jobs/all/clear', {
       status,
+      ...(clearProject.value ? { project: clearProject.value } : {}),
       expected_count: preview.count,
       expected_bytes: preview.bytes,
     })

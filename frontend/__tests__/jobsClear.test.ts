@@ -52,7 +52,10 @@ test('a row Clear asks, posts /clear and reloads the list', () => {
 test('bulk Clear previews the measured counts, asks, and posts expected_count/expected_bytes', () => {
   const clear = body('clearBucket')
   assert.match(clear, /get<\{ count: number; ids: string\[\]; bytes: number; media_bytes: number \}>\(/)
-  assert.match(clear, /`\/jobs\/clear-preview\?status=\$\{status\}`, \{ cache: 'no-store' \}/)
+  assert.match(clear, /`\/jobs\/clear-preview\?status=\$\{status\}\$\{bulkClearScope\(\)\}`, \{ cache: 'no-store' \}/)
+  // The page's channel scope travels with the clear, so one channel's page cannot clear another's rows.
+  assert.match(jobs, /const clearProject = computed\(\(\) => isUniversal\.value \? '' : slug\.value\)/)
+  assert.match(clear, /\.\.\.\(clearProject\.value \? \{ project: clearProject\.value \} : \{\}\)/)
   // Counts and sizes come from the response, never a constant.
   assert.match(clear, /Clear \$\{preview\.count\} \$\{status\} job\$\{preview\.count === 1 \? '' : 's'\}\?/)
   assert.match(clear, /\(\$\{formatBytes\(preview\.bytes\)\}\)/)
@@ -85,7 +88,8 @@ test('no native dialog appears anywhere in the clear path', () => {
 test('Recently cleared lists the bucket and Restore posts to its own endpoint', () => {
   assert.match(jobs, /\{ key: 'cleared', label: 'Recently cleared' \}/)
   assert.match(jobs, /clearedRows\.value\.length/)
-  assert.match(jobs, /get<\{ items\?: ClearedJobRow\[\]; bytes\?: number \}>\('\/jobs\/cleared', \{ cache: 'no-store' \}\)/)
+  assert.match(jobs, /const scope = clearProject\.value \? `\?project=\$\{encodeURIComponent\(clearProject\.value\)\}` : ''/)
+  assert.match(jobs, /get<\{ items\?: ClearedJobRow\[\]; bytes\?: number \}>\(`\/jobs\/cleared\$\{scope\}`, \{ cache: 'no-store' \}\)/)
 
   const restore = body('restoreClearedJob')
   assert.match(restore, /await post<\{ ok: boolean; already_present\?: boolean \}>\(`\/jobs\/cleared\/\$\{row\.id\}\/restore`, \{\}\)/)
