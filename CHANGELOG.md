@@ -4,6 +4,12 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.411 — 2026-11-18
+
+- **Clear replaces Hide.** A finished job now leaves the list for real instead of only being hidden: the row and its record are removed, it waits in a new "Recently cleared" area with Restore, and nothing is ever deleted for good. Clear runs by status — finished, failed, or all — for one channel or every channel, and before anything goes Story says how many jobs and how much record space it will remove, measured, and states plainly that the rendered media stays on disk. The jobs already hidden are moved into Recently cleared the first time their channel loads, so nothing disappears without a way back.
+- **A frozen API says so, and comes back by itself.** When a request has waited too long, Story logs which operation is holding it and how long, and reports the wait on its health check instead of answering as if everything were fine. The health check no longer touches the disk. If the app is genuinely stuck past its limit, it stops taking work, says so in one sentence and exits cleanly, so the login item brings it straight back rather than leaving a frozen window until someone notices. Both limits are settings; the recovery is on by default.
+- **Tests and builds no longer depend on a shortcut folder.** The trash folder is a real, named location instead of a link through the checkout, so emptying the Desktop trash can no longer break a test run or a DMG build.
+
 ## v1.4.410 — 2026-11-18
 
 - **Scene Plan now asks for 50 scenes per request by default.** "Automatic" used to send 250 scenes in one writing request. Smaller requests come back sooner, so a slow provider no longer puts a whole batch at risk of running out of time. A channel that already saved its own number keeps it — nothing is rewritten — and 100 is still offered as a choice, along with 250 and 500 and any whole number you type.
