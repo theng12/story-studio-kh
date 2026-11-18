@@ -180,25 +180,28 @@ describe('the two speeds the batch warning is derived from', () => {
     await s.setLanguageFloorTps(25)
   })
 
-  test('the default batch DOES warn at floor speed, and that is the honest answer', async () => {
-    // 250 scenes x 300 tokens = 75,000 tokens. At the 25 tok/s floor that is
-    // 50 minutes against a 30-minute timeout, so the shipped default batch
-    // warns — correctly, because a provider running at the floor is a provider
-    // he can genuinely be routed to. At his preferred 50 tok/s the same batch
-    // lands in 25 minutes, which is why the sentence names both speeds instead
-    // of just sounding an alarm.
+  test('the shipped default batch of 50 fits at floor speed, while larger batches like 250 still warn', async () => {
+    // Default 50 scenes x 300 tokens = 15,000 tokens (10 minutes at the
+    // 25 tok/s floor <= 30-minute timeout), so the default batch is safe even
+    // at floor speed. Larger selections like 250 scenes (75,000 tokens = 50 min
+    // at 25 tok/s, 25 min at 50 tok/s) still exceed the floor budget and warn.
     const s = await settings()
     const { SCENE_PROMPT_PACK_TUNING_DEFAULTS } = await import('../services/scene-prompt-batching.js')
-    const tokens = SCENE_PROMPT_PACK_TUNING_DEFAULTS.batchSize
+    const defaultTokens = SCENE_PROMPT_PACK_TUNING_DEFAULTS.batchSize
       * SCENE_PROMPT_PACK_TUNING_DEFAULTS.tokensPerScene
     const budgetSeconds = s.LANGUAGE_TIMEOUT_MINUTES_DEFAULT * 60
     assert.ok(
-      tokens / s.LANGUAGE_FLOOR_TPS_DEFAULT > budgetSeconds,
-      'at the hard floor the default batch must not silently look safe',
+      defaultTokens / s.LANGUAGE_FLOOR_TPS_DEFAULT <= budgetSeconds,
+      'at the hard floor the 50-scene default batch fits inside the timeout',
+    )
+    const largeTokens = 250 * SCENE_PROMPT_PACK_TUNING_DEFAULTS.tokensPerScene
+    assert.ok(
+      largeTokens / s.LANGUAGE_FLOOR_TPS_DEFAULT > budgetSeconds,
+      'at the hard floor a 250-scene batch must not silently look safe',
     )
     assert.ok(
-      tokens / s.LANGUAGE_PREFERRED_TPS_DEFAULT <= budgetSeconds,
-      'at the preferred speed it must fit, or the default batch is simply wrong',
+      largeTokens / s.LANGUAGE_PREFERRED_TPS_DEFAULT <= budgetSeconds,
+      'at the preferred speed the 250-scene batch fits',
     )
   })
 })
