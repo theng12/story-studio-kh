@@ -31,6 +31,7 @@ import { isServerMode, getServerModeConfig } from './server/lib/server-mode.js'
 import { DEV_BACKEND_PORT } from './server/lib/dev-backend.js'
 import { applyServerTimeouts } from './server/lib/server-timeouts.js'
 import { startLogPruning } from './server/services/logger.js'
+import { startWedgeRecovery } from './server/services/wedge-recovery.js'
 import { bootstrapServerModeFromEnv } from './server/services/app-settings.js'
 import { isAllowedApplicationNavigation, isSafeExternalUrl } from './server/lib/security.js'
 import { redactSecrets } from './server/lib/redact-secrets.js'
@@ -119,6 +120,10 @@ function startServer(): Promise<number> {
     // Old log files are swept on a timer here, not inside the request logger
     // where the sweep used to live.
     startLogPruning()
+    // A freeze has to end itself: past the bound this pauses the queue, parks
+    // (or names) in-flight rows, writes one sentence and quits cleanly —
+    // quit is injected here so the module never reaches for Electron itself.
+    startWedgeRecovery({ quit: () => electronApp.quit() })
     server.listen(port, bind, () => {
       const address = server!.address()
       const actualPort = typeof address === 'object' ? address!.port : port
