@@ -658,7 +658,7 @@ router.get('/projects/:slug/youtube/operations', async (req, res) => {
  * Every other route that reads a video's state starts from an operation row,
  * and a row is only created BY an upload - so a video that went up before the
  * operation store existed (legacy uploads on Boundful EP62-72, Story Sprout
- * SS57-60, TerraNash TN160-161) has no route that can reach it, and the only
+ * SS57-60, TN160-161) has no route that can reach it, and the only
  * way to see its state was to open YouTube Studio by hand.
  *
  * Bounded and strictly read-only. It asks about at most 50 ids in one

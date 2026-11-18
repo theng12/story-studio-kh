@@ -56,7 +56,7 @@ export function buildVideoFrameFilter(options: VideoFrameFilterOptions): string[
   const borderLayer = `${prefix}border`
   // The rounded-corner alpha, computed ONCE: one frame of `geq`, looped, merged
   // per frame. A per-frame `geq` over every pixel was about two-thirds of a
-  // TerraNash render (1.4.264, measured); the output is pixel-identical.
+  // one channel's render (1.4.264, measured); the output is pixel-identical.
   const mask = `${prefix}mask`
   const rgb = `${prefix}rgb`
   const corners = `if(lt(X,${radius})*lt(Y,${radius}),if(lte(pow(X-${radius},2)+pow(Y-${radius},2),${radius * radius}),255,0),if(gte(X,W-${radius})*lt(Y,${radius}),if(lte(pow(X-(W-${radius}),2)+pow(Y-${radius},2),${radius * radius}),255,0),if(lt(X,${radius})*gte(Y,H-${radius}),if(lte(pow(X-${radius},2)+pow(Y-(H-${radius}),2),${radius * radius}),255,0),if(gte(X,W-${radius})*gte(Y,H-${radius}),if(lte(pow(X-(W-${radius}),2)+pow(Y-(H-${radius}),2),${radius * radius}),255,0),255))))`

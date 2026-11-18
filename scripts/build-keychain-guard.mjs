@@ -74,6 +74,9 @@ const compiled = spawnSync('clang++', [
   // SecKeychain is deprecated but remains the only in-process guard for file-based Keychain items.
   '-Wno-deprecated-declarations',
   '-undefined', 'dynamic_lookup',
+  // Without this, clang bakes the absolute output path into LC_ID_DYLIB and it ships. No debug
+  // symbols are produced (-O2, no -g), so that load command was the only carrier.
+  '-Wl,-install_name,@rpath/keychain-guard.node',
   '-I', headers,
   '-framework', 'Security', '-framework', 'CoreFoundation',
   '-o', addon,

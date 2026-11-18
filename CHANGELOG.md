@@ -6,7 +6,7 @@ What's new in each release. Newest first.
 
 ## v1.4.412 — 2026-11-19
 
-- **Removed two private details from the app's own text.** An example address in the Gateway error message and two comments that named an owner channel no longer appear anywhere in the shipped app. Nothing functional changed: no setting, no address and no default was read from either, and the example now uses the reserved documentation range.
+- **Removed private details from the app's own text.** An example address in the Gateway error message and the comments that named owner channels no longer appear anywhere in the shipped app. Nothing functional changed: no setting, no address and no default was read from either, and the example now uses the reserved documentation range. The native Keychain guard also no longer carries a build path.
 - **The gate now cleans up after itself.** A test process left behind by an interrupted release no longer keeps running (and competing for memory) after the gate that started it has gone.
 
 ## v1.4.411 — 2026-11-18

@@ -1,7 +1,7 @@
 /**
  * Publications made outside Story (2026-11-16) — imported, reviewed, then counted.
  *
- * A channel published elsewhere (Terranash, Abiding Faith, …) must be visible in cadence coverage.
+ * A channel published elsewhere must be visible in cadence coverage.
  * Nothing here talks to YouTube: a row arrives UNLINKED from a picked CSV/JSON file, a human
  * verifies it, and only a verified row with a real date counts. A guessed date or “no data” as
  * zero is never accepted.
