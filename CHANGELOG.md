@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.410 — 2026-11-18
+
+- **Scene Plan now asks for 50 scenes per request by default.** "Automatic" used to send 250 scenes in one writing request. Smaller requests come back sooner, so a slow provider no longer puts a whole batch at risk of running out of time. A channel that already saved its own number keeps it — nothing is rewritten — and 100 is still offered as a choice, along with 250 and 500 and any whole number you type.
+
 ## v1.4.409 — 2026-11-18
 
 - **A recovery retry can no longer sit forever.** Retrying a scene plan that had an earlier request at the Gateway could park on "Checking the earlier prompt request" with no end — ten episodes waited 45 minutes with nothing under it. That check now has its own limit, one writing request's own time budget, and when it runs out the row stops and says why, naming Retry and Abandon. It no longer borrows the week-long limit meant for a long render.

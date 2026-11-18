@@ -15,10 +15,11 @@
  *
  * WHAT IS PINNED:
  *   - It fires when the arithmetic says so and STAYS QUIET otherwise, and
- *     the arithmetic uses the HARD FLOOR. The shipped defaults
- *     (250 scenes, 300 tokens each, 30 minutes) DO warn at the 25 tok/s
- *     hard floor and would not at the preferred 50 — so the sentence has
- *     to name both speeds rather than just sounding an alarm.
+ *     the arithmetic uses the HARD FLOOR. The shipped default (50 scenes,
+ *     300 tokens each, 30 minutes) is quiet (10 min <= 30 min), while an
+ *     oversized batch (250 scenes) DOES warn at the 25 tok/s hard floor and
+ *     would not at the preferred 50 — so the sentence has to name both
+ *     speeds rather than just sounding an alarm.
  *   - The boundary is exact, and equal-to-the-budget is NOT a warning.
  *   - Unanswerable inputs are silent, not alarming.
  *   - It is a sentence, never a refusal: nothing here returns a boolean the
@@ -34,20 +35,29 @@ import { batchTimeoutWarning } from '../utils/model-token-budget.js'
 
 /** The shipped defaults, all five of them. */
 const DEFAULTS = {
-  packSize: 250,
+  packSize: 50,
   tokensPerScene: 300,
   timeoutMinutes: 30,
   floorTokensPerSecond: 25,
   preferredTokensPerSecond: 50,
 }
 
+const OVERSIZED_BATCH = {
+  ...DEFAULTS,
+  packSize: 250,
+}
+
 describe('the batch-versus-timeout warning', () => {
-  test('the shipped defaults DO warn, computed against the hard floor', () => {
+  test('the shipped default of 50 scenes fits at floor speed and stays quiet', () => {
+    assert.equal(batchTimeoutWarning(DEFAULTS), '')
+  })
+
+  test('an oversized batch (250 scenes) DOES warn, computed against the hard floor', () => {
     // 250 x 300 = 75,000 tokens. At the 25 tok/s floor that is 50 minutes
-    // against a 30-minute timeout, so the default batch warns about itself —
-    // deliberately. A provider running at the floor is eligible, so a batch
-    // that cannot finish at floor speed is a batch that can genuinely be lost.
-    const warning = batchTimeoutWarning(DEFAULTS)
+    // against a 30-minute timeout, so the warning fires — a provider running
+    // at the floor is eligible, so a batch that cannot finish at floor speed
+    // is a batch that can genuinely be lost.
+    const warning = batchTimeoutWarning(OVERSIZED_BATCH)
     assert.notEqual(warning, '')
     assert.match(warning, /slowest acceptable provider speed \(25 tok\/s\)/)
     assert.match(warning, /50 minutes/)
@@ -57,7 +67,7 @@ describe('the batch-versus-timeout warning', () => {
     // The same batch at his preferred 50 tok/s finishes in 25 minutes, inside
     // the timeout. Saying only the bad half would make the warning read as a
     // prediction of failure, which it is not.
-    const warning = batchTimeoutWarning(DEFAULTS)
+    const warning = batchTimeoutWarning(OVERSIZED_BATCH)
     assert.match(warning, /Faster providers \(50\+ preferred\) will typically complete it/)
     assert.match(warning, /about 25 minutes/)
     assert.match(warning, /Reduce the batch or raise the timeout if you see timeouts\./)
@@ -79,9 +89,9 @@ describe('the batch-versus-timeout warning', () => {
     // A wildly optimistic preference cannot silence a batch that fails the
     // floor test, and a pessimistic one cannot trip a batch that passes it.
     assert.equal(batchTimeoutWarning({ ...quiet, preferredTokensPerSecond: 5 }), '')
-    assert.notEqual(batchTimeoutWarning({ ...DEFAULTS, preferredTokensPerSecond: 10_000 }), '')
+    assert.notEqual(batchTimeoutWarning({ ...OVERSIZED_BATCH, preferredTokensPerSecond: 10_000 }), '')
     // Raising the FLOOR does silence it, because the worst case got faster.
-    assert.equal(batchTimeoutWarning({ ...DEFAULTS, floorTokensPerSecond: 50 }), '')
+    assert.equal(batchTimeoutWarning({ ...OVERSIZED_BATCH, floorTokensPerSecond: 50 }), '')
   })
 
   test('each of the other inputs moves the boundary on its own', () => {
@@ -100,7 +110,7 @@ describe('the batch-versus-timeout warning', () => {
     // is worth a refusal, but "faster providers (25+ preferred)" alongside a
     // 25 tok/s floor would be a sentence that says nothing.
     for (const preferred of [25, 10, undefined, NaN]) {
-      const warning = batchTimeoutWarning({ ...DEFAULTS, preferredTokensPerSecond: preferred as number })
+      const warning = batchTimeoutWarning({ ...OVERSIZED_BATCH, preferredTokensPerSecond: preferred as number })
       assert.notEqual(warning, '', 'the batch still does not fit at the floor')
       assert.doesNotMatch(warning, /Faster providers/)
       assert.match(warning, /Reduce the batch or raise the timeout/)

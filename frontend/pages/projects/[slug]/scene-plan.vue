@@ -345,8 +345,8 @@
               Saved for this channel. Defaults are {{ DEFAULT_TOKENS_PER_SCENE }} tokens per scene, a
               {{ DEFAULT_OUTPUT_SAFETY_FRACTION }} safety fraction and {{ DEFAULT_PROMPT_BATCH_SIZE }} scenes per request.
               {{ DEFAULT_PROMPT_BATCH_SIZE }} is a speed judgement, not a token limit — a request has
-              {{ languageTimeoutMinutes }} minutes to come back, and the large models’ real speed has not been
-              measured yet. Raise it once it has, or give requests longer in This Mac → Throughput.
+              {{ languageTimeoutMinutes }} minutes to come back, and smaller batches avoid long provider waits.
+              Raise it per channel (e.g. 100) if your throughput allows, or give requests longer in This Mac → Throughput.
               <button type="button" class="btn btn-ghost btn-xs" @click="resetBatchTuning">Reset to Defaults</button>
             </p>
             <p v-if="hasSelectedPromptModel" class="scene-setting-help mt-1">Context: {{ selectedModelContextLabel }} · {{ hasPublishedPromptBudget ? 'Output is the response limit, so it—not context—sets the safe batch size.' : hasUnpublishedExplicitPromptBudget ? 'Your selected output allowance, not context, caps the safe batch size.' : 'No output limit is published or selected; the batch is the channel setting, not a model guarantee.' }}</p>
@@ -2018,15 +2018,16 @@ const PROMPT_PACK_MIN = 1
  * config, edited under Advanced batch controls) and the backend performs the
  * same arithmetic from the same saved numbers.
  *
- * 250 is a WALL-CLOCK judgement, not a token limit: the token maths alone
- * permits ~960 scenes on a 384,000-token model, but a request only has so long
- * to come back and the large models' sustained throughput is not yet measured.
- * How long it has is `languageTimeoutMinutes` below — the owner's own setting,
- * read from the backend, deliberately not repeated as a number in this comment.
+ * 50 is a WALL-CLOCK judgement, not a token limit: the token maths alone
+ * permits ~960 scenes on a 384,000-token model, and channels that want larger
+ * batches (such as 100) keep their saved per-channel value or pick a preset.
+ * How long a request has is `languageTimeoutMinutes` below — the owner's own
+ * setting, read from the backend, deliberately not repeated as a number in
+ * this comment.
  */
 const DEFAULT_TOKENS_PER_SCENE = 300
 const DEFAULT_OUTPUT_SAFETY_FRACTION = 0.75
-const DEFAULT_PROMPT_BATCH_SIZE = 250
+const DEFAULT_PROMPT_BATCH_SIZE = 50
 
 // ── Scene Plan batch tuning, per channel ────────────────────────────────────
 // The owner's two-field pattern: an allowance he edits, and a dial with no

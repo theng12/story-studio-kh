@@ -1635,7 +1635,7 @@ export async function getSafeConfig(slug: string): Promise<any | null> {
     // silently overrode a correct model-aware derivation; each is the owner's
     // number, with NO ceiling in code. Undefined means "never set", which
     // resolves to the documented defaults in
-    // `services/scene-prompt-batching.ts` (300 / 0.75 / 250). Echoed here for
+    // `services/scene-prompt-batching.ts` (300 / 0.75 / 50). Echoed here for
     // the same reason as the fields above: `updateConfig` writes them through
     // the passthrough, but this response is an allow-list, so without an entry
     // the saved value would be invisible on the next read and the page would

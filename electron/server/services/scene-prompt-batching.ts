@@ -86,14 +86,11 @@ export interface ScenePromptPackTuning {
    * The default effective batch when "Automatic" is chosen. Project key:
    * `scene_prompt_batch_size`.
    *
-   * 250 IS A THROUGHPUT JUDGEMENT, NOT A TOKEN LIMIT. The token arithmetic
-   * alone permits ~960 scenes on a 384,000-token model (15% of the allowance
-   * is used at 250, so there is 6.6x headroom at p90 and the worst scene ever
-   * recorded would still fit inside 21%). What actually binds is wall-clock:
-   * how long one request may run, and how fast the chosen provider writes.
-   * The real sustained throughput of the large models is UNVERIFIED, so 250
-   * is the largest batch that is comfortable at an unknown speed. It cuts
-   * requests across the owner's library from 1,951 to 591.
+   * 50 IS A WALL-CLOCK / THROUGHPUT JUDGEMENT, NOT A TOKEN LIMIT. The token
+   * arithmetic alone permits ~960 scenes on a 384,000-token model, and channels
+   * that want larger packs (such as 100) still configure or select them
+   * directly. Keeping the shipped default at 50 limits how much work rides inside
+   * a single language request and avoids multi-batch timeouts on slower routes.
    *
    * NEITHER HALF OF THAT WALL-CLOCK SUM IS FIXED ANY MORE (2026-08-29). The
    * request timeout is `genstudio_language_timeout_minutes` in app settings,
@@ -104,9 +101,9 @@ export interface ScenePromptPackTuning {
    * Scene Plan panel does the arithmetic live from both and warns when the
    * chosen batch does not fit.
    *
-   * RAISE THIS once throughput is measured — `completionTokens` is now logged
-   * with each successful pack precisely so that question is answerable from
-   * data instead of estimated again.
+   * Saved per-channel `scene_prompt_batch_size` values override this default
+   * without touching code — `completionTokens` is logged with each successful
+   * pack so each channel can tune upward (e.g. 100) from measured data.
    */
   batchSize: number
 }
@@ -114,7 +111,7 @@ export interface ScenePromptPackTuning {
 export const SCENE_PROMPT_PACK_TUNING_DEFAULTS: Readonly<ScenePromptPackTuning> = Object.freeze({
   tokensPerScene: 300,
   safetyFraction: 0.75,
-  batchSize: 250,
+  batchSize: 50,
 })
 
 /** The two ladder seeds. Doubling each of them and merging reproduces the

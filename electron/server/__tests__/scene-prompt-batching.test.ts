@@ -195,27 +195,34 @@ describe('batch tuning is the owner\'s data, not a constant', () => {
     assert.deepEqual({ ...SCENE_PROMPT_PACK_TUNING_DEFAULTS }, {
       tokensPerScene: 300,
       safetyFraction: 0.75,
-      batchSize: 250,
+      batchSize: 50,
     })
     assert.deepEqual(parseScenePromptPackTuning(undefined), { ...SCENE_PROMPT_PACK_TUNING_DEFAULTS })
     assert.deepEqual(parseScenePromptPackTuning({}), { ...SCENE_PROMPT_PACK_TUNING_DEFAULTS })
   })
 
   /**
-   * 250 is a WALL-CLOCK judgement, not a token limit: the arithmetic permits
-   * 960, but the response has to arrive before the request times out, and the
-   * large models' real throughput is unverified. That timeout is the owner's
-   * own setting since 2026-08-29 (`genstudio_language_timeout_minutes`), so
-   * this comment no longer states a number for it — the Scene Plan panel does
-   * the sum live and warns when a batch does not fit.
+   * 50 is a WALL-CLOCK judgement, not a token limit: the arithmetic permits
+   * 960, and saved per-channel choices like 100 are preserved without touching
+   * code, while the shipped default keeps each automatic request small enough
+   * to avoid long provider stalls.
    */
-  test('automatic is the owner default of 250, not the derived 960', () => {
+  test('automatic is the owner default of 50, not the derived 960', () => {
     assert.equal(maxSafeScenePromptPackSize(384_000), 960)
-    assert.equal(automaticScenePromptPackSize(384_000), 250)
-    assert.equal(resolveScenePromptPackSize(384_000, 'auto'), 250)
-    // A model that cannot reach 250 falls back to what it CAN return.
+    assert.equal(automaticScenePromptPackSize(384_000), 50)
+    assert.equal(resolveScenePromptPackSize(384_000, 'auto'), 50)
+    // A model that cannot reach 50 falls back to what it CAN return.
     assert.equal(automaticScenePromptPackSize(8_192), 20)
     assert.equal(resolveScenePromptPackSize(8_192, 'auto'), 20)
+  })
+
+  test('saved per-channel choice of 100 and explicit 100 selection stay intact', () => {
+    const channel100 = parseScenePromptPackTuning({ scene_prompt_batch_size: 100 })
+    assert.equal(channel100.batchSize, 100)
+    assert.equal(automaticScenePromptPackSize(384_000, channel100), 100)
+    assert.equal(resolveScenePromptPackSize(384_000, 'auto', channel100), 100)
+    assert.equal(parseScenePromptPackSetting(100), 100)
+    assert.equal(resolveScenePromptPackSize(384_000, 100), 100)
   })
 
   test('each field is read from project config independently', () => {
@@ -223,17 +230,17 @@ describe('batch tuning is the owner\'s data, not a constant', () => {
       tokensPerScene: 300, safetyFraction: 0.75, batchSize: 900,
     })
     assert.deepEqual(parseScenePromptPackTuning({ scene_prompt_tokens_per_scene: 229 }), {
-      tokensPerScene: 229, safetyFraction: 0.75, batchSize: 250,
+      tokensPerScene: 229, safetyFraction: 0.75, batchSize: 50,
     })
     assert.deepEqual(parseScenePromptPackTuning({ scene_prompt_output_safety_fraction: 0.9 }), {
-      tokensPerScene: 300, safetyFraction: 0.9, batchSize: 250,
+      tokensPerScene: 300, safetyFraction: 0.9, batchSize: 50,
     })
     // An unusable field falls back to its own default and leaves the rest alone.
     assert.deepEqual(parseScenePromptPackTuning({
       scene_prompt_batch_size: 'nonsense',
       scene_prompt_output_safety_fraction: 4,
       scene_prompt_tokens_per_scene: 500,
-    }), { tokensPerScene: 500, safetyFraction: 0.75, batchSize: 250 })
+    }), { tokensPerScene: 500, safetyFraction: 0.75, batchSize: 50 })
   })
 
   test('there is no code maximum on anything the owner sets', () => {

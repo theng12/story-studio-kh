@@ -61,14 +61,14 @@ async function loadScenePlanBudgetDerivation() {
     const selectedModelMeta = ref(null)
     const promptSafetyFraction = ref(0.75)
     const promptTokensPerScene = ref(300)
-    const promptBatchSizeDefault = ref(250)
+    const promptBatchSizeDefault = ref(50)
     function setModel(model) {
       selectedModelMeta.value = model
       form.value.model = model.id
     }
   `
   const compiled = await transform(`${support}\n${scenePlan.slice(start, end)}\n${scenePlan.slice(watcherStart, watcherEnd)}\nexport {
-    form, setModel, effectivePromptTokenBudget, maximumPromptPackSize,
+    form, setModel, promptBatchSizeDefault, effectivePromptTokenBudget, maximumPromptPackSize,
     automaticPromptPackSize, effectivePromptPackSize, hasUnpublishedExplicitPromptBudget,
   }`, { loader: 'ts', format: 'esm' })
   return import(`data:text/javascript;base64,${Buffer.from(compiled.code).toString('base64')}`)
@@ -222,8 +222,14 @@ describe('Scene Plan workspace wiring', () => {
     budget.form.value.prompt_max_tokens = 'auto'
     await nextTick()
     assert.equal(budget.effectivePromptTokenBudget.value, 0)
-    assert.equal(budget.automaticPromptPackSize.value, 250)
-    assert.equal(budget.effectivePromptPackSize.value, 250)
+    assert.equal(budget.automaticPromptPackSize.value, 50)
+    assert.equal(budget.effectivePromptPackSize.value, 50)
+
+    budget.promptBatchSizeDefault.value = 100
+    await nextTick()
+    assert.equal(budget.automaticPromptPackSize.value, 100)
+    assert.equal(budget.effectivePromptPackSize.value, 100)
+    budget.promptBatchSizeDefault.value = 50
 
     budget.form.value.prompt_max_tokens = 8192
     budget.setModel({ id: 'published-smaller', max_output_tokens: 4096 })

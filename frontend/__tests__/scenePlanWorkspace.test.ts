@@ -62,7 +62,7 @@ describe('Scene Plan workspace', () => {
     assert.match(scenePlan, /scene_prompt_tokens_per_scene/)
     assert.match(scenePlan, /scene_prompt_output_safety_fraction/)
     assert.match(scenePlan, /scene_prompt_batch_size/)
-    assert.match(scenePlan, /const DEFAULT_PROMPT_BATCH_SIZE = 250/)
+    assert.match(scenePlan, /const DEFAULT_PROMPT_BATCH_SIZE = 50/)
     // A choice the model cannot honour is stated, not silently rewritten.
     assert.match(scenePlan, /promptPackReductionNotice/)
   })
