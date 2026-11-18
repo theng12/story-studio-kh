@@ -4,6 +4,11 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.412 — 2026-11-19
+
+- **Removed two private details from the app's own text.** An example address in the Gateway error message and two comments that named an owner channel no longer appear anywhere in the shipped app. Nothing functional changed: no setting, no address and no default was read from either, and the example now uses the reserved documentation range.
+- **The gate now cleans up after itself.** A test process left behind by an interrupted release no longer keeps running (and competing for memory) after the gate that started it has gone.
+
 ## v1.4.411 — 2026-11-18
 
 - **Clear replaces Hide.** A finished job now leaves the list for real instead of only being hidden: the row and its record are removed, it waits in a new "Recently cleared" area with Restore, and nothing is ever deleted for good. Clear runs by status — finished, failed, or all — for one channel or every channel, and before anything goes Story says how many jobs and how much record space it will remove, measured, and states plainly that the rendered media stays on disk. The jobs already hidden are moved into Recently cleared the first time their channel loads, so nothing disappears without a way back.

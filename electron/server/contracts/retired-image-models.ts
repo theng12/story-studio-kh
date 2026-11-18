@@ -33,7 +33,7 @@
  * 1.4.288 — a bare product id still saved in old presets and job chains, and the
  * product that replaced it. BW EP0049's July chain asked for `flux-2-klein` and
  * its recovery failed with "Unknown image model"; it now renders on the fleet
- * FLUX.2 Klein. `terranash-sleep-stories` still carries it in four Scene Plan
+ * FLUX.2 Klein. One production channel still carries it in four Scene Plan
  * presets, where selecting one ended in a 409 from the prompt-cap resolver.
  */
 const RETIRED_IMAGE_IDS: Record<string, string> = {

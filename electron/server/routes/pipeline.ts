@@ -2135,7 +2135,7 @@ export interface VideoEffectsAnswer {
 /**
  * 1.4.286 — the Presentation Frame for a batch. Until this release the page never saved `frame`
  * into the Video Assembly preset's Effects copy, so every batch dropped it even when the channel's
- * Effects preset had it on (refinanced, terranash-sleep-stories). The copy's own frame wins when it
+ * Effects preset had it on (two production channels). The copy's own frame wins when it
  * is on; otherwise the frame of the Effects preset the bundle names is used when THAT is on. A
  * clone is returned; the stored preset is never changed.
  */

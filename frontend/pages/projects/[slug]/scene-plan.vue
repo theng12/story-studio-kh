@@ -3676,7 +3676,7 @@ function applyPromptPreset(data: any): void {
   // What must never happen is carrying the dead id forward: the prompt-cap
   // resolver refuses an unknown intended model, and that refusal used to arrive
   // as a 409 from a generation the customer had already committed to
-  // (terranash-sleep-stories' four presets still name `flux-2-klein`).
+  // (one channel's four presets still name `flux-2-klein`).
   const savedIntended = typeof activeData.intended_image_model === 'string'
     ? activeData.intended_image_model : defaults.intended_image_model
   const resolvedIntended = resolveSavedImageModelId(
