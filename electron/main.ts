@@ -32,8 +32,9 @@ import { isServerMode, getServerModeConfig } from './server/lib/server-mode.js'
 import { armShutdownDeadline, beginShutdown, cancelShutdown } from './server/lib/shutdown-state.js'
 import { DEV_BACKEND_PORT } from './server/lib/dev-backend.js'
 import { applyServerTimeouts } from './server/lib/server-timeouts.js'
-import { logLine, startLogPruning } from './server/services/logger.js'
+import { logLine, getLogDir, startLogPruning } from './server/services/logger.js'
 import { startWedgeRecovery } from './server/services/wedge-recovery.js'
+import { noteWedgeStage, startWedgeWatch } from './server/services/wedge-watch.js'
 import { bootstrapServerModeFromEnv } from './server/services/app-settings.js'
 import { isAllowedApplicationNavigation, isSafeExternalUrl } from './server/lib/security.js'
 import { redactSecrets } from './server/lib/redact-secrets.js'
@@ -128,6 +129,12 @@ function startServer(): Promise<number> {
     // ignored, SIGKILL needed). quit is injected here so the module never
     // reaches for Electron itself.
     startWedgeRecovery({ quit: () => electronApp.exit(1) })
+    // The main thread only publishes a beat and a small state file. A blocked loop
+    // cannot run the check above, so a worker thread past `wedge_exit_seconds` of
+    // silence captures the incident from its own thread and SIGKILLs the process.
+    noteWedgeStage('serving')
+    void startWedgeWatch({ logDir: getLogDir() })
+      .catch(error => logLine('error', 'the off-thread wedge watchdog did not start', { error: String(error) }))
     server.listen(port, bind, () => {
       const address = server!.address()
       const actualPort = typeof address === 'object' ? address!.port : port
@@ -924,6 +931,7 @@ electronApp.on('before-quit', (event) => {
   // Arm the ceiling BEFORE anything that can block — including the warning dialog below. A modal on
   // an unattended quit is exactly the kind of wait that left Production's app mid-quit forever.
   beginShutdown(runningJobIdsForShutdown())
+  noteWedgeStage('shutting down')
   armShutdownDeadline({
     deadlineMs: SHUTDOWN_DEADLINE_MS,
     exit: code => electronApp.exit(code),
