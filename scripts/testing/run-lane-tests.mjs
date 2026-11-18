@@ -49,7 +49,7 @@ import {
   resolveWorkRoot,
   retainedFsEvidenceFailure,
 } from './run-backend-tests.mjs'
-import { TRASH_ROOT_ENV, DEFAULT_TRASH_ROOT } from '../shared-paths.mjs'
+import { TRASH_ROOT_ENV } from '../shared-paths.mjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
 const COVERAGE_REPORTER = path.join(ROOT, 'scripts', 'testing', 'suite-coverage-reporter.mjs')
@@ -130,7 +130,10 @@ function childEnv(sandbox, snapshotRoot, addRetainedAdapter) {
   env.TEMP = sandbox
   env.STORY_STUDIO_TEST_HARNESS_ROOT = sandbox
   env.STORY_STUDIO_RETAINED_SNAPSHOT_ROOT = snapshotRoot
-  env[TRASH_ROOT_ENV] = DEFAULT_TRASH_ROOT
+  // The trash follows the child's own HOME (a sandbox), never the owner's Desktop: a lane that
+  // forced the real trash root here wrote a test install into ~/Desktop/_trash and then could not
+  // find it, because the test computes its default from HOME.
+  delete env[TRASH_ROOT_ENV]
   if (addRetainedAdapter) {
     env.NODE_OPTIONS = [env.NODE_OPTIONS, `--import ${pathToFileURL(RETAINED_FS_PRELOAD).href}`].filter(Boolean).join(' ')
   }
