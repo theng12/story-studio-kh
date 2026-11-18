@@ -3,8 +3,8 @@ import path from 'node:path'
 import { createHash } from 'node:crypto'
 import { createRequire } from 'node:module'
 import { spawnSync } from 'node:child_process'
-import { fileURLToPath } from 'node:url'
 import { decodeStrictJson } from '../../electron/server/lib/final-render-strict-json.js'
+import { trashPath } from '../shared-paths.mjs'
 import {
   parseStoryRenderProvenance,
   readStoryRenderProvenanceFromPackageBytes,
@@ -12,7 +12,6 @@ import {
   sameQualificationProvenance,
 } from '../../electron/server/lib/final-render-provenance-contract.js'
 
-const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
 const require = createRequire(import.meta.url)
 const asar = require('@electron/asar')
 const MAX_PACKAGE_BYTES = 1024 * 1024
@@ -130,7 +129,7 @@ function verifyArtifacts({ appPath, dmgPath, expected }, { archiveApi, run, fixt
 }
 
 export function verifyStoryRenderProvenanceArtifacts(options) {
-  return verifyArtifacts(options, { archiveApi: asar, run: command, fixturesRoot: path.join(root, '_trash', 'test-fixtures') })
+  return verifyArtifacts(options, { archiveApi: asar, run: command, fixturesRoot: trashPath('test-fixtures') })
 }
 
 // Release-only isolated fixture seam; cannot replace any production singleton or runtime authority.

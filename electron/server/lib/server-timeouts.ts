@@ -48,6 +48,7 @@
 import type { Server } from 'http'
 import type { Request, Response, NextFunction } from 'express'
 import { getAppSetting, onAppSettingWritten } from '../services/app-settings.js'
+import { STALL_LOG_SECONDS_KEY, describeRequestHold, runWithWaitScope, setStallLogSeconds } from './stall-watch.js'
 
 export const REQUEST_DEADLINE_SECONDS_KEY = 'server_request_deadline_seconds'
 /** Ten minutes: clears the five-minute image preview and the four-minute kit
@@ -105,9 +106,23 @@ async function loadDeadline(): Promise<number> {
   return cachedDeadlineMs
 }
 
+/**
+ * The stall threshold, read here because this module already owns the settings
+ * read on this path; the watcher is handed the value so its own import graph
+ * stays free of services/.
+ */
+async function loadStallSeconds(): Promise<void> {
+  setStallLogSeconds(await getAppSetting(STALL_LOG_SECONDS_KEY))
+}
+
 /** Current deadline in ms. A plain read of a number; touches nothing. */
 export function requestDeadlineMs(): number {
   return cachedDeadlineMs
+}
+
+/** Test-only: cross the deadline in milliseconds instead of ten minutes. */
+export function _setRequestDeadlineForTests(ms: number | null): void {
+  cachedDeadlineMs = ms ?? REQUEST_DEADLINE_SECONDS_DEFAULT * 1_000
 }
 
 /**
@@ -117,30 +132,37 @@ export function requestDeadlineMs(): number {
  * difference between a user who knows something went wrong and a user watching a
  * spinner. The underlying work is NOT cancelled: this app has no way to unwind a
  * half-finished provider call, and pretending otherwise would be worse than
- * saying nothing.
+ * saying nothing. The sentence says the request never got its turn and names
+ * what it was held by (see lib/stall-watch.ts) — observed, not diagnosed.
  */
 export function requestDeadline() {
   return function requestDeadlineMiddleware(req: Request, res: Response, next: NextFunction): void {
     const limitMs = requestDeadlineMs()
-    const timer = setTimeout(() => {
-      // Already answering — a stream, a download, or a response mid-flight. This
-      // guard has no business in any of those.
-      if (res.headersSent || res.writableEnded) return
-      res.status(503).json({
-        code: 'REQUEST_TIMED_OUT',
-        detail: `Story Studio did not finish this request within ${Math.round(limitMs / 1000)} seconds and stopped waiting. `
-          + 'It is usually the disk being busy with a video render, or a provider that stopped answering. '
-          + 'Nothing was charged for a request that never completed. Try again in a moment.',
-        path: req.path,
-      })
-    }, limitMs)
-    // `.unref()` so a pending guard never holds the process open at shutdown,
-    // and cleared on the way out so nothing accumulates per request.
-    timer.unref()
-    const clear = () => clearTimeout(timer)
-    res.on('finish', clear)
-    res.on('close', clear)
-    next()
+    // The scope records which shared waits THIS request joined, so the 503 can
+    // name them; timers created inside it inherit that scope.
+    runWithWaitScope(() => {
+      const timer = setTimeout(() => {
+        // Already answering — a stream, a download, or a response mid-flight. This
+        // guard has no business in any of those.
+        if (res.headersSent || res.writableEnded) return
+        const heldBy = describeRequestHold(req.path)
+        res.status(503).json({
+          code: 'REQUEST_TIMED_OUT',
+          detail: `Story Studio never got its turn to answer this request within ${Math.round(limitMs / 1000)} seconds — the guard stopped waiting. `
+            + `It was held by: ${heldBy}. `
+            + 'Nothing was charged for a request that never completed. Try again in a moment.',
+          path: req.path,
+          held_by: heldBy,
+        })
+      }, limitMs)
+      // `.unref()` so a pending guard never holds the process open at shutdown,
+      // and cleared on the way out so nothing accumulates per request.
+      timer.unref()
+      const clear = () => clearTimeout(timer)
+      res.on('finish', clear)
+      res.on('close', clear)
+      next()
+    })
   }
 }
 
@@ -174,6 +196,10 @@ export async function applyServerTimeouts(server: Server): Promise<void> {
   // Read the owner's deadline once, here, so the first request after boot uses
   // his number rather than the default — and so the request path never has to.
   await loadDeadline().catch(() => { /* the default is a fine answer */ })
+  // The stall watcher's threshold is read the same way, at the same boot. It is
+  // handed to the watcher rather than read there: a lock primitive must not pull
+  // the settings store (and through it the job queue) into its import graph.
+  await loadStallSeconds().catch(() => { /* the default stands */ })
   // And keep it current without ever reading from a request: a settings write
   // is not a request, so this is the right place to spend the read.
   if (!deadlineWired) {
@@ -181,6 +207,9 @@ export async function applyServerTimeouts(server: Server): Promise<void> {
     onAppSettingWritten((key) => {
       if (key === REQUEST_DEADLINE_SECONDS_KEY) {
         void loadDeadline().catch(() => { /* keep the last good value */ })
+      }
+      if (key === STALL_LOG_SECONDS_KEY) {
+        void loadStallSeconds().catch(() => { /* keep the last good value */ })
       }
     })
   }

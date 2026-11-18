@@ -19,6 +19,7 @@ import {
   promoteDmgBuild,
   validateServiceBaseUrl,
 } from '../release-utils.mjs'
+import { TRASH_ROOT_ENV, resolveTrashRootSync } from '../../shared-paths.mjs'
 
 describe('release utility contracts', () => {
   test('parses the exact changelog shape used by What\'s New', () => {
@@ -216,6 +217,7 @@ describe('staged DMG packaging', () => {
     t.after(() => fs.rmSync(root, { recursive: true, force: true }))
     const dist = path.join(root, 'dist')
     const trash = path.join(root, '_trash', 'dist')
+    process.env[TRASH_ROOT_ENV] = path.dirname(trash)
     const stage = createDmgBuildDirectory(dist, trash)
     return { root, dist, trash, stage }
   }
@@ -291,57 +293,28 @@ describe('staged DMG packaging', () => {
     assert.deepEqual(fs.readdirSync(trash), [])
   })
 
-  test('existing trash-parent compatibility links work without retargeting', t => {
-    const { root, dist, trash, stage } = fixture(t)
-    const recovery = path.join(root, 'existing-recovery')
-    fs.renameSync(path.dirname(trash), recovery)
-    fs.symlinkSync(recovery, path.dirname(trash))
-    assert.ok(fs.existsSync(createDmgBuildDirectory(dist, trash)))
-    fs.writeFileSync(path.join(dist, artifact), 'old build')
-    fs.writeFileSync(path.join(stage, artifact), 'new build')
-    const backup = promoteDmgBuild(stage, dist, trash, artifact)
-    assert.equal(path.dirname(backup), path.join(recovery, 'dist'))
-    assert.equal(fs.readFileSync(path.join(backup, artifact), 'utf8'), 'old build')
-    assert.equal(fs.readFileSync(path.join(dist, artifact), 'utf8'), 'new build')
-    assert.ok(fs.lstatSync(path.dirname(trash)).isSymbolicLink())
-  })
-
-  // Owner, 2026-11-16: he empties `~/Desktop/_trash` whenever he likes, and the
-  // checkout's `_trash` compatibility link then points at nothing. That is what
-  // stopped the 1.4.405 DMG build — the packaging step must recreate the target.
-  test('an emptied Desktop trash behind the compatibility link is recreated, not fatal', t => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'staged-dmg-dangling-'))
-    t.after(() => fs.rmSync(root, { recursive: true, force: true }))
-    const dist = path.join(root, 'dist')
-    const desktopTrash = path.join(root, 'Desktop', '_trash', 'Story Studio KH')
-    const trash = path.join(root, '_trash', 'dist')
-    fs.mkdirSync(dist)
-    fs.mkdirSync(path.dirname(desktopTrash), { recursive: true })
-    fs.symlinkSync(desktopTrash, path.join(root, '_trash'))
-    fs.rmSync(desktopTrash, { recursive: true, force: true })
-
-    const stage = createDmgBuildDirectory(dist, trash)
-
-    assert.ok(fs.existsSync(stage), 'the build must still be able to stage a candidate')
-    assert.ok(fs.lstatSync(path.join(root, '_trash')).isSymbolicLink(),
-      'the compatibility link must stay a link, not be replaced by a real folder')
-    assert.ok(fs.statSync(desktopTrash).isDirectory(), 'the emptied trash target is recreated')
-  })
-
-  test('a link whose whole target chain is gone is recreated too', t => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'staged-dmg-nodir-'))
-    t.after(() => fs.rmSync(root, { recursive: true, force: true }))
-    const dist = path.join(root, 'dist')
-    const desktopTrash = path.join(root, 'Desktop', '_trash', 'Story Studio KH')
-    fs.mkdirSync(dist)
-    fs.symlinkSync(desktopTrash, path.join(root, '_trash'))
-
-    const stage = createDmgBuildDirectory(dist, path.join(root, '_trash', 'dist'))
-
-    assert.ok(fs.existsSync(stage))
-    assert.ok(fs.statSync(desktopTrash).isDirectory(),
-      'the whole missing target chain is created behind the link')
-    assert.ok(fs.lstatSync(path.join(root, '_trash')).isSymbolicLink())
+  test('a trash override is a real folder and links are refused', t => {
+    const { root, dist, trash } = fixture(t)
+    const linked = path.join(root, 'linked-trash')
+    const real = path.join(root, 'real-trash')
+    fs.symlinkSync(real, linked)
+    const previous = process.env[TRASH_ROOT_ENV]
+    try {
+      // The setting is resolved before a build: a link is refused there, so no build ever gets
+      // handed one to write through.
+      process.env[TRASH_ROOT_ENV] = linked
+      assert.throws(() => resolveTrashRootSync(), /must name a real folder, not a link:/)
+      assert.equal(fs.existsSync(real), false, 'the link target was not created')
+      process.env[TRASH_ROOT_ENV] = path.join(root, 'trash-file')
+      fs.writeFileSync(process.env[TRASH_ROOT_ENV], 'not a folder\n')
+      assert.throws(() => resolveTrashRootSync(), /must name a real folder, not a link:/)
+      assert.equal(fs.readFileSync(process.env[TRASH_ROOT_ENV], 'utf8'), 'not a folder\n')
+      // A caller-supplied trash location must still be a real folder.
+      assert.throws(() => createDmgBuildDirectory(dist, linked), /Expected a real directory:/)
+    } finally {
+      if (previous === undefined) delete process.env[TRASH_ROOT_ENV]
+      else process.env[TRASH_ROOT_ENV] = previous
+    }
   })
 
   test('unusable recovery storage fails before allocating a candidate directory', t => {
@@ -349,7 +322,7 @@ describe('staged DMG packaging', () => {
     fs.renameSync(path.dirname(trash), path.join(root, 'retained-recovery'))
     fs.writeFileSync(path.dirname(trash), 'blocked')
     const before = fs.readdirSync(dist)
-    assert.throws(() => createDmgBuildDirectory(dist, trash), /EEXIST|ENOTDIR/)
+    assert.throws(() => createDmgBuildDirectory(dist, trash), /Expected a real directory:|not a directory|ENOTDIR/)
     assert.deepEqual(fs.readdirSync(dist), before)
   })
 

@@ -21,6 +21,7 @@ import { runBootMigrations, isBootComplete } from './boot/migrations.js'
 import { signalBootFirstPaint } from './boot/deferred-boot.js'
 import { logLine, startLogPruning } from './services/logger.js'
 import { applyServerTimeouts, requestDeadline } from './lib/server-timeouts.js'
+import { setStallReporter } from './lib/stall-watch.js'
 import { migrateLegacyProjects } from './services/project-manager.js'
 import { applySecurityHeaders, requireAllowedHost } from './lib/security.js'
 import { installOutboundConnectionCap, OUTBOUND_CONNECTIONS_PER_ORIGIN } from './lib/outbound-connections.js'
@@ -31,6 +32,7 @@ import { recordAutomationKeyUse } from './services/app-settings.js'
 import { router as authRouter } from './routes/auth.js'
 import { errorBoundary } from './lib/error-boundary.js'
 import { resolveStoryStudioVersion } from './lib/app-version.js'
+import { currentWaits } from './lib/stall-watch.js'
 import { getApiKey } from './services/app-secrets-store.js'
 import { migrateLegacyKeychain } from './services/legacy-keychain-migration.js'
 import {
@@ -124,11 +126,31 @@ app.use((req, res, next) => {
 //
 // `boot_complete` flips true once every async boot migration has settled
 // (or after the 20 s safety-net timeout).
-app.get('/api/health', async (_req, res) => {
+//
+// The version is resolved ONCE here, after the app is constructed, and health
+// answers from that variable — the route never touches the filesystem. A boot
+// that cannot read package.json logs once and reports `unknown`; while the
+// read is still in flight it also reports `unknown` rather than waiting.
+// Production saw health hang alongside other disk-touching routes while an
+// in-memory route kept answering (what held the disk is a hypothesis, not a
+// finding); this route no longer depends on it either way.
+let healthVersion = 'unknown'
+export const healthVersionReady: Promise<string> = resolveStoryStudioVersion()
+  .then(version => {
+    healthVersion = version
+    return version
+  })
+  .catch(error => {
+    logLine('error', 'story version could not be read at boot; /api/health reports unknown', { error: String(error) })
+    return 'unknown'
+  })
+
+app.get('/api/health', (_req, res) => {
   res.json({
     status: 'ok',
-    version: await resolveStoryStudioVersion(),
+    version: healthVersion,
     boot_complete: isBootComplete(),
+    waiting: currentWaits(),
   })
 })
 
@@ -276,6 +298,9 @@ if (shouldListen) {
   // whichever request happened to cross the hour boundary. Housekeeping belongs
   // on a timer, not on the path a person is waiting on.
   startLogPruning()
+  // Stall lines go to the app's own log; the watcher stays free of services/ so a
+  // lock primitive never drags the job queue into the frontend's type program.
+  setStallReporter((level, message, meta) => logLine(level, message, meta))
   // Loopback only: this backend has no login, and Node's default bind is every
   // interface (LAN + Tailscale). `HOST=0.0.0.0` opts back in deliberately.
   const server = app.listen(PORT, process.env.HOST || '127.0.0.1', () => {

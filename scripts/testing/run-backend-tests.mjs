@@ -6,6 +6,7 @@ import { createRequire } from 'node:module'
 import { availableParallelism } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import { TRASH_ROOT_ENV, assertSandboxedTrash, resolveTrashRoot, trashPath } from '../shared-paths.mjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
 
@@ -42,23 +43,20 @@ const RETAINED_FS_PRELOAD = path.join(ROOT, 'scripts', 'testing', 'retained-fixt
 const COVERAGE_REPORTER = path.join(ROOT, 'scripts', 'testing', 'suite-coverage-reporter.mjs')
 
 /**
- * Where retained fixtures live when nobody says otherwise: the project's own
- * disposable `_trash/`, where finished evidence is moved after a run settles.
+ * Where retained fixtures live when nobody says otherwise: the trash root,
+ * named directly instead of through a checkout link the owner can empty.
  * Live test work never sits here — only completed containers are moved in.
  */
-export const DEFAULT_RETAINED_FIXTURES = path.join(ROOT, '_trash', 'test-fixtures')
+export const DEFAULT_RETAINED_FIXTURES = trashPath('test-fixtures')
 
 /**
  * The override: where retained fixtures live when the operator says so.
  *
- * The main checkout reaches `_trash` through a symlink into a directory every
- * checkout on this machine shares, so a retained sandbox kept there is at the
- * mercy of that shared directory. This variable names a permanent home for
- * the evidence instead. It is VALIDATED, not trusted — an exact absolute
- * path, a real directory that is not itself a symbolic link, resolved to its
- * canonical form, outside the repository, on the checkout's volume. The
- * default is not validated this way: the shared `_trash` symlink is a
- * supported configuration.
+ * This variable names a permanent home for the evidence instead of the
+ * disposable trash. It is VALIDATED, not trusted — an exact absolute path, a
+ * real directory that is not itself a symbolic link, resolved to its canonical
+ * form, outside the repository, on the checkout's volume. The default follows
+ * the same no-links rule through `resolveTrashRoot`.
  */
 export const RETAINED_FIXTURES_ROOT_ENV = 'STORY_STUDIO_RETAINED_FIXTURES_ROOT'
 
@@ -195,7 +193,10 @@ export function assertSameDeviceForRetention(sandboxDevice, fixturesDevice, sand
  */
 export async function resolveRetainedFixturesRoot(env = process.env) {
   const configured = env[RETAINED_FIXTURES_ROOT_ENV]
-  if (configured === undefined || configured === '') return DEFAULT_RETAINED_FIXTURES
+  if (configured === undefined || configured === '') {
+    await resolveTrashRoot(env)
+    return DEFAULT_RETAINED_FIXTURES
+  }
   return await assertRealRetainedRoot(configured)
 }
 
@@ -208,7 +209,8 @@ export async function resolveWorkRoot(env = process.env, outsideRepository = fal
   if (!path.isAbsolute(workRoot) || path.resolve(workRoot) !== workRoot) {
     throw new Error(`${WORK_ROOT_ENV} must be an exact absolute path, not "${workRoot}"`)
   }
-  if (workRoot.split(path.sep).includes('_trash')) {
+  const trashRoot = await resolveTrashRoot(env)
+  if (workRoot.split(path.sep).includes('_trash') && workRoot.startsWith(trashRoot)) {
     throw new Error(`${WORK_ROOT_ENV} must stay outside _trash: ${workRoot}`)
   }
   await fs.mkdir(workRoot, { recursive: true, mode: 0o700 })
@@ -217,12 +219,7 @@ export async function resolveWorkRoot(env = process.env, outsideRepository = fal
     throw new Error(`${WORK_ROOT_ENV} must name a real directory: ${workRoot}`)
   }
   const canonical = await fs.realpath(workRoot)
-  const trash = await fs.realpath(path.join(ROOT, '_trash')).catch(error => {
-    if (error?.code === 'ENOENT') return null
-    throw error
-  })
-  if (canonical.split(path.sep).includes('_trash')
-    || (trash && (canonical === trash || canonical.startsWith(`${trash}${path.sep}`)))) {
+  if (canonical === trashRoot || canonical.startsWith(`${trashRoot}${path.sep}`)) {
     throw new Error(`${WORK_ROOT_ENV} must stay outside _trash: ${canonical}`)
   }
   const repo = await fs.realpath(ROOT)
@@ -907,6 +904,10 @@ async function run(options) {
         STORY_STUDIO_TEST_HARNESS_ROOT: own.sandbox,
         STORY_STUDIO_TEST_WORK_ROOT: workRoot,
         STORY_STUDIO_RETAINED_SNAPSHOT_ROOT: own.snapshots,
+        // Same rule as the lane runner: the child's trash lives inside its sandbox, and the guard
+        // refuses the owner's Desktop, .Trash or the checkout before anything can be written there.
+        // Retained fixtures still go to the resolved default, which does not read this variable.
+        [TRASH_ROOT_ENV]: assertSandboxedTrash(path.join(own.sandbox, 'trash'), { sandbox: own.sandbox }),
         STORY_STUDIO_DISABLE_LISTEN: '1',
         // NEW-03 — see BUNDLED_FFMPEG_DIR. Prepended, so a caller's own PATH still
         // takes precedence for anything else it needed.
@@ -923,6 +924,9 @@ async function run(options) {
       }
       delete env.STORY_STUDIO_DATA_DIR
       delete env.NODE_TEST_CONTEXT
+      // A nested run always falls back to the resolved trash root: an outer override
+      // must never decide where an inner run retains evidence (it may be a link).
+      delete env.STORY_STUDIO_RETAINED_FIXTURES_ROOT
       return { env, sandbox: own.sandbox, snapshotRoot: own.snapshots, workRoot, workContainer, tsxImport }
     }
 

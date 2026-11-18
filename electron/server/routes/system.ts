@@ -22,6 +22,7 @@ import * as pm from '../services/project-manager.js'
 import { initializeQueuePauseState, setQueuePaused, isQueuePaused, getQueueStats, takeUpdateHold, releaseUpdateHold } from '../services/job-queue.js'
 import { resolveAssetPath, toPortablePath, isPortablePath } from '../services/path-resolver.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
+import { isShuttingDown, shutdownSentence, shutdownSnapshot } from '../lib/shutdown-state.js'
 import { isServerMode } from '../lib/server-mode.js'
 
 const require = createRequire(import.meta.url)
@@ -471,12 +472,23 @@ function boundedHoldNumber(value: unknown, fallback: number, min: number, max: n
 // listeners, so the Launcher can reach the hold without knowing the app's
 // random API port.
 export async function maintenanceHoldPost(req: express.Request, res: express.Response) {
+  // A quitting app answers at once and says why, instead of going silent for the updater's window.
+  if (isShuttingDown()) {
+    return res.json({
+      safe: false,
+      unsettled: [],
+      in_flight: shutdownSnapshot()?.inFlight ?? [],
+      dispatch_paused_s: 0,
+      detail: shutdownSentence(),
+    })
+  }
   const timeoutS = boundedHoldNumber(req.query.timeout_s, 20, 0, 30)
   const pauseS = boundedHoldNumber(req.query.pause_s, 120, 1, 900)
   res.json(await takeUpdateHold(timeoutS, pauseS))
 }
 
 export async function maintenanceHoldDelete(_req: express.Request, res: express.Response) {
+  if (isShuttingDown()) return res.json({ ok: true, detail: shutdownSentence() })
   res.json(await releaseUpdateHold())
 }
 

@@ -7,6 +7,7 @@ import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
 import { createDmgBuildDirectory, expandArtifactName, packagingTreeErrors, promoteDmgBuild, restoreSourceManifests, snapshotSourceManifests } from './release-utils.mjs'
 import { notarytoolCredentialArgs, publicReleaseCredentialErrors } from './public-release-credentials.mjs'
+import { resolveTrashRootSync } from '../shared-paths.mjs'
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url))
 const root = path.resolve(scriptDir, '..', '..')
@@ -39,7 +40,7 @@ if (treeErrors.length) {
   throw new Error(`Cannot package from this tree:\n- ${treeErrors.join('\n- ')}`)
 }
 
-const trashDist = path.join(root, '_trash', 'dist')
+const trashDist = path.join(resolveTrashRootSync(), 'dist')
 const buildDir = createDmgBuildDirectory(outputDir, trashDist)
 run('npm', ['run', 'fetch:ffmpeg'])
 run('npm', ['run', 'build:scene-clip'])

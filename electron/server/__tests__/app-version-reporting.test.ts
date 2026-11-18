@@ -14,12 +14,15 @@ after(async () => {
   await isolated.cleanup()
 })
 
-const { app } = await import('../app.js')
+const { app, healthVersionReady } = await import('../app.js')
 const packageVersion = JSON.parse(
   await fs.readFile(new URL('../../../package.json', import.meta.url), 'utf8'),
 ).version
 
 test('public health and server-info endpoints report the package app version', async () => {
+  // Health answers from the boot-resolved variable — wait for that resolution
+  // rather than racing it.
+  await healthVersionReady
   const health = await request(app).get('/api/health').expect(200)
   const serverInfo = await request(app).get('/api/server-info').expect(200)
 

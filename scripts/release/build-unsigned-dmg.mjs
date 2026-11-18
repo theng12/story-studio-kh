@@ -7,6 +7,7 @@ import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
 import { createDmgBuildDirectory, expandArtifactName, packagingTreeErrors, promoteDmgBuild, restoreSourceManifests, snapshotSourceManifests } from './release-utils.mjs'
 import { localSigningConfig } from './local-signing.mjs'
+import { resolveTrashRootSync } from '../shared-paths.mjs'
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url))
 const root = path.resolve(scriptDir, '..', '..')
@@ -57,7 +58,7 @@ try {
   process.exit(1)
 }
 
-const trashDist = path.join(root, '_trash', 'dist')
+const trashDist = path.join(resolveTrashRootSync(), 'dist')
 const buildDir = createDmgBuildDirectory(outputDir, trashDist)
 runNpm(['run', 'fetch:ffmpeg'])
 runNpm(['run', 'build:scene-clip'])

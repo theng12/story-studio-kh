@@ -26,4 +26,8 @@ test('backend test harness redirects every per-machine root into its sandbox', a
     'the configured projects root must stay inside the harness sandbox',
   )
   assert.equal(process.env.STORY_STUDIO_DATA_DIR, undefined, 'individual suites must remain free to claim and release their own data dir')
+  // The outer run may be given a retained-fixtures override; its children must never inherit it,
+  // or an inner run retains evidence wherever the outer one was told to (a link cost a whole gate).
+  assert.equal(process.env.STORY_STUDIO_RETAINED_FIXTURES_ROOT, undefined,
+    'a nested run must not inherit STORY_STUDIO_RETAINED_FIXTURES_ROOT')
 })

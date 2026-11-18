@@ -6,6 +6,7 @@ import path from 'node:path'
 import test from 'node:test'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { resolveWorkRoot, retainSandbox } from '../../testing/run-backend-tests.mjs'
+import { DEFAULT_TRASH_ROOT, TRASH_ROOT_ENV } from '../../shared-paths.mjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..')
 
@@ -58,28 +59,11 @@ async function runHarness(args = ['--probe'], env = process.env, duringRun) {
 
 async function runnerFixtureEntries() {
   const active = (await fs.readdir(ROOT)).filter(name => name.startsWith('.story-studio-backend-tests-'))
-  const retained = await fs.readdir(path.join(ROOT, '_trash', 'test-fixtures')).catch(error => {
+  const retained = await fs.readdir(path.join(DEFAULT_TRASH_ROOT, 'test-fixtures')).catch(error => {
     if (error?.code === 'ENOENT') return []
     throw error
   })
   return [...active, ...retained.filter(name => name.startsWith('backend-test-harness-'))].sort()
-}
-
-/**
- * Whether `_trash` is a symlink to a directory this checkout shares.
- *
- * The main checkout reaches `_trash` through a symlink into a directory every
- * checkout on this machine uses, so its listing changes with other checkouts'
- * runs and cannot be compared before and after. Where the directory is this
- * checkout's own, the comparison is exact.
- */
-async function trashIsShared() {
-  try {
-    return (await fs.lstat(path.join(ROOT, '_trash'))).isSymbolicLink()
-  } catch (error) {
-    if (error?.code === 'ENOENT') return false
-    throw error
-  }
 }
 
 /**
@@ -96,6 +80,8 @@ function nestedRunnerEnv() {
   delete env.STORY_STUDIO_TEST_HARNESS_ROOT
   delete env.STORY_STUDIO_RETAINED_SNAPSHOT_ROOT
   delete env.STORY_STUDIO_RETAIN_SUCCESSFUL_FIXTURES
+  delete env.STORY_STUDIO_RETAINED_FIXTURES_ROOT
+  delete env.STORY_STUDIO_TRASH_DIR
   return env
 }
 
@@ -110,6 +96,8 @@ function defaultRunnerEnv(extra = {}) {
   const env = { ...nestedRunnerEnv(), ...extra }
   delete env.STORY_STUDIO_TEST_HARNESS_ROOT
   delete env.STORY_STUDIO_RETAINED_SNAPSHOT_ROOT
+  delete env.STORY_STUDIO_RETAINED_FIXTURES_ROOT
+  delete env.STORY_STUDIO_TRASH_DIR
   return env
 }
 
@@ -144,22 +132,17 @@ test('backend runner parser rejects unknown options instead of widening the run'
 
 test('--help and unknown options exit before sandbox setup or test execution', async () => {
   const before = await runnerFixtureEntries()
-  const shared = await trashIsShared()
   const help = await runHarness(['--help'])
   assert.equal(help.exitCode, 0, help.stderr || help.stdout)
   assert.match(help.stdout, /^Usage: node scripts\/testing\/run-backend-tests\.mjs/m)
   assert.doesNotMatch(help.stdout + help.stderr, /sandbox:|suite coverage:|PARTIAL RUN|configured projects root/)
-  if (!shared) {
-    assert.deepEqual(await runnerFixtureEntries(), before, '--help must not create or retain a sandbox')
-  }
+  assert.deepEqual(await runnerFixtureEntries(), before, '--help must not create or retain a sandbox')
 
   const invalid = await runHarness(['--only', 'image-episode-concurrency', '--typo'])
   assert.notEqual(invalid.exitCode, 0)
   assert.match(invalid.stderr + invalid.stdout, /unsupported.*--typo/i)
   assert.doesNotMatch(invalid.stdout + invalid.stderr, /sandbox:|suite coverage:|PARTIAL RUN|configured projects root/)
-  if (!shared) {
-    assert.deepEqual(await runnerFixtureEntries(), before, 'invalid input must fail before sandbox setup')
-  }
+  assert.deepEqual(await runnerFixtureEntries(), before, 'invalid input must fail before sandbox setup')
 })
 
 test('sandbox retention reserves a fresh container without touching a prior colliding artifact', async () => {
@@ -193,24 +176,20 @@ test('sandbox retention reserves a fresh container without touching a prior coll
 })
 
 /**
- * The retained fixtures root can be moved OUT of the shared `_trash`.
+ * The retained fixtures root can be moved OUT of the disposable trash.
  *
- * The main checkout reaches `_trash` through a symlink into a directory every
- * checkout shares, so a retained sandbox kept there is at the mercy of that
- * shared directory. `STORY_STUDIO_RETAINED_FIXTURES_ROOT` names a permanent
- * home for the evidence instead.
+ * `STORY_STUDIO_RETAINED_FIXTURES_ROOT` names a permanent home for the
+ * evidence instead of the owner-emptied Desktop trash.
  *
  * Proven with no stopwatch: the retained sandbox lands under the override,
  * the isolated projects sentinel inside it is byte-identical, the run still
- * proves its source projects untouched, and — where the Trash belongs to this
- * checkout alone — it gains nothing.
+ * proves its source projects untouched, and the default trash gains nothing.
  */
-test('the retained fixtures root can be moved out of the shared Trash', async () => {
+test('the retained fixtures root can be moved out of the default trash', async () => {
   // Use a path explicitly outside the repo, not os.tmpdir() which may resolve
   // inside the worktree on some platforms.
   const override = await fs.realpath(await fs.mkdtemp(path.join(await outsideRepoWorkDir(), 'retained-fixtures-root-')))
   const before = await runnerFixtureEntries()
-  const shared = await trashIsShared()
   const { exitCode, stdout, stderr } = await runHarness(['--probe'], {
     ...nestedRunnerEnv(),
     STORY_STUDIO_RETAINED_FIXTURES_ROOT: override,
@@ -230,10 +209,8 @@ test('the retained fixtures root can be moved out of the shared Trash', async ()
   const reports = (await fs.readdir(retained)).filter(name => /^suite-coverage.*\.jsonl$/.test(name))
   assert.ok(reports.length > 0, 'the coverage report must survive reclamation')
   assert.ok((await fs.stat(path.join(retained, reports[0]))).size > 0)
-  if (!shared) {
-    assert.deepEqual(await runnerFixtureEntries(), before,
-      'the shared Trash must gain nothing when the override is set')
-  }
+  assert.deepEqual(await runnerFixtureEntries(), before,
+    'the default trash must gain nothing when the override is set')
 })
 
 test('a symlinked retained fixtures root is refused, not followed', async () => {
@@ -257,6 +234,56 @@ test('a symlinked retained fixtures root is refused, not followed', async () => 
   assert.match(stderr + stdout, /STORY_STUDIO_RETAINED_FIXTURES_ROOT must name a real directory/)
   assert.deepEqual(await fs.readdir(real), [],
     'a refused root must not have been written through to')
+})
+
+test('a nested runner never inherits retained-fixture or trash overrides', async () => {
+  const container = await fs.mkdtemp(path.join(await outsideRepoWorkDir(), 'nested-env-isolation-'))
+  const override = path.join(container, 'retained')
+  const trash = path.join(container, 'trash')
+  const { exitCode, stdout, stderr } = await runHarness(['--probe'], {
+    ...defaultRunnerEnv(),
+    STORY_STUDIO_RETAINED_FIXTURES_ROOT: override,
+    [TRASH_ROOT_ENV]: trash,
+  })
+
+  assert.equal(exitCode, 0, stderr || stdout)
+  assert.match(stdout, /configured projects root byte-identical: true/)
+  const retained = stdout.match(/\[test-harness\] retained sandbox: (.+)/)?.[1]?.trim()
+  assert.ok(retained, 'the run must report where it retained its sandbox')
+  // This runner WAS started with the override, so its own retention honours it. What must never
+  // happen is the override reaching its CHILDREN: the hermetic probe asserts that from inside, so a
+  // leaked override fails the run above.
+  assert.ok(retained.startsWith(override + path.sep), `the runner's own retention must honour its override: ${retained}`)
+})
+
+test('a trash override pointing at a regular file is refused plainly', async () => {
+  const container = await fs.mkdtemp(path.join(os.tmpdir(), 'story-trash-file-'))
+  const file = path.join(container, 'not-a-folder')
+  await fs.writeFile(file, 'not a folder\n')
+  const { exitCode, stdout, stderr } = await runHarness(['--probe'], {
+    ...defaultRunnerEnv(),
+    [TRASH_ROOT_ENV]: file,
+  })
+
+  assert.notEqual(exitCode, 0, 'a file at the trash path must fail the run')
+  assert.match(stderr + stdout, /STORY_STUDIO_TRASH_DIR must name a real folder, not a link:/)
+  assert.equal(await fs.readFile(file, 'utf8'), 'not a folder\n', 'the file must be untouched')
+})
+
+test('a symlink at the trash path is refused rather than followed', async () => {
+  const container = await fs.mkdtemp(path.join(os.tmpdir(), 'story-trash-symlink-'))
+  const real = path.join(container, 'real')
+  const link = path.join(container, 'link')
+  await fs.mkdir(real)
+  await fs.symlink(real, link)
+  const { exitCode, stdout, stderr } = await runHarness(['--probe'], {
+    ...defaultRunnerEnv(),
+    [TRASH_ROOT_ENV]: link,
+  })
+
+  assert.notEqual(exitCode, 0, 'a link at the trash path must fail the run')
+  assert.match(stderr + stdout, /STORY_STUDIO_TRASH_DIR must name a real folder, not a link:/)
+  assert.deepEqual(await fs.readdir(real), [], 'nothing was written through the link')
 })
 
 test('backend test runner is hermetic without an operator-provided environment wrapper', async () => {
@@ -284,8 +311,8 @@ test('backend test runner retains its sandbox recoverably when setup fails', asy
   // The DEFAULT retained fixtures root, proved with the override removed: the
   // gate may set one, but the default it falls back to must still hold.
   // Live work happens in .test-work/; only after settling does the container
-  // move into _trash/test-fixtures/. A setup failure still triggers the finally
-  // block, so the evidence is retained.
+  // move into the trash's test-fixtures/. A setup failure still triggers the
+  // finally block, so the evidence is retained.
   const { exitCode, stdout, stderr } = await runHarness(['--probe', '--fail-after-setup'], defaultRunnerEnv())
   assert.notEqual(exitCode, 0)
   assert.match(stderr + stdout, /intentional backend test harness setup failure/,
@@ -297,10 +324,13 @@ test('backend test runner retains its sandbox recoverably when setup fails', asy
   assert.ok(retained, 'the failing setup probe must report its retained sandbox')
 
   // After the work-root separation, the sandbox lives under .test-work/ during
-  // the run, and the retained container lands under _trash/test-fixtures/ after
-  // the finally block moves it. The sandbox path is INSIDE the retained container.
+  // the run, and the retained container lands under the default trash's
+  // test-fixtures/ after the finally block moves it. The sandbox path is INSIDE
+  // the retained container.
   assert.equal((await fs.stat(retained)).isDirectory(), true)
-  assert.match(retained, /\/_trash\/test-fixtures\/backend-test-harness-/)
+  assert.ok(retained.startsWith(path.join(DEFAULT_TRASH_ROOT, 'test-fixtures') + path.sep),
+    `retained sandbox outside the default trash: ${retained}`)
+  assert.match(retained, /\/test-fixtures\/backend-test-harness-/)
   // The sandbox reported during setup is under the work root, but after retention
   // the whole container (including sandbox/) has moved. Verify the sentinel survived.
   const retainedSandbox = path.join(retained, 'sandbox')

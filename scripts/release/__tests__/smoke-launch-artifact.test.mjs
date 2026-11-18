@@ -4,6 +4,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { TERM_GRACE_MS, TERM_POLL_MS, finalizeLaunchSandbox, shutdownMarkerLines, stopChild } from '../smoke-launch-artifact.mjs'
+import { TRASH_ROOT_ENV } from '../../shared-paths.mjs'
 
 // These tests drive the real exported functions the smoke launch uses — the
 // settle and the retention decision — with stub children and a private temp
@@ -122,28 +123,38 @@ describe('smoke launch TERM-only stop', () => {
 })
 
 describe('smoke launch sandbox retention', () => {
-  test('leaves an unsettled sandbox in place and moves a settled one into _trash', () => {
-    const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'story-studio-term-test-'))
-    const warnings = []
-    const warn = (message) => warnings.push(message)
+  test('leaves an unsettled sandbox in place and moves a settled one into the trash', () => {
+    const container = fs.mkdtempSync(path.join(os.tmpdir(), 'story-studio-term-test-'))
+    const projectRoot = path.join(container, 'project')
+    const privateTrash = path.join(container, 'trash')
+    fs.mkdirSync(projectRoot)
+    const previousTrash = process.env[TRASH_ROOT_ENV]
+    process.env[TRASH_ROOT_ENV] = privateTrash
+    try {
+      const warnings = []
+      const warn = (message) => warnings.push(message)
 
-    const unsettled = fs.mkdtempSync(path.join(projectRoot, 'sandbox-'))
-    fs.writeFileSync(path.join(unsettled, 'in-use.txt'), 'the app is still running')
+      const unsettled = fs.mkdtempSync(path.join(projectRoot, 'sandbox-'))
+      fs.writeFileSync(path.join(unsettled, 'in-use.txt'), 'the app is still running')
 
-    const retained = finalizeLaunchSandbox(unsettled, { settled: false, projectRoot, warn })
-    assert.deepEqual(retained, { moved: false, retained: unsettled })
-    assert.ok(fs.existsSync(path.join(unsettled, 'in-use.txt')), 'the active sandbox is untouched')
-    assert.equal(fs.existsSync(path.join(projectRoot, '_trash')), false, 'nothing was moved into _trash')
-    assert.match(warnings.at(-1), /retained at/)
-    assert.match(warnings.at(-1), /no SIGKILL was sent/)
+      const retained = finalizeLaunchSandbox(unsettled, { settled: false, warn })
+      assert.deepEqual(retained, { moved: false, retained: unsettled })
+      assert.ok(fs.existsSync(path.join(unsettled, 'in-use.txt')), 'the active sandbox is untouched')
+      assert.equal(fs.existsSync(privateTrash), false, 'nothing was moved into the trash')
+      assert.match(warnings.at(-1), /retained at/)
+      assert.match(warnings.at(-1), /no SIGKILL was sent/)
 
-    const settled = fs.mkdtempSync(path.join(projectRoot, 'sandbox-'))
-    fs.writeFileSync(path.join(settled, 'boot.log'), 'served and exited')
+      const settled = fs.mkdtempSync(path.join(projectRoot, 'sandbox-'))
+      fs.writeFileSync(path.join(settled, 'boot.log'), 'served and exited')
 
-    const moved = finalizeLaunchSandbox(settled, { settled: true, projectRoot, warn })
-    assert.equal(moved.moved, true)
-    assert.equal(fs.existsSync(settled), false, 'the settled sandbox left its original path')
-    assert.ok(fs.existsSync(path.join(moved.path, 'boot.log')), 'its files moved with it')
-    assert.ok(moved.path.startsWith(path.join(projectRoot, '_trash', 'release-')), 'and into the disposable _trash')
+      const moved = finalizeLaunchSandbox(settled, { settled: true, warn })
+      assert.equal(moved.moved, true)
+      assert.equal(fs.existsSync(settled), false, 'the settled sandbox left its original path')
+      assert.ok(fs.existsSync(path.join(moved.path, 'boot.log')), 'its files moved with it')
+      assert.ok(moved.path.startsWith(path.join(privateTrash, 'release-')), 'and into the disposable trash')
+    } finally {
+      if (previousTrash === undefined) delete process.env[TRASH_ROOT_ENV]
+      else process.env[TRASH_ROOT_ENV] = previousTrash
+    }
   })
 })

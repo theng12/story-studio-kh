@@ -39,10 +39,7 @@ function fixture(t, installedVersion) {
   const source = path.join(project, 'source', 'Story Studio KH.app')
   const target = path.join(project, 'installed', 'Story Studio KH.app')
   const trash = path.join(project, 'private-trash', 'app')
-  const defaultTrash = path.join(path.resolve(path.dirname(script), '..', '..'), '_trash', 'app')
-  assert.equal(defaultTrash, path.join(project, '_trash', 'app'))
-  assert.notEqual(defaultTrash, path.join(ROOT, '_trash', 'app'),
-    'the copied installer resolved its default trash to the owner checkout')
+  const defaultTrash = path.join(path.join(process.env.HOME || os.homedir(), 'Desktop', '_trash', 'story-studio-kh'), 'app')
   fs.mkdirSync(path.dirname(script), { recursive: true })
   fs.mkdirSync(path.dirname(target), { recursive: true })
   fs.copyFileSync(SCRIPT, script)

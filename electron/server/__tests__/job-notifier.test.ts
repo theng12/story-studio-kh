@@ -345,7 +345,15 @@ describe('Quit while jobs run', () => {
   test('the app asks before quitting with running jobs, and Cancel keeps it open', async () => {
     const { readFile } = await import('node:fs/promises')
     const main = await readFile(new URL('../../main.ts', import.meta.url), 'utf8')
-    assert.match(main, /before-quit[\s\S]{0,400}formatQuitWarning\(getQueueStats\(\)\.running\)[\s\S]{0,400}buttons: \['Quit', 'Cancel'\][\s\S]{0,200}if \(choice === 1\) \{\s*event\.preventDefault\(\)\s*return/)
+    // Wiring only, not ordering: the Cancel branch clears the shutdown deadline. The behaviour it
+    // protects (nothing exits after a cancelled quit, even past the ceiling) is proved with a real
+    // injected clock in shutdown-state.test.ts, so a UI reshuffle here cannot break that proof.
+    const cancelBranch = main.slice(main.indexOf("if (choice === 1) {"))
+    assert.match(cancelBranch.slice(0, 300), /cancelShutdown\(\)/,
+      'Cancel must disarm the shutdown ceiling')
+    const handler = main.slice(main.indexOf("electronApp.on('before-quit'"))
+    assert.doesNotMatch(handler.slice(0, handler.indexOf("electronApp.on('will-quit'")), /electronApp\.quit\(\)/)
+    assert.match(handler, /electronApp\.exit\(0\)/)
   })
 
 })

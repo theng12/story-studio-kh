@@ -14,22 +14,21 @@ const body = (file: string, name: string) => {
 }
 const ASK = /useConfirm\(\)\.ask\(\{[^\n]*danger: true/
 
-test('destructive removals ask first, and hiding failed rows confirms what stays', () => {
+test('destructive removals ask first, and Clear says the record is kept and restorable', () => {
   assert.match(body('pages/projects/[slug]/music.vue', 'remove'), ASK)
   for (const fn of ['removeComposition', 'removeSheet']) {
     assert.match(body('pages/projects/[slug]/character-sheet.vue', fn), ASK, fn)
   }
-  // Bulk hide is restorable, so its confirm is a full block rather than the
-  // one-line ASK shape: only the failed rows ask, and the dialog says plainly
-  // that nothing is deleted and the Hidden filter restores them.
+  // Clear is the only way a finished row leaves the list. It is recoverable,
+  // and the dialog says so with the measured numbers before it runs.
   const jobs = src('pages/projects/[slug]/jobs.vue')
-  const clear = jobs.slice(jobs.indexOf('async function clearHistory('), jobs.indexOf('function clearFinished()'))
-  assert.match(clear, /if \(status === 'failed' && !await useConfirm\(\)\.ask\(\{/)
-  assert.match(clear, /title: 'Hide failed jobs from the list\?'/)
-  assert.match(clear, /Nothing is deleted — their error details, logs and Retry\/Recover stay on the record, and the Hidden filter brings them back\./)
-  assert.match(clear, /confirmLabel: 'Hide From List'/)
+  const clear = jobs.slice(jobs.indexOf('async function clearBucket('), jobs.indexOf('async function restoreClearedJob('))
+  assert.match(clear, /useConfirm\(\)\.ask\(\{/)
+  assert.match(clear, /Cleared jobs are kept in Recently cleared, and Restore puts them back\./)
+  assert.match(clear, /confirmLabel: 'Clear'/)
   assert.match(clear, /danger: true/)
-  assert.match(clear, /await post<\{ hidden: number \}>\(`\$\{endpoint\}\/hide\?status=\$\{status\}`\)/)
+  assert.match(clear, /expected_count: preview\.count/)
+  assert.match(clear, /expected_bytes: preview\.bytes/)
 })
 
 test('force-regenerate thumbnails is explicit and cannot be skipped', () => {

@@ -23,14 +23,18 @@ import {
   jobEvents,
   getQueueStats,
   findJobs,
+  runningJobIdsForShutdown,
 } from './server/services/job-queue.js'
 import { reapFfmpegOrphans } from './server/services/orphan-reaper.js'
 import { projectsRoot, migrateLegacyProjects } from './server/services/project-manager.js'
 import { getRunningFlagPath, patchLastSession } from './server/services/last-session.js'
 import { isServerMode, getServerModeConfig } from './server/lib/server-mode.js'
+import { armShutdownDeadline, beginShutdown, cancelShutdown } from './server/lib/shutdown-state.js'
 import { DEV_BACKEND_PORT } from './server/lib/dev-backend.js'
 import { applyServerTimeouts } from './server/lib/server-timeouts.js'
-import { startLogPruning } from './server/services/logger.js'
+import { logLine, getLogDir, startLogPruning } from './server/services/logger.js'
+import { startWedgeRecovery } from './server/services/wedge-recovery.js'
+import { noteWedgeStage, startWedgeWatch } from './server/services/wedge-watch.js'
 import { bootstrapServerModeFromEnv } from './server/services/app-settings.js'
 import { isAllowedApplicationNavigation, isSafeExternalUrl } from './server/lib/security.js'
 import { redactSecrets } from './server/lib/redact-secrets.js'
@@ -119,6 +123,18 @@ function startServer(): Promise<number> {
     // Old log files are swept on a timer here, not inside the request logger
     // where the sweep used to live.
     startLogPruning()
+    // A freeze has to end itself: past the bound this captures evidence, pauses
+    // the queue, parks (or names) in-flight rows, writes one sentence and
+    // hard-exits — a graceful quit is what was stuck in Production (SIGTERM
+    // ignored, SIGKILL needed). quit is injected here so the module never
+    // reaches for Electron itself.
+    startWedgeRecovery({ quit: () => electronApp.exit(1) })
+    // The main thread only publishes a beat and a small state file. A blocked loop
+    // cannot run the check above, so a worker thread past `wedge_exit_seconds` of
+    // silence captures the incident from its own thread and SIGKILLs the process.
+    noteWedgeStage('serving')
+    void startWedgeWatch({ logDir: getLogDir() })
+      .catch(error => logLine('error', 'the off-thread wedge watchdog did not start', { error: String(error) }))
     server.listen(port, bind, () => {
       const address = server!.address()
       const actualPort = typeof address === 'object' ? address!.port : port
@@ -900,10 +916,27 @@ electronApp.on('activate', () => {
 // double-run the cleanup or block forever.
 let isShuttingDown = false
 const SHUTDOWN_DRAIN_MS = 800
+// The quit path this file used to end with was `electronApp.quit()`, which hands control to AppKit's
+// terminate flow — exactly the frames Production sampled hanging (`_handleAEQuit ->
+// _terminateFromSender:askIfShouldTerminate:saveWindows:`), with SIGTERM ignored and the updater
+// told "the app did not quit". So our own shutdown finishes and exits outright, and a ceiling ends
+// it with a sentence naming what was still running.
+const SHUTDOWN_DEADLINE_MS = 15_000
 electronApp.on('before-quit', (event) => {
   if (isShuttingDown) return
   // Stage markers for the smoke's SIGTERM-timeout report; no behavior change.
   console.log('[shutdown] before-quit event')
+  isShuttingDown = true
+  event.preventDefault()
+  // Arm the ceiling BEFORE anything that can block — including the warning dialog below. A modal on
+  // an unattended quit is exactly the kind of wait that left Production's app mid-quit forever.
+  beginShutdown(runningJobIdsForShutdown())
+  noteWedgeStage('shutting down')
+  armShutdownDeadline({
+    deadlineMs: SHUTDOWN_DEADLINE_MS,
+    exit: code => electronApp.exit(code),
+    log: (message, meta) => logLine('warn', message, meta),
+  })
   // Say what happens to running jobs before they stop. Headless server mode has no window to ask in.
   const warning = formatQuitWarning(getQueueStats().running)
   if (warning && mainWindow && !mainWindow.isDestroyed()) {
@@ -913,12 +946,11 @@ electronApp.on('before-quit', (event) => {
       message: warning.title, detail: warning.body,
     })
     if (choice === 1) {
-      event.preventDefault()
+      cancelShutdown()
+      isShuttingDown = false
       return
     }
   }
-  isShuttingDown = true
-  event.preventDefault()
   console.log('[shutdown] server close requested')
   try { if (server) server.close() } catch (e) { logCrash('shutdown-server-close', e) }
   try {
@@ -933,12 +965,13 @@ electronApp.on('before-quit', (event) => {
     console.log(`[shutdown] job persistence drained: ${drained}`)
     if (drained) clearRunningFlag()
     else console.error('[shutdown] Job persistence did not drain before the shutdown deadline; preserving the running flag for recovery.')
-    console.log('[shutdown] final quit requested')
-    electronApp.quit()
+    console.log('[shutdown] final exit requested')
+    // Not quit(): returning to the native terminate path is what hung. Our cleanup above is done.
+    electronApp.exit(0)
   }).catch(e => {
     logCrash('shutdown-job-persistence', e)
-    console.log('[shutdown] final quit requested')
-    electronApp.quit()
+    console.log('[shutdown] final exit requested after a persistence error')
+    electronApp.exit(0)
   })
 })
 

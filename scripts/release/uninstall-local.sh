@@ -20,7 +20,7 @@ set -euo pipefail
 
 LABEL="local.storystudio.kh"
 TARGET="${STORY_STUDIO_UNINSTALL_TARGET:-/Applications/Story Studio KH.app}"
-TRASH_ROOT="${STORY_STUDIO_UNINSTALL_TRASH:-$HOME/Desktop/_trash/app}"
+TRASH_ROOT="${STORY_STUDIO_UNINSTALL_TRASH:-${STORY_STUDIO_TRASH_DIR:-$HOME/Desktop/_trash/story-studio-kh}/app}"
 HOME_DIR="${STORY_STUDIO_UNINSTALL_HOME:-$HOME}"
 PLIST="$HOME_DIR/Library/LaunchAgents/$LABEL.plist"
 DATA_DIRS=("$HOME_DIR/Documents/Story Studio KH" "$HOME_DIR/Library/Application Support/Story Studio KH")
