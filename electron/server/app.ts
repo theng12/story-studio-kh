@@ -31,6 +31,7 @@ import { recordAutomationKeyUse } from './services/app-settings.js'
 import { router as authRouter } from './routes/auth.js'
 import { errorBoundary } from './lib/error-boundary.js'
 import { resolveStoryStudioVersion } from './lib/app-version.js'
+import { currentWaits } from './lib/stall-watch.js'
 import { getApiKey } from './services/app-secrets-store.js'
 import { migrateLegacyKeychain } from './services/legacy-keychain-migration.js'
 import {
@@ -124,11 +125,31 @@ app.use((req, res, next) => {
 //
 // `boot_complete` flips true once every async boot migration has settled
 // (or after the 20 s safety-net timeout).
-app.get('/api/health', async (_req, res) => {
+//
+// The version is resolved ONCE here, after the app is constructed, and health
+// answers from that variable — the route never touches the filesystem. A boot
+// that cannot read package.json logs once and reports `unknown`; while the
+// read is still in flight it also reports `unknown` rather than waiting.
+// Production saw health hang alongside other disk-touching routes while an
+// in-memory route kept answering (what held the disk is a hypothesis, not a
+// finding); this route no longer depends on it either way.
+let healthVersion = 'unknown'
+export const healthVersionReady: Promise<string> = resolveStoryStudioVersion()
+  .then(version => {
+    healthVersion = version
+    return version
+  })
+  .catch(error => {
+    logLine('error', 'story version could not be read at boot; /api/health reports unknown', { error: String(error) })
+    return 'unknown'
+  })
+
+app.get('/api/health', (_req, res) => {
   res.json({
     status: 'ok',
-    version: await resolveStoryStudioVersion(),
+    version: healthVersion,
     boot_complete: isBootComplete(),
+    waiting: currentWaits(),
   })
 })
 

@@ -14,6 +14,7 @@ import os from 'os'
 import path from 'path'
 import { fileURLToPath } from 'url'
 import { writeJsonAtomic, readJsonOr, withLock } from '../lib/atomic-store.js'
+import { watchWait } from '../lib/stall-watch.js'
 import { assertWriteIsolatedInTests } from '../lib/test-isolation.js'
 import { normalizeServiceBaseUrl } from '../lib/security.js'
 import {
@@ -90,7 +91,7 @@ interface SettingsCacheEntry {
 }
 
 const settingsCache = new Map<string, SettingsCacheEntry>()
-const settingsReads = new Map<string, { signature: string; promise: Promise<AppSettings> }>()
+const settingsReads = new Map<string, { signature: string; promise: Promise<AppSettings>; startedAt: number }>()
 
 async function settingsFileSignature(target: string): Promise<string> {
   try {
@@ -330,14 +331,29 @@ async function readSettings(): Promise<AppSettings> {
   const cached = settingsCache.get(target)
   if (cached?.signature === signature) return cached.value
 
+  const waitOperation = `app-settings:read ${target}`
   const pending = settingsReads.get(target)
-  if (pending?.signature === signature) return pending.promise
+  if (pending?.signature === signature) {
+    // Joining an in-flight read: wait under its own registered entry (shared
+    // with the reader, so one read plus a joiner says one line, not two).
+    const wait = watchWait(waitOperation, undefined, pending.startedAt)
+    try {
+      return await pending.promise
+    } finally {
+      wait.done()
+    }
+  }
   const read = readStableSettings(target)
-  const inFlight = { signature, promise: read }
+  const inFlight = { signature, promise: read, startedAt: Date.now() }
   settingsReads.set(target, inFlight)
+  // The read itself is a wait too: one that never settles stays visible and
+  // says one line past the stall threshold — never a fake value, never an
+  // early rejection, just no longer silent.
+  const wait = watchWait(waitOperation)
   try {
     return await read
   } finally {
+    wait.done()
     if (settingsReads.get(target) === inFlight) settingsReads.delete(target)
   }
 }

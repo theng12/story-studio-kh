@@ -18,6 +18,7 @@ import os from 'node:os'
 import path from 'path'
 
 import { assertWriteIsolatedInTests } from './test-isolation.js'
+import { watchWait } from './stall-watch.js'
 
 const locks = new Map<string, Promise<unknown>>()
 /**
@@ -28,6 +29,8 @@ const locks = new Map<string, Promise<unknown>>()
  * behaviour of the lock itself.
  */
 const pendingWaiters = new Map<string, number>()
+/** When the current holder of each key acquired it — the holder's own age on a stall line. */
+const holderStartedAt = new Map<string, number>()
 const CROSS_PROCESS_LOCK_WAIT_MS = 10_000
 const CROSS_PROCESS_LOCK_RETRY_MS = 20
 const CROSS_PROCESS_STALE_LOCK_MS = 60_000
@@ -44,12 +47,17 @@ interface CrossProcessLockOwner {
  * the same key queue up and run in order. Rejections in one run do not block
  * the next one.
  */
-export function withLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
+export function withLock<T>(key: string, fn: () => Promise<T>, label?: string): Promise<T> {
   pendingWaiters.set(key, (pendingWaiters.get(key) ?? 0) + 1)
-  const prev = locks.get(key) ?? Promise.resolve()
+  const queuedOn = locks.get(key)
+  // A wait is visible only when this caller actually queues behind a holder.
+  const wait = queuedOn ? watchWait(key, label, holderStartedAt.get(key)) : null
+  const prev = queuedOn ?? Promise.resolve()
   // Starting: this caller is no longer waiting. Delete at zero so the counter
   // does not accumulate an entry for every path ever locked.
   const run = () => {
+    wait?.done() // acquired — the wait ends here, not when fn finishes
+    holderStartedAt.set(key, Date.now())
     const remaining = Math.max(0, (pendingWaiters.get(key) ?? 1) - 1)
     if (remaining === 0) pendingWaiters.delete(key)
     else pendingWaiters.set(key, remaining)
@@ -62,7 +70,10 @@ export function withLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
   locks.set(key, tail)
   // Opportunistic GC — if nothing else queued after us, drop the entry.
   void tail.then(() => {
-    if (locks.get(key) === tail) locks.delete(key)
+    if (locks.get(key) === tail) {
+      locks.delete(key)
+      holderStartedAt.delete(key)
+    }
   })
   return next
 }
