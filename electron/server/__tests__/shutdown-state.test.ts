@@ -102,3 +102,15 @@ test('a quitting app also takes DELETE plainly', async () => {
   assert.equal(body?.ok, true)
   assert.equal(body?.detail, shutdownSentence())
 })
+
+test('after Cancel nothing exits, even a real ceiling later', async () => {
+  _resetShutdownStateForTests()
+  beginShutdown(['job-a'])
+  const exits: number[] = []
+  // A REAL timer, not an injected one: the owner cancelled, so no exit may arrive after the ceiling.
+  armShutdownDeadline({ deadlineMs: 40, exit: code => exits.push(code), log: () => {} })
+  cancelShutdown()
+  await new Promise(resolve => setTimeout(resolve, 160))
+  assert.deepEqual(exits, [], 'a cancelled quit must not exit on its own, however long it waits')
+  assert.equal(isShuttingDown(), false)
+})

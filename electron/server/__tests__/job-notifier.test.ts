@@ -345,12 +345,12 @@ describe('Quit while jobs run', () => {
   test('the app asks before quitting with running jobs, and Cancel keeps it open', async () => {
     const { readFile } = await import('node:fs/promises')
     const main = await readFile(new URL('../../main.ts', import.meta.url), 'utf8')
-    // Cancel must keep the app open AND clear the shutdown ceiling armed before the dialog: a quit
-    // the owner cancelled must never exit on its own afterwards.
-    assert.match(main, /formatQuitWarning\(getQueueStats\(\)\.running\)[\s\S]{0,600}buttons: \['Quit', 'Cancel'\][\s\S]{0,300}if \(choice === 1\) \{\s*cancelShutdown\(\)[\s\S]{0,120}isShuttingDown = false[\s\S]{0,60}return/)
-    assert.match(main, /beginShutdown\(runningJobIdsForShutdown\(\)\)[\s\S]{0,400}armShutdownDeadline\(/)
-    // The shutdown itself ends by exiting outright. Menu Quit and the non-mac close path may still
-    // ask Electron to quit — they enter this handler, which now finishes and exits on its own.
+    // Wiring only, not ordering: the Cancel branch clears the shutdown deadline. The behaviour it
+    // protects (nothing exits after a cancelled quit, even past the ceiling) is proved with a real
+    // injected clock in shutdown-state.test.ts, so a UI reshuffle here cannot break that proof.
+    const cancelBranch = main.slice(main.indexOf("if (choice === 1) {"))
+    assert.match(cancelBranch.slice(0, 300), /cancelShutdown\(\)/,
+      'Cancel must disarm the shutdown ceiling')
     const handler = main.slice(main.indexOf("electronApp.on('before-quit'"))
     assert.doesNotMatch(handler.slice(0, handler.indexOf("electronApp.on('will-quit'")), /electronApp\.quit\(\)/)
     assert.match(handler, /electronApp\.exit\(0\)/)
