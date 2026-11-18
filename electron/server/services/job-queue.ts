@@ -73,6 +73,7 @@ import type { JobHistoryFacets } from '../contracts/index.js'
 import {
   HISTORY_PAGE_SIZE,
   compareHistoryRows,
+  deriveOutputDir,
   isAfterHistoryCursor,
   jobDisplayStatus,
   isRecoveredFailure as isRecoveredFailureShared,
@@ -11032,10 +11033,208 @@ export async function removeTerminalJobRow(
   return true
 }
 
+// ── Clear: a real removal that can be put back (owner, 2026-11-18) ──────────
+//
+// Hide keeps every record and only takes the row off the list. Clear is the
+// separate action that removes the row from memory AND from the project's job
+// store, and it is recoverable: the full row is appended to the project's
+// `cleared-jobs.json` first, then the existing delete mutation removes it, so
+// the list, the file and the history read all agree and nothing has to be
+// rebuilt on Restore. No file is ever deleted.
+
+export type ClearedJob = { id: string; job: Job; cleared_at: string; record_bytes: number }
+export type ClearedJobSummary = {
+  id: string
+  job_id: string
+  project_slug: string
+  type: Job['type']
+  episode: string | null
+  cleared_at: string
+  record_bytes: number
+}
+export type ClearPreview = { count: number; ids: string[]; bytes: number; media_bytes: number }
+export type ClearRefusalReason = 'not_found' | 'not_terminal' | 'final_render' | 'unsettled'
+export type ClearJobResult = { ok: true; cleared: ClearedJobSummary } | { ok: false; reason: ClearRefusalReason }
+
+const CLEARED_JOBS_FILE = 'cleared-jobs.json'
+
+function clearedJobsPath(projectSlug: string): string {
+  const dir = getProjectDir(projectSlug) || path.join(projectsRoot(), projectSlug)
+  return path.join(dir, CLEARED_JOBS_FILE)
+}
+
+async function readClearedJobs(projectSlug: string): Promise<ClearedJob[]> {
+  try {
+    const parsed = JSON.parse(await fs.readFile(clearedJobsPath(projectSlug), 'utf-8')) as { cleared?: ClearedJob[] }
+    return Array.isArray(parsed.cleared) ? parsed.cleared : []
+  } catch { return [] }
+}
+
+/** The durable shape of a row: same redaction, same log cap as jobs.json. */
+function clearedRow(job: Job): Job {
+  return capFinishedLog(safeJob(job))
+}
+
+function clearedEntry(job: Job): ClearedJob {
+  const row = clearedRow(job)
+  return { id: randomUUID(), job: row, cleared_at: new Date().toISOString(), record_bytes: Buffer.byteLength(JSON.stringify(row)) }
+}
+
+function clearedSummary(entry: ClearedJob): ClearedJobSummary {
+  return {
+    id: entry.id,
+    job_id: entry.job.job_id,
+    project_slug: entry.job.project_slug,
+    type: entry.job.type,
+    episode: entry.job.episode_id ?? null,
+    cleared_at: entry.cleared_at,
+    record_bytes: entry.record_bytes,
+  }
+}
+
 /**
- * The Jobs toolbar's terminal-history subsets. Omitting this selector keeps
- * the legacy clear-all-terminal-history behavior for existing callers.
+ * Append rows to the project's Recently cleared store. Serialised on the same
+ * lock key jobs.json uses, so a clear and a job write can never interleave a
+ * read-modify-write of the two files. A row already archived for this project
+ * is replaced rather than listed twice (a clear retried after a crash).
  */
+async function archiveClearedJobs(projectSlug: string, jobsToClear: Job[]): Promise<ClearedJob[]> {
+  const entries = jobsToClear.map(clearedEntry)
+  const file = clearedJobsPath(projectSlug)
+  await withLock(jobsPath(projectSlug), async () => {
+    const existing = (await readClearedJobs(projectSlug))
+      .filter(entry => !entries.some(next => next.job.job_id === entry.job.job_id))
+    await writeJsonAtomic(file, { cleared: [...existing, ...entries] }, { compact: true })
+  })
+  return entries
+}
+
+/**
+ * The rows a Clear of this subset would remove — the same rule `clearFinished`
+ * applies, so a preview count is the number that disappears. Reads memory and
+ * the saved history file, because a scope the queue never loaded keeps its
+ * rows only on disk.
+ */
+async function clearCandidates(projectSlug: string, status: JobHistoryClearStatus): Promise<Job[]> {
+  await loadPersistedJobs(projectSlug)
+  const candidates = new Map<string, Job>()
+  for (const job of jobs.values()) {
+    if (job.project_slug !== projectSlug) continue
+    if (matchesHistoryClearStatus(job, status)) candidates.set(job.job_id, job)
+  }
+  const alreadyRemoved = projectPersistence.get(projectSlug)?.deletedIds
+  for (const job of await savedHistoryRows(projectSlug)) {
+    if (job.project_slug !== projectSlug || jobs.has(job.job_id) || alreadyRemoved?.has(job.job_id)) continue
+    if (matchesHistoryClearStatus(job, status)) candidates.set(job.job_id, job)
+  }
+  return [...candidates.values()]
+}
+
+/** What a Clear would take, measured from the real rows. Media is reported separately because it stays on disk. */
+export async function previewClear(
+  projectSlug: string,
+  status: JobHistoryClearStatus,
+  { measureMedia = true }: { measureMedia?: boolean } = {},
+): Promise<ClearPreview> {
+  const candidates = await clearCandidates(projectSlug, status)
+  const dirSize = measureMedia ? (await import('./storage-audit.js')).dirSize : null
+  let bytes = 0
+  let mediaBytes = 0
+  for (const job of candidates) {
+    bytes += Buffer.byteLength(JSON.stringify(clearedRow(job)))
+    const dir = measureMedia ? deriveOutputDir(job) : null
+    if (dir && dirSize) mediaBytes += await dirSize(dir)
+  }
+  return { count: candidates.length, ids: candidates.map(job => job.job_id), bytes, media_bytes: mediaBytes }
+}
+
+/** Remove a whole terminal subset, recoverably. Returns the count and the measured record bytes. */
+export async function clearFinishedToArchive(
+  projectSlug: string,
+  status: JobHistoryClearStatus,
+): Promise<{ count: number; bytes: number }> {
+  const candidates = await clearCandidates(projectSlug, status)
+  if (!candidates.length) return { count: 0, bytes: 0 }
+  const entries = await archiveClearedJobs(projectSlug, candidates)
+  const sceneRenderJobs: Array<Pick<Job, 'episode_id' | 'job_id'>> = []
+  for (const job of candidates) {
+    if (jobs.has(job.job_id)) {
+      clearPaidImageWaitTimer(job.job_id)
+      clearQuotaWaitTimer(job.job_id)
+      if (!activeRunJobIds.has(job.job_id)) cancelled.delete(job.job_id)
+      jobs.delete(job.job_id)
+      if (job.type === 'continuity_render') sceneRenderJobs.push(job)
+    }
+  }
+  emitCleared(projectSlug, candidates.map(job => job.job_id))
+  void Promise.all(sceneRenderJobs.map(job => (
+    deactivateSceneRenderStatus(projectSlug, job.episode_id, job.job_id).catch(() => {})
+  )))
+  await Promise.all(candidates.map(job => persistProjectMutation(projectSlug, { kind: 'delete', jobId: job.job_id })))
+  return { count: candidates.length, bytes: entries.reduce((total, entry) => total + entry.record_bytes, 0) }
+}
+
+/** One row, from memory or from the saved history file, cleared into Recently cleared. */
+export async function clearTerminalJobRow(projectSlug: string, jobId: string): Promise<ClearJobResult> {
+  const live = jobs.get(jobId)
+  const job = live && live.project_slug === projectSlug
+    ? live
+    : (await savedHistoryRows(projectSlug)).find(row => row?.job_id === jobId && row.project_slug === projectSlug)
+  if (!job || job.project_slug !== projectSlug) return { ok: false, reason: 'not_found' }
+  if (!TERMINAL_JOB_STATUSES.has(job.status)) return { ok: false, reason: 'not_terminal' }
+  if (hasFinalRenderFence(job)) return { ok: false, reason: 'final_render' }
+  if (!job.force_abandoned && (hasUnsettledProviderEvidence(job) || job.music_results_awaiting_import?.length)) {
+    return { ok: false, reason: 'unsettled' }
+  }
+  const [entry] = await archiveClearedJobs(projectSlug, [job])
+  if (live) {
+    clearPaidImageWaitTimer(jobId)
+    clearQuotaWaitTimer(jobId)
+    if (!activeRunJobIds.has(jobId)) cancelled.delete(jobId)
+    jobs.delete(jobId)
+    if (job.type === 'continuity_render') {
+      void deactivateSceneRenderStatus(job.project_slug, job.episode_id, job.job_id).catch(() => {})
+    }
+  }
+  await persistProjectMutation(projectSlug, { kind: 'delete', jobId })
+  emitCleared(projectSlug, [jobId])
+  return { ok: true, cleared: clearedSummary(entry) }
+}
+
+export async function listClearedJobs(projectSlug: string): Promise<{ items: ClearedJobSummary[]; bytes: number }> {
+  const items = (await readClearedJobs(projectSlug)).map(clearedSummary)
+  return { items, bytes: items.reduce((total, item) => total + item.record_bytes, 0) }
+}
+
+/**
+ * Put a cleared row back exactly as it was: same job_id, same evidence, same
+ * stored fields. If a retry already re-created the row, it is not overwritten —
+ * the cleared entry is simply retired.
+ */
+export async function restoreClearedJob(
+  projectSlug: string,
+  clearedId: string,
+): Promise<{ already_present: boolean; job_id: string } | null> {
+  await loadPersistedJobs(projectSlug)
+  const entries = await readClearedJobs(projectSlug)
+  const entry = entries.find(candidate => candidate.id === clearedId)
+  if (!entry) return null
+  const existing = jobs.get(entry.job.job_id)
+  if (!existing) {
+    jobs.set(entry.job.job_id, entry.job)
+    await persistJob(entry.job)
+    emitPublicUpdate(entry.job)
+  }
+  await withLock(jobsPath(projectSlug), async () => {
+    const current = await readClearedJobs(projectSlug)
+    await writeJsonAtomic(clearedJobsPath(projectSlug), {
+      cleared: current.filter(candidate => candidate.id !== clearedId),
+    }, { compact: true })
+  })
+  return { already_present: Boolean(existing), job_id: entry.job.job_id }
+}
+
+
 export type JobHistoryClearStatus = 'finished' | 'failed'
 
 /**

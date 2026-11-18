@@ -280,11 +280,15 @@ function sendJobControlError(res: import('express').Response, error: unknown): b
   return true
 }
 
-function sendTerminalOnlyConflict(res: import('express').Response, job: Job): void {
+function sendTerminalOnlyConflict(
+  res: import('express').Response,
+  job: Job | undefined,
+  detail = 'Only finished jobs can be hidden from the list.',
+): void {
   res.status(409).json({
-    code: job.control?.code,
-    control: job.control,
-    detail: 'Only finished jobs can be hidden from the list.',
+    code: job?.control?.code,
+    control: job?.control,
+    detail,
   })
 }
 
@@ -836,6 +840,101 @@ router.post('/jobs/all/hide', async (req, res) => {
   const scopes = await allJobScopes()
   const hidden = await Promise.all(scopes.map(scope => jq.hideFinished(scope, parsed.value.status)))
   res.json({ ok: true, hidden: hidden.reduce((total, count) => total + count, 0) })
+})
+
+// ── Clear: a real, recoverable removal (owner, 2026-11-18) ───────────────
+//
+// Hide stays exactly as it was. Clear removes the row from the list AND from
+// the project's saved job store, after copying the full row into the project's
+// `cleared-jobs.json`. No file is deleted, and Restore puts the same row back.
+
+function requireClearStatus(query: unknown): { status: jq.JobHistoryClearStatus } | { error: string } {
+  const parsed = parseHistoryClearQuery(query)
+  if ('error' in parsed) return parsed
+  return parsed.value.status ? { status: parsed.value.status } : { error: 'status must be "finished" or "failed".' }
+}
+
+/** What Clear would take, measured from the real rows. `media_bytes` stays on disk and is shown as kept. */
+router.get('/jobs/clear-preview', async (req, res) => {
+  const parsed = requireClearStatus(req.query)
+  if ('error' in parsed) return res.status(400).json({ detail: parsed.error })
+  const scopes = await historyScopes(singleQueryValue((req.query as Record<string, unknown>).project))
+  if (!scopes) return res.status(404).json({ detail: 'Project not found' })
+  const previews = await Promise.all(scopes.map(scope => jq.previewClear(scope, parsed.status)))
+  res.json({
+    count: previews.reduce((total, preview) => total + preview.count, 0),
+    ids: previews.flatMap(preview => preview.ids),
+    bytes: previews.reduce((total, preview) => total + preview.bytes, 0),
+    media_bytes: previews.reduce((total, preview) => total + preview.media_bytes, 0),
+  })
+})
+
+/** Recently cleared, newest first, across every scope (or one channel with `?project=`). */
+router.get('/jobs/cleared', async (req, res) => {
+  const scopes = await historyScopes(singleQueryValue((req.query as Record<string, unknown>).project))
+  if (!scopes) return res.status(404).json({ detail: 'Project not found' })
+  const lists = await Promise.all(scopes.map(scope => jq.listClearedJobs(scope)))
+  const items = lists.flatMap(list => list.items)
+    .sort((a, b) => b.cleared_at.localeCompare(a.cleared_at))
+  res.json({ items, bytes: lists.reduce((total, list) => total + list.bytes, 0) })
+})
+
+router.post('/jobs/cleared/:id/restore', async (req, res) => {
+  const scopes = await allJobScopes()
+  for (const scope of scopes) {
+    const restored = await jq.restoreClearedJob(scope, req.params.id)
+    if (restored) {
+      return res.json({ ok: true, already_present: restored.already_present, job: jq.getPublicJob(restored.job_id) })
+    }
+  }
+  res.status(404).json({ detail: 'This cleared job is no longer in Recently cleared.' })
+})
+
+// Bulk clear must be registered before the `:jobId` form below.
+router.post('/jobs/all/clear', async (req, res) => {
+  const body = (req.body || {}) as { status?: unknown; project?: unknown; expected_count?: unknown; expected_bytes?: unknown }
+  if (body.status !== 'finished' && body.status !== 'failed') {
+    return res.status(400).json({ detail: 'status must be "finished" or "failed". Nothing was cleared.' })
+  }
+  if (body.project !== undefined && typeof body.project !== 'string') {
+    return res.status(400).json({ detail: 'project must be a channel slug. Nothing was cleared.' })
+  }
+  if (!Number.isSafeInteger(body.expected_count) || !Number.isSafeInteger(body.expected_bytes)) {
+    return res.status(400).json({ detail: 'Confirm the number of jobs and bytes to clear. Nothing was cleared.' })
+  }
+  // A channel page clears that channel only; no `project` keeps the fleet-wide action.
+  const scopes = await historyScopes(body.project?.trim() || undefined)
+  if (!scopes) return res.status(404).json({ detail: 'Project not found' })
+  const previews = await Promise.all(scopes.map(scope => jq.previewClear(scope, body.status as jq.JobHistoryClearStatus, { measureMedia: false })))
+  const count = previews.reduce((total, preview) => total + preview.count, 0)
+  const bytes = previews.reduce((total, preview) => total + preview.bytes, 0)
+  if (count !== body.expected_count || bytes !== body.expected_bytes) {
+    return res.status(409).json({
+      detail: `This list changed: ${count} job(s) and ${bytes} bytes are clearable now. Nothing was cleared. Open Clear again to see the new total.`,
+    })
+  }
+  const results = await Promise.all(scopes.map(scope => jq.clearFinishedToArchive(scope, body.status as jq.JobHistoryClearStatus)))
+  res.json({
+    ok: true,
+    cleared: results.reduce((total, result) => total + result.count, 0),
+    bytes: results.reduce((total, result) => total + result.bytes, 0),
+  })
+})
+
+router.post('/jobs/all/:jobId/clear', async (req, res) => {
+  const existing = await findUniversalJob(req.params.jobId)
+  const projectSlug = existing?.project_slug ?? await removalScopeFor(req.params.jobId)
+  if (!projectSlug) return res.status(404).json({ detail: 'Job not found' })
+  const result = await jq.clearTerminalJobRow(projectSlug, req.params.jobId)
+  if (result.ok) return res.json({ ok: true, cleared: result.cleared })
+  if (result.reason === 'not_found') return res.status(404).json({ detail: 'Job not found' })
+  if (result.reason === 'not_terminal') {
+    return sendTerminalOnlyConflict(res, existing, 'Only finished jobs can be cleared. A queued or running job has to finish or be stopped first.')
+  }
+  if (result.reason === 'final_render') {
+    return res.status(409).json({ detail: 'Story Studio is preserving this remote render record until it can be reconciled safely, so it cannot be cleared yet.' })
+  }
+  res.status(409).json({ detail: 'Story Studio is still waiting for the Gateway to settle this job\'s provider work, so it cannot be cleared yet.' })
 })
 
 // ── App-level jobs (broll_normalize, broll_autotag, etc.) ─────────────
