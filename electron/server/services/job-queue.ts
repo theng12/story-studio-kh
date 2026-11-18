@@ -61,7 +61,9 @@ import { musicResultsAwaitingImport } from './music-library.js'
 import {
   isNeverCreatedProviderTask,
   isActiveGenStudioProviderState,
+  hasFinalProviderAnswer,
   isUnprovenFailedRead,
+  isSettledProviderEntry,
   isUnsettledProviderEntry as isUnsettledProviderEntryShared,
   shouldRecheckStoredTranscriptionAbsence,
   shouldRecheckStoredUnknownOutcome,
@@ -5817,6 +5819,17 @@ async function bootRecoveryKind(j: Job): Promise<'merge' | 'upload' | 'chat' | '
 }
 
 /**
+ * Every provider answer this job is waiting on is already final at the Gateway. Such a row cannot
+ * settle by being waited on, so a hold that named it could never report `safe` and would block an
+ * install until someone cleaned rows by hand — and it is not stranded either: its id stays on disk,
+ * so the next start reconciles it or Retry reuses it.
+ */
+function providerWorkIsOver(job: Pick<Job, 'genstudio_jobs'>): boolean {
+  const entries = job.genstudio_jobs || []
+  return entries.length > 0 && entries.every(isSettledProviderEntry)
+}
+
+/**
  * Running jobs that a restart would NOT continue where they stopped. Paid image
  * waits and commits are counted here too: their own boot branches are careful, not seamless.
  */
@@ -5835,8 +5848,13 @@ export async function runningJobsThatWouldNotResume(): Promise<Job[]> {
         || (finalRenderRecoveryHolds.has(finalRenderStateKey(j.project_slug, j.job_id)) && !parked)) left.push(j)
       continue
     }
-    if (hasCancellationContext(j) || getValidPaidImageWait(j) || hasPaidImageCommitAttempt(j)
-      || !(await bootRecoveryKind(j))) left.push(j)
+    if (hasCancellationContext(j) || getValidPaidImageWait(j) || hasPaidImageCommitAttempt(j)) {
+      left.push(j)
+      continue
+    }
+    if (await bootRecoveryKind(j)) continue
+    if (providerWorkIsOver(j)) continue
+    left.push(j)
   }
   return left
 }
@@ -7528,7 +7546,21 @@ export async function takeUpdateHold(timeoutS: number, pauseS: number): Promise<
   const watched = new Set<string>()
   let unsettled = await unsettledInFlightJobIds()
   for (const id of unsettled) watched.add(id)
+  // The window is worth spending only on a row that can still settle inside it. A row whose
+  // provider already published its last word, or that waits on a paid timer, cannot: holding the
+  // answer back to the deadline only turns the sentence naming it into the client's own timeout
+  // (its request deadline is the same window).
+  const couldStillSettle = (id: string): boolean => {
+    const job = jobs.get(id)
+    if (!job) return true
+    const paidWait = getValidPaidImageWait(job)
+    if (paidWait) return paidWait.dueAtMs <= deadline
+    if (hasPaidImageCommitAttempt(job)) return false
+    const entries = job.genstudio_jobs || []
+    return !(entries.length > 0 && entries.every(hasFinalProviderAnswer))
+  }
   while (unsettled.length > 0 && Date.now() < deadline) {
+    if (!unsettled.some(couldStillSettle)) break
     await new Promise(resolve => setTimeout(resolve, 250))
     unsettled = await unsettledInFlightJobIds()
     for (const id of unsettled) watched.add(id)

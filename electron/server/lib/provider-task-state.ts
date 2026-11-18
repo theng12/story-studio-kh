@@ -155,3 +155,12 @@ export function isSettledProviderEntry(entry: ProviderEntryState): boolean {
 export function isUnsettledProviderEntry(entry: ProviderEntryState): boolean {
   return !isSettledProviderEntry(entry)
 }
+
+/**
+ * The Gateway itself has nothing more to publish about this task: only a person closing a hold, or
+ * a reconcile, could move it. Narrower than `isSettledProviderEntry`, which also asks whether Story
+ * may still adopt the answer. The update hold may only spend its window on rows that could settle.
+ */
+export function hasFinalProviderAnswer(entry: ProviderEntryState): boolean {
+  return SETTLED_PROVIDER_STATES.has(String(entry.state))
+}

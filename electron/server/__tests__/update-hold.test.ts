@@ -176,6 +176,99 @@ describe('POST/DELETE /api/maintenance/hold', () => {
     await request(app).delete('/api/maintenance/hold').expect(200)
   })
 
+  // The hold's own question is "would a restart continue this job?", not "is the local executor
+  // still busy". A row every provider already gave a final answer to cannot settle by being
+  // waited on, so naming it keeps the install unsafe for ever (2026-11-18: twelve rows terminal
+  // 17–35 h were still counted, so `safe` could only become true after a person cleaned rows).
+  test('a row whose provider work is already over does not hold the install back', async () => {
+    const project = await pm.createProject({ name: 'Update Hold Terminal Evidence' })
+    thumbFree = false
+    const running = enqueue(project.slug, 'thumb_images', 'UH040', 'provider answer already final')
+    await waitFor(() => jq.getJob(running.job_id)?.status === 'running', { label: 'the thumb job to go in flight' })
+    await jq.recordGenStudioJob(running.job_id, { id: 'gw-uh040', operation: 'image.generation', state: 'failed', updated_at: new Date().toISOString() })
+
+    // A full window on purpose: with nothing left that could settle, the answer must not wait it out.
+    const startedAt = Date.now()
+    const held = await request(app).post('/api/maintenance/hold?timeout_s=20&pause_s=60').expect(200)
+    assert.ok(Date.now() - startedAt < 1_000, `answered at once, not at the deadline (${Date.now() - startedAt} ms)`)
+    assert.equal(held.body.in_flight, 1, 'the row is still in flight locally')
+    assert.deepEqual(held.body.unsettled, [], 'a final provider answer is not something to wait for')
+    assert.equal(held.body.safe, true)
+    assert.ok(
+      !(await jq.runningJobsThatWouldNotResume()).some(job => job.job_id === running.job_id),
+      'not flagged as work a restart cannot follow',
+    )
+
+    thumbFree = true
+    releaseGates(thumbGates)
+    await waitFor(() => jq.getJob(running.job_id)?.status === 'done', { label: 'the live job to settle' })
+    await request(app).delete('/api/maintenance/hold').expect(200)
+  })
+
+  // The other direction, and the reason the exemption is narrow: a live provider answer with no
+  // boot branch is exactly what a restart would strand.
+  test('a running row with a live Gateway id and no boot branch is still unsettled', async () => {
+    const project = await pm.createProject({ name: 'Update Hold Live Provider' })
+    thumbFree = false
+    const running = enqueue(project.slug, 'thumb_images', 'UH050', 'provider still running')
+    await waitFor(() => jq.getJob(running.job_id)?.status === 'running', { label: 'the live thumb job to go in flight' })
+    await jq.recordGenStudioJob(running.job_id, { id: 'gw-uh050', operation: 'image.generation', state: 'running', updated_at: new Date().toISOString() })
+
+    const held = await request(app).post('/api/maintenance/hold?timeout_s=0&pause_s=60').expect(200)
+    assert.equal(held.body.safe, false)
+    assert.deepEqual(held.body.unsettled, [running.job_id])
+
+    thumbFree = true
+    releaseGates(thumbGates)
+    await waitFor(() => jq.getJob(running.job_id)?.status === 'done', { label: 'the live job to settle' })
+    await request(app).delete('/api/maintenance/hold').expect(200)
+  })
+
+  // A hold the Gateway cannot close and only a person can: still unsettled, but waiting changes
+  // nothing, so the names come back at once instead of at the deadline.
+  test('a row that provably cannot settle answers at once instead of waiting out the window', async () => {
+    const project = await pm.createProject({ name: 'Update Hold Nothing Settles' })
+    thumbFree = false
+    const running = enqueue(project.slug, 'thumb_images', 'UH060', 'a hold only a person can close')
+    await waitFor(() => jq.getJob(running.job_id)?.status === 'running', { label: 'the thumb job to go in flight' })
+    await jq.recordGenStudioJob(running.job_id, {
+      id: 'gw-uh060', operation: 'music.generation', state: 'failed',
+      recovery_required: true, recovery_state: 'unknown_outcome', updated_at: new Date().toISOString(),
+    })
+
+    const startedAt = Date.now()
+    const held = await request(app).post('/api/maintenance/hold?timeout_s=20&pause_s=60').expect(200)
+    const elapsed = Date.now() - startedAt
+    assert.equal(held.body.safe, false)
+    assert.deepEqual(held.body.unsettled, [running.job_id])
+    assert.ok(elapsed < 1_000, `answered at once with the name, not at the deadline (${elapsed} ms)`)
+
+    thumbFree = true
+    releaseGates(thumbGates)
+    await waitFor(() => jq.getJob(running.job_id)?.status === 'done', { label: 'the live job to settle' })
+    await request(app).delete('/api/maintenance/hold').expect(200)
+  })
+
+  test('one row that can still settle keeps the whole window', async () => {
+    const project = await pm.createProject({ name: 'Update Hold Still Settling' })
+    thumbFree = false
+    const running = enqueue(project.slug, 'thumb_images', 'UH070', 'provider can still answer')
+    await waitFor(() => jq.getJob(running.job_id)?.status === 'running', { label: 'the thumb job to go in flight' })
+    await jq.recordGenStudioJob(running.job_id, { id: 'gw-uh070', operation: 'image.generation', state: 'running', updated_at: new Date().toISOString() })
+
+    const startedAt = Date.now()
+    const held = await request(app).post('/api/maintenance/hold?timeout_s=2&pause_s=60').expect(200)
+    const elapsed = Date.now() - startedAt
+    assert.equal(held.body.safe, false)
+    assert.deepEqual(held.body.unsettled, [running.job_id])
+    assert.ok(elapsed >= 1_800, `held the answer for the window (${elapsed} ms)`)
+
+    thumbFree = true
+    releaseGates(thumbGates)
+    await waitFor(() => jq.getJob(running.job_id)?.status === 'done', { label: 'the live job to settle' })
+    await request(app).delete('/api/maintenance/hold').expect(200)
+  })
+
   test('a restart with no DELETE dispatches again: the hold writes nothing durable', async () => {
     const { getAllAppSettings } = await import('../services/app-settings.js')
     const held = await request(app).post('/api/maintenance/hold?timeout_s=0&pause_s=60').expect(200)
