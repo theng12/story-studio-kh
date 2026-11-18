@@ -55,7 +55,7 @@ describe('public desktop release gate', () => {
       assert.match(source, /config\.directories = \{ \.\.\.config\.directories, output: buildDir \}/)
       assert.match(source, /path\.join\(buildDir, 'mac-arm64'/)
       assert.ok(source.indexOf('createDmgBuildDirectory(outputDir, trashDist)') < source.indexOf("['run', 'fetch:ffmpeg']"))
-      assert.match(source, /trashPath\('dist'\)/)
+      assert.match(source, /path\.join\(resolveTrashRootSync\(\), 'dist'\)/)
       assert.doesNotMatch(source, /path\.join\(root, '_trash'/)
       assert.ok(source.indexOf('promoteDmgBuild(buildDir,') > source.lastIndexOf('restoreSourceManifests(root,'))
       assert.doesNotMatch(source, /fs\.rmSync|trashOldDmgs/)

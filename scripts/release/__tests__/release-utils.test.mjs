@@ -19,7 +19,7 @@ import {
   promoteDmgBuild,
   validateServiceBaseUrl,
 } from '../release-utils.mjs'
-import { TRASH_ROOT_ENV } from '../../shared-paths.mjs'
+import { TRASH_ROOT_ENV, resolveTrashRootSync } from '../../shared-paths.mjs'
 
 describe('release utility contracts', () => {
   test('parses the exact changelog shape used by What\'s New', () => {
@@ -300,15 +300,17 @@ describe('staged DMG packaging', () => {
     fs.symlinkSync(real, linked)
     const previous = process.env[TRASH_ROOT_ENV]
     try {
+      // The setting is resolved before a build: a link is refused there, so no build ever gets
+      // handed one to write through.
       process.env[TRASH_ROOT_ENV] = linked
-      assert.throws(() => createDmgBuildDirectory(dist, trash),
-        /STORY_STUDIO_TRASH_DIR must name a real folder, not a link:/)
+      assert.throws(() => resolveTrashRootSync(), /must name a real folder, not a link:/)
       assert.equal(fs.existsSync(real), false, 'the link target was not created')
       process.env[TRASH_ROOT_ENV] = path.join(root, 'trash-file')
       fs.writeFileSync(process.env[TRASH_ROOT_ENV], 'not a folder\n')
-      assert.throws(() => createDmgBuildDirectory(dist, trash),
-        /STORY_STUDIO_TRASH_DIR must name a real folder, not a link:/)
+      assert.throws(() => resolveTrashRootSync(), /must name a real folder, not a link:/)
       assert.equal(fs.readFileSync(process.env[TRASH_ROOT_ENV], 'utf8'), 'not a folder\n')
+      // A caller-supplied trash location must still be a real folder.
+      assert.throws(() => createDmgBuildDirectory(dist, linked), /Expected a real directory:/)
     } finally {
       if (previous === undefined) delete process.env[TRASH_ROOT_ENV]
       else process.env[TRASH_ROOT_ENV] = previous
@@ -320,7 +322,7 @@ describe('staged DMG packaging', () => {
     fs.renameSync(path.dirname(trash), path.join(root, 'retained-recovery'))
     fs.writeFileSync(path.dirname(trash), 'blocked')
     const before = fs.readdirSync(dist)
-    assert.throws(() => createDmgBuildDirectory(dist, trash), /STORY_STUDIO_TRASH_DIR must name a real folder, not a link:/)
+    assert.throws(() => createDmgBuildDirectory(dist, trash), /Expected a real directory:|not a directory|ENOTDIR/)
     assert.deepEqual(fs.readdirSync(dist), before)
   })
 

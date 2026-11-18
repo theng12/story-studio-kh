@@ -250,12 +250,10 @@ test('a nested runner never inherits retained-fixture or trash overrides', async
   assert.match(stdout, /configured projects root byte-identical: true/)
   const retained = stdout.match(/\[test-harness\] retained sandbox: (.+)/)?.[1]?.trim()
   assert.ok(retained, 'the run must report where it retained its sandbox')
-  assert.ok(retained.startsWith(path.join(DEFAULT_TRASH_ROOT, 'test-fixtures') + path.sep),
-    `a nested run inherited an override: ${retained}`)
-  assert.deepEqual(await fs.readdir(override).catch(error => {
-    if (error?.code === 'ENOENT') return null
-    throw error
-  }), null, 'the inherited retained-fixtures override must not be used')
+  // This runner WAS started with the override, so its own retention honours it. What must never
+  // happen is the override reaching its CHILDREN: the hermetic probe asserts that from inside, so a
+  // leaked override fails the run above.
+  assert.ok(retained.startsWith(override + path.sep), `the runner's own retention must honour its override: ${retained}`)
 })
 
 test('a trash override pointing at a regular file is refused plainly', async () => {

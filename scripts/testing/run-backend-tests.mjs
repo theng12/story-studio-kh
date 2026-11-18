@@ -6,7 +6,7 @@ import { createRequire } from 'node:module'
 import { availableParallelism } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { TRASH_ROOT_ENV, resolveTrashRoot, trashPath } from '../shared-paths.mjs'
+import { DEFAULT_TRASH_ROOT, TRASH_ROOT_ENV, resolveTrashRoot, trashPath } from '../shared-paths.mjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
 
@@ -921,6 +921,9 @@ async function run(options) {
       }
       delete env.STORY_STUDIO_DATA_DIR
       delete env.NODE_TEST_CONTEXT
+      // A nested run always falls back to the resolved trash root: an outer override
+      // must never decide where an inner run retains evidence (it may be a link).
+      delete env.STORY_STUDIO_RETAINED_FIXTURES_ROOT
       return { env, sandbox: own.sandbox, snapshotRoot: own.snapshots, workRoot, workContainer, tsxImport }
     }
 

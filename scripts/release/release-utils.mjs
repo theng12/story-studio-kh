@@ -1,6 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { TRASH_ROOT_ENV, DEFAULT_TRASH_ROOT, resolveTrashRootSync } from '../shared-paths.mjs'
+import { resolveTrashRootSync } from '../shared-paths.mjs'
 
 const CHANGELOG_HEADER = /^##\s+v?(\d+\.\d+(?:\.\d+)?)\b\s*(?:[—\-:]\s*([\d-]+))?\s*$/
 
@@ -293,16 +293,24 @@ export function restoreSourceManifests(root, snapshot) {
 }
 
 function realDirectory(directory) {
-  fs.mkdirSync(directory, { recursive: true })
+  try {
+    fs.mkdirSync(directory, { recursive: true })
+  } catch (error) {
+    // A dangling link lands here as ENOENT: say what it is, not what the syscall said.
+    throw new Error(`Expected a real directory: ${directory} (${error?.code || error?.message})`)
+  }
   const info = fs.lstatSync(directory)
   if (!info.isDirectory() || info.isSymbolicLink()) throw new Error(`Expected a real directory: ${directory}`)
 }
 
 function dmgTrashDirectory(trashDist) {
-  const expected = path.resolve(process.env[TRASH_ROOT_ENV] || DEFAULT_TRASH_ROOT)
-  const root = resolveTrashRootSync()
-  if (root !== expected) throw new Error(`DMG trash must use the resolved trash root: ${trashDist}`)
-  return path.join(root, path.basename(trashDist))
+  // The caller supplies the trash location (a release resolves it from the setting); this only
+  // proves it is a real folder. A link here would mean writing the build backups through an alias.
+  if (!path.isAbsolute(trashDist) || path.resolve(trashDist) !== trashDist) {
+    throw new Error(`DMG trash must be an exact absolute path: ${trashDist}`)
+  }
+  realDirectory(trashDist)
+  return trashDist
 }
 
 /** Validate recovery storage before building; failed candidates remain isolated. */
