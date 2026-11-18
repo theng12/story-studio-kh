@@ -11462,6 +11462,11 @@ export async function hideFinished(projectSlug: string, status?: JobHistoryClear
   return count
 }
 
+/** Ids this process is still running — named by the shutdown line so the next start can follow them. */
+export function runningJobIdsForShutdown(): string[] {
+  return [...activeRunJobIds]
+}
+
 export function getQueueStats(projectSlug?: string): JobStats {
   let jobList = Array.from(jobs.values())
   if (projectSlug) jobList = jobList.filter(j => j.project_slug === projectSlug)
