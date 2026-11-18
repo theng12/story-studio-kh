@@ -120,10 +120,12 @@ function startServer(): Promise<number> {
     // Old log files are swept on a timer here, not inside the request logger
     // where the sweep used to live.
     startLogPruning()
-    // A freeze has to end itself: past the bound this pauses the queue, parks
-    // (or names) in-flight rows, writes one sentence and quits cleanly —
-    // quit is injected here so the module never reaches for Electron itself.
-    startWedgeRecovery({ quit: () => electronApp.quit() })
+    // A freeze has to end itself: past the bound this captures evidence, pauses
+    // the queue, parks (or names) in-flight rows, writes one sentence and
+    // hard-exits — a graceful quit is what was stuck in Production (SIGTERM
+    // ignored, SIGKILL needed). quit is injected here so the module never
+    // reaches for Electron itself.
+    startWedgeRecovery({ quit: () => electronApp.exit(1) })
     server.listen(port, bind, () => {
       const address = server!.address()
       const actualPort = typeof address === 'object' ? address!.port : port

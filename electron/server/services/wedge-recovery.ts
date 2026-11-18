@@ -5,13 +5,22 @@
  * freeze until a human restarted. This check asks the stall watcher for the
  * oldest live wait; past `wedge_exit_seconds` it runs, in order:
  *
- *   1. stop taking new work (`setQueuePaused(true)`, the queue's own API);
- *   2. park in-flight rows through the queue's stall pause, or name the rows
+ *   1. capture evidence to one file beside the logs (`wedge-capture.ts`);
+ *   2. stop taking new work (`setQueuePaused(true)`, the queue's own API);
+ *   3. park in-flight rows through the queue's stall pause, or name the rows
  *      that refused it (type + id) rather than claiming them parked;
- *   3. write ONE plain sentence saying what waited, how long, and the bound
+ *   4. write ONE plain sentence saying what waited, how long, and the bound
  *      it crossed — observed only, never a cause;
- *   4. ask the host to quit cleanly through the injected `quit()` (main.ts
- *      wires it to `app.quit()`), so the login item brings the app back.
+ *   5. end the process outright through the injected `quit()` (main.ts wires
+ *      it to `app.exit(1)`). A graceful quit is what was stuck in Production:
+ *      SIGTERM was ignored for 6 s and SIGKILL was needed, so only a hard exit
+ *      is guaranteed to return the login item promptly.
+ *
+ * LIMIT, stated plainly: this watcher runs inside the process and fires on a
+ * timer. It needs a live event loop. If the loop itself is ever blocked, none
+ * of this runs — no pause, no capture, no exit — and nothing inside the
+ * process can help; an out-of-process check (launchd noticing a silent app)
+ * would be a separate change.
  *
  * Every step's failure is logged and never stops the next: under a wedge the
  * disk itself may be the step that hangs, so each step gets its own ceiling.
@@ -19,6 +28,7 @@
  */
 
 import { currentWaits } from '../lib/stall-watch.js'
+import { captureWedgeEvidence, type WedgeEvidence } from './wedge-capture.js'
 import { getAppSetting, onAppSettingWritten } from './app-settings.js'
 import { logLine } from './logger.js'
 import { activeJobsOfType, findJobs, pauseJobForStall, setQueuePaused } from './job-queue.js'
@@ -51,8 +61,10 @@ async function loadWedgeSettings(): Promise<void> {
 }
 
 export interface WedgeRecoveryDeps {
-  /** Ask the host to quit cleanly — main.ts wires this to `app.quit()`. */
+  /** End the process outright — main.ts wires this to `app.exit(1)`. */
   quit: (reason: string) => void
+  /** Optional override: write the incident file (tests stub it). */
+  capture?: (evidence: WedgeEvidence) => Promise<string>
   pauseQueue?: () => Promise<void>
   parkRunning?: () => Promise<void>
   readSettings?: () => WedgeSettings
@@ -60,22 +72,37 @@ export interface WedgeRecoveryDeps {
 
 /** Per-step ceiling: under a wedge the disk itself may be the step that hangs. */
 const STEP_BUDGET_MS = 10_000
+/** The capture has its own, larger ceiling: `sample` alone may run for 15 s. */
+const CAPTURE_BUDGET_MS = 20_000
 
-async function runStep(name: string, work: () => Promise<void>): Promise<void> {
+async function runStep<T>(name: string, work: () => Promise<T>, budgetMs = STEP_BUDGET_MS): Promise<T | undefined> {
   let timer: ReturnType<typeof setTimeout> | undefined
   try {
-    await Promise.race([
+    return await Promise.race([
       work(),
       new Promise<never>((_, reject) => {
-        timer = setTimeout(() => reject(new Error(`${name} did not finish within ${STEP_BUDGET_MS} ms`)), STEP_BUDGET_MS)
+        timer = setTimeout(() => reject(new Error(`${name} did not finish within ${budgetMs} ms`)), budgetMs)
         timer.unref()
       }),
     ])
   } catch (error) {
     logLine('error', `wedge recovery: ${name} failed`, { step: name, error: String(error) })
+    return undefined
   } finally {
     if (timer) clearTimeout(timer)
   }
+}
+
+/** Rows in flight right now, from memory — a capture must not wait on the disk. */
+function inFlightNow(): string[] {
+  const rows: string[] = []
+  for (const type of JOB_TYPES) {
+    for (const row of activeJobsOfType(type)) {
+      if (row.status !== 'running') continue
+      rows.push(`${row.type} ${row.project_slug}${row.episode_id ? `/${row.episode_id}` : ''}`)
+    }
+  }
+  return rows
 }
 
 /** Rows the queue holds as running, across every scope that has live rows. */
@@ -113,15 +140,26 @@ export async function checkWedgeOnce(deps: WedgeRecoveryDeps): Promise<void> {
   recoveryFired = true
   const waitedS = Math.round(oldest.waited_ms / 1_000)
   const describe = `${oldest.operation}${oldest.label ? ` (${oldest.label})` : ''}`
+  const reason = `Story is wedged: ${describe} has waited ${waitedS} s (bound ${settings.exitSeconds} s)`
 
+  // Capture first: the process is about to die, and this is the only record
+  // of what the event loop still saw. A failed capture never stops the exit.
+  const evidenceFile = await runStep('capture evidence', () => (deps.capture ?? captureWedgeEvidence)({
+    reason: `${reason}; hard-exiting so the next start can follow the in-flight work.`,
+    waits: currentWaits(),
+    inFlight: inFlightNow(),
+    stage: 'wedge detected, before pause',
+    boundSeconds: settings.exitSeconds,
+  } satisfies WedgeEvidence), CAPTURE_BUDGET_MS)
+  if (evidenceFile) logLine('error', `wedge recovery: evidence written to ${evidenceFile}`)
   await runStep('pause the queue', deps.pauseQueue ?? (() => setQueuePaused(true)))
   await runStep('park in-flight rows', deps.parkRunning ?? parkRunningRows)
   // One sentence, observed only: what waited, how long, the bound it crossed.
-  logLine('error', `Story is wedged: ${describe} has waited ${waitedS} s (bound ${settings.exitSeconds} s); quitting now so the next start can follow the in-flight work.`)
+  logLine('error', `${reason}; quitting now so the next start can follow the in-flight work.`)
   try {
     deps.quit('wedge-recovery')
   } catch (error) {
-    logLine('error', 'wedge recovery could not ask the host to quit', { error: String(error) })
+    logLine('error', 'wedge recovery could not end the process', { error: String(error) })
   }
 }
 

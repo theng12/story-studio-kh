@@ -46,16 +46,20 @@ after(async () => {
   await cleanup()
 })
 
-async function wedgeLines(): Promise<string[]> {
+async function logText(): Promise<string> {
   await flushLogLines()
   const file = path.join(tempDir, 'logs', `server-${new Date().toISOString().slice(0, 10)}.log`)
-  const text = await fs.readFile(file, 'utf8').catch(() => '')
-  return text.split('\n').filter(line => line.includes('Story is wedged'))
+  return fs.readFile(file, 'utf8').catch(() => '')
+}
+
+async function wedgeLines(): Promise<string[]> {
+  return (await logText()).split('\n').filter(line => line.includes('Story is wedged'))
 }
 
 function deps(calls: string[]) {
   return {
     quit: () => calls.push('quit'),
+    capture: async () => { calls.push('capture'); return '/tmp/incident-stub.txt' },
     pauseQueue: async () => { calls.push('pause') },
     parkRunning: async () => { calls.push('park') },
     readSettings: () => ({ enabled: true, exitSeconds: 180 }),
@@ -92,8 +96,9 @@ test('recovery off by setting emits nothing even far past the bound', async () =
   scheduled.splice(0)
 })
 
-test('a wait past the bound pauses, parks, says one sentence, then quits — once', async () => {
+test('a wait past the bound captures, pauses, parks, says one sentence, then exits — once', async () => {
   const wedge = await import('../services/wedge-recovery.js')
+  wedge._resetWedgeRecoveryForTests()
   fakeNow = 5_000
   const wait = watchWait('app-settings:read /tmp/past-bound', 'GET /jobs/all/history')
   fakeNow = 5_000 + 181_000
@@ -101,12 +106,37 @@ test('a wait past the bound pauses, parks, says one sentence, then quits — onc
   const held = deps(calls)
   await wedge.checkWedgeOnce(held)
   await wedge.checkWedgeOnce(held) // the one-shot guard: still once
-  assert.deepEqual(calls, ['pause', 'park', 'quit'], 'pause before quit, each exactly once')
+  assert.deepEqual(calls, ['capture', 'pause', 'park', 'quit'], 'capture first, exit last, each exactly once')
 
   const lines = await wedgeLines()
   assert.equal(lines.length, 1, 'exactly one sentence')
   assert.match(lines[0],
     /Story is wedged: app-settings:read \/tmp\/past-bound \(GET \/jobs\/all\/history\) has waited 181 s \(bound 180 s\)/)
+  wait.done()
+  scheduled.splice(0)
+})
+
+test('a failing capture still pauses, parks, says one sentence, and exits', async () => {
+  const wedge = await import('../services/wedge-recovery.js')
+  wedge._resetWedgeRecoveryForTests()
+  fakeNow = 7_000
+  const wait = watchWait('app-settings:read /tmp/capture-fails', 'GET /jobs/all/history')
+  fakeNow = 7_000 + 181_000
+  const calls: string[] = []
+  const held = deps(calls)
+  await wedge.checkWedgeOnce({
+    ...held,
+    capture: async () => {
+      calls.push('capture')
+      throw new Error('disk is the thing that hung')
+    },
+  })
+  assert.deepEqual(calls, ['capture', 'pause', 'park', 'quit'], 'a failed capture never stops the exit')
+  const text = await logText()
+  assert.match(text, /wedge recovery: capture evidence failed/)
+  assert.match(text, /disk is the thing that hung/)
+  const failureLines = text.split('\n').filter(line => line.includes('Story is wedged') && line.includes('/tmp/capture-fails'))
+  assert.equal(failureLines.length, 1, 'exactly one sentence for this wedge')
   wait.done()
   scheduled.splice(0)
 })
