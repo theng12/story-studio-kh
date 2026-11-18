@@ -6,7 +6,7 @@ import { createRequire } from 'node:module'
 import { availableParallelism } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { TRASH_ROOT_ENV, resolveTrashRoot, trashPath } from '../shared-paths.mjs'
+import { TRASH_ROOT_ENV, assertSandboxedTrash, resolveTrashRoot, trashPath } from '../shared-paths.mjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
 
@@ -904,9 +904,10 @@ async function run(options) {
         STORY_STUDIO_TEST_HARNESS_ROOT: own.sandbox,
         STORY_STUDIO_TEST_WORK_ROOT: workRoot,
         STORY_STUDIO_RETAINED_SNAPSHOT_ROOT: own.snapshots,
-        // Same rule as the lane runner: the child's trash follows its sandbox HOME. Retained
-        // fixtures still go to the resolved default, which does not read this variable.
-        [TRASH_ROOT_ENV]: path.join(own.sandbox, 'trash'),
+        // Same rule as the lane runner: the child's trash lives inside its sandbox, and the guard
+        // refuses the owner's Desktop, .Trash or the checkout before anything can be written there.
+        // Retained fixtures still go to the resolved default, which does not read this variable.
+        [TRASH_ROOT_ENV]: assertSandboxedTrash(path.join(own.sandbox, 'trash'), { sandbox: own.sandbox }),
         STORY_STUDIO_DISABLE_LISTEN: '1',
         // NEW-03 — see BUNDLED_FFMPEG_DIR. Prepended, so a caller's own PATH still
         // takes precedence for anything else it needed.
