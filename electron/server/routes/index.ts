@@ -20,6 +20,7 @@ import { router as audioMergeRouter } from './audio-merge.js'
 import { router as ideasRouter } from './ideas.js'
 import { router as pipelineRouter } from './pipeline.js'
 import { router as healthRouter } from './health.js'
+import { router as diagnosticsRouter } from './diagnostics.js'
 import { router as systemRouter } from './system.js'
 import { router as visionRouter } from './vision.js'
 import { router as uploadRouter } from './upload.js'
@@ -118,6 +119,8 @@ export function mountRoutes(app: Express): void {
   app.use('/api', ideasRouter)
   app.use('/api', pipelineRouter)
   app.use('/api', healthRouter)
+  // Off unless SS_HEAP_SNAPSHOT_DIR is set: a snapshot holds prompts and project text.
+  app.use('/api', diagnosticsRouter)
   app.use('/api', systemRouter)
   app.use('/api', visionRouter)
   app.use('/api', uploadRouter)
