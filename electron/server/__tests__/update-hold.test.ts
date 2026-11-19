@@ -297,8 +297,11 @@ describe('POST/DELETE /api/maintenance/hold', () => {
 
   test('hold, then no restart: dispatch resumes by itself after pause_s', async () => {
     const runsBefore = metadataRuns
-    const held = await request(app).post('/api/maintenance/hold?timeout_s=0&pause_s=1').expect(200)
-    assert.equal(held.body.dispatch_paused_s, 1)
+    // A long pause for the negative half: a 1s pause expired under load before the 20 event-loop
+    // turns below finished, and the claim that arrived then was the product working, not a defect.
+    // A pause of 600s cannot expire in those turns on any machine, so this half is load-proof.
+    const held = await request(app).post('/api/maintenance/hold?timeout_s=0&pause_s=600').expect(200)
+    assert.equal(held.body.dispatch_paused_s, 600)
 
     const project = await pm.createProject({ name: 'Update Hold Auto Resume' })
     const job = enqueue(project.slug, 'metadata', 'UH030', 'waits out the pause')
@@ -308,8 +311,10 @@ describe('POST/DELETE /api/maintenance/hold', () => {
     assert.equal(metadataRuns, runsBefore, 'no claim while the pause is live')
     assert.equal(jq.getJob(job.job_id)?.status, 'queued')
 
-    // No DELETE, no restart: the pause expires and the hold's own kick pump
-    // admits the queued row.
+    // No DELETE, no restart: re-taking the hold with a 1s pause replaces the long one and its
+    // kick timer, so the pause expires by itself and the hold's own kick pump admits the row.
+    const shortHold = await request(app).post('/api/maintenance/hold?timeout_s=0&pause_s=1').expect(200)
+    assert.equal(shortHold.body.dispatch_paused_s, 1)
     await waitFor(() => jq.getJob(job.job_id)?.status === 'done', {
       label: 'auto-resume after pause_s',
       timeoutMs: 8_000,

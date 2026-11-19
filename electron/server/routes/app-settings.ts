@@ -757,9 +757,9 @@ router.get('/app-settings/genstudio', async (_req, res) => {
 })
 
 /**
- * Owner 2026-11-13: typing a bare address must work. `127.0.0.1` became
- * "url must start with http://", and `http://127.0.0.1` became "not reachable"
- * because the Gateway's port was missing. Normalise instead of refusing:
+ * Owner 2026-11-13: typing a bare address must work. A bare address became
+ * "url must start with http://", and the same address with a scheme became "not
+ * reachable" because the Gateway's port was missing. Normalise instead of refusing:
  * no scheme → http://, no port → :8787 (the Gateway's default), trailing slash trimmed.
  */
 export function normalizeGatewayUrl(raw: string): string | null {
@@ -778,7 +778,7 @@ router.put('/app-settings/genstudio', async (req, res) => {
   const raw = typeof req.body?.url === 'string' ? req.body.url : ''
   const url = normalizeGatewayUrl(raw)
   if (url === null) {
-    return res.status(400).json({ detail: 'That does not look like an address. Use an IP address or a URL, e.g. 127.0.0.1 or http://host:8787.' })
+    return res.status(400).json({ detail: 'That does not look like an address. Use an IP address or a URL, e.g. 192.0.2.10 or http://host:8787.' })
   }
   try {
     await setGenStudioUrl(url)

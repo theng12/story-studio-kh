@@ -1,5 +1,5 @@
 /**
- * Segmented final render (1.4.265). The final composition of Video Assembly is ~93% of a TerraNash
+ * Segmented final render (1.4.265). The final composition of Video Assembly is ~93% of one
  * render, and it used to restart from zero after any interruption (an update, a crash, Quit, a
  * power cut). It now writes fixed-length segment files from ONE FFmpeg process (the segment muxer,
  * with a keyframe forced at every cut), records each finished segment in the job's checkpoint, and
@@ -7,7 +7,7 @@
  * track. A resume renders only from the first missing segment.
  *
  * An uninterrupted segmented render is the one-shot render frame for frame (measured lossless on
- * TerraNash's effects: 0 of 11,999 frames differ, audio bit-identical): one FFmpeg process, the same
+ * channel's effects: 0 of 11,999 frames differ, audio bit-identical): one FFmpeg process, the same
  * graph, only cut into files.
  *
  * A resume does not change or time-shift the graph either. Every input is read from its start as
@@ -184,7 +184,7 @@ export function splitOneShotArgv(argv: readonly string[]): OneShotArgv | null {
 /**
  * A resumed render also skips the looped still images (a frame board, an image overlay) and the
  * plain colour boards up to the lead, which otherwise draw every skipped frame (measured: 46 s of
- * a 51 s resume of the last 20 s of an 8-minute TerraNash render). A looped still gives the same
+ * a 51 s resume of the last 20 s of an 8-minute render). A looped still gives the same
  * picture at every timestamp, and its first frame is at 0, so seeking it with `-itsoffset` keeps
  * its timestamps and its `setpts=PTS-STARTPTS` is just `setpts=PTS`.
  */

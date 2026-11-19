@@ -300,7 +300,7 @@ async function readReadiness(
   // episode published through the old page (sidecar only) or by an operation
   // whose link was never written look unpublished: the overview recommended an
   // upload the Upload Center correctly refuses, and `on_youtube` under-reported
-  // the same episodes (TerraNash 39 vs 200, Story Sprout 2 vs 62, KH Boundless
+  // the same episodes (39 vs 200, 2 vs 62, KH Boundless
   // 30 vs 102 — the missing ones are operation and legacy-sidecar records).
   //
   // The operation index and publishing state are hoisted out of the per-episode

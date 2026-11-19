@@ -1,7 +1,7 @@
 /**
  * Publications made outside Story — the project's own file, import, and review.
  *
- * A channel that also publishes elsewhere (Terranash, Abiding Faith, …) needs those releases to be
+ * A channel that also publishes elsewhere needs those releases to be
  * visible and counted. This module owns exactly three things:
  *
  *   1. `<channel>/external_publications.json` — version 1, written atomically under the file's own

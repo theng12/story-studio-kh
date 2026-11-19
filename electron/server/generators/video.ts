@@ -8382,7 +8382,7 @@ async function runFinalComposition(
 
   // ── Segmented final render (1.4.265, lib/segmented-render.ts) ──────────
   //
-  // A still tail (TerraNash: a 60-min image after the story) is rendered once for 30 s and
+  // A still tail (one channel: a 60-min image after the story) is rendered once for 30 s and
   // repeated, but only when nothing on it moves: every gated effect (grade, archive film, grain,
   // vignette, overlays, Effects Library, logo) has ended by the time it starts, no caption or cue
   // reaches it, and the frame board is a still. The loop is a whole number of output frames.

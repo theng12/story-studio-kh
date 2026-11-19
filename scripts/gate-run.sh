@@ -43,7 +43,36 @@ S "before: HEAD=$EXPECTED_HEAD TREE=$(tree_now) CLEAN"
 # One heavy lane per app. A killed run leaves a dead pid on the lane, so sweep only a pid that is
 # really gone; `release` itself refuses while a build or test for this app is live.
 LOCKED=0
-cleanup() { [ "$LOCKED" = "1" ] && { zsh "$LOCK_SH" release "$LANE_APP" || true; LOCKED=0; } }
+STEP_PID=""
+# The gate owns its test subtree. An interrupted run used to leave `node --test` processes behind for
+# hours, still holding the worktree open and skewing every later memory measurement; three of them
+# were found 6 h after their runners died. TERM the group, then KILL what will not go.
+# Recursive, because `npm test` spawns node children that outlive their npm parent — killing npm
+# alone leaves the tree. (A process-group kill needs `set -m`, which a script cannot turn on.)
+descendants_of() {
+  local parent="$1" child
+  for child in $(pgrep -P "$parent" 2>/dev/null); do
+    descendants_of "$child"
+    print -r -- "$child"
+  done
+}
+kill_step_subtree() {
+  [ -n "$STEP_PID" ] || return 0
+  local ids; ids="$(descendants_of "$STEP_PID") $STEP_PID"
+  for id in ${=ids}; do kill -TERM "$id" 2>/dev/null || true; done
+  for _ in 1 2 3 4 5 6 7 8 9 10; do
+    local alive=0
+    for id in ${=ids}; do kill -0 "$id" 2>/dev/null && alive=1; done
+    [ "$alive" = "0" ] && { STEP_PID=""; return 0 }
+    sleep 0.5
+  done
+  for id in ${=ids}; do kill -KILL "$id" 2>/dev/null || true; done
+  STEP_PID=""
+}
+cleanup() {
+  kill_step_subtree
+  [ "$LOCKED" = "1" ] && { zsh "$LOCK_SH" release "$LANE_APP" || true; LOCKED=0; }
+}
 trap cleanup EXIT
 attempts=0
 while :; do
@@ -70,14 +99,16 @@ for step in ${=STEPS}; do
   n=$((n+1)); id=$(printf '%02d-%s' "$n" "${step//:/_}")
   S "$id $step"
   rc=0
+  # Each step runs in the background so its pid is known; an interrupt ends its whole subtree.
   case "$step" in
-    lint)          npm run lint > "$EVIDENCE_DIR/$id.log" 2>&1 || rc=$? ;;
-    fetch:ffmpeg)  npm run fetch:ffmpeg > "$EVIDENCE_DIR/$id.log" 2>&1 || rc=$? ;;
-    build)         /build/Developer/_orchestra/tools/lane-mem.sh "$APP_LABEL-build" -- npm run build > "$EVIDENCE_DIR/$id.log" 2>&1 || rc=$? ;;
-    dist:smoke)    /build/Developer/_orchestra/tools/lane-mem.sh "$APP_LABEL-dist-smoke" -- npm run dist:smoke > "$EVIDENCE_DIR/$id.log" 2>&1 || rc=$? ;;
-    test)          /build/Developer/_orchestra/tools/lane-mem.sh "$APP_LABEL-test" -- npm test > "$EVIDENCE_DIR/$id.log" 2>&1 || rc=$? ;;
+    lint)          npm run lint > "$EVIDENCE_DIR/$id.log" 2>&1 & STEP_PID=$!; wait $STEP_PID || rc=$? ;;
+    fetch:ffmpeg)  npm run fetch:ffmpeg > "$EVIDENCE_DIR/$id.log" 2>&1 & STEP_PID=$!; wait $STEP_PID || rc=$? ;;
+    build)         /build/Developer/_orchestra/tools/lane-mem.sh "$APP_LABEL-build" -- npm run build > "$EVIDENCE_DIR/$id.log" 2>&1 & STEP_PID=$!; wait $STEP_PID || rc=$? ;;
+    dist:smoke)    /build/Developer/_orchestra/tools/lane-mem.sh "$APP_LABEL-dist-smoke" -- npm run dist:smoke > "$EVIDENCE_DIR/$id.log" 2>&1 & STEP_PID=$!; wait $STEP_PID || rc=$? ;;
+    test)          /build/Developer/_orchestra/tools/lane-mem.sh "$APP_LABEL-test" -- npm test > "$EVIDENCE_DIR/$id.log" 2>&1 & STEP_PID=$!; wait $STEP_PID || rc=$? ;;
     *)             S "ABORT unknown step $step"; exit 1 ;;
   esac
+  STEP_PID=""  # finished cleanly: nothing of ours left to end
   peak=$(grep -E '^PEAK ' "$EVIDENCE_DIR/$id.log" 2>/dev/null | tail -1)
   echo "$id rc=$rc ${peak:+$peak}" | tee -a "$EVIDENCE_DIR/summary.txt"
   [ "$rc" -eq 0 ] || { S "GATE-FAILED $step"; exit 1; }

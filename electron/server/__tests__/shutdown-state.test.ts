@@ -9,7 +9,7 @@
  */
 
 import assert from 'node:assert/strict'
-import test from 'node:test'
+import test, { mock } from 'node:test'
 import {
   _resetShutdownStateForTests,
   armShutdownDeadline,
@@ -103,14 +103,20 @@ test('a quitting app also takes DELETE plainly', async () => {
   assert.equal(body?.detail, shutdownSentence())
 })
 
-test('after Cancel nothing exits, even a real ceiling later', async () => {
+test('after Cancel nothing exits, even a real ceiling later', () => {
   _resetShutdownStateForTests()
   beginShutdown(['job-a'])
   const exits: number[] = []
-  // A REAL timer, not an injected one: the owner cancelled, so no exit may arrive after the ceiling.
-  armShutdownDeadline({ deadlineMs: 40, exit: code => exits.push(code), log: () => {} })
-  cancelShutdown()
-  await new Promise(resolve => setTimeout(resolve, 160))
-  assert.deepEqual(exits, [], 'a cancelled quit must not exit on its own, however long it waits')
-  assert.equal(isShuttingDown(), false)
+  // The real scheduler is mocked, not the code under test: `armShutdownDeadline` keeps its own
+  // setTimeout, and the clock is jumped four ceilings past it. That proves the cancel, not the machine.
+  mock.timers.enable({ apis: ['setTimeout'] })
+  try {
+    armShutdownDeadline({ deadlineMs: 40, exit: code => exits.push(code), log: () => {} })
+    cancelShutdown()
+    mock.timers.tick(160)
+    assert.deepEqual(exits, [], 'a cancelled quit must not exit on its own, however long it waits')
+    assert.equal(isShuttingDown(), false)
+  } finally {
+    mock.timers.reset()
+  }
 })
