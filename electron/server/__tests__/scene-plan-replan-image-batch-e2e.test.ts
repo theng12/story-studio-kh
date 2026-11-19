@@ -277,6 +277,27 @@ test('a forced re-plan redraws the changed scene, keeps the unchanged one, and l
     'each picture records the prompt it was drawn from',
   )
 
+  // ── 2b. A resume that NAMES every scene — the Pipeline Scene Review shape ──
+  // angkor 2026-11-19: those jobs carry `scene_ids` for the whole episode, and an
+  // explicit list used to mean "regenerate these", so every boot redrew every
+  // finished scene until the process died. Naming them must change nothing.
+  const beforeResume = generationCount()
+  const planNow = await readPlan(planPath)
+  const resumeJob = renderJob(project.slug, episodeId, {
+    scene_ids: planNow.scenes.map((scene: any) => scene.id),
+    missing_only: false,
+  })
+  await runContinuityRenderJob(resumeJob)
+  // The batch line states the scope: nothing to do. (A generation count would pass either way —
+  // a redraw of a finished scene comes back through task recovery, not as a new request.)
+  const resumeBatchLine = resumeJob.output_lines.find((line: string) => line.startsWith('Gateway image batch'))
+  assert.match(String(resumeBatchLine), /0\/2 scene\(s\)/, 'a resume that names every scene asks for none of them')
+  assert.equal(generationCount(), beforeResume, 'a resume that names every scene requests nothing')
+  assert.ok(
+    (await readPlan(planPath)).scenes.every((scene: any) => scene.image_path),
+    'the pictures are still recorded after the resume',
+  )
+
   // A LEGACY picture: rendered before `rendered_prompt` existed, on a scene
   // the re-plan will not touch. It must not read as stale.
   const legacyScene = afterFirstRender.scenes[1]
