@@ -7472,6 +7472,10 @@ export function getQueuePauseOwner(): string | null {
 
 async function setQueuePausedUnlocked(paused: boolean, owner: string | null): Promise<void> {
   await initializeQueuePauseState()
+  // Name the write: the state says who holds the pause, and the record says who wrote it. Without
+  // this a re-pause every few minutes on angkor (2026-11-19) could only be inferred.
+  const previous = queuePaused ? (queuePauseOwner ?? 'no-owner') : 'unpaused'
+  logLine('warn', 'queue pause written', { writer: owner ?? 'no-owner', previous, next: paused ? (owner ?? 'no-owner') : 'unpaused', at: new Date().toISOString() })
   if (paused) {
     // Intake is fenced immediately (the base behaviour). Ownership is only believed AFTER the
     // durable write lands: a failed write must not leave this process thinking it owns a hold the
