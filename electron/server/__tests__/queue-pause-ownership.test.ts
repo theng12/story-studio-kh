@@ -74,10 +74,12 @@ test('manual intents ahead of conditional release keep FIFO priority and revoke 
   await Promise.all([resume, repause])
   assert.equal(await staleRelease, false)
   assert.equal(queue.isQueuePaused(), true)
-  assert.equal(queue.getQueuePauseOwner(), null)
+  assert.equal(queue.getQueuePauseOwner(), 'operator')
   const stored = await snapshot()
   assert.equal(stored.job_queue_paused, true)
-  assert.equal(stored.job_queue_pause_owner, null)
+  // A person's Pause records its owner now: an unowned pause is one nothing can be held to, and on
+  // angkor 2026-11-19 a null-owner pause survived every restart and stopped all work.
+  assert.equal(stored.job_queue_pause_owner, 'operator')
   assert.equal(await queue.acquireQueuePauseOwned('later-updater'), false, 'cannot acquire the owner\'s pause')
   await queue.setQueuePaused(false)
 })

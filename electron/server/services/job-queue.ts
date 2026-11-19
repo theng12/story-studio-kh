@@ -1578,6 +1578,12 @@ let queuePauseLoaded = false
 let queuePauseInitialization: Promise<void> | null = null
 const QUEUE_PAUSED_KEY = 'job_queue_paused'
 const QUEUE_PAUSE_OWNER_KEY = 'job_queue_pause_owner'
+const QUEUE_PAUSE_SINCE_KEY = 'job_queue_pause_since'
+const QUEUE_PAUSE_EXPIRES_KEY = 'job_queue_pause_expires_at'
+/** The person at the Jobs workspace pressed Pause. Named, so the pause can be held to someone. */
+const OPERATOR_PAUSE_OWNER = 'operator'
+/** An operator pause outlives a crash by a bounded time, not for ever. */
+const OPERATOR_PAUSE_TTL_MS = 12 * 60 * 60_000
 const QUEUE_PAUSE_TRANSITION_LOCK = 'job-queue:pause-transition'
 
 export class JobPausedError extends Error {
@@ -7363,13 +7369,29 @@ export function initializeQueuePauseState(): Promise<void> {
       // is gone (angkor 2026-11-19: a wedge left job_queue_paused=true with no owner and no expiry,
       // so the Mac came back taking no work and said nothing). Release it here and say so. An
       // unowned pause is the owner's own Pause: kept, and named at every boot.
-      if (queuePaused && queuePauseOwner !== null) {
-        logLine('warn', 'queue was paused by an operation that is not running in this process; releasing the stale hold', { owner: queuePauseOwner })
-        await setAppSettings({ [QUEUE_PAUSED_KEY]: false, [QUEUE_PAUSE_OWNER_KEY]: null })
+      const since = Number(snapshot[QUEUE_PAUSE_SINCE_KEY])
+      const ageMs = Number.isFinite(since) && since > 0 ? Date.now() - since : null
+      const age = ageMs === null ? 'age unknown' : `written ${Math.round(ageMs / 60_000)} min ago`
+      const expiresAt = Number(snapshot[QUEUE_PAUSE_EXPIRES_KEY])
+      if (queuePaused && queuePauseOwner !== null && queuePauseOwner !== OPERATOR_PAUSE_OWNER) {
+        logLine('warn', 'queue was paused by an operation that is not running in this process; releasing the stale hold', { owner: queuePauseOwner, age })
+        await setAppSettings({ [QUEUE_PAUSED_KEY]: false, [QUEUE_PAUSE_OWNER_KEY]: null, [QUEUE_PAUSE_SINCE_KEY]: null, [QUEUE_PAUSE_EXPIRES_KEY]: null })
+        queuePaused = false
+        queuePauseOwner = null
+      } else if (queuePaused && queuePauseOwner === null) {
+        // Written by a build that did not record an owner. Nobody is named on it, so nobody can mean
+        // it: release it, and say what was released and how old it was.
+        logLine('warn', 'queue was paused with no owner recorded (older build); releasing it', { age })
+        await setAppSettings({ [QUEUE_PAUSED_KEY]: false, [QUEUE_PAUSE_OWNER_KEY]: null, [QUEUE_PAUSE_SINCE_KEY]: null, [QUEUE_PAUSE_EXPIRES_KEY]: null })
+        queuePaused = false
+        queuePauseOwner = null
+      } else if (queuePaused && Number.isFinite(expiresAt) && expiresAt > 0 && Date.now() >= expiresAt) {
+        logLine('warn', 'the operator pause expired; dispatch resumes by itself', { age })
+        await setAppSettings({ [QUEUE_PAUSED_KEY]: false, [QUEUE_PAUSE_OWNER_KEY]: null, [QUEUE_PAUSE_SINCE_KEY]: null, [QUEUE_PAUSE_EXPIRES_KEY]: null })
         queuePaused = false
         queuePauseOwner = null
       } else if (queuePaused) {
-        logLine('warn', 'queue starts paused (owner pause); no job will start until Resume', { paused: true })
+        logLine('warn', 'queue starts paused by the operator; no job will start until Resume', { age })
       }
       queuePauseLoaded = true
     })()
@@ -7401,7 +7423,10 @@ export function setQueuePaused(paused: boolean): Promise<void> {
   // phase.  Serializing only app-settings writes lets an older Pause request
   // install a safe-point hold after a newer Resume has already scanned for
   // paused rows.  Keep the whole intent transition ordered instead.
-  return withLock(QUEUE_PAUSE_TRANSITION_LOCK, () => setQueuePausedUnlocked(paused, null))
+  //
+  // A person's Pause records `operator`, never null: a pause with no owner is one nothing can be
+  // held to, and on angkor 2026-11-19 a null-owner pause survived every restart and stopped all work.
+  return withLock(QUEUE_PAUSE_TRANSITION_LOCK, () => setQueuePausedUnlocked(paused, paused ? OPERATOR_PAUSE_OWNER : null))
 }
 
 /**
@@ -7452,7 +7477,14 @@ async function setQueuePausedUnlocked(paused: boolean, owner: string | null): Pr
     // durable write lands: a failed write must not leave this process thinking it owns a hold the
     // disk does not record (which would let it later "release" someone else's pause).
     queuePaused = true
-    await setAppSettings({ [QUEUE_PAUSED_KEY]: true, [QUEUE_PAUSE_OWNER_KEY]: owner })
+    // An operator pause carries an expiry: a Pause pressed seconds before a crash must not leave the
+    // Mac taking no work for hours. Every operation that re-pauses refreshes it.
+    await setAppSettings({
+      [QUEUE_PAUSED_KEY]: true,
+      [QUEUE_PAUSE_OWNER_KEY]: owner,
+      [QUEUE_PAUSE_SINCE_KEY]: Date.now(),
+      [QUEUE_PAUSE_EXPIRES_KEY]: owner === OPERATOR_PAUSE_OWNER ? Date.now() + OPERATOR_PAUSE_TTL_MS : null,
+    })
     queuePauseOwner = owner
     // The global hold prevents every queued item from being submitted. For
     // GenStudio-backed work already running, request a cooperative safe-point
@@ -7474,7 +7506,7 @@ async function setQueuePausedUnlocked(paused: boolean, owner: string | null): Pr
     && job.pause_requested === true
     && job.pause_origin === 'queue'
   ))
-  await setAppSettings({ [QUEUE_PAUSED_KEY]: false, [QUEUE_PAUSE_OWNER_KEY]: null })
+  await setAppSettings({ [QUEUE_PAUSED_KEY]: false, [QUEUE_PAUSE_OWNER_KEY]: null, [QUEUE_PAUSE_SINCE_KEY]: null, [QUEUE_PAUSE_EXPIRES_KEY]: null })
   for (const job of pendingQueuePauseCheckpoints) {
     if (
       job.status === 'running'
