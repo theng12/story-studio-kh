@@ -365,7 +365,10 @@ test('the plan checkpoint runs after the manifest lock is released, and a slow h
   setCrossProcessLockHoldReporter(info => { held.push(info.heldMs) })
   t.after(() => setCrossProcessLockHoldReporter(null))
   await withCrossProcessLock(path.join(dir, 'slow.json'), async () => {
-    await new Promise(resolve => setTimeout(resolve, 300))
+    // The HOLD is what is measured here, so it runs on the clock rather than a timer: a timer can
+    // fire late (which only widens the margin), a clock reading cannot fall short of the hold.
+    const until = Date.now() + 300
+    while (Date.now() < until) { /* hold the lock */ }
   })
   assert.equal(held.length, 1, 'a hold past the reporting threshold is surfaced')
   assert.ok(held[0]! >= 250, `reported ${held[0]}ms`)

@@ -466,9 +466,9 @@ export async function resolveUploadMetadata(input: ResolveUploadMetadataInput): 
           title = platformOverride.title
           title_from_override = true
         }
-        // An EMPTY override never blanks a real description: a blank field saved by a batch or a
-        // mistaken edit must not silently become the text this video is published with.
-        if (typeof platformOverride.description === 'string' && platformOverride.description.trim()) {
+        // An EMPTY string here is deliberate: the owner saved an empty description on purpose, and
+        // `null` is the separate "restore the generated text". Never treat one as the other.
+        if (typeof platformOverride.description === 'string') {
           description = platformOverride.description
           description_from_override = true
         }

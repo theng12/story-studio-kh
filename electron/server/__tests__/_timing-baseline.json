@@ -23,7 +23,7 @@
   "electron/server/__tests__/scene-render-status.test.ts": 1,
   "electron/server/__tests__/subtitle-preflight-freshness.test.ts": 1,
   "electron/server/__tests__/update-hold-endpoint.test.ts": 1,
-  "electron/server/__tests__/update-hold.test.ts": 2,
+  "electron/server/__tests__/update-hold.test.ts": 3,
   "frontend/__tests__/contentStore.test.ts": 2,
   "frontend/__tests__/pickerDialogFocus.test.ts": 2,
   "frontend/__tests__/useAutoSave.test.ts": 8,

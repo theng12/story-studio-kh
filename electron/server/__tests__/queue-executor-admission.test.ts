@@ -704,17 +704,18 @@ describe('queue executor-settlement admission', () => {
       await awaitEntered(enteredC, 'the running cross-row worker to start')
 
       // Fixture-only owner pause: the refusal must not disturb intake state or
-      // invent an updater owner.
+      // replace the owner recorded on it.
       await jq.setQueuePaused(true)
       paused = true
       assert.equal(jq.isQueuePaused(), true)
-      assert.equal(jq.getQueuePauseOwner(), null)
+      const pauseOwner = jq.getQueuePauseOwner()
+      assert.equal(pauseOwner, 'operator', 'a manual pause names its owner')
       // A running cross-row worker is the ordinary duplicate case, so this keeps
       // DuplicateJobError's original queued/running wording.
       await refusalAsync(() => jq.resumeEpisodeRecoveryJob(aId, true),
         `broll_assemble generation already queued/running for ${episode}`)
       assert.equal(jq.isQueuePaused(), true, 'the refused resume leaves the owner pause in force')
-      assert.equal(jq.getQueuePauseOwner(), null, 'the refused resume does not claim the pause owner')
+      assert.equal(jq.getQueuePauseOwner(), pauseOwner, 'the refused resume does not claim the pause owner')
       assert.equal(jq.getJob(aId)?.status, 'error')
       assert.equal(attempts.get(aId), 1)
 
@@ -1336,7 +1337,8 @@ describe('queue executor-settlement admission', () => {
       await jq.setQueuePaused(true)
       paused = true
       assert.equal(jq.isQueuePaused(), true)
-      assert.equal(jq.getQueuePauseOwner(), null)
+      const pauseOwner = jq.getQueuePauseOwner()
+      assert.equal(pauseOwner, 'operator', 'a manual pause names its owner')
 
       holdGate.open()
       await waitFor(() => !jq._isJobWorkerActiveForTesting(heldId), { label: 'the sibling to settle under pause' })
@@ -1345,7 +1347,7 @@ describe('queue executor-settlement admission', () => {
       assert.equal(attempts.get(failedId), 1)
       assert.equal((await jq.getJobs(project.slug)).find(job => job.job_id === failedId)?.queue_position, 1)
       assert.equal(jq.isQueuePaused(), true, 'the release pump did not lift the owner pause')
-      assert.equal(jq.getQueuePauseOwner(), null)
+      assert.equal(jq.getQueuePauseOwner(), pauseOwner, 'the release pump did not take the owner')
 
       await jq.setQueuePaused(false)
       paused = false
