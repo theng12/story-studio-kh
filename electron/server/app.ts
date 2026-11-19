@@ -20,7 +20,7 @@ import { registerAllExecutors } from './boot/executors.js'
 import { runBootMigrations, isBootComplete } from './boot/migrations.js'
 import { signalBootFirstPaint } from './boot/deferred-boot.js'
 import { logLine, startLogPruning } from './services/logger.js'
-import { isQueuePaused, getQueuePauseOwner } from './services/job-queue.js'
+import { isQueuePaused, getQueuePauseOwner, updateHoldState } from './services/job-queue.js'
 import { applyServerTimeouts, requestDeadline } from './lib/server-timeouts.js'
 import { setStallReporter } from './lib/stall-watch.js'
 import { migrateLegacyProjects } from './services/project-manager.js'
@@ -156,6 +156,9 @@ app.get('/api/health', (_req, res) => {
     queue: isQueuePaused()
       ? { paused: true, owner: getQueuePauseOwner(), holds_dispatch: true }
       : { paused: false },
+    // An update hold closes dispatch in memory only: it is never a durable pause, and it expires by
+    // itself. Naming it here is the only way to see one that is in force.
+    hold: updateHoldState(),
   })
 })
 

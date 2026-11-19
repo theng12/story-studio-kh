@@ -7561,6 +7561,16 @@ export function isUpdateHoldActive(): boolean {
   return dispatchHeld()
 }
 
+/**
+ * The hold as /api/health reports it. A hold closes dispatch without writing anything durable, so
+ * health is the only place a person or an agent can see one in force — and its expiry is what makes
+ * a lost DELETE harmless.
+ */
+export function updateHoldState(): { active: boolean; owner: string; expires_at: string | null } {
+  const active = dispatchHeld()
+  return { active, owner: 'updater', expires_at: active ? new Date(dispatchHoldUntil).toISOString() : null }
+}
+
 /** Test-only: the dispatch state a fresh process starts in (no hold). */
 export function _clearUpdateHoldForTesting(): void {
   if (dispatchHoldKick) clearTimeout(dispatchHoldKick)
