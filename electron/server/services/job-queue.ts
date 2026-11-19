@@ -7502,6 +7502,11 @@ function dispatchHeld(): boolean {
   return Date.now() < dispatchHoldUntil
 }
 
+/** A hold is in force: the updater asked Story to stop, not a person at the screen. */
+export function isUpdateHoldActive(): boolean {
+  return dispatchHeld()
+}
+
 /** Test-only: the dispatch state a fresh process starts in (no hold). */
 export function _clearUpdateHoldForTesting(): void {
   if (dispatchHoldKick) clearTimeout(dispatchHoldKick)

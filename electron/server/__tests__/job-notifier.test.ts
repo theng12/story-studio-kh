@@ -37,6 +37,7 @@ import {
   setNotifierSettings,
   DEFAULT_NOTIFIER_SETTINGS,
   formatQuitWarning,
+  mayAskBeforeQuit,
   formatApprovalWaitMessage,
 } from '../services/job-notifier.js'
 import { formatTelegramText } from '../services/telegram-notifier.js'
@@ -340,6 +341,17 @@ describe('Quit while jobs run', () => {
     assert.equal(formatQuitWarning(1)?.title, "1 job is running; it'll continue after restart.")
     assert.equal(formatQuitWarning(3)?.title, "3 jobs are running; they'll continue after restart.")
     assert.match(formatQuitWarning(3)!.body, /Retry in Jobs/)
+  })
+
+  test('a machine is never asked: an update hold or the server role quits without a dialog', () => {
+    const person = { warning: formatQuitWarning(9), hasWindow: true, serverRole: false, updateHoldActive: false }
+    assert.equal(mayAskBeforeQuit(person), true, 'a person at a desktop window may be asked')
+    // angkor 2026-11-19: the updater's Apple Event quit opened this modal with 9 jobs in flight; the
+    // main thread then sat in runModalForWindow: for 181 s until the off-thread watchdog killed it.
+    assert.equal(mayAskBeforeQuit({ ...person, updateHoldActive: true }), false, 'the updater is driving')
+    assert.equal(mayAskBeforeQuit({ ...person, serverRole: true }), false, 'a serving Mac has nobody at the screen')
+    assert.equal(mayAskBeforeQuit({ ...person, hasWindow: false }), false, 'no window, nothing to ask in')
+    assert.equal(mayAskBeforeQuit({ ...person, warning: formatQuitWarning(0) }), false, 'nothing running, nothing to ask')
   })
 
   test('the app asks before quitting with running jobs, and Cancel keeps it open', async () => {

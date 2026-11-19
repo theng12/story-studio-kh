@@ -23,6 +23,7 @@ import {
   jobEvents,
   getQueueStats,
   findJobs,
+  isUpdateHoldActive,
   runningJobIdsForShutdown,
 } from './server/services/job-queue.js'
 import { reapFfmpegOrphans } from './server/services/orphan-reaper.js'
@@ -43,7 +44,7 @@ import { OWNER_WINDOW_HEADER, ownerWindowSecret } from './server/lib/auth-sessio
 import {
   aggregateBatch, isBatchComplete, shouldNotifyForSingleJob,
   formatBatchMessage, formatSingleJobMessage, formatFailureMessage, getBatchId,
-  getNotifierSettings, formatQuitWarning, formatApprovalWaitMessage,
+  getNotifierSettings, formatQuitWarning, mayAskBeforeQuit, formatApprovalWaitMessage,
   summarizeBatchEpisodes,
 } from './server/services/job-notifier.js'
 import type { Job } from './server/models/types.js'
@@ -955,9 +956,21 @@ electronApp.on('before-quit', (event) => {
     exit: code => electronApp.exit(code),
     log: (message, meta) => logLine('warn', message, meta),
   })
-  // Say what happens to running jobs before they stop. Headless server mode has no window to ask in.
+  // Say what happens to running jobs before they stop — to a PERSON. The updater's stop is the
+  // same Apple Event quit, and a modal blocks the main thread and the shutdown ceiling alike
+  // (angkor 2026-11-19: 181 s in runModalForWindow: with 9 jobs, until the off-thread watchdog
+  // killed the app). An update hold in force, or a server-role Mac, settles and exits without asking.
   const warning = formatQuitWarning(getQueueStats().running)
-  if (warning && mainWindow && !mainWindow.isDestroyed()) {
+  const ask = mayAskBeforeQuit({
+    warning,
+    hasWindow: Boolean(mainWindow && !mainWindow.isDestroyed()),
+    serverRole: isServerMode(),
+    updateHoldActive: isUpdateHoldActive(),
+  })
+  if (warning && !ask) {
+    console.log(`[shutdown] no quit dialog (${isUpdateHoldActive() ? 'the updater holds the queue' : isServerMode() ? 'server role' : 'no window'}); settling ${getQueueStats().running} running job(s) and exiting`)
+  }
+  if (ask && warning && mainWindow) {
     console.log('[shutdown] quit-warning dialog opening')
     const choice = dialog.showMessageBoxSync(mainWindow, {
       type: 'warning', buttons: ['Quit', 'Cancel'], defaultId: 0, cancelId: 1,

@@ -473,6 +473,25 @@ export function formatQuitWarning(running: number): NotificationPayload | null {
   }
 }
 
+/**
+ * Whether a quit may stop and ask a person. Never on a machine.
+ *
+ * The updater's stop arrives as the same Apple Event quit a person's Cmd-Q produces, so the
+ * discriminator is what came first: an update hold in force means the updater is driving, and a
+ * server-role Mac has nobody at the screen. Either way a modal is not an option — it blocks the
+ * main thread, including the shutdown ceiling (a JS timer), and the app serves nothing meanwhile.
+ * angkor 2026-11-19: 181 s in `runModalForWindow:` with 9 jobs, then the off-thread watchdog killed
+ * it. A person on a desktop is still asked.
+ */
+export function mayAskBeforeQuit(input: {
+  warning: unknown
+  hasWindow: boolean
+  serverRole: boolean
+  updateHoldActive: boolean
+}): boolean {
+  return Boolean(input.warning) && input.hasWindow && !input.serverRole && !input.updateHoldActive
+}
+
 // ── Persistence (thin wrapper over app-settings.ts) ────────────────────────
 
 function readTelegramConfig(raw: unknown): TelegramConfig {
