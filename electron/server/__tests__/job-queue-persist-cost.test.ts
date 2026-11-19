@@ -91,8 +91,11 @@ test('a finished job keeps only its last 500 log lines on disk', async () => {
   const persisted = (JSON.parse(await fs.readFile(path.join(tempDir, 'projects', project.slug, 'jobs.json'), 'utf8')) as { jobs: Job[] }).jobs
   for (const id of ['log-done', 'log-error']) {
     const job = persisted.find(candidate => candidate.job_id === id)!
+    // The cap keeps the last 499 lines and says so on the first retained line, so a log that was
+    // shortened is never mistaken for a log that was always that short (owner 2026-11-19).
     assert.equal(job.output_lines.length, jq.MAX_FINISHED_JOB_OUTPUT_LINES)
-    assert.equal(job.output_lines[0], 'line 700')
+    assert.equal(job.output_lines[0], '(showing the last 499 of 1200 log lines)')
+    assert.equal(job.output_lines[1], 'line 701')
     assert.equal(job.output_lines.at(-1), 'line 1199')
   }
 })
