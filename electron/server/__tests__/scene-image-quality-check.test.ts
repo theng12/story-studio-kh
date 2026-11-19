@@ -233,3 +233,20 @@ test('turning the check off queues nothing and records nothing; turning it back 
   const onPlan = JSON.parse(await fs.readFile(planPath, 'utf8'))
   assert.equal(onPlan.scenes[0].image_check.state, 'passed')
 })
+
+test('the check asks a model that can answer "subject", not simply the first one in the catalogue', async (t) => {
+  t.after(() => _setVisionCheckCatalogForTesting(null))
+  const { resolveSceneImageCheckModel } = await import('../services/scene-image-quality-check.js')
+  // angkor 2026-11-19: this exact order, and every scene came back not_checked / INVALID_REQUEST.
+  _setVisionCheckCatalogForTesting(async () => [
+    { id: 'studio-hub::depth-anything/Depth-Anything-V2-Small-hf', display_name: 'Depth', available: true, tasks: ['depth'] },
+    { id: 'studio-hub::florence-community/Florence-2-base-ft', display_name: 'Florence', available: true, tasks: ['subject', 'points', 'segments'] },
+  ])
+  assert.equal((await resolveSceneImageCheckModel())?.id, 'studio-hub::florence-community/Florence-2-base-ft')
+
+  // No model publishes the task: take the first, as before — the check records what actually happened.
+  _setVisionCheckCatalogForTesting(async () => [
+    { id: 'only-depth', display_name: 'Depth', available: true, tasks: ['depth'] },
+  ])
+  assert.equal((await resolveSceneImageCheckModel())?.id, 'only-depth')
+})
