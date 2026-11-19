@@ -29,6 +29,7 @@ import { reapFfmpegOrphans } from './server/services/orphan-reaper.js'
 import { projectsRoot, migrateLegacyProjects } from './server/services/project-manager.js'
 import { getRunningFlagPath, patchLastSession } from './server/services/last-session.js'
 import { isServerMode, getServerModeConfig } from './server/lib/server-mode.js'
+import { openAtLogin, syncAgentPlist } from './server/services/open-at-login.js'
 import { armShutdownDeadline, beginShutdown, cancelShutdown } from './server/lib/shutdown-state.js'
 import { DEV_BACKEND_PORT } from './server/lib/dev-backend.js'
 import { applyServerTimeouts } from './server/lib/server-timeouts.js'
@@ -703,6 +704,23 @@ function clearRunningFlag(): void {
 void electronApp.whenReady().then(async () => {
   try {
     if (process.env.STORY_STUDIO_HIDDEN === '1') electronApp.dock?.hide()
+    // One starter, and the agent's role follows the deployment (angkor 2026-11-19): macOS restored
+    // the app at login (login item `2.com.storystudio.kh`) while the launch agent started a second
+    // copy. The agent's copy lost the single-instance lock, exited 0, and `KeepAlive {Crashed}`
+    // never restarted it — the supervised job was dead and the survivor was unsupervised.
+    if (openAtLogin()) {
+      electronApp.setLoginItemSettings({ openAtLogin: false })
+      if (electronApp.isPackaged) {
+        try {
+          const healed = await syncAgentPlist(process.execPath, isServerMode())
+          if (healed === 'rewritten') {
+            console.log(`[open-at-login] agent ${isServerMode() ? 'comes back from any exit (server role)' : 'restarts after a crash only'}`)
+          }
+        } catch (e) {
+          logCrash('open-at-login-sync', e)
+        }
+      }
+    }
     buildMenu()
     // One-time migration from legacy dev project locations. This used to run
     // as a side effect of importing project-manager.ts, which meant every
