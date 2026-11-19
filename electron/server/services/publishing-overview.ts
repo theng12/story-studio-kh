@@ -3,8 +3,8 @@
  *
  * It composes ONLY local readers — the same stores the Upload Center's own
  * routes read — and never talks to YouTube. Rendering this page costs no
- * quota; the only provider call in the whole feature is the explicit,
- * read-only refresh the page offers, which reuses POST /youtube/sync.
+ * quota; the provider calls are the explicit, read-only refreshes the page
+ * offers: POST /youtube/sync and POST /youtube/schedule-refresh.
  *
  * It performs no migration write: the channel's plan is read WITHOUT
  * `readChannelSchedule` (which would run the v1.4.249 plan migration). Two
@@ -57,6 +57,7 @@ import { readYouTubeProjectPublishingState } from './youtube-project-publishing-
 import { listYouTubeOperations } from './youtube-operation-store.js'
 import { remoteVideoFor } from './youtube-remote-video.js'
 import { uploadInFlight, latestEpisodeUploadJob, localUploadProjection } from './youtube-local-upload.js'
+import { readYouTubeChannelSchedule } from './youtube-channel-schedule-store.js'
 import { readYouTubeConnectionRegistry, getProjectYouTubeAssignment } from './youtube-connection-store.js'
 import { resolveYouTubeCredential } from './youtube-credential.js'
 import { createProjectFactsCache, projectDirFor, projectMetaOnce, resolveEpisodePaths, EPISODE_PROBE_BATCH, type ProjectFactsCache } from './utils.js'
@@ -597,6 +598,13 @@ export async function buildChannelOverview(
   const assignedChannelId = assignment?.channel_id ?? null
   const credential = await resolveYouTubeCredential(slug).catch(() => null)
   const channelId = credential?.channelId ?? null
+  // YouTube's own answer is a separate fact from the local pacing policy and
+  // from confirmation of individual uploads. An unreadable store is "not read",
+  // never zero and never a blocking verdict.
+  const youtubeSchedule = await readYouTubeChannelSchedule(slug, assignedChannelId).catch(() => ({
+    read_at: null, state: 'no_data' as const, scheduled_count: null, next_slot_at: null,
+    error: 'The saved YouTube schedule could not be read.',
+  }))
   const channel = channelId
     ? { channel_id: channelId, title: registry?.channels?.[channelId]?.title || channelId }
     : null
@@ -887,6 +895,7 @@ export async function buildChannelOverview(
       name,
       channel,
       channel_status: channelStatus,
+      youtube_schedule: youtubeSchedule,
       timeline,
       plan_set: planSet,
       ...(planSet === null ? { plan_error: planError || 'the publishing plan could not be read' } : {}),

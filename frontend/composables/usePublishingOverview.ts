@@ -68,6 +68,9 @@ export function usePublishingOverview() {
       const assigned = (current?.channels ?? []).filter(channel => channel.channel)
       for (const channel of assigned) {
         try {
+          await post(`/projects/${encodeURIComponent(channel.slug)}/youtube/schedule-refresh`, {})
+        } catch { /* one channel failing must not stop the others; its row shows the failed read */ }
+        try {
           await post(`/projects/${encodeURIComponent(channel.slug)}/youtube/sync`, {})
         } catch { /* one channel failing must not stop the others; its freshness shows stale/unknown */ }
       }
