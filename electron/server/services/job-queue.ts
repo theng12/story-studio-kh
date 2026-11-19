@@ -2938,12 +2938,22 @@ async function drainProjectPersistence(projectSlug: string, state: ProjectPersis
   }
 }
 
-/** Finished jobs keep their last N log lines on disk and in the durable baseline. */
-export const MAX_FINISHED_JOB_OUTPUT_LINES = 500
+/**
+ * Every job keeps its last N log lines on disk and in the durable baseline — running jobs too.
+ * A live render was measured at 19,163 lines / 3.8 MB in one record (angkor 2026-11-19) and grew
+ * without bound, because this cap used to apply only to terminal jobs. A trimmed log says so, so
+ * the count is never silently dropped.
+ */
+export const MAX_JOB_OUTPUT_LINES = 500
+/** @deprecated kept for callers and tests that name the old constant. */
+export const MAX_FINISHED_JOB_OUTPUT_LINES = MAX_JOB_OUTPUT_LINES
 function capFinishedLog<T extends Pick<Job, 'status' | 'output_lines'>>(job: T): T {
-  if (TERMINAL_JOB_STATUSES.has(job.status) && Array.isArray(job.output_lines)
-    && job.output_lines.length > MAX_FINISHED_JOB_OUTPUT_LINES) {
-    job.output_lines = job.output_lines.slice(-MAX_FINISHED_JOB_OUTPUT_LINES)
+  if (Array.isArray(job.output_lines) && job.output_lines.length > MAX_JOB_OUTPUT_LINES) {
+    const total = job.output_lines.length
+    job.output_lines = [
+      `(showing the last ${MAX_JOB_OUTPUT_LINES - 1} of ${total} log lines)`,
+      ...job.output_lines.slice(-(MAX_JOB_OUTPUT_LINES - 1)),
+    ]
   }
   return job
 }
