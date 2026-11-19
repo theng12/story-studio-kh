@@ -78,6 +78,25 @@ describe('YouTube project publishing state', () => {
     })
   })
 
+  test('a slug stored in the wrong case is repaired once, not refused', async () => {
+    // angkor 2026-11-19: Capi (39 scheduled videos) could not reconcile — its project.json held
+    // "capi" from before 70691478e, and the exact-match check read that as corruption.
+    const created = await project()
+    const dir = path.join(tempDir, 'projects', created.slug)
+    const job = path.join(dir, 'project.json')
+    const mixedCase = created.slug.charAt(0).toUpperCase() + created.slug.slice(1)
+    // The channel is addressed by the project's own name; the file still says the old lowercase one.
+    await store.readStrictProjectMetadata(dir, mixedCase)
+    assert.equal(JSON.parse(await fs.readFile(job, 'utf8')).slug, mixedCase,
+      'project.json is repaired on read, not worked around')
+
+    // A slug that is a different project is still corruption.
+    const metadata = JSON.parse(await fs.readFile(job, 'utf8'))
+    await fs.writeFile(job, JSON.stringify({ ...metadata, slug: `${created.slug}-other` }, null, 2))
+    await assert.rejects(() => store.readStrictProjectMetadata(dir, mixedCase),
+      (error: unknown) => (error as { code?: string }).code === 'JSON_CORRUPT')
+  })
+
   test('still refuses unknown and unsafe stored subfolder names', async () => {
     const created = await project()
     await editProjectMetadata(created.slug, metadata => {
