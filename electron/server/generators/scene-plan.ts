@@ -50,6 +50,7 @@ import {
   type GenStudioChatModel,
 } from '../lib/genstudio-client.js'
 import { resolveGenStudioModelId, unavailableLegacyModelMessage } from '../services/genstudio-model-migration.js'
+import { findGenStudioProduct } from '../contracts/genstudio-product-identity.js'
 import { pipelinePolicyCheckpointStore, pipelinePolicyForJob, pipelinePolicyInputFingerprint } from '../lib/pipeline-model-policy.js'
 import {
   SCENE_TIMELINE_ONLY_OUTPUT_BUDGET,
@@ -470,7 +471,13 @@ export function resolveScenePlanCatalogModel(
   const raw = selectedModel.trim().replace(/^genstudio-chat:/, '')
   if (!raw) return null
   const canonical = resolveGenStudioModelId('chat', raw)
-  const match = catalog.find(model => model.available && (model.id === canonical || model.id === raw))
+  // Alias-aware: a product the catalogue now publishes under another identifier
+  // (handle, raw product id, a published legacy id) is still the product the
+  // preset chose. Exact equality here failed a saved plan the moment the
+  // catalogue renamed a product it had not retired (1.4.413).
+  const match = canonical
+    ? findGenStudioProduct(catalog.filter(model => model.available), canonical)
+    : undefined
   return match?.id || null
 }
 
@@ -883,6 +890,7 @@ async function runScenePlan(job: Job, signal: AbortSignal): Promise<void> {
   if (rawRequestPlan && (!savedRequestPlan || !scenePolicy!.models.includes(savedRequestPlan.model_id))) {
     throw new Error('The saved Scene Plan request shape is invalid; no new request was submitted.')
   }
+  const requestedModel = model
   const promptModel = savedRequestPlan
     ? {
         id: savedRequestPlan.model_id,
@@ -893,7 +901,21 @@ async function runScenePlan(job: Job, signal: AbortSignal): Promise<void> {
     : needsModel ? (scenePolicy
       ? await getScenePlanPolicyPlanningModel(scenePolicy)
       : await getScenePlanGenStudioModel(model)) : null
-  if (promptModel) model = `genstudio-chat:${promptModel.id}`
+  if (promptModel) {
+    // The saved id travels UNCHANGED on the wire: it is part of the chat
+    // idempotency key (`buildGenStudioChatIdempotencyKey` hashes `model_id`), so
+    // rewriting a saved alias into the catalogue's id would make a retry of an
+    // accepted-but-unsettled request a second charge. The catalogue row supplies
+    // the limits; the id the Gateway still answers to is what is sent
+    // (`contracts/genstudio-product-identity.ts`, "Deliberately NOT provided").
+    const savedId = (requestedModel || '').replace(/^genstudio-chat:/, '').trim()
+    model = scenePolicy || !savedId ? `genstudio-chat:${promptModel.id}` : `genstudio-chat:${savedId}`
+    // The catalogue answered under another identifier: same product, and the job
+    // line says so rather than leaving the operator to wonder.
+    if (!scenePolicy && savedId && promptModel.id !== savedId) {
+      job.output_lines.push(`Saved model "${savedId}" is the product the Gateway publishes as "${promptModel.id}"; using the saved id, which the catalogue still answers to.`)
+    }
+  }
 
   const promptTokenSetting = parseScenePromptTokenSetting(params.prompt_max_tokens)
   // A timeline-only run is deliberately model-free, so the model-derived

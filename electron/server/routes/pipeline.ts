@@ -61,6 +61,7 @@ import { videoRequestControls } from '../lib/video-request-controls.js'
 import { resolveTranscriptionLanguage } from '../generators/subtitles.js'
 import { requireSceneClipGenStudioModel } from '../generators/scene-clip.js'
 import { resolveGenStudioModelId, unavailableLegacyModelMessage, unavailableTranscriptionModelMessage } from '../services/genstudio-model-migration.js'
+import { findLiveChatModel, savedChatModelGoneMessage } from '../services/live-chat-model.js'
 import { withLock } from '../lib/atomic-store.js'
 import { stampFreshGenerationAction } from '../lib/fresh-generation-action.js'
 import { autoApproveOn, resolveExactPreset, resolveScenePlanPromptCharCap, scenePlanPresetReceipt, thumbnailPromptPresetCapInputs } from '../services/preset-authority.js'
@@ -1030,6 +1031,24 @@ async function preflightBatch(
   }
   if (!runSteps().length) {
     issues.push({ code: 'invalid_preset', message: 'No step is left to run in this batch.' })
+  }
+
+  // 1.4.413 — the saved chat models are checked against the LIVE catalogue here,
+  // before anything is enqueued. A preset naming a product the Gateway no longer
+  // publishes used to pass preflight and die at that step, which for a chain is
+  // hours after the run began (Audio Assembly and transcription come first).
+  // `undefined` from the resolver means the Gateway could not be read at all —
+  // an outage, not a missing product — and the step's own refusal is the answer
+  // to that; only a catalogue that WAS read and does not publish the id blocks.
+  for (const step of ['script-only', 'scene_plan', 'contextual_cues'] as BatchStep[]) {
+    if (!requiredSteps.has(step) || leftOut.has(step)) continue
+    const preset = presetByStep[step]
+    const saved = preset ? PRESET_MODEL_READERS[step]?.(preset.data ?? preset) : undefined
+    if (typeof saved !== 'string' || !saved.trim()) continue
+    if (await findLiveChatModel(saved) !== null) continue
+    const message = savedChatModelGoneMessage(saved)
+    if (mode('step_preset') === 'block') addMissingPresetIssue(issues, visualSettingsByEpisode, step, message)
+    else warnIf('step_preset', `${pipelineStepLabel(step)}: ${message}`)
   }
 
   // Blocked episodes never reach the queue, so reserve disk only for the

@@ -50,6 +50,20 @@ test('scene planning accepts only live Gateway catalog ids', () => {
   )
   assert.equal(resolveScenePlanCatalogModel('chatstudio:local-model', catalog), null)
   assert.equal(resolveScenePlanCatalogModel('genstudio-chat-disabled-v1', catalog), null)
+
+  // 1.4.413 — the catalogue renamed a product; the saved id is still the
+  // product the preset chose, so resolution follows the catalogue's aliases.
+  const renamed = [{
+    id: 'magpie::xiaomi/mimo-v2.6-flash', available: true,
+    legacy_ids: ['deepseek-v4-flash-genstudio-5'],
+  }] as any
+  assert.equal(
+    resolveScenePlanCatalogModel('deepseek-v4-flash-genstudio-5', renamed),
+    'magpie::xiaomi/mimo-v2.6-flash',
+  )
+  // A renamed product that is switched off is not live either.
+  const renamedOff = [{ ...renamed[0], available: false }] as any
+  assert.equal(resolveScenePlanCatalogModel('deepseek-v4-flash-genstudio-5', renamedOff), null)
 })
 
 test('legacy explicit motion keeps historical still scenes out of both saved-plan and full-plan requests', () => {
