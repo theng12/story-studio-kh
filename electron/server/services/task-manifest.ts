@@ -416,8 +416,9 @@ export async function promoteCurrentImageTaskArtifactStrict(
   checkpoint: () => Promise<void>,
   trashDir?: string,
 ): Promise<boolean> {
+  let promoted: boolean
   try {
-    return await withCrossProcessLock(manifestPath(assetDir), async () => {
+    promoted = await withCrossProcessLock(manifestPath(assetDir), async () => {
       const current = (await readManifestStrict(assetDir)).tasks[filename]
       if (!sameImageAttempt(current, expected)) {
         await fs.rm(stagingPath, { force: true }).catch(() => {})
@@ -429,7 +430,6 @@ export async function promoteCurrentImageTaskArtifactStrict(
       }
       await fs.rename(stagingPath, outputPath)
       clearImageValidationCache(outputPath)
-      await checkpoint()
       return true
     })
   } catch (error) {
@@ -439,6 +439,12 @@ export async function promoteCurrentImageTaskArtifactStrict(
     await fs.rm(stagingPath, { force: true }).catch(() => {})
     throw error
   }
+  if (!promoted) return false
+  // Outside the manifest lock, deliberately. The checkpoint decodes the image again, reads it whole for
+  // its hash and rewrites scene_plan.json — none of which touches the manifest, and all of which was
+  // holding the lock past its 10 s deadline on angkor (2026-11-19).
+  await checkpoint()
+  return true
 }
 
 /**

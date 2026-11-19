@@ -34,6 +34,15 @@ const holderStartedAt = new Map<string, number>()
 const CROSS_PROCESS_LOCK_WAIT_MS = 10_000
 const CROSS_PROCESS_LOCK_RETRY_MS = 20
 const CROSS_PROCESS_STALE_LOCK_MS = 60_000
+/** A hold this long is worth a line in the app log, long before it can reach the 10 s deadline. */
+const CROSS_PROCESS_LOCK_SLOW_MS = 250
+
+/**
+ * Where a slow hold is reported. Null in tests and in anything that never wires it, so a lib measured
+ * by a hundred tests stays silent; the app wires it to its own log at boot.
+ */
+let holdReporter: ((info: { key: string; heldMs: number }) => void) | null = null
+export function setCrossProcessLockHoldReporter(reporter: typeof holdReporter): void { holdReporter = reporter }
 
 interface CrossProcessLockOwner {
   token: string
@@ -211,10 +220,13 @@ export function withCrossProcessLock<T>(key: string, fn: () => Promise<T>): Prom
       if (Date.now() >= deadline) throw new Error('Timed out waiting for persistence lock')
       await sleep(CROSS_PROCESS_LOCK_RETRY_MS)
     }
+    const acquiredAt = Date.now()
     try {
       return await fn()
     } finally {
+      const heldMs = Date.now() - acquiredAt
       await releaseLock(lockPath, owner)
+      if (heldMs >= CROSS_PROCESS_LOCK_SLOW_MS) holdReporter?.({ key, heldMs })
     }
   })
 }
