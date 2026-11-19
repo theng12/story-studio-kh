@@ -103,7 +103,9 @@ test('health names a hold in force, and the hold clears itself without a boot', 
   assert.equal(during.active, true, 'a hold in force is visible on health')
   assert.equal(during.owner, 'updater')
   assert.ok(Date.parse(during.expires_at!) > Date.now(), 'and says when it expires')
-  await sleep(1200)
+  // Poll for the expiry rather than betting 1200 ms covers a 1 s hold: this is "has happened",
+  // which load can only delay, never fake.
+  await waitFor(async () => (await updateHoldState()).active === false, { label: 'the hold to expire by itself' })
   const after1 = await updateHoldState()
   assert.equal(after1.active, false, 'it expires by itself — no DELETE, no restart')
   assert.equal(after1.expires_at, null)
