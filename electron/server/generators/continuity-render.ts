@@ -8,6 +8,7 @@
 
 import fs from 'fs/promises'
 import { existsSync, statSync } from 'fs'
+import { sweepDeadPartials } from '../lib/partial-sweep.js'
 import path from 'path'
 import { FITTED_REFERENCE_DIRNAME, fitReferenceImage } from '../lib/reference-image-fit.js'
 import {
@@ -584,6 +585,12 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
   const outDir = await resolveContinuityRenderOutputDir(job.project_slug, episode_id, paths.episode_dir)
   job.output_dir = outDir
   await fs.mkdir(outDir, { recursive: true })
+  // A run that was killed left whole images under their staging names; the next run clears the ones
+  // whose process is gone and says how many (angkor 2026-11-19: 20 in EP0028, 69 in EP0026).
+  const sweptPartials = await sweepDeadPartials(outDir)
+  if (sweptPartials.removed) {
+    job.output_lines.push(`Cleared ${sweptPartials.removed} unfinished image file(s) left by an earlier run that did not finish.`)
+  }
   const taskManifest = await readManifest(outDir)
   const legacyImageDir = path.join(paths.episode_dir, SCENE_IMAGES_SUBFOLDER)
 
