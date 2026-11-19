@@ -71,11 +71,13 @@ export function assertSandboxedTrash(target, { sandbox, home = os.homedir(), che
   if (!sandbox) throw new Error(`A test lane's trash needs its sandbox: ${target}`)
   const resolved = path.resolve(target)
   const inside = (base) => resolved === path.resolve(base) || resolved.startsWith(path.resolve(base) + path.sep)
+  // The lane's own sandbox comes first: the harness relocates its TMPDIR into .test-work, inside the
+  // checkout, so the checkout rule would otherwise refuse the very trash the lane hands its children.
+  if (inside(sandbox)) return resolved
   const forbidden = [path.join(home, 'Desktop'), path.join(home, '.Trash'), checkout].filter(Boolean)
   const hit = forbidden.find(inside)
   if (hit) throw new Error(`A test lane must never use the owner's trash: ${resolved} is under ${hit}`)
-  if (!inside(sandbox)) throw new Error(`A test lane's trash must live inside its sandbox: ${resolved} is outside ${sandbox}`)
-  return resolved
+  throw new Error(`A test lane's trash must live inside its sandbox: ${resolved} is outside ${sandbox}`)
 }
 
 /** The trash a lane's children get: inside their sandbox HOME, guarded. */
