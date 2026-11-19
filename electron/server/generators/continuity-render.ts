@@ -9,6 +9,7 @@
 import fs from 'fs/promises'
 import { existsSync, statSync } from 'fs'
 import { sweepDeadPartials } from '../lib/partial-sweep.js'
+import { resolveRenderImageSize } from '../lib/image-size.js'
 import path from 'path'
 import { FITTED_REFERENCE_DIRNAME, fitReferenceImage } from '../lib/reference-image-fit.js'
 import {
@@ -129,6 +130,8 @@ interface ContinuityRenderParams {
   reference_character_ids?: string[]
   /** Set on the one automatic remake after a failed free image check. */
   image_check_remake?: boolean
+  /** Canonical picture size for this render: `1024x576` (default) or `1280x720`. */
+  image_size?: string
 }
 
 export function shouldPauseContinuityForStall(state: {
@@ -714,6 +717,8 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
         ? 'force re-render'
         : 'resume (skip existing)'
 
+  // Every picture this batch writes lands at one size, whatever the model publishes (owner 2026-11-19).
+  const renderImageSize = resolveRenderImageSize((params as { image_size?: unknown }).image_size)
   const failedSceneIds: string[] = []
   /** The last real reason each failed scene gave, shown to the owner in plain words. */
   const failureReasons = new Map<string, string>()
@@ -817,7 +822,7 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
 
     job.output_lines.push(
       `Gateway image batch — ${imageProvider.meta.name} / ${model} · ` +
-      `${toRender.length}/${scenes.length} scene(s) · ${mode}. ` +
+      `${toRender.length}/${scenes.length} scene(s) · ${mode} · ${renderImageSize.label}. ` +
       'Gateway controls account concurrency and execution.',
     )
 
@@ -1797,7 +1802,9 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
               }
               if (!result.urls.length) throw new Error('The Gateway returned no image')
               if (!currentOwner) throw new Error('Scene image request ownership was not recorded.')
-              const stagingPath = await stageGenStudioImage(result.urls[0]!, outPath, { compress: !!sceneOutputFormat })
+              const stagingPath = await stageGenStudioImage(result.urls[0]!, outPath, {
+                compress: !!sceneOutputFormat, size: renderImageSize.size,
+              })
               const promoted = await promoteCurrentImageTaskArtifactStrict(
                 outDir,
                 filename,

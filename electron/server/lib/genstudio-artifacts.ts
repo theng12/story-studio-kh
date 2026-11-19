@@ -14,6 +14,28 @@ export interface GenStudioImageSaveOptions {
   compress?: boolean
   /** Where a replaced image is copied before the new one takes its place. First renders copy nothing. */
   trashDir?: string
+  /** Every picture lands at this pixel size, whatever the model published (owner 2026-11-19). */
+  size?: { width: number; height: number }
+}
+
+/**
+ * Bring the image to the app's canonical size, in place. Models publish different sizes, and a size
+ * a model does not publish cannot be requested — so uniformity is applied here, on the bytes.
+ * Best effort like the recompression below: a failure leaves the verified original untouched.
+ */
+async function resizeInPlace(filePath: string, size: { width: number; height: number }): Promise<void> {
+  const meta = await sharp(filePath).metadata()
+  if (meta.width === size.width && meta.height === size.height) return
+  const partial = `${filePath}.size-${process.pid}`
+  try {
+    const pipeline = sharp(filePath).resize(size.width, size.height, { fit: 'cover', position: 'centre' })
+    await (meta.format === 'jpeg' ? pipeline.jpeg({ quality: 92, mozjpeg: true }) : pipeline.png()).toFile(partial)
+    await assertDecodableImage(partial, 'Resized image')
+    await fs.rename(partial, filePath)
+    clearImageValidationCache(filePath)
+  } catch {
+    await fs.rm(partial, { force: true }).catch(() => {})
+  }
 }
 
 /**
@@ -83,6 +105,7 @@ export async function stageGenStudioImage(
   try {
     await fs.writeFile(temporaryPath, bytes, { flag: 'wx' })
     await assertDecodableImage(temporaryPath, 'Gateway image')
+    if (options.size) await resizeInPlace(temporaryPath, options.size)
     if (options.compress && header[0].startsWith('data:image/png')) await recompressPngInPlace(temporaryPath)
     return temporaryPath
   } catch (error) {
