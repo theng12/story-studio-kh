@@ -7,7 +7,7 @@
  */
 
 import fs from 'fs/promises'
-import { existsSync } from 'fs'
+import { existsSync, statSync } from 'fs'
 import path from 'path'
 import { FITTED_REFERENCE_DIRNAME, fitReferenceImage } from '../lib/reference-image-fit.js'
 import {
@@ -322,6 +322,20 @@ export function unresolvedSceneImagesMessage(
   ].filter(Boolean).join(' ')
 }
 
+/** One line naming what the resume decided to draw again, and why. Pure, so the wording is tested. */
+export function describeResumeRedraws(reasons: readonly string[], limit = 10): string | null {
+  if (!reasons.length) return null
+  const shown = reasons.slice(0, limit).join('; ')
+  const rest = reasons.length - limit
+  return `Resume verdict, before any paid work: ${reasons.length} finished scene(s) will be drawn again — ${shown}`
+    + (rest > 0 ? `; and ${rest} more` : '')
+}
+
+/** Size for the verdict line only: a truncated file and a full one read very differently. */
+function sizeMbOf(filePath: string): string {
+  try { return `${Math.round(statSync(filePath).size / 1048576)} MB` } catch { return 'size unknown' }
+}
+
 export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorResult> {
   const params = job.params as ContinuityRenderParams
   const pipelineRepairActionId = params.pipeline_repair?.action_id
@@ -586,9 +600,15 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
   // says nothing; the scene's own prompt record does. Those scenes are not
   // usable and re-enter the batch to be redrawn.
   const stalePictureIds: string[] = []
+  // WHY a finished scene is being drawn again. The batch record is in memory until the next
+  // checkpoint, and this process has died mid-batch on Production — so the one sentence that
+  // explains a re-render was the one that never reached the disk.
+  const redrawnReasons: string[] = []
   for (const scene of scenes) {
-    if (sceneImageStaleReason(scene, effectiveScenePrompt(scene))) {
+    const staleReason = sceneImageStaleReason(scene, effectiveScenePrompt(scene))
+    if (staleReason) {
       stalePictureIds.push(scene.id)
+      redrawnReasons.push(`Scene ${scene.scene_index}: ${staleReason}`)
       continue
     }
     const candidates = [
@@ -617,9 +637,19 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
         break
       }
       job.output_lines.push(`Scene ${scene.scene_index} (${scene.id}) has a corrupt image; it will be regenerated.`)
+      redrawnReasons.push(
+        `Scene ${scene.scene_index}: ${path.basename(candidate)} exists but does not decode (${sizeMbOf(candidate)})`,
+      )
     }
   }
   const hasRenderedImage = (id: string): boolean => usableRenderedIds.has(id)
+  // Durable BEFORE the first paid submit: a scene that is drawn twice for a reason nobody can read
+  // afterwards is how this ran for hours on Production (angkor 2026-11-19).
+  if (redrawnReasons.length) {
+    const verdict = describeResumeRedraws(redrawnReasons)
+    if (verdict) job.output_lines.push(verdict)
+    await jq.checkpointJobProgress(job)
+  }
   if (stalePictureIds.length) {
     job.output_lines.push(
       `Re-plan: ${stalePictureIds.length} picture(s) were drawn for a prompt the plan no longer carries and will be redrawn; ` +
