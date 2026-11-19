@@ -336,6 +336,15 @@ function sizeMbOf(filePath: string): string {
   try { return `${Math.round(statSync(filePath).size / 1048576)} MB` } catch { return 'size unknown' }
 }
 
+/**
+ * The resume rule: a run that is not a deliberate re-render and not a single-scene re-roll keeps every
+ * finished image, however the work was selected. Episodes part-way through must stop redoing scenes too —
+ * that case looks like progress and hides the bug.
+ */
+export function resumeSkipsFinishedImages(input: { force: boolean; singleIndex: number }): boolean {
+  return input.force !== true && input.singleIndex === 0
+}
+
 export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorResult> {
   const params = job.params as ContinuityRenderParams
   const pipelineRepairActionId = params.pipeline_repair?.action_id
@@ -787,7 +796,12 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
   // GenStudio-owned text-to-image batch.
     const toRender = selectSceneImageBatch(scenes, {
       sceneIds: params.scene_ids,
-      missingOnly: params.missing_only,
+      // A pipeline resume names every scene EXPLICITLY, and an explicit selection used to mean
+      // "regenerate them" — so the resume redrew finished scenes on every boot (angkor 2026-11-19:
+      // EP0028 redrew scenes whose PNGs were written twenty minutes earlier). Done means done: only a
+      // deliberate re-render (`force`, the Scene Review "generate" action) or a single-scene re-roll
+      // draws over an image that is already on disk.
+      missingOnly: params.missing_only === true || resumeSkipsFinishedImages({ force, singleIndex }),
       singleIndex,
       force,
       hasRenderedImage,

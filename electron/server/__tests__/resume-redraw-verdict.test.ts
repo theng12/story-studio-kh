@@ -22,3 +22,13 @@ test('caps the list at ten and counts the rest instead of printing a wall of lin
   assert.doesNotMatch(line, /Scene 11:/)
   assert.match(line, /; and 3 more$/)
 })
+
+test('a resume keeps finished images however the batch selected them; only a deliberate re-render redraws', async () => {
+  const { resumeSkipsFinishedImages } = await import('../generators/continuity-render.js')
+  // The two Production cases: an exhausted episode and one still advancing. Both must stop redoing.
+  assert.equal(resumeSkipsFinishedImages({ force: false, singleIndex: 0 }), true)
+  assert.equal(resumeSkipsFinishedImages({ force: false, singleIndex: 0 }), true)
+  // A person pressing Generate on selected scenes, or one scene re-rolled, still draws over them.
+  assert.equal(resumeSkipsFinishedImages({ force: true, singleIndex: 0 }), false)
+  assert.equal(resumeSkipsFinishedImages({ force: false, singleIndex: 5 }), false)
+})
