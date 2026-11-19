@@ -5084,6 +5084,8 @@ export interface ScenePlanEntry {
   image_version?: string
   /** SHA-256 of the registered still's bytes, so re-registering the same file never touches approval. */
   image_sha256?: string
+  /** The format the registered still IS, sniffed from its own bytes — a `.png` name can hold a JPEG. */
+  image_format?: string
   /** Reason the LLM picked this scene boundary, used as a hint in
    *  the Scene Plan UI ("Topic shift to <X>", "Named entity intro:
    *  <Y>"). Optional. */

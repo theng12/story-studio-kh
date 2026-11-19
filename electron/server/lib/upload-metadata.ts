@@ -119,7 +119,16 @@ export async function listUploadThumbnails(input: ResolveUploadMetadataInput): P
       if (platformBlock && typeof platformBlock.selected_thumbnail === 'string') {
         pinned = platformBlock.selected_thumbnail
       }
-    } catch { /* an invalid optional override must not hide valid thumbnails */ }
+    } catch (error: unknown) {
+      // A file that exists but does not parse is a half-written or damaged file, not "no override".
+      // Reading it as absent silently drops the owner's pinned thumbnail and a blank read as a value.
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        throw new Error(
+          `${input.episode_code}'s ${OVERRIDES_FILENAME} could not be read (${(error as Error)?.message || error}). `
+          + 'Fix or remove that file in the episode folder, then try again.',
+        )
+      }
+    }
   }
 
   const options = await dropStaleTextLayers(filenames.map(filename => ({
@@ -232,7 +241,13 @@ export async function stalePinnedTextLayer(input: ResolveUploadMetadataInput): P
     const data = JSON.parse(await fsp.readFile(overridesPath, 'utf-8'))
     const block = typeof data[platform] === 'object' ? data[platform] : null
     if (typeof block?.selected_thumbnail === 'string') pinned = block.selected_thumbnail
-  } catch { return null }
+  } catch (error: unknown) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null
+    throw new Error(
+      `${input.episode_code}'s ${OVERRIDES_FILENAME} could not be read (${(error as Error)?.message || error}). `
+      + 'Fix or remove that file in the episode folder, then try again.',
+    )
+  }
   if (!pinned || !existsSync(path.join(paths.thumb_dir, pinned))) return null
   return await assertVariantUploadable(pinned, paths.thumb_dir)
 }

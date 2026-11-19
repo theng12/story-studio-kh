@@ -832,7 +832,10 @@ export async function checkpointSceneImage(
   liveAutoApprove?: () => Promise<boolean>,
 ): Promise<ScenePlan> {
   await assertUsableFile(imagePath, `Image for ${sceneId}`)
-  await assertDecodableImage(imagePath, `Image for ${sceneId}`)
+  // The format comes from the bytes, never from the extension: the Gateway relays each provider's own
+  // format, and a `.png` here can be a JPEG (angkor 2026-11-19). The name stays for the tools that
+  // key on it; the RECORD tells the truth.
+  const sniffed = await assertDecodableImage(imagePath, `Image for ${sceneId}`)
   const sha256 = createHash('sha256').update(await fs.readFile(imagePath)).digest('hex')
   return withLock(planPath, async () => {
     const plan = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
@@ -844,6 +847,7 @@ export async function checkpointSceneImage(
     // ever added here, never cleared. A genuinely different image still waits for the owner below.
     if (scene.image_path === imagePath && scene.image_sha256 === sha256) {
       scene.rendered_prompt = renderedPrompt
+      scene.image_format = sniffed.format
       delete scene.stand_in_for_prompt
       if (autoApproveGenerated === true) {
         plan.auto_approve_generated = true
@@ -862,6 +866,7 @@ export async function checkpointSceneImage(
     delete scene.stand_in_for_prompt
     scene.image_version = new Date().toISOString()
     scene.image_sha256 = sha256
+    scene.image_format = sniffed.format
     scene.motion_choice = 'pending'
     // Approval is applied only after the exact output file passed the usable
     // media check above and the matching scene still exists in the fresh plan.
