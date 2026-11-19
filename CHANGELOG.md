@@ -4,6 +4,11 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.413 — 2026-11-19
+
+- **A retired model is caught before the work, not hours into it.** A saved plan that names a model the Gateway no longer sells is now refused when the run is started: Pipeline says so before it queues anything, and episode recovery stops before it re-does narration, audio or subtitles. The message names the missing model and where to pick a current one. If the Gateway cannot be read at all, that is treated as an outage, not a missing model, and nothing is blocked for it.
+- **A model the Gateway renamed keeps working.** When the live catalogue publishes the same product under another name, the saved choice now finds it and the job says which name it used. It is the same product, so nothing about the writing changes; a product the catalogue no longer publishes is still never swapped for a different one.
+
 ## v1.4.412 — 2026-11-19
 
 - **Removed private details from the app's own text.** An example address in the Gateway error message and the comments that named owner channels no longer appear anywhere in the shipped app. Nothing functional changed: no setting, no address and no default was read from either, and the example now uses the reserved documentation range. The native Keychain guard also no longer carries a build path.

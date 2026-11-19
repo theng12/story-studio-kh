@@ -7,6 +7,7 @@ import type { Job, JobType } from '../models/types.js'
 import { CIRCULAR_MARKER, repairCircularParams, type RepairableJob } from '../lib/circular-params-repair.js'
 import { withLock, writeJsonAtomic } from '../lib/atomic-store.js'
 import * as jq from './job-queue.js'
+import { findLiveChatModel, savedChatModelGoneMessage } from './live-chat-model.js'
 import { getProjectDir, listProjects } from './project-manager.js'
 import { computeEpisodeStatus, hasAcceptedFinalVideo } from './asset-status.js'
 import { resolveEpisodePathsByCode, resolveScenePlanPath } from './utils.js'
@@ -811,6 +812,24 @@ export async function dispatchEpisodeRecoveryStep(
     plan.completed = []
     plan.first_unresolved = 'audio_merge'
     return
+  }
+  // 1.4.413 — a saved chat model the live catalogue no longer publishes used to
+  // surface at the step that needs it. Scene Plan comes after Audio Assembly and
+  // transcription in this order, so an episode could spend hours re-doing them
+  // and then fail on a model that was already known to be gone. Refuse the plan
+  // HERE, before any step is dispatched, and say which model and where to pick a
+  // current one. `findLiveChatModel` returns `undefined` when the Gateway could
+  // not be read — an outage, not a missing product — and the plan proceeds then.
+  const scenePlanNode = plan.steps.scene_plan_run
+  if (scenePlanNode && !verified.scene_plan_run
+    && !jobs.some(job => job.type === 'scene_plan_run' && ['queued', 'running', 'paused'].includes(job.status))) {
+    const savedChatModel = scenePlanNode.params?.model
+    if (typeof savedChatModel === 'string' && savedChatModel.trim()
+      && await findLiveChatModel(savedChatModel) === null) {
+      plan.first_unresolved = 'scene_plan_run'
+      plan.message = `${savedChatModelGoneMessage(savedChatModel)} Episode recovery stopped before re-running earlier steps.`
+      return
+    }
   }
   const step = nextEpisodeRecoveryStep(plan, verified)
   plan.message = step ? `${facts.message}. Waiting for ${labels[step]}.` : 'Episode recovery complete.'

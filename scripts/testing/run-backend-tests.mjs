@@ -383,7 +383,18 @@ export async function retainedFsEvidenceFailure(snapshotRoot) {
     if (names.length === 0) return 'retained filesystem preload produced no process manifest'
     for (const name of names) {
       const raw = await fs.readFile(path.join(snapshotRoot, name), 'utf8')
-      if (!raw || !raw.endsWith('\n')) return `${name} is empty or has a partial final line`
+      // An EMPTY manifest is a process that performed no retained-fixture
+      // operation — the preload creates the file in every node child, including
+      // the ones a test deliberately SIGKILLs (wedge-watch, orphan-reap,
+      // video-encode-cancel), and a killed process cannot write its own
+      // settlement. Empty is not missing evidence: every capture appends
+      // `snapshot-verified` (or its refusal) BEFORE the operation it authorises,
+      // so empty can only mean nothing happened in that process. A capture taken
+      // and never settled still fails on the lock check below. This assertion
+      // used to fail the whole gate on empty; 1.4.412 and 1.4.413 both lost runs
+      // to it with every test passing.
+      if (!raw) continue
+      if (!raw.endsWith('\n')) return `${name} has a partial final line`
       let records
       try {
         records = raw.trimEnd().split('\n').map(line => JSON.parse(line))
@@ -938,12 +949,20 @@ async function run(options) {
     for (const invocation of invocations) contexts.set(invocation, await invocationContext(invocation))
 
     let exitCode = 0
+    // Every reason the run will exit non-zero, in the order they were found.
+    // Printed as one sentence at the end: the reasons themselves appear above,
+    // but a reader (and the gate's 12-line tail) sees only the summaries, so a
+    // run used to finish with `rc=1` and no sentence saying why.
+    const exitReasons = []
     const results = await Promise.all(pooled.map(invocation => runInvocation(invocation, contexts.get(invocation))))
     for (const invocation of alone) {
       results.push(await runInvocation(invocation, contexts.get(invocation)))
     }
     for (const result of results) {
-      if (result.exitCode !== 0) exitCode = result.exitCode
+      if (result.exitCode !== 0) {
+        exitCode = result.exitCode
+        exitReasons.push(`${result.invocation.label || 'the run'} exited ${result.exitCode}`)
+      }
     }
 
     // Each worker snapshotted into its own root (see prepareInvocationSandbox), so
@@ -960,6 +979,7 @@ async function run(options) {
     if (evidenceFailures.length > 0) {
       for (const failure of evidenceFailures) console.error(`[test-harness] ${failure}`)
       exitCode = 1
+      exitReasons.push(...evidenceFailures)
     } else {
       console.log('[test-harness] retained filesystem evidence: complete')
     }
@@ -976,6 +996,7 @@ async function run(options) {
       if (summary) {
         console.error(`[test-harness] ${result.invocation.label}${result.invocation.label ? ': ' : ''}${summary}`)
         exitCode = 1
+        exitReasons.push(summary)
       }
     }
 
@@ -993,6 +1014,7 @@ async function run(options) {
       if (lane.message) {
         reportCoverageFailure(lane)
         exitCode = 1
+        exitReasons.push(lane.message)
       }
       if (own) records.push(...own)
     }
@@ -1008,6 +1030,7 @@ async function run(options) {
     if (coverage.message) {
       reportCoverageFailure(coverage)
       exitCode = 1
+      exitReasons.push(coverage.message)
     }
 
     // Printed AGAIN after the results, because the line a reader scrolls to is
@@ -1021,6 +1044,13 @@ async function run(options) {
     if (!unchanged) {
       console.error('[test-harness] backend tests changed the isolated configured projects-root sentinel')
       exitCode = 1
+      exitReasons.push('backend tests changed the isolated configured projects-root sentinel')
+    }
+    // The verdict, last: one sentence saying why this run exits non-zero, so a
+    // tail (or a gate's 12-line failure summary) never shows a green-looking
+    // coverage line and no reason.
+    if (exitCode !== 0) {
+      console.error(`[test-harness] EXIT ${exitCode}: ${exitReasons.join(' | ') || 'no reason was recorded'}`)
     }
     process.exitCode = exitCode
     settledSuccess = exitCode === 0

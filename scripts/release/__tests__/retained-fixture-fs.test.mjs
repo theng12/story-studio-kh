@@ -538,6 +538,29 @@ test('recursive rm retains a symbolic link as an object without following or cop
   assert.equal(await collectorFailure(fixture), null)
 })
 
+test('an empty manifest is a process that did no retained work; a lock still refuses', async () => {
+  // The preload creates a manifest in EVERY node child, including the ones a
+  // test deliberately SIGKILLs (wedge-watch, orphan-reap, encode-cancel). A
+  // killed process cannot write its settlement, so the file stays empty. Every
+  // capture appends `snapshot-verified` BEFORE the operation it authorises and
+  // holds a lock while it is in flight, so empty means "nothing happened here"
+  // — the lock is what proves a capture was taken and never settled.
+  // 1.4.412 and 1.4.413 each lost a gate run to the old empty-is-failure rule
+  // with every test green.
+  const root = await fs.mkdtemp(path.join(WORK_PARENT, 'evidence-empty-'))
+  try {
+    await fs.writeFile(path.join(root, 'manifest-1-empty.jsonl'), '')
+    assert.equal(await collectorFailure({ snapshots: root }), null)
+    await fs.writeFile(path.join(root, '.retained-fixture-fs.lock'), 'held\n')
+    assert.match(String(await collectorFailure({ snapshots: root })), /lock remained active/)
+    await fs.rm(path.join(root, '.retained-fixture-fs.lock'))
+    await fs.writeFile(path.join(root, 'manifest-2-partial.jsonl'), '{"phase":"child-settled"}')
+    assert.match(String(await collectorFailure({ snapshots: root })), /has a partial final line/)
+  } finally {
+    await fs.rm(root, { recursive: true, force: true })
+  }
+})
+
 test('a worker thread creates no unsettleable manifest and refuses retained destructive work', async () => {
   const fixture = await makeCase('worker-thread')
   const target = path.join(fixture.sandbox, 'worker-target.txt')
