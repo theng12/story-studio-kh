@@ -7349,6 +7349,18 @@ export function initializeQueuePauseState(): Promise<void> {
       queuePaused = snapshot[QUEUE_PAUSED_KEY] === true
       const owner = snapshot[QUEUE_PAUSE_OWNER_KEY]
       queuePauseOwner = typeof owner === 'string' && owner.length > 0 ? owner : null
+      // A pause an OPERATION took cannot outlive that operation: at boot the process that owned it
+      // is gone (angkor 2026-11-19: a wedge left job_queue_paused=true with no owner and no expiry,
+      // so the Mac came back taking no work and said nothing). Release it here and say so. An
+      // unowned pause is the owner's own Pause: kept, and named at every boot.
+      if (queuePaused && queuePauseOwner !== null) {
+        logLine('warn', 'queue was paused by an operation that is not running in this process; releasing the stale hold', { owner: queuePauseOwner })
+        await setAppSettings({ [QUEUE_PAUSED_KEY]: false, [QUEUE_PAUSE_OWNER_KEY]: null })
+        queuePaused = false
+        queuePauseOwner = null
+      } else if (queuePaused) {
+        logLine('warn', 'queue starts paused (owner pause); no job will start until Resume', { paused: true })
+      }
       queuePauseLoaded = true
     })()
     // A read that fails must NOT resolve as "not loaded, queue unpaused": an acquire would then

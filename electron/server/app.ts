@@ -20,6 +20,7 @@ import { registerAllExecutors } from './boot/executors.js'
 import { runBootMigrations, isBootComplete } from './boot/migrations.js'
 import { signalBootFirstPaint } from './boot/deferred-boot.js'
 import { logLine, startLogPruning } from './services/logger.js'
+import { isQueuePaused, getQueuePauseOwner } from './services/job-queue.js'
 import { applyServerTimeouts, requestDeadline } from './lib/server-timeouts.js'
 import { setStallReporter } from './lib/stall-watch.js'
 import { migrateLegacyProjects } from './services/project-manager.js'
@@ -151,6 +152,10 @@ app.get('/api/health', (_req, res) => {
     version: healthVersion,
     boot_complete: isBootComplete(),
     waiting: currentWaits(),
+    // A paused queue takes no work: say so here, not only in a settings file nobody reads.
+    queue: isQueuePaused()
+      ? { paused: true, owner: getQueuePauseOwner(), holds_dispatch: true }
+      : { paused: false },
   })
 })
 
