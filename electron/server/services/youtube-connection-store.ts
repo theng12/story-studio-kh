@@ -384,20 +384,10 @@ function normalizeProjectSlug(value: unknown): string {
   return slug
 }
 
-/**
- * The same identity rule the publishing store uses: a stored `slug` that differs from the project
- * by case only is that project (macOS folders are case-insensitive, and four projects created
- * before 70691478e kept a lowercased one). The publishing store repairs the file on its next
- * read; here the value is only being trusted, so the case-only form is accepted.
- */
-function sameProjectSlug(stored: unknown, projectSlug: string): boolean {
-  return typeof stored === 'string' && (stored === projectSlug || stored.toLowerCase() === projectSlug.toLowerCase())
-}
-
 function assertProjectMetadata(value: unknown, projectSlug: string): void {
   if (!isRecord(value)
     || typeof value.name !== 'string' || !value.name.trim()
-    || !sameProjectSlug(value.slug, projectSlug)
+    || value.slug !== projectSlug
     || typeof value.created_at !== 'string' || !value.created_at.trim()
     || typeof value.episode_prefix !== 'string' || !value.episode_prefix.trim()
     || typeof value.episode_digits !== 'number' || !Number.isInteger(value.episode_digits) || value.episode_digits <= 0

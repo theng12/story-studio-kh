@@ -463,18 +463,11 @@ function decodeState(raw: unknown, expectedProjectSlug: string): YouTubeProjectP
   if (!isRecord(raw)) throw stateCorrupt('the project publishing state is not an object')
   exactKeys(raw, STATE_KEYS, STATE_OPTIONAL_KEYS)
   if (raw.schema_version !== 1) throw stateCorrupt('schema_version is invalid')
-  if (raw.project_slug !== expectedProjectSlug) {
-    // Same repair as project.json: an old lowercased slug is the same channel. The decoded state
-    // carries the project's own name, so the next write persists the correction.
-    if (!isCaseOnlySlugMismatch(raw.project_slug, expectedProjectSlug)) throw stateCorrupt('project_slug does not match its project')
-    logLine('warn', 'YouTube publishing state slug was stored lowercased; using the project name', {
-      stored: raw.project_slug, repaired: expectedProjectSlug,
-    })
-  }
+  if (raw.project_slug !== expectedProjectSlug) throw stateCorrupt('project_slug does not match its project')
   return {
     schema_version: 1,
     revision: finiteInteger(raw.revision, 'revision'),
-    project_slug: expectedProjectSlug,
+    project_slug: identifier(raw.project_slug, 'project_slug'),
     episode_video_links: decodeEpisodeVideoLinks(raw.episode_video_links),
     reconciliation_history: decodeReconciliationHistory(raw.reconciliation_history),
     ...(hasOwn(raw, 'removed_videos') ? { removed_videos: decodeRemovedVideos(raw.removed_videos) } : {}),
@@ -863,26 +856,6 @@ function metadataRelativeTemplate(value: unknown, projectSlug: string): string {
   return result
 }
 
-/**
- * A stored slug that differs from the project only by case is the same channel, not corruption.
- * macOS folders are case-insensitive, and projects created before 70691478e kept a lowercased
- * `slug` (angkor 2026-11-19: Boundful, Capi, MineePod, Refinanced — Capi could not reconcile 39
- * scheduled videos). The exact-match check that arrived with that commit turned an old writing
- * habit into a hard refusal. Repair the stored value instead: the caller writes it back once.
- */
-function isCaseOnlySlugMismatch(stored: unknown, expected: string): stored is string {
-  return typeof stored === 'string' && stored !== expected && stored.toLowerCase() === expected.toLowerCase()
-}
-
-function repairCaseOnlySlug<T extends { slug?: unknown }>(metadata: T, projectSlug: string): boolean {
-  if (!isCaseOnlySlugMismatch(metadata.slug, projectSlug)) return false
-  logLine('warn', 'project metadata slug was stored lowercased; repaired to the project name', {
-    stored: metadata.slug, repaired: projectSlug,
-  })
-  metadata.slug = projectSlug
-  return true
-}
-
 function assertProjectMetadata(value: unknown, projectSlug: string): void {
   if (!isRecord(value)) throw projectMetadataCorrupt(projectSlug, 'the JSON value is not an object')
   if (value.slug !== projectSlug) throw projectMetadataCorrupt(projectSlug, 'slug does not match the requested project')
@@ -908,8 +881,7 @@ function assertProjectMetadata(value: unknown, projectSlug: string): void {
   for (const key of actualKeys) metadataPathSegment(names[key], projectSlug, `subfolder_names.${key}`)
 }
 
-/** Exported for the repair test: this is the one strict reader every YouTube path goes through. */
-export async function readStrictProjectMetadata(projectDir: string, projectSlug: string): Promise<void> {
+async function readStrictProjectMetadata(projectDir: string, projectSlug: string): Promise<void> {
   const metadataPath = path.join(projectDir, 'project.json')
   let bytes: Buffer
   try {
@@ -924,15 +896,6 @@ export async function readStrictProjectMetadata(projectDir: string, projectSlug:
     metadata = JSON.parse(decoded)
   } catch {
     throw projectMetadataCorrupt(projectSlug, 'project.json is not valid UTF-8 JSON')
-  }
-  // One-time repair of a slug stored in the wrong case (see isCaseOnlySlugMismatch). Written
-  // before validation so the file the next read sees is already correct.
-  if (isRecord(metadata) && repairCaseOnlySlug(metadata, projectSlug)) {
-    try {
-      await writeJsonAtomic(metadataPath, metadata)
-    } catch (error) {
-      throw projectMetadataCorrupt(projectSlug, `the lowercased slug could not be repaired: ${String(error)}`)
-    }
   }
   assertProjectMetadata(metadata, projectSlug)
 }
