@@ -24,6 +24,7 @@ import {
   getQueueStats,
   findJobs,
   isUpdateHoldActive,
+  takeUpdateHold,
   runningJobIdsForShutdown,
 } from './server/services/job-queue.js'
 import { reapFfmpegOrphans } from './server/services/orphan-reaper.js'
@@ -959,16 +960,18 @@ electronApp.on('before-quit', (event) => {
   // Say what happens to running jobs before they stop — to a PERSON. The updater's stop is the
   // same Apple Event quit, and a modal blocks the main thread and the shutdown ceiling alike
   // (angkor 2026-11-19: 181 s in runModalForWindow: with 9 jobs, until the off-thread watchdog
-  // killed the app). An update hold in force, or a server-role Mac, settles and exits without asking.
+  // killed the app). A hold in force came over the hold-token credential, so the stop behind it is
+  // the updater's: keep dispatch closed across the gap, settle, exit, no dialog.
   const warning = formatQuitWarning(getQueueStats().running)
+  const askedByUpdater = isUpdateHoldActive()
   const ask = mayAskBeforeQuit({
     warning,
     hasWindow: Boolean(mainWindow && !mainWindow.isDestroyed()),
-    serverRole: isServerMode(),
-    updateHoldActive: isUpdateHoldActive(),
+    updateHoldActive: askedByUpdater,
   })
+  if (askedByUpdater) void takeUpdateHold(0, 120).catch(e => logCrash('quit-hold', e))
   if (warning && !ask) {
-    console.log(`[shutdown] no quit dialog (${isUpdateHoldActive() ? 'the updater holds the queue' : isServerMode() ? 'server role' : 'no window'}); settling ${getQueueStats().running} running job(s) and exiting`)
+    console.log(`[shutdown] no quit dialog (${askedByUpdater ? 'the updater holds the queue' : 'no window'}); settling ${getQueueStats().running} running job(s) and exiting`)
   }
   if (ask && warning && mainWindow) {
     console.log('[shutdown] quit-warning dialog opening')
