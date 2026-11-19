@@ -860,8 +860,7 @@ export async function runTimelineAssembleJob(job: Job): Promise<void> {
         inputArgs.push('-stream_loop', '-1', '-t', String(input.seconds), '-i', input.filePath)
       }
       filterParts.push(
-        `[${index}:v]scale=${canvas.w}:${canvas.h}:force_original_aspect_ratio=decrease:flags=lanczos,`
-        + `pad=${canvas.w}:${canvas.h}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=${ASSEMBLE_FPS},`
+        `[${index}:v]${canvasFitChain(canvas.w, canvas.h, still ? 'still' : 'video')},setsar=1,fps=${ASSEMBLE_FPS},`
         + `trim=duration=${input.seconds},setpts=PTS-STARTPTS[v${index}]`,
       )
     })
@@ -876,6 +875,11 @@ export async function runTimelineAssembleJob(job: Job): Promise<void> {
       tmpPath,
     ]
     job.output_lines.push(`Canvas ${canvas.w}×${canvas.h} @ ${ASSEMBLE_FPS}fps — each segment is trimmed or looped to its exact duration.`)
+    // Recorded so a frame made from a picture at another aspect is explainable later (owner 2026-11-19).
+    job.output_lines.push(
+      `Pictures fill the ${canvas.w}×${canvas.h} frame by centre-cropping — a picture at another aspect `
+      + 'loses its outer edge, never its centre, and is never stretched or letterboxed.',
+    )
     job.progress = 30
     // ffmpeg has no cancel channel here; the ceiling scales with the timeline
     // so a short episode never waits on a long-episode allowance.
@@ -921,4 +925,18 @@ export async function runTimelineAssembleJob(job: Job): Promise<void> {
     job.output_lines.push(`Assembly failed: ${message}`)
     throw error
   }
+}
+
+/**
+ * How one input fills the frame.
+ *
+ * A picture is COVERED, never stretched and never letterboxed: a picture drawn at another aspect (the
+ * 7:4 option 1344×768, or any model row that is not exactly 16:9) is centre-cropped to the frame, so
+ * the video is a true 16:9 with no bars. Video keeps the older contain-and-pad behaviour, because
+ * cropping moving footage loses action rather than an edge.
+ */
+export function canvasFitChain(width: number, height: number, kind: 'still' | 'video'): string {
+  return kind === 'still'
+    ? `scale=${width}:${height}:force_original_aspect_ratio=increase:flags=lanczos,crop=${width}:${height}`
+    : `scale=${width}:${height}:force_original_aspect_ratio=decrease:flags=lanczos,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2`
 }
