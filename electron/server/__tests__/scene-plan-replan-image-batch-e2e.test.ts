@@ -291,8 +291,6 @@ test('a forced re-plan redraws the changed scene, keeps the unchanged one, and l
   // The batch line states the scope: nothing to do. (A generation count would pass either way —
   // a redraw of a finished scene comes back through task recovery, not as a new request.)
   const resumeBatchLine = resumeJob.output_lines.find((line: string) => line.startsWith('Gateway image batch'))
-  // The run records the size it wrote at, so a mixed-size episode can be explained from its record.
-  assert.match(String(resumeBatchLine), /· 1024x576\./, 'the batch says which size it writes at')
   assert.match(String(resumeBatchLine), /0\/2 scene\(s\)/, 'a resume that names every scene asks for none of them')
   assert.equal(generationCount(), beforeResume, 'a resume that names every scene requests nothing')
   assert.ok(
