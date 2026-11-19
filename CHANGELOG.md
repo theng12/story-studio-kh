@@ -7,7 +7,6 @@ What's new in each release. Newest first.
 ## v1.4.414 — 2026-11-19
 
 - **An episode with text can no longer preview as empty.** When the saved metadata was being written at the same moment the preview read it, the preview could come back with a blank description — and a blank field is exactly what a save would then write back. The preview now says the file could not be read and names it, instead of showing an empty box. Measured on the same file while it was being written: 48 of 50 reads came back empty before, none after.
-- **An empty edit can no longer wipe a description.** A saved description that is blank no longer replaces the real one and is no longer counted as something written by hand.
 - **A picture's record now says what the picture actually is.** The Gateway sends each model's own format, so a scene file can be a JPEG under a `.png` name. The record now reads the format from the bytes, so anything that looks at the record gets the truth instead of the extension.
 - **A damaged settings file is reported, not ignored.** Two optional override files were read as "no override" whenever they could not be parsed; a real read failure now names the file and stops, instead of silently dropping a chosen thumbnail.
 
