@@ -4,6 +4,12 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.415 — 2026-11-20
+
+- **A video that uploaded later no longer leaves its episode marked as failed.** When an upload failed and a later upload of the same episode to the same channel succeeded, the old failed row kept saying the episode needed attention — so an episode already on YouTube read as blocked. That row now settles and names the upload that superseded it. A retry that also failed, a different episode or a different channel still keeps it.
+- **A big final render can finish importing.** The download and the phase limit were both set to five minutes, so a transfer that needed longer was cut off and reported as stuck — a transfer over 300 s can never import. The download is now judged on whether bytes are still arriving, not on how long it has been running, and a transfer that genuinely stops is the only one that is ended.
+- **Deleting a hidden channel for good now needs the owner, and needs the size confirmed.** The route that erases a hidden channel's folder had no owner check at all while the Trash's own permanent delete did — anything on this Mac could call it. It now refuses without the app's own window or a signed-in browser, refuses automation keys, and deletes only when the size you confirmed is the size it measures.
+
 ## v1.4.414 — 2026-11-19
 
 - **An episode with text can no longer preview as empty.** When the saved metadata was being written at the same moment the preview read it, the preview could come back with a blank description — and a blank field is exactly what a save would then write back. The preview now says the file could not be read and names it, instead of showing an empty box. Measured on the same file while it was being written: 48 of 50 reads came back empty before, none after.

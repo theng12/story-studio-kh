@@ -32,7 +32,7 @@ before(async () => {
   app = express()
   app.use(express.json())
   // An automation-key request, the way the session middleware would mark it.
-  app.use((req: any, _res, next) => {
+  app.use((req: any, _res: any, next: any) => {
     if (req.headers['x-test-via-key']) req.user = { via: 'automation_key' }
     next()
   })

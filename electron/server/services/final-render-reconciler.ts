@@ -117,6 +117,23 @@ async function clearActionableFailure({ project_slug, job_id }: Identity): Promi
 
 const IMPORT_PHASES = new Set(['output_ready', 'importing', 'imported', 'acknowledged'])
 
+/**
+ * 1.4.415 — phases whose work is a TRANSFER, bounded by progress instead of the clock.
+ *
+ * `importing` moves an output file whose size nobody can predict; a wall-clock ceiling over it can
+ * only be wrong in one direction, and it was: this ceiling and `download-video.ts`'s own abort were
+ * both 300_000 ms, so a transfer of more than 300 s could never import, and the row named whichever
+ * timer fired first — "the importing phase did not finish within 5 minutes" while the download was
+ * still running. The transfer now bounds itself on IDLE BYTES (no progress for its own window), and
+ * this pass does not race it, so no download is left running unowned either.
+ */
+const PROGRESS_BOUND_PHASES = new Set<string>(['importing'])
+
+/** Which phases the pass must NOT race against a wall clock (1.4.415). Exported so a test pins it. */
+export function isProgressBoundPhase(phase: string): boolean {
+  return PROGRESS_BOUND_PHASES.has(phase)
+}
+
 const lastNotedPhase = new Map<string, string>()
 
 /**
@@ -256,7 +273,10 @@ async function reconcileRow(identity: Identity, now: number): Promise<void> {
     if (failure?.message) await clearActionableFailure(identity)
     const phase = (await currentPhase(identity)) ?? 'prepare'
     await noteFinalRenderPhase(identity, phase)
-    const didWork = await withStallCeiling(phase, (reconcileOneForTesting ?? reconcileOne)(identity))
+    const runOne = () => (reconcileOneForTesting ?? reconcileOne)(identity)
+    const didWork = isProgressBoundPhase(phase)
+      ? await runOne()
+      : await withStallCeiling(phase, runOne())
     if (didWork && hasFinalRenderMonitorTransientHold(identity.project_slug, identity.job_id)) {
       transientHold = true
       throw new Error('Final render monitor response requires bounded retry.')

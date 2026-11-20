@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import { createIdleAbort } from './idle-abort.js'
 import { validateRenderPacketSyntax } from './final-render-recipe.js'
 import { canonicalRenderValue } from './render-hash-v1.js'
 import { decodeStrictJson as decodeJsonSyntax, StrictJsonError } from './final-render-strict-json.js'
@@ -509,7 +510,15 @@ function parseExecutionBounds(value: unknown, requestedSubtitles = false): Final
   return bounds as unknown as FinalRenderExecutionBounds
 }
 
-async function readBounded(response: Response, limit: number): Promise<Uint8Array> {
+/** How long one range may deliver NOTHING before the transfer is treated as over. */
+export const RANGE_IDLE_TIMEOUT_MS = 120_000
+
+async function readBounded(
+  response: Response,
+  limit: number,
+  /** Called per chunk: a caller bounding a transfer by PROGRESS, not by total time, resets its idle timer here. */
+  onChunk?: (byteLength: number) => void,
+): Promise<Uint8Array> {
   if (!response.body) return new Uint8Array()
   const reader = response.body.getReader()
   const chunks: Uint8Array[] = []
@@ -519,6 +528,7 @@ async function readBounded(response: Response, limit: number): Promise<Uint8Arra
       const next = await reader.read()
       if (next.done) break
       if (!(next.value instanceof Uint8Array)) throw new Error('Final render response body is not bytes')
+      onChunk?.(next.value.byteLength)
       length += next.value.byteLength
       if (length > limit) {
         await reader.cancel().catch(() => {})
@@ -1531,6 +1541,8 @@ export async function downloadFinalRenderOutputRange(input: {
   start: number
   end_inclusive: number
   etag: string
+  /** Tests shorten the idle bound; production keeps `RANGE_IDLE_TIMEOUT_MS`. */
+  idle_timeout_ms?: number
 }): Promise<FinalRenderOutputChunk> {
   gatewayJobId(input.gateway_job_id)
   nonnegativeSafeInteger(input.start, 'request output range start')
@@ -1540,18 +1552,35 @@ export async function downloadFinalRenderOutputRange(input: {
   if (!Number.isSafeInteger(length) || length > MAX_CHUNK_BYTES) invalid('request output range exceeds the 8 MiB limit')
   if (typeof input.etag !== 'string' || !/^"[0-9a-f]{64}"$/.test(input.etag)) invalid('request output ETag is invalid')
   const access = await readPrivateRenderAccess()
-  const response = await fetch(`${access.origin}/v1/final-renders/${input.gateway_job_id}/output`, {
-    method: 'GET',
-    headers: {
-      Authorization: `Bearer ${access.bearer}`,
-      'X-Story-Instance': access.story_instance_id,
-      Accept: 'video/mp4',
-      Range: `bytes=${input.start}-${input.end_inclusive}`,
-      'If-Match': input.etag,
-    },
-    redirect: 'error',
-  })
-  const bytes = await readBounded(response, length)
+  // 1.4.415 — an IDLE bound per range, because the phase no longer has a wall-clock ceiling over it.
+  // A range that keeps delivering bytes is progress; one that stops is over. Without this, removing the
+  // phase ceiling would trade a false failure for a transfer that can hang for ever.
+  const idleBoundMs = input.idle_timeout_ms ?? RANGE_IDLE_TIMEOUT_MS
+  const idle = createIdleAbort(idleBoundMs, seconds => `Final render range stalled: no bytes for ${seconds}s`)
+  let response: Response
+  try {
+    response = await fetch(`${access.origin}/v1/final-renders/${input.gateway_job_id}/output`, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${access.bearer}`,
+        'X-Story-Instance': access.story_instance_id,
+        Accept: 'video/mp4',
+        Range: `bytes=${input.start}-${input.end_inclusive}`,
+        'If-Match': input.etag,
+      },
+      redirect: 'error',
+      signal: idle.signal,
+    })
+  } catch (error) {
+    idle.dispose()
+    throw error
+  }
+  let bytes: Uint8Array
+  try {
+    bytes = await readBounded(response, length, () => idle.touch())
+  } finally {
+    idle.dispose()
+  }
   const range = /^bytes ([0-9]+)-([0-9]+)\/([0-9]+)$/.exec(response.headers.get('Content-Range') ?? '')
   const contentLength = response.headers.get('Content-Length')
   const parsedLength = contentLength && /^[0-9]+$/.test(contentLength) ? Number(contentLength) : Number.NaN
