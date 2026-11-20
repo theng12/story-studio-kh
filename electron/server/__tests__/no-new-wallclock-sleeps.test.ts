@@ -212,6 +212,14 @@ test('no new fixed-ms sleep is followed by an assertion in a test file', () => {
     + 'and FIXED_SLEEP.',
   )
 
+  // Every exemption this run honoured is PRINTED, not silently applied: a weaker rule the next reader
+  // cannot see is the same defect as no rule at all (Developer, 2026-11-20). The count comes from the
+  // baseline file; the reason lives beside the test it exempts.
+  for (const [file, allowed] of Object.entries(baseline)) {
+    const count = actual[file] ?? 0
+    if (count > 0) console.log(`[timing-baseline] allowed ${count}/${allowed} fixed-ms sleep(s) in ${file}`)
+  }
+
   const regressions: string[] = []
   for (const [file, count] of Object.entries(actual)) {
     const allowed = baseline[file] ?? 0
