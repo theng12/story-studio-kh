@@ -184,9 +184,12 @@ export async function listSoftDeletedProjects(): Promise<SoftDeletedProjectInfo[
  * tombstone is also removed so the slug is fully forgotten.
  *
  * Refuses with a 400 if the slug isn't currently soft-deleted (caller
- * should have soft-deleted first).
+ * should have soft-deleted first), and with a 409 when the size the caller
+ * confirmed is not the size measured here: the number on the confirmation is
+ * the only thing standing between a person and an irreversible delete, so it is
+ * compared against a fresh measurement rather than trusted (row `20261120-161`).
  */
-export async function hardDeleteSoftDeletedProject(slug: string): Promise<void> {
+export async function hardDeleteSoftDeletedProject(slug: string, expectedBytes: number): Promise<void> {
   const list = await getRawList()
   if (!list.some(e => e.slug === slug)) {
     const e: any = new Error(`Slug '${slug}' is not currently soft-deleted. Soft-delete it first via DELETE /projects/:slug.`)
@@ -195,6 +198,23 @@ export async function hardDeleteSoftDeletedProject(slug: string): Promise<void> 
   }
   const candidatePath = path.join(projectsRoot(), slug)
   if (existsSync(candidatePath)) {
+    const measured = await tallyDirSize(candidatePath)
+    if (measured === null) {
+      const e: any = new Error(
+        `'${slug}' could not be measured, so what would be deleted cannot be shown. Nothing was deleted; `
+        + 'fix the folder\'s permissions or delete it in Finder.',
+      )
+      e.statusCode = 409
+      throw e
+    }
+    if (measured !== expectedBytes) {
+      const e: any = new Error(
+        `'${slug}' is ${measured.toLocaleString()} bytes now, not the ${expectedBytes.toLocaleString()} you confirmed. `
+        + 'Nothing was deleted. Review it again and confirm the number shown.',
+      )
+      e.statusCode = 409
+      throw e
+    }
     const { withProjectJobRemovalGuard } = await import('./job-queue.js')
     await withProjectJobRemovalGuard(slug, candidatePath, async () => {
       await fs.rm(candidatePath, { recursive: true, force: true })

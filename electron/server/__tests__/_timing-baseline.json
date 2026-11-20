@@ -8,6 +8,7 @@
   "electron/server/__tests__/genstudio-client-boundary.test.ts": 1,
   "electron/server/__tests__/genstudio-poll-backoff.test.ts": 2,
   "electron/server/__tests__/genstudio-request-preview.test.ts": 2,
+  "electron/server/__tests__/idle-abort.test.ts": 2,
   "electron/server/__tests__/job-cancel-running-no-retry.test.ts": 2,
   "electron/server/__tests__/job-cancel.test.ts": 34,
   "electron/server/__tests__/job-cancellation-reconciliation.test.ts": 4,

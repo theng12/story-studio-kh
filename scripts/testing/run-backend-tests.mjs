@@ -473,6 +473,9 @@ async function snapshotConfiguredProjects(root) {
  * Anything that flakes in a proof run joins this list, and the run is repeated.
  */
 export const SERIAL_TEST_FILES = [
+  // DECLARED, 2026-11-20 — a REAL transfer of 5.5 minutes on purpose. The defect 1.4.415 fixes was a
+  // 300 s wall clock; a mocked clock proves that the mock fires, not that a long transfer imports.
+  'download-video-idle-bound.test.ts',
   // MEASURED, 2026-11-04 — ordinary subtitle recovery timed out in the pooled 379 gate; passed alone (1/1, exit 0, 15.9 s).
   'audio-subtitle-explicit-regeneration.test.ts',
   // MEASURED, 2026-10-31 — "serialises quote saves across Node processes" timed out on the persistence lock in the 1.4.372 pooled gate; passes alone.
