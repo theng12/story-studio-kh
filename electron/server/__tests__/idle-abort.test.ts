@@ -5,6 +5,13 @@
  * 300 000 ms, so a transfer over five minutes could never finish. A transfer that keeps delivering
  * bytes is progress; one that stops is over. This is that rule, tested directly — and the same helper
  * backs the 306-second end-to-end transfer in `download-video-idle-bound.test.ts`.
+ *
+ * WHY TWO FIXED SLEEPS ARE BASELINED HERE (and why that is not the usual widening): the elapsed gap is
+ * the quantity under test. "Keeps delivering" means a gap SHORTER than the bound must not abort, and
+ * "stops" means a silent gap LONGER than it must — a `waitFor` would replace the measurement with a
+ * poll and delete the assertion. The risk the ratchet guards against (a slow machine turning padding
+ * into a flake) is inverted here: a slower machine makes the first case's gaps *longer*, and the second
+ * case waits on the abort event rather than on a timer.
  */
 import assert from 'node:assert/strict'
 import test from 'node:test'
