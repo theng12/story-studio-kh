@@ -59,15 +59,26 @@ export function useSoftDeletedProjects() {
   }
 
   /**
-   * Hard-delete: rm -rf the folder + clear the tombstone. Frontend
-   * MUST confirm with the user before calling this — it's irreversible.
+   * Hard-delete: rm -rf the folder + clear the tombstone. Irreversible, so the size the person
+   * confirmed travels with the request and the server compares it against what it measures now —
+   * a confirmation the server never sees is not a guard (row `20261120-161`).
    */
-  async function hardDelete(slug: string): Promise<boolean> {
+  async function hardDelete(item: Pick<SoftDeletedProjectInfo, 'slug' | 'estimated_bytes'>): Promise<boolean> {
+    const confirmedBytes = Number(item?.estimated_bytes)
+    if (!Number.isSafeInteger(confirmedBytes) || confirmedBytes < 0) {
+      lastError.value = 'The size of that channel could not be measured, so nothing was deleted.'
+      return false
+    }
     try {
+      const body = { confirm: true, expected_bytes: confirmedBytes }
       if (typeof del === 'function') {
-        await del(`/soft-deleted-projects/${slug}`)
+        await del(`/soft-deleted-projects/${item.slug}`, { body })
       } else {
-        const res = await fetch(`/api/soft-deleted-projects/${slug}`, { method: 'DELETE' })
+        const res = await fetch(`/api/soft-deleted-projects/${item.slug}`, {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        })
         if (!res.ok) throw new Error(`HTTP ${res.status}`)
       }
       await refresh()

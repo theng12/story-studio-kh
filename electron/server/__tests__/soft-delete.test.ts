@@ -20,6 +20,17 @@ let sd: typeof import('../services/soft-delete.js')
 let pm: typeof import('../services/project-manager.js')
 let jq: typeof import('../services/job-queue.js')
 let tmp: { dir: string; cleanup: () => Promise<void> }
+/** What the app's own window sends (main.ts adds it); a request without it is not the owner. */
+let OWNER: Record<string, string> = {}
+/** Measure the way the route will measure, so a test confirms the number the server will find. */
+async function measuredBytes(slug: string): Promise<number> {
+  const row = (await sd.listSoftDeletedProjects()).find(r => r.slug === slug)
+  if (!row) throw new Error(`${slug} is not listed as soft-deleted`)
+  if (!Number.isSafeInteger(row.estimated_bytes) || row.estimated_bytes! < 0) {
+    throw new Error(`${slug} could not be measured`)
+  }
+  return row.estimated_bytes!
+}
 
 async function seedProject(parentDir: string, slug: string): Promise<string> {
   const projDir = path.join(parentDir, slug)
@@ -47,6 +58,8 @@ describe('soft-delete', () => {
     pm = await import('../services/project-manager.js')
     sd = await import('../services/soft-delete.js')
     jq = await import('../services/job-queue.js')
+    const auth = await import('../lib/auth-session.js')
+    OWNER = { [auth.OWNER_WINDOW_HEADER]: auth.ownerWindowSecret() }
   })
 
   after(async () => { await tmp.cleanup() })
@@ -177,7 +190,7 @@ describe('soft-delete', () => {
     await pm.deleteProject('goodbye')
     assert.ok(existsSync(dir), 'soft-delete preserves folder')
 
-    await sd.hardDeleteSoftDeletedProject('goodbye')
+    await sd.hardDeleteSoftDeletedProject('goodbye', await measuredBytes('goodbye'))
     assert.equal(existsSync(dir), false, 'hard delete removes folder')
     const tombstones = await sd.listSoftDeletedProjects()
     assert.equal(tombstones.length, 0, 'tombstone cleared')
@@ -185,7 +198,7 @@ describe('soft-delete', () => {
 
   test('hardDeleteSoftDeletedProject refuses if slug is not soft-deleted', async () => {
     await assert.rejects(
-      () => sd.hardDeleteSoftDeletedProject('not-tombstoned'),
+      () => sd.hardDeleteSoftDeletedProject('not-tombstoned', 0),
       (e: any) => e.statusCode === 400 && /not currently soft-deleted/i.test(e.message),
     )
   })
@@ -198,7 +211,7 @@ describe('soft-delete', () => {
       await seedJob(dir, status)
       await assert.rejects(() => pm.deleteProject(slug), (e: any) => e?.statusCode === 409 && /job/i.test(e.message))
       await assert.rejects(() => sd.softDeleteProject(slug), (e: any) => e?.statusCode === 409 && /job/i.test(e.message))
-      await assert.rejects(() => sd.hardDeleteSoftDeletedProject(slug), (e: any) => e?.statusCode === 409 && /job/i.test(e.message))
+      await assert.rejects(() => sd.hardDeleteSoftDeletedProject(slug, 0), (e: any) => e?.statusCode === 409 && /job|bytes/i.test(e.message))
       assert.ok(existsSync(dir))
     }
   })
@@ -207,7 +220,7 @@ describe('soft-delete', () => {
     const dir = await seedProject(pm.projectsRoot(), 'settled-delete')
     await seedJob(dir, 'done', 'succeeded')
     assert.equal((await pm.deleteProject('settled-delete')).ok, true)
-    await sd.hardDeleteSoftDeletedProject('settled-delete')
+    await sd.hardDeleteSoftDeletedProject('settled-delete', await measuredBytes('settled-delete'))
     assert.equal(existsSync(dir), false)
   })
 
@@ -218,6 +231,7 @@ describe('soft-delete', () => {
     const softDeletedRouter = (await import('../routes/soft-deleted-projects.js')).router
     const app = express()
     app.use(express.json())
+    app.use((req: any, _res, next) => { req.headers = { ...req.headers, ...OWNER }; next() })
     app.use('/api', projectsRouter, softDeletedRouter)
 
     const defaultDir = await seedProject(pm.projectsRoot(), 'route-active')
@@ -227,6 +241,7 @@ describe('soft-delete', () => {
     assert.equal(soft.status, 409)
     assert.ok(existsSync(path.join(defaultDir, 'jobs.json')))
     const hard = await request(app).delete('/api/soft-deleted-projects/route-active')
+      .send({ confirm: true, expected_bytes: await measuredBytes('route-active') })
     assert.equal(hard.status, 409)
     assert.ok(existsSync(defaultDir))
   })

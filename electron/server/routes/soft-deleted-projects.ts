@@ -25,9 +25,16 @@ import {
   forgetSoftDeletedProject,
   hardDeleteSoftDeletedProject,
 } from '../services/soft-delete.js'
+import { isOwnerRequest, readAutomationKeyHeader } from '../lib/auth-session.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
+import { getServerModeConfig } from '../lib/server-mode.js'
 
 export const router = Router()
+
+// The same owner rule its sibling `POST /trash/delete-permanently` already applies (routes/trash.ts):
+// a keyless loopback request is not the owner, and an automation key never is.
+const viaAutomationKey = (req: any) => req.user?.via === 'automation_key' || readAutomationKeyHeader(req.headers || {}) !== undefined
+const notOwner = (req: any) => viaAutomationKey(req) || !isOwnerRequest(req, getServerModeConfig()?.auth)
 
 router.get('/soft-deleted-projects', async (_req, res) => {
   try {
@@ -50,9 +57,25 @@ router.post('/soft-deleted-projects/:slug/restore', async (req, res) => {
   }
 })
 
-router.delete('/soft-deleted-projects/:slug', async (req, res) => {
+router.delete('/soft-deleted-projects/:slug', async (req: any, res) => {
+  // Irreversible, so it carries the same owner guard as its sibling in routes/trash.ts. Before
+  // 2026-11-20 this route had no owner check at all while the sibling did — a confirmation in the
+  // client is not a guard (row `20261120-161`).
+  if (notOwner(req)) {
+    return res.status(403).json({
+      detail: 'Only the owner can delete a hidden channel from disk, from the app window or a signed-in '
+        + 'browser. Automation keys never can. Nothing was deleted.',
+    })
+  }
+  const { confirm, expected_bytes } = req.body || {}
+  if (confirm !== true || !Number.isSafeInteger(expected_bytes)) {
+    return res.status(400).json({
+      detail: 'Confirm the size to delete. Nothing was deleted — reopen the hidden channel and confirm the '
+        + 'number of bytes shown.',
+    })
+  }
   try {
-    await hardDeleteSoftDeletedProject(req.params.slug)
+    await hardDeleteSoftDeletedProject(req.params.slug, expected_bytes)
     res.json({ ok: true, slug: req.params.slug })
   } catch (e: any) {
     const status = typeof e?.statusCode === 'number' ? e.statusCode : 500
