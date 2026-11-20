@@ -25,6 +25,11 @@ const RESOLVABLE_TYPES = new Set<Job['type']>([
   'audio', 'thumb_images', 'images_repair', 'audio_merge', 'video_assembly',
   'still_post_render', 'scene_clips_batch', 'scene_plan_run',
   'continuity_render', 'contextual_cues',
+  // 1.4.415 — the two image producers, on the same disk rule `images_repair` already uses. (There is
+  // no `images` job type; these are the ones that make scene and pool pictures.)
+  'scene_image_generate', 'image_pool_generate',
+  // An upload's output is on YouTube, not on disk, so it settles by its own rule below.
+  'youtube_upload',
 ])
 
 /** Assembly rebuilds one whole file; a later successful build of it is that output. */
@@ -213,6 +218,43 @@ async function contextualCuesComplete(job: Job): Promise<boolean> {
   return Number.isFinite(soundsAt) && soundsAt >= requestedAt
 }
 
+/**
+ * A later SUCCESSFUL upload of the same episode to the same channel supersedes a failed one.
+ *
+ * The disk rule cannot answer this: an upload's output is a video on YouTube. Matching on the
+ * episode alone would let a successful re-upload to a DIFFERENT channel settle a failure on the
+ * one that is still missing; matching on "a later attempt" would settle a row for a retry that
+ * also failed. So: same episode, same expected channel, status `done`, finished strictly after
+ * this row. Returns the winner so the row can name it.
+ */
+async function youtubeUploadSupersededBy(job: Job): Promise<Job | null> {
+  if (!job.episode_id) return null
+  const channel = String(job.params?.expected_channel_id || '').trim()
+  if (!channel) return null
+  const failedAt = Date.parse(job.finished_at || job.created_at || '')
+  if (!Number.isFinite(failedAt)) return null
+  const later = await jq.findJobs(job.project_slug, other => other.type === 'youtube_upload'
+    && other.status === 'done'
+    && other.episode_id === job.episode_id
+    && String(other.params?.expected_channel_id || '').trim() === channel
+    && Date.parse(other.finished_at || '') > failedAt)
+  return later[0] ?? null
+}
+
+/**
+ * What to write on a settled row. Most rows say the same sentence; an upload names the later upload
+ * that superseded it, because "no longer needs attention" alone leaves a person wondering whether
+ * the video is on YouTube.
+ */
+export async function settledReasonFor(job: Job): Promise<string> {
+  if (job.type !== 'youtube_upload') return RESOLVED_REASON
+  const winner = await youtubeUploadSupersededBy(job)
+  if (!winner) return RESOLVED_REASON
+  const at = winner.finished_at ? new Date(winner.finished_at).toLocaleString('en-GB') : 'a later run'
+  return `This upload failed, and a later upload of the same episode to the same channel succeeded `
+    + `(${at}, job ${winner.job_id}), so it no longer needs attention.`
+}
+
 /** Does every file this failed job was meant to make exist on disk now? */
 export async function outputsComplete(job: Job): Promise<boolean> {
   // Types that settle on artifacts rather than one episode's folder first: a
@@ -223,6 +265,7 @@ export async function outputsComplete(job: Job): Promise<boolean> {
   if (!job.episode_id) return false
   if (job.type === 'continuity_render') return await continuityRenderComplete(job)
   if (job.type === 'contextual_cues') return await contextualCuesComplete(job)
+  if (job.type === 'youtube_upload') return (await youtubeUploadSupersededBy(job)) !== null
   if (ASSEMBLY_TYPES.has(job.type)) {
     // A file that was already on disk before the failure proves nothing, so
     // only a build of the same kind that FINISHED after it counts.
@@ -261,7 +304,8 @@ export async function settleCompletedFailures(
   for (const job of candidates) {
     // One unreadable episode must not stop the others from settling.
     if (!await isComplete(job).catch(() => false)) continue
-    if (await jq.noteOnFinishedJob(projectSlug, job.job_id, [`✓ ${RESOLVED_REASON}`], RESOLVED_REASON)) settled.push(job.job_id)
+    const reason = await settledReasonFor(job).catch(() => RESOLVED_REASON)
+    if (await jq.noteOnFinishedJob(projectSlug, job.job_id, [`✓ ${reason}`], reason)) settled.push(job.job_id)
   }
   return settled
 }
