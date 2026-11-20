@@ -20,10 +20,13 @@ import { registerAllExecutors } from './boot/executors.js'
 import { runBootMigrations, isBootComplete } from './boot/migrations.js'
 import { signalBootFirstPaint } from './boot/deferred-boot.js'
 import { logLine, startLogPruning } from './services/logger.js'
+import { isQueuePaused, getQueuePauseOwner, updateHoldState } from './services/job-queue.js'
+import { startEventLoopMonitor, readEventLoopLag } from './lib/event-loop-lag.js'
 import { applyServerTimeouts, requestDeadline } from './lib/server-timeouts.js'
 import { setStallReporter } from './lib/stall-watch.js'
 import { migrateLegacyProjects } from './services/project-manager.js'
 import { applySecurityHeaders, requireAllowedHost } from './lib/security.js'
+import { setCrossProcessLockHoldReporter } from './lib/atomic-store.js'
 import { installOutboundConnectionCap, OUTBOUND_CONNECTIONS_PER_ORIGIN } from './lib/outbound-connections.js'
 import { isServerMode, getServerModeConfig } from './lib/server-mode.js'
 import { DEV_BACKEND_PORT } from './lib/dev-backend.js'
@@ -145,12 +148,29 @@ export const healthVersionReady: Promise<string> = resolveStoryStudioVersion()
     return 'unknown'
   })
 
+startEventLoopMonitor()
+// A persistence lock held too long is the difference between a slow commit and a failed one; surface the
+// number instead of waiting for the timeout to name it (angkor 2026-11-19).
+setCrossProcessLockHoldReporter(({ key, heldMs }) => {
+  logLine('warn', 'persistence lock held', { file: key.split('/').pop(), held_ms: heldMs })
+})
+
 app.get('/api/health', (_req, res) => {
   res.json({
     status: 'ok',
     version: healthVersion,
     boot_complete: isBootComplete(),
     waiting: currentWaits(),
+    // A paused queue takes no work: say so here, not only in a settings file nobody reads.
+    queue: isQueuePaused()
+      ? { paused: true, owner: getQueuePauseOwner(), holds_dispatch: true }
+      : { paused: false },
+    // An update hold closes dispatch in memory only: it is never a durable pause, and it expires by
+    // itself. Naming it here is the only way to see one that is in force.
+    hold: updateHoldState(),
+    // How often the main thread itself stalls, in milliseconds. 200-300 ms is a functional defect
+    // even when nothing crashes (angkor 2026-11-19).
+    loop_lag: readEventLoopLag(),
   })
 })
 

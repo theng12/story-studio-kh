@@ -119,7 +119,16 @@ export async function listUploadThumbnails(input: ResolveUploadMetadataInput): P
       if (platformBlock && typeof platformBlock.selected_thumbnail === 'string') {
         pinned = platformBlock.selected_thumbnail
       }
-    } catch { /* an invalid optional override must not hide valid thumbnails */ }
+    } catch (error: unknown) {
+      // A file that exists but does not parse is a half-written or damaged file, not "no override".
+      // Reading it as absent silently drops the owner's pinned thumbnail and a blank read as a value.
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        throw new Error(
+          `${input.episode_code}'s ${OVERRIDES_FILENAME} could not be read (${(error as Error)?.message || error}). `
+          + 'Fix or remove that file in the episode folder, then try again.',
+        )
+      }
+    }
   }
 
   const options = await dropStaleTextLayers(filenames.map(filename => ({
@@ -232,7 +241,13 @@ export async function stalePinnedTextLayer(input: ResolveUploadMetadataInput): P
     const data = JSON.parse(await fsp.readFile(overridesPath, 'utf-8'))
     const block = typeof data[platform] === 'object' ? data[platform] : null
     if (typeof block?.selected_thumbnail === 'string') pinned = block.selected_thumbnail
-  } catch { return null }
+  } catch (error: unknown) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null
+    throw new Error(
+      `${input.episode_code}'s ${OVERRIDES_FILENAME} could not be read (${(error as Error)?.message || error}). `
+      + 'Fix or remove that file in the episode folder, then try again.',
+    )
+  }
   if (!pinned || !existsSync(path.join(paths.thumb_dir, pinned))) return null
   return await assertVariantUploadable(pinned, paths.thumb_dir)
 }
@@ -323,6 +338,11 @@ export async function resolveUploadMetadata(input: ResolveUploadMetadataInput): 
     return match ? [{ filename, version: match[1] ? Number(match[1]) : 1 }] : []
   }).sort((left, right) => right.version - left.version || right.filename.localeCompare(left.filename))
 
+  // A metadata file that EXISTS but does not parse is not "no metadata": it is a file caught
+  // mid-write, or a damaged one. Skipping it silently is how a preview returned an empty description
+  // for an episode that has 881 characters of it (angkor 2026-11-19) — same request, same disk,
+  // 200 both times and nothing in the log.
+  const unparsableCandidates: string[] = []
   let selectedVersion: number | null = null
   for (const candidate of versioned(jsonPattern)) {
     let raw: string
@@ -336,7 +356,7 @@ export async function resolveUploadMetadata(input: ResolveUploadMetadataInput): 
     try {
       data = JSON.parse(raw)
     } catch (error: unknown) {
-      if (error instanceof SyntaxError) continue
+      if (error instanceof SyntaxError) { unparsableCandidates.push(candidate.filename); continue }
       throw error
     }
     if (!data || typeof data !== 'object' || Array.isArray(data)) continue
@@ -415,6 +435,16 @@ export async function resolveUploadMetadata(input: ResolveUploadMetadataInput): 
   // it. The heading stays, the asterisks go.
   description = stripMarkdownScaffold(stripInternalSectionLabels(description))
 
+  // The episode HAS metadata on disk and none of it could be read. Reporting that as an empty
+  // description hands the operator a blank field they may then save over the real text.
+  if (!description.trim() && unparsableCandidates.length) {
+    throw new Error(
+      `${input.episode_code}'s saved metadata could not be read (${unparsableCandidates.join(', ')}). `
+      + 'The file looks half-written or damaged; nothing was changed. Try again in a moment, and if it '
+      + 'keeps happening open the file in the episode folder.',
+    )
+  }
+
   // Per-platform overrides sidecar (optional).
   //
   // `title_from_override` / `description_from_override` remember WHERE the text
@@ -436,6 +466,8 @@ export async function resolveUploadMetadata(input: ResolveUploadMetadataInput): 
           title = platformOverride.title
           title_from_override = true
         }
+        // An EMPTY string here is deliberate: the owner saved an empty description on purpose, and
+        // `null` is the separate "restore the generated text". Never treat one as the other.
         if (typeof platformOverride.description === 'string') {
           description = platformOverride.description
           description_from_override = true

@@ -181,7 +181,12 @@ export async function launchdStart({
     if (first.status !== 0 || !pid) throw new Error('launchd job has no running process')
     await wait(3_000) // startup survival window; the same process must still answer
     const second = jobState()
-    if (!new RegExp(`\\bpid = ${pid[1]}\\b`).test(second.stdout || '') || JSON.stringify(await ping()) !== JSON.stringify(health)) {
+    // The identity that matters is the PROCESS: same pid, still answering, same version. Comparing the
+    // whole health body was wrong the moment health started reporting live measurements — `loop_lag`
+    // is a different number on every call, so two healthy responses can never be equal.
+    const after = await ping().catch(() => null)
+    if (!new RegExp(`\\bpid = ${pid[1]}\\b`).test(second.stdout || '')
+      || after?.status !== 'ok' || after?.version !== health.version) {
       throw new Error('Packaged app did not survive launchd startup')
     }
     return {

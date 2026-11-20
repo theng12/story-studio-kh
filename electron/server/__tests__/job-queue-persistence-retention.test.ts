@@ -536,7 +536,8 @@ describe('queue-origin recovery invariant', () => {
 
   test('concurrent initialization callers share one durable read and both await its true result', async t => {
     const settingsFile = path.join(tempDir, 'app-settings.json')
-    await fs.writeFile(settingsFile, JSON.stringify({ job_queue_paused: true }, null, 2))
+    // The operator's own Pause is the one a boot keeps; an unowned hold is released (438ae48f2).
+    await fs.writeFile(settingsFile, JSON.stringify({ job_queue_paused: true, job_queue_pause_owner: 'operator' }, null, 2))
     const readStarted = deferred()
     const releaseRead = deferred()
     const originalReadFile = fs.readFile.bind(fs)

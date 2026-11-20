@@ -31,7 +31,7 @@ import { currentWaits } from '../lib/stall-watch.js'
 import { captureWedgeEvidence, type WedgeEvidence } from './wedge-capture.js'
 import { getAppSetting, onAppSettingWritten } from './app-settings.js'
 import { logLine } from './logger.js'
-import { activeJobsOfType, findJobs, pauseJobForStall, setQueuePaused } from './job-queue.js'
+import { activeJobsOfType, findJobs, pauseJobForStall, takeUpdateHold } from './job-queue.js'
 import { JOB_TYPES } from '../models/types.js'
 
 export const WEDGE_EXIT_SECONDS_KEY = 'wedge_exit_seconds'
@@ -152,7 +152,10 @@ export async function checkWedgeOnce(deps: WedgeRecoveryDeps): Promise<void> {
     boundSeconds: settings.exitSeconds,
   } satisfies WedgeEvidence), CAPTURE_BUDGET_MS)
   if (evidenceFile) logLine('error', `wedge recovery: evidence written to ${evidenceFile}`)
-  await runStep('pause the queue', deps.pauseQueue ?? (() => setQueuePaused(true)))
+  // In-memory and expiring, never the owner's durable Pause: this process is about to die, and a
+  // durable latch it left behind is exactly what made angkor boot taking no work and saying nothing
+  // (2026-11-19). Dispatch resumes on the next start with no manual step.
+  await runStep('hold dispatch', deps.pauseQueue ?? (() => takeUpdateHold(0, 300).then(() => undefined)))
   await runStep('park in-flight rows', deps.parkRunning ?? parkRunningRows)
   // One sentence, observed only: what waited, how long, the bound it crossed.
   logLine('error', `${reason}; quitting now so the next start can follow the in-flight work.`)

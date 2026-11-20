@@ -41,6 +41,30 @@ test('Open at Login relaunches after crashes only and retires its plist recovera
   await assert.rejects(login.setOpenAtLogin(true, '/usr/local/bin/node', home), /installed app/)
 })
 
+test('a serving Mac comes back from a clean exit, and its agent heals to the role it runs in', async () => {
+  const home = path.join(fixture.dir, 'home')
+  const executable = '/Applications/Story Studio KH.app/Contents/MacOS/Story Studio KH'
+  const readPlist = () => JSON.parse(execFileSync('/usr/bin/plutil', ['-convert', 'json', '-o', '-', login.agentPlistPath(home)]).toString())
+  // angkor 2026-11-19: the agent's copy lost the single-instance lock, exited 0, and
+  // KeepAlive{Crashed} never restarted it — the Mac served nothing for over an hour.
+  await login.setOpenAtLogin(true, executable, home, { keepAliveAlways: true })
+  execFileSync('/usr/bin/plutil', ['-lint', login.agentPlistPath(home)])
+  assert.equal(readPlist().KeepAlive, true)
+  assert.equal(readPlist().ThrottleInterval, 30)
+  // The same file, healed between roles; an already-correct file is left untouched.
+  assert.equal(await login.syncAgentPlist(executable, false, home), 'rewritten')
+  assert.deepEqual(readPlist().KeepAlive, { Crashed: true })
+  assert.equal(await login.syncAgentPlist(executable, false, home), 'unchanged')
+  assert.equal(await login.syncAgentPlist(executable, true, home), 'rewritten')
+  assert.equal(readPlist().KeepAlive, true)
+  // Open at Login off: nothing to sync, and boot never writes an agent nobody asked for.
+  assert.equal(await login.syncAgentPlist(executable, true, path.join(fixture.dir, 'elsewhere')), 'absent')
+  // Boot must keep ONE starter and heal the agent to the role it runs in.
+  const main = fs.readFileSync(new URL('../../main.ts', import.meta.url), 'utf8')
+  assert.match(main, /setLoginItemSettings\(\{ openAtLogin: false \}\)/)
+  assert.match(main, /syncAgentPlist\(process\.execPath, isServerMode\(\)\)/)
+})
+
 test('the settings route reads and writes the login state without changing old updater settings', async t => {
   t.mock.method(os, 'homedir', () => path.join(fixture.dir, 'home'))
   const executable = process.execPath

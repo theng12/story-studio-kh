@@ -37,6 +37,7 @@ import {
   setNotifierSettings,
   DEFAULT_NOTIFIER_SETTINGS,
   formatQuitWarning,
+  mayAskBeforeQuit,
   formatApprovalWaitMessage,
 } from '../services/job-notifier.js'
 import { formatTelegramText } from '../services/telegram-notifier.js'
@@ -340,6 +341,22 @@ describe('Quit while jobs run', () => {
     assert.equal(formatQuitWarning(1)?.title, "1 job is running; it'll continue after restart.")
     assert.equal(formatQuitWarning(3)?.title, "3 jobs are running; they'll continue after restart.")
     assert.match(formatQuitWarning(3)!.body, /Retry in Jobs/)
+  })
+
+  test('the quit source decides: an updater stop quits with no dialog, a person may be asked', async () => {
+    const person = { warning: formatQuitWarning(9), hasWindow: true, updateHoldActive: false }
+    assert.equal(mayAskBeforeQuit(person), true, "a person's Quit may still be challenged")
+    // angkor 2026-11-19: the updater's Apple Event quit opened this modal with 9 jobs in flight; the
+    // main thread then sat in runModalForWindow: for 181 s until the off-thread watchdog killed it.
+    // A hold in force was taken over the hold-token credential — that is the updater, not a person.
+    assert.equal(mayAskBeforeQuit({ ...person, updateHoldActive: true }), false, 'an updater stop is never asked')
+    assert.equal(mayAskBeforeQuit({ ...person, hasWindow: false }), false, 'no window, nothing to ask in')
+    assert.equal(mayAskBeforeQuit({ ...person, warning: formatQuitWarning(0) }), false, 'nothing running, nothing to ask')
+    // Wiring: the updater branch keeps dispatch closed across the gap and logs that it asked nobody.
+    const { readFile } = await import('node:fs/promises')
+    const main = await readFile(new URL('../../main.ts', import.meta.url), 'utf8')
+    assert.match(main, /askedByUpdater\) void takeUpdateHold\(0, 120\)/)
+    assert.match(main, /no quit dialog \(.*the updater holds the queue/)
   })
 
   test('the app asks before quitting with running jobs, and Cancel keeps it open', async () => {

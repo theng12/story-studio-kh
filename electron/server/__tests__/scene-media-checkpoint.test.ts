@@ -4,6 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, it } from 'node:test'
 
+import sharp from 'sharp'
 import { auditSceneClipCompletion, auditSceneImageCompletion, checkpointSceneClip, checkpointSceneImage, countScenesAwaitingApproval } from '../services/scene-media-checkpoint.js'
 import type { ScenePlan } from '../models/types.js'
 import { tinyVideoBytes } from './fixtures/tiny-video.js'
@@ -66,6 +67,19 @@ afterEach(async () => {
 })
 
 describe('scene media checkpoints', () => {
+  it('records the format the bytes ARE, not the extension the name carries', async () => {
+    // angkor 2026-11-19: the Gateway relays each provider's own format, so `scene-1.png` can hold
+    // JPEG bytes. Playback sniffs content, so nothing looked wrong — the RECORD must not lie too.
+    const { dir, planPath } = await fixture()
+    const imagePath = path.join(dir, 'scene-1.png')
+    const jpeg = await sharp({ create: { width: 8, height: 8, channels: 3, background: '#000000' } }).jpeg().toBuffer()
+    await fs.writeFile(imagePath, jpeg)
+    const plan = await checkpointSceneImage(planPath, 'scene-1', imagePath, 'Prompt one', true)
+    const scene = plan.scenes.find(entry => entry.id === 'scene-1')
+    assert.equal(scene?.image_format, 'jpeg')
+    assert.equal((await fs.readFile(imagePath)).subarray(0, 2).toString('hex'), 'ffd8', 'the bytes are a JPEG, under a .png name')
+  })
+
   it('an image filled in after an auto-approve render is approved too; a replacement still waits', async () => {
     const { dir, planPath } = await fixture()
     const image1 = path.join(dir, 'scene-1.png')

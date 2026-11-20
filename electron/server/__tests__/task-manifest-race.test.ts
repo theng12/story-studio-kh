@@ -318,3 +318,58 @@ test('concurrent recordTask calls are batched into a few writes, keep every entr
   assert.ok(made <= 3, `60 entries took ${made} writes`)
   assert.ok(!(await fs.readFile(path.join(dir, (await fs.readdir(dir)).find(name => name.endsWith('.json'))!), 'utf8')).includes('\n  '), 'written compact')
 })
+
+test('a commit that cannot read the manifest leaves no full-size image under its partial name', async t => {
+  const dir = await fs.mkdtemp(path.join(testData.dir, 'manifest-unreadable-'))
+  t.after(() => fs.rm(dir, { recursive: true, force: true }))
+  // angkor 2026-11-19: partials sat at exactly the final PNG's size — the image was written in full and
+  // the commit never ran, so the bytes stayed behind under the staging name.
+  await fs.writeFile(path.join(dir, '.task-manifest.json'), '{"schema_version":1,"tasks":')
+  const staging = path.join(dir, '.ep0026-scene-0061.png.partial-1-2')
+  await fs.writeFile(staging, Buffer.alloc(1024, 7))
+  const owner = {
+    provider: 'genstudio', task_id: 'task-a', submitted_at: 'ts-a', operation: 'image' as const,
+    idempotency_key: 'key-a', input_hash: 'hash-a', request_scope: 'missing:retry:1', last_state: 'prepared',
+  }
+  await assert.rejects(() => promoteCurrentImageTaskArtifactStrict(
+    dir, 'ep0026-scene-0061.png', owner, staging, path.join(dir, 'ep0026-scene-0061.png'), async () => {},
+  ))
+  assert.equal(await fs.access(staging).then(() => true, () => false), false, 'the uncommitted image is not left behind')
+})
+
+test('the plan checkpoint runs after the manifest lock is released, and a slow hold is reported', async t => {
+  const dir = await fs.mkdtemp(path.join(testData.dir, 'manifest-shrink-'))
+  t.after(() => fs.rm(dir, { recursive: true, force: true }))
+  const filename = 'scene-001.png'
+  const owner = {
+    provider: 'genstudio', task_id: 'task-a', submitted_at: 'ts-a', operation: 'image' as const,
+    idempotency_key: 'key-a', input_hash: 'hash-a', request_scope: 'missing:retry:1', last_state: 'prepared',
+  }
+  await recordTaskStrict(dir, filename, owner)
+  const staging = path.join(dir, '.scene-001.png.partial-1-2')
+  await fs.writeFile(staging, 'bytes')
+
+  // angkor 2026-11-19: the checkpoint (a full decode, a whole-file hash and a plan rewrite) ran INSIDE
+  // the manifest lock, which the 10 s deadline could not cover. It must now run after release.
+  let sawLockDuringCheckpoint = false
+  const lockPath = path.join(dir, '.task-manifest.json.lock')
+  assert.equal(await promoteCurrentImageTaskArtifactStrict(
+    dir, filename, owner, staging, path.join(dir, filename), async () => {
+      if (await fs.access(lockPath).then(() => true, () => false)) sawLockDuringCheckpoint = true
+    },
+  ), true)
+  assert.equal(sawLockDuringCheckpoint, false, 'the checkpoint does not hold the manifest lock')
+
+  const { setCrossProcessLockHoldReporter, withCrossProcessLock } = await import('../lib/atomic-store.js')
+  const held: number[] = []
+  setCrossProcessLockHoldReporter(info => { held.push(info.heldMs) })
+  t.after(() => setCrossProcessLockHoldReporter(null))
+  await withCrossProcessLock(path.join(dir, 'slow.json'), async () => {
+    // The HOLD is what is measured here, so it runs on the clock rather than a timer: a timer can
+    // fire late (which only widens the margin), a clock reading cannot fall short of the hold.
+    const until = Date.now() + 300
+    while (Date.now() < until) { /* hold the lock */ }
+  })
+  assert.equal(held.length, 1, 'a hold past the reporting threshold is surfaced')
+  assert.ok(held[0]! >= 250, `reported ${held[0]}ms`)
+})

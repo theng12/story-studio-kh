@@ -27,6 +27,21 @@
 /** The ratio Story Studio prefers when nothing was chosen. */
 export const PREFERRED_IMAGE_ASPECT_RATIO = '16:9'
 
+/**
+ * The picture size Story Studio writes at when nothing was chosen (owner 2026-11-19: 1024x576,
+ * "both should be added for both models ... and defaults to 1024x576").
+ *
+ * Sized, not labelled: FLUX2 publishes this as its own row `16:9 small` (720 height is not a
+ * multiple of 32 and is invalid for the video lane), while qwen publishes it as `16:9`. Matching on
+ * pixels finds it on both; matching on the label would find it on neither.
+ */
+export const DEFAULT_IMAGE_SIZE = { width: 1024, height: 576 } as const
+
+/** `16:9 small` belongs to the 16:9 family — the catalogue's own way of saying "the smaller row". */
+function ratioFamily(label: string): string {
+  return label.trim().toLowerCase().replace(/\s+small$/, '')
+}
+
 /** The subset of a published output row this policy reads. */
 export interface StoryDefaultOutputRow {
   resolution: string
@@ -97,7 +112,15 @@ export function isPublishedAspectRatio(
 export function storyDefaultAspectRatio(
   model: StoryDefaultModel | null | undefined,
 ): string {
-  // 1. Story Studio's preference, but only when it is really renderable.
+  // 1. The owner's default SIZE, in the Story ratio family, whatever label the catalogue gave the row.
+  const family = ratioFamily(PREFERRED_IMAGE_ASPECT_RATIO)
+  const sized = publishedRows(model).find(row => (
+    row.width === DEFAULT_IMAGE_SIZE.width
+    && row.height === DEFAULT_IMAGE_SIZE.height
+    && ratioFamily(row.aspect_ratio) === family
+  ))
+  if (sized) return sized.aspect_ratio
+  // 2. Story Studio's ratio preference, but only when it is really renderable.
   if (isPublishedAspectRatio(model, PREFERRED_IMAGE_ASPECT_RATIO)) {
     return PREFERRED_IMAGE_ASPECT_RATIO
   }

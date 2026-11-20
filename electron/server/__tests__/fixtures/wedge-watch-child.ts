@@ -6,6 +6,7 @@
  */
 import fs from 'node:fs'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { waitFor } from '../_timing.js'
 import { noteWedgeStage, startWedgeWatch } from '../../services/wedge-watch.js'
 
@@ -19,7 +20,10 @@ await startWedgeWatch({
   logDir,
   exitSeconds,
   checkMs,
-  workerPath: new URL('./wedge-watch-test-worker.ts', import.meta.url).pathname,
+  // fileURLToPath, not .pathname: the repo lives under "My Own Apps", and a raw
+  // pathname keeps %20, so the Worker looked for a file that does not exist and
+  // this test silently proved nothing.
+  workerPath: fileURLToPath(new URL('./wedge-watch-test-worker.ts', import.meta.url)),
 })
 
 // Block only after the state snapshot exists, so the capture can report it.

@@ -1578,6 +1578,12 @@ let queuePauseLoaded = false
 let queuePauseInitialization: Promise<void> | null = null
 const QUEUE_PAUSED_KEY = 'job_queue_paused'
 const QUEUE_PAUSE_OWNER_KEY = 'job_queue_pause_owner'
+const QUEUE_PAUSE_SINCE_KEY = 'job_queue_pause_since'
+const QUEUE_PAUSE_EXPIRES_KEY = 'job_queue_pause_expires_at'
+/** The person at the Jobs workspace pressed Pause. Named, so the pause can be held to someone. */
+const OPERATOR_PAUSE_OWNER = 'operator'
+/** An operator pause outlives a crash by a bounded time, not for ever. */
+const OPERATOR_PAUSE_TTL_MS = 12 * 60 * 60_000
 const QUEUE_PAUSE_TRANSITION_LOCK = 'job-queue:pause-transition'
 
 export class JobPausedError extends Error {
@@ -2938,12 +2944,22 @@ async function drainProjectPersistence(projectSlug: string, state: ProjectPersis
   }
 }
 
-/** Finished jobs keep their last N log lines on disk and in the durable baseline. */
-export const MAX_FINISHED_JOB_OUTPUT_LINES = 500
+/**
+ * Every job keeps its last N log lines on disk and in the durable baseline — running jobs too.
+ * A live render was measured at 19,163 lines / 3.8 MB in one record (angkor 2026-11-19) and grew
+ * without bound, because this cap used to apply only to terminal jobs. A trimmed log says so, so
+ * the count is never silently dropped.
+ */
+export const MAX_JOB_OUTPUT_LINES = 500
+/** @deprecated kept for callers and tests that name the old constant. */
+export const MAX_FINISHED_JOB_OUTPUT_LINES = MAX_JOB_OUTPUT_LINES
 function capFinishedLog<T extends Pick<Job, 'status' | 'output_lines'>>(job: T): T {
-  if (TERMINAL_JOB_STATUSES.has(job.status) && Array.isArray(job.output_lines)
-    && job.output_lines.length > MAX_FINISHED_JOB_OUTPUT_LINES) {
-    job.output_lines = job.output_lines.slice(-MAX_FINISHED_JOB_OUTPUT_LINES)
+  if (Array.isArray(job.output_lines) && job.output_lines.length > MAX_JOB_OUTPUT_LINES) {
+    const total = job.output_lines.length
+    job.output_lines = [
+      `(showing the last ${MAX_JOB_OUTPUT_LINES - 1} of ${total} log lines)`,
+      ...job.output_lines.slice(-(MAX_JOB_OUTPUT_LINES - 1)),
+    ]
   }
   return job
 }
@@ -7349,6 +7365,34 @@ export function initializeQueuePauseState(): Promise<void> {
       queuePaused = snapshot[QUEUE_PAUSED_KEY] === true
       const owner = snapshot[QUEUE_PAUSE_OWNER_KEY]
       queuePauseOwner = typeof owner === 'string' && owner.length > 0 ? owner : null
+      // A pause an OPERATION took cannot outlive that operation: at boot the process that owned it
+      // is gone (angkor 2026-11-19: a wedge left job_queue_paused=true with no owner and no expiry,
+      // so the Mac came back taking no work and said nothing). Release it here and say so. An
+      // unowned pause is the owner's own Pause: kept, and named at every boot.
+      const since = Number(snapshot[QUEUE_PAUSE_SINCE_KEY])
+      const ageMs = Number.isFinite(since) && since > 0 ? Date.now() - since : null
+      const age = ageMs === null ? 'age unknown' : `written ${Math.round(ageMs / 60_000)} min ago`
+      const expiresAt = Number(snapshot[QUEUE_PAUSE_EXPIRES_KEY])
+      if (queuePaused && queuePauseOwner !== null && queuePauseOwner !== OPERATOR_PAUSE_OWNER) {
+        logLine('warn', 'queue was paused by an operation that is not running in this process; releasing the stale hold', { owner: queuePauseOwner, age })
+        await setAppSettings({ [QUEUE_PAUSED_KEY]: false, [QUEUE_PAUSE_OWNER_KEY]: null, [QUEUE_PAUSE_SINCE_KEY]: null, [QUEUE_PAUSE_EXPIRES_KEY]: null })
+        queuePaused = false
+        queuePauseOwner = null
+      } else if (queuePaused && queuePauseOwner === null) {
+        // Written by a build that did not record an owner. Nobody is named on it, so nobody can mean
+        // it: release it, and say what was released and how old it was.
+        logLine('warn', 'queue was paused with no owner recorded (older build); releasing it', { age })
+        await setAppSettings({ [QUEUE_PAUSED_KEY]: false, [QUEUE_PAUSE_OWNER_KEY]: null, [QUEUE_PAUSE_SINCE_KEY]: null, [QUEUE_PAUSE_EXPIRES_KEY]: null })
+        queuePaused = false
+        queuePauseOwner = null
+      } else if (queuePaused && Number.isFinite(expiresAt) && expiresAt > 0 && Date.now() >= expiresAt) {
+        logLine('warn', 'the operator pause expired; dispatch resumes by itself', { age })
+        await setAppSettings({ [QUEUE_PAUSED_KEY]: false, [QUEUE_PAUSE_OWNER_KEY]: null, [QUEUE_PAUSE_SINCE_KEY]: null, [QUEUE_PAUSE_EXPIRES_KEY]: null })
+        queuePaused = false
+        queuePauseOwner = null
+      } else if (queuePaused) {
+        logLine('warn', 'queue starts paused by the operator; no job will start until Resume', { age })
+      }
       queuePauseLoaded = true
     })()
     // A read that fails must NOT resolve as "not loaded, queue unpaused": an acquire would then
@@ -7379,7 +7423,10 @@ export function setQueuePaused(paused: boolean): Promise<void> {
   // phase.  Serializing only app-settings writes lets an older Pause request
   // install a safe-point hold after a newer Resume has already scanned for
   // paused rows.  Keep the whole intent transition ordered instead.
-  return withLock(QUEUE_PAUSE_TRANSITION_LOCK, () => setQueuePausedUnlocked(paused, null))
+  //
+  // A person's Pause records `operator`, never null: a pause with no owner is one nothing can be
+  // held to, and on angkor 2026-11-19 a null-owner pause survived every restart and stopped all work.
+  return withLock(QUEUE_PAUSE_TRANSITION_LOCK, () => setQueuePausedUnlocked(paused, paused ? OPERATOR_PAUSE_OWNER : null))
 }
 
 /**
@@ -7425,12 +7472,23 @@ export function getQueuePauseOwner(): string | null {
 
 async function setQueuePausedUnlocked(paused: boolean, owner: string | null): Promise<void> {
   await initializeQueuePauseState()
+  // Name the write: the state says who holds the pause, and the record says who wrote it. Without
+  // this a re-pause every few minutes on angkor (2026-11-19) could only be inferred.
+  const previous = queuePaused ? (queuePauseOwner ?? 'no-owner') : 'unpaused'
+  logLine('warn', 'queue pause written', { writer: owner ?? 'no-owner', previous, next: paused ? (owner ?? 'no-owner') : 'unpaused', at: new Date().toISOString() })
   if (paused) {
     // Intake is fenced immediately (the base behaviour). Ownership is only believed AFTER the
     // durable write lands: a failed write must not leave this process thinking it owns a hold the
     // disk does not record (which would let it later "release" someone else's pause).
     queuePaused = true
-    await setAppSettings({ [QUEUE_PAUSED_KEY]: true, [QUEUE_PAUSE_OWNER_KEY]: owner })
+    // An operator pause carries an expiry: a Pause pressed seconds before a crash must not leave the
+    // Mac taking no work for hours. Every operation that re-pauses refreshes it.
+    await setAppSettings({
+      [QUEUE_PAUSED_KEY]: true,
+      [QUEUE_PAUSE_OWNER_KEY]: owner,
+      [QUEUE_PAUSE_SINCE_KEY]: Date.now(),
+      [QUEUE_PAUSE_EXPIRES_KEY]: owner === OPERATOR_PAUSE_OWNER ? Date.now() + OPERATOR_PAUSE_TTL_MS : null,
+    })
     queuePauseOwner = owner
     // The global hold prevents every queued item from being submitted. For
     // GenStudio-backed work already running, request a cooperative safe-point
@@ -7452,7 +7510,7 @@ async function setQueuePausedUnlocked(paused: boolean, owner: string | null): Pr
     && job.pause_requested === true
     && job.pause_origin === 'queue'
   ))
-  await setAppSettings({ [QUEUE_PAUSED_KEY]: false, [QUEUE_PAUSE_OWNER_KEY]: null })
+  await setAppSettings({ [QUEUE_PAUSED_KEY]: false, [QUEUE_PAUSE_OWNER_KEY]: null, [QUEUE_PAUSE_SINCE_KEY]: null, [QUEUE_PAUSE_EXPIRES_KEY]: null })
   for (const job of pendingQueuePauseCheckpoints) {
     if (
       job.status === 'running'
@@ -7500,6 +7558,21 @@ let dispatchHoldKick: ReturnType<typeof setTimeout> | null = null
 
 function dispatchHeld(): boolean {
   return Date.now() < dispatchHoldUntil
+}
+
+/** A hold is in force: the updater asked Story to stop, not a person at the screen. */
+export function isUpdateHoldActive(): boolean {
+  return dispatchHeld()
+}
+
+/**
+ * The hold as /api/health reports it. A hold closes dispatch without writing anything durable, so
+ * health is the only place a person or an agent can see one in force — and its expiry is what makes
+ * a lost DELETE harmless.
+ */
+export function updateHoldState(): { active: boolean; owner: string; expires_at: string | null } {
+  const active = dispatchHeld()
+  return { active, owner: 'updater', expires_at: active ? new Date(dispatchHoldUntil).toISOString() : null }
 }
 
 /** Test-only: the dispatch state a fresh process starts in (no hold). */

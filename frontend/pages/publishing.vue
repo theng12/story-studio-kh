@@ -102,6 +102,7 @@
                       <button type="button" class="sort-button" @click="sortBy('name')">Channel <span aria-hidden="true">{{ sortIndicator('name') }}</span></button>
                     </th>
                     <th scope="col">Status</th>
+                    <th scope="col">YouTube schedule</th>
                     <th scope="col" :aria-sort="ariaSort('next_uncovered')">
                       <button type="button" class="sort-button" @click="sortBy('next_uncovered')">Next uncovered slot <span aria-hidden="true">{{ sortIndicator('next_uncovered') }}</span></button>
                     </th>
@@ -158,6 +159,13 @@
                         >{{ option.label }}</option>
                       </select>
                       <span v-if="statusErrors[channel.slug]" class="status-error" role="alert">{{ statusErrors[channel.slug] }}</span>
+                    </td>
+                    <!-- YouTube's own answer, not the local pacing policy. A channel
+                         with no saved window may already be booked into 2027. -->
+                    <td class="yt-schedule-cell">
+                      <span class="yt-schedule-state" :class="`yt-schedule-${channel.youtube_schedule?.state || 'no_data'}`">
+                        {{ youtubeScheduleLabel(channel.youtube_schedule) }}
+                      </span>
                     </td>
                     <td>
                       <template v-if="channel.coverage.next_uncovered_slot">
@@ -361,7 +369,11 @@ import {
   UNCLASSIFIED_STATUS,
   type ChannelStatus,
 } from '@shared/publishing-overview'
-import type { PublishingOverviewCalendarEntry, PublishingOverviewChannel } from '@shared/publishing-overview'
+import type {
+  PublishingOverviewCalendarEntry,
+  PublishingOverviewChannel,
+  YouTubeChannelScheduleView,
+} from '@shared/publishing-overview'
 
 const { overview, loading, error, refreshing, load, refresh, loadTimelineStages } = usePublishingOverview()
 const { put } = useApi()
@@ -778,6 +790,24 @@ function formatTime(iso: string): string {
   const date = new Date(iso)
   if (Number.isNaN(date.getTime())) return ''
   return new Intl.DateTimeFormat(undefined, { timeStyle: 'short' }).format(date)
+}
+
+/**
+ * YouTube's own read-back, in the row. A missing local upload window is NOT a
+ * verdict here: only the four states below have words, and two of them say
+ * "Unknown" instead of a number.
+ */
+function youtubeScheduleLabel(schedule?: YouTubeChannelScheduleView): string {
+  const state = schedule?.state ?? 'no_data'
+  if (state === 'scheduled') {
+    const when = schedule?.next_slot_at ? formatInstant(schedule.next_slot_at) : 'date unknown'
+    const readAt = schedule?.read_at ? formatInstant(schedule.read_at) : 'never'
+    const stale = schedule?.freshness === 'stale' ? ' · stale' : ''
+    return `${schedule?.scheduled_count ?? '?'} scheduled on YouTube · next ${when} · last read ${readAt}${stale}`
+  }
+  if (state === 'unconfigured') return 'nothing scheduled on YouTube'
+  if (state === 'read_failed') return `Unknown — last read failed: ${schedule?.error || 'YouTube did not answer.'}`
+  return `Unknown — not read yet: ${schedule?.error || 'Story Studio has not read this channel’s YouTube schedule yet.'}`
 }
 
 /** "No channel assigned" and "assigned but not connected" are different problems. */

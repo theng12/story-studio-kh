@@ -23,7 +23,7 @@ async function snapshot() {
   return JSON.parse(await fs.readFile(path.join(dir, 'app-settings.json'), 'utf8'))
 }
 
-test('owned pause and its boolean persist atomically and survive a restart', async () => {
+test('owned pause and its boolean persist atomically, and a restart releases the operation hold', async () => {
   await queue.setQueuePaused(false)
   const seen: Array<[unknown, unknown]> = []
   const unsubscribe = settings.onAppSettingWritten(key => {
@@ -38,15 +38,30 @@ test('owned pause and its boolean persist atomically and survive a restart', asy
     assert.equal(stored.job_queue_paused, true, 'old binaries still read a boolean hold')
     assert.equal(stored.job_queue_pause_owner, 'owned-restart')
     assert.equal(seen.length, 2, 'both changed keys announce after one write')
+    // A restart finds an operation hold with no operation behind it. The contract is explicit —
+    // never a persisted latch, a restart always resumes — so boot releases it and says so
+    // (angkor 2026-11-19 came back taking no work and told nobody).
     queue._resetQueuePauseStateForTesting()
     await queue.initializeQueuePauseState()
-    assert.equal(queue.isQueuePaused(), true)
-    assert.equal(queue.getQueuePauseOwner(), 'owned-restart')
-    assert.equal(await queue.releaseQueuePauseOwned('owned-restart'), true)
+    assert.equal(queue.isQueuePaused(), false, 'an operation hold never outlives its process')
+    assert.equal(queue.getQueuePauseOwner(), null)
+    assert.equal(await queue.releaseQueuePauseOwned('owned-restart'), false, 'nothing left to release')
     const released = await snapshot()
     assert.equal(released.job_queue_paused, false)
     assert.equal(released.job_queue_pause_owner, null)
   } finally { unsubscribe() }
+})
+
+test('an app that starts paused says so: health names the hold and its owner', async () => {
+  await queue.setQueuePaused(false)
+  await queue.acquireQueuePauseOwned('visible-hold')
+  // Same expression app.ts serves on /api/health, without booting the whole app.
+  const { isQueuePaused, getQueuePauseOwner } = queue
+  assert.deepEqual(
+    isQueuePaused() ? { paused: true, owner: getQueuePauseOwner(), holds_dispatch: true } : { paused: false },
+    { paused: true, owner: 'visible-hold', holds_dispatch: true },
+  )
+  await queue.releaseQueuePauseOwned('visible-hold')
 })
 
 test('manual intents ahead of conditional release keep FIFO priority and revoke ownership', async () => {
@@ -59,10 +74,12 @@ test('manual intents ahead of conditional release keep FIFO priority and revoke 
   await Promise.all([resume, repause])
   assert.equal(await staleRelease, false)
   assert.equal(queue.isQueuePaused(), true)
-  assert.equal(queue.getQueuePauseOwner(), null)
+  assert.equal(queue.getQueuePauseOwner(), 'operator')
   const stored = await snapshot()
   assert.equal(stored.job_queue_paused, true)
-  assert.equal(stored.job_queue_pause_owner, null)
+  // A person's Pause records its owner now: an unowned pause is one nothing can be held to, and on
+  // angkor 2026-11-19 a null-owner pause survived every restart and stopped all work.
+  assert.equal(stored.job_queue_pause_owner, 'operator')
   assert.equal(await queue.acquireQueuePauseOwned('later-updater'), false, 'cannot acquire the owner\'s pause')
   await queue.setQueuePaused(false)
 })
@@ -116,5 +133,7 @@ test('a failed atomic release retains the durable boolean and owner for Retry', 
   assert.equal(stored.job_queue_pause_owner, 'release-retry')
   queue._resetQueuePauseStateForTesting()
   await queue.initializeQueuePauseState()
-  assert.equal(await queue.releaseQueuePauseOwned('release-retry'), true)
+  // Same rule as above: the write never landed, so after a restart there is nothing to release.
+  assert.equal(await queue.releaseQueuePauseOwned('release-retry'), false)
+  assert.equal(queue.isQueuePaused(), false)
 })

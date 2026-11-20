@@ -75,7 +75,13 @@ export function sceneImageCheckShadowMode(cfg: SceneImageCheckConfig, now = Date
   return !cfg.auto_remake || !sceneImageCheckShadowOver(cfg.shadow_until, now)
 }
 
-export interface VisionCheckModelCandidate { id: string; display_name: string; available: boolean }
+export interface VisionCheckModelCandidate {
+  id: string
+  display_name: string
+  available: boolean
+  /** What the model publishes it can answer. The check asks for `subject`; a model without it refuses. */
+  tasks?: string[]
+}
 
 /** Test seam: replaces the live catalogue read. */
 let catalogReader: (() => Promise<VisionCheckModelCandidate[]>) | null = null
@@ -94,7 +100,7 @@ export async function liveFleetVisionModels(): Promise<VisionCheckModelCandidate
   const rows = await listVisionModels()
   return rows
     .filter(row => row.available !== false)
-    .map(row => ({ id: row.id, display_name: row.display_name || row.id, available: true }))
+    .map(row => ({ id: row.id, display_name: row.display_name || row.id, available: true, tasks: (row as { tasks?: string[] }).tasks || [] }))
 }
 
 /**
@@ -113,8 +119,12 @@ export async function resolveSceneImageCheckModel(
     const named = rows.find(row => row.id === modelOverride)
     return named ? { id: named.id, display_name: named.display_name } : null
   }
-  const first = rows[0]!
-  return { id: first.id, display_name: first.display_name }
+  // The check asks the model for `subject`. The first row in the catalogue is not necessarily able to
+  // answer that — a depth model sits first on angkor and refused every scene with INVALID_REQUEST
+  // (2026-11-19). Prefer a model that publishes the task; fall back to the first rather than refusing.
+  const canSeeSubject = rows.find(row => row.tasks?.includes('subject'))
+  const chosen = canSeeSubject || rows[0]!
+  return { id: chosen.id, display_name: chosen.display_name }
 }
 
 /** Words a describer would use for a figure; only then is "no subject" a finding. */

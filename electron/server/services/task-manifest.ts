@@ -416,21 +416,35 @@ export async function promoteCurrentImageTaskArtifactStrict(
   checkpoint: () => Promise<void>,
   trashDir?: string,
 ): Promise<boolean> {
-  return withCrossProcessLock(manifestPath(assetDir), async () => {
-    const current = (await readManifestStrict(assetDir)).tasks[filename]
-    if (!sameImageAttempt(current, expected)) {
-      await fs.rm(stagingPath, { force: true }).catch(() => {})
-      return false
-    }
-    const previous = await fs.stat(outputPath).catch(() => null)
-    if (trashDir && previous?.isFile() && previous.size > 0) {
-      copyToTrashSync(outputPath, path.join(trashDir, path.basename(outputPath)), 'scene-images')
-    }
-    await fs.rename(stagingPath, outputPath)
-    clearImageValidationCache(outputPath)
-    await checkpoint()
-    return true
-  })
+  let promoted: boolean
+  try {
+    promoted = await withCrossProcessLock(manifestPath(assetDir), async () => {
+      const current = (await readManifestStrict(assetDir)).tasks[filename]
+      if (!sameImageAttempt(current, expected)) {
+        await fs.rm(stagingPath, { force: true }).catch(() => {})
+        return false
+      }
+      const previous = await fs.stat(outputPath).catch(() => null)
+      if (trashDir && previous?.isFile() && previous.size > 0) {
+        copyToTrashSync(outputPath, path.join(trashDir, path.basename(outputPath)), 'scene-images')
+      }
+      await fs.rename(stagingPath, outputPath)
+      clearImageValidationCache(outputPath)
+      return true
+    })
+  } catch (error) {
+    // A commit that never happened must not leave a full-size image behind under its partial name:
+    // angkor 2026-11-19 held partials identical in size to their final PNGs, one per failed commit —
+    // the manifest lock's 10 s ceiling expires while the disk is saturated, and the throw left it.
+    await fs.rm(stagingPath, { force: true }).catch(() => {})
+    throw error
+  }
+  if (!promoted) return false
+  // Outside the manifest lock, deliberately. The checkpoint decodes the image again, reads it whole for
+  // its hash and rewrites scene_plan.json — none of which touches the manifest, and all of which was
+  // holding the lock past its 10 s deadline on angkor (2026-11-19).
+  await checkpoint()
+  return true
 }
 
 /**

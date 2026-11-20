@@ -20,6 +20,7 @@ import { router as audioMergeRouter } from './audio-merge.js'
 import { router as ideasRouter } from './ideas.js'
 import { router as pipelineRouter } from './pipeline.js'
 import { router as healthRouter } from './health.js'
+import { router as diagnosticsRouter } from './diagnostics.js'
 import { router as systemRouter } from './system.js'
 import { router as visionRouter } from './vision.js'
 import { router as uploadRouter } from './upload.js'
@@ -27,6 +28,7 @@ import { router as youtubeConnectionsRouter } from './youtube-connections.js'
 import { router as youtubeUploadCenterRouter } from './youtube-upload-center.js'
 import { router as youtubeAuditRouter } from './youtube-audit.js'
 import { router as youtubeUploadPacingRouter } from './youtube-upload-pacing.js'
+import { router as youtubeChannelScheduleRouter } from './youtube-channel-schedule.js'
 import { router as youtubeChannelSettingsRouter } from './youtube-channel-settings.js'
 import { router as socialPublishingRouter } from './social-publishing.js'
 import { router as appSettingsRouter } from './app-settings.js'
@@ -117,6 +119,8 @@ export function mountRoutes(app: Express): void {
   app.use('/api', ideasRouter)
   app.use('/api', pipelineRouter)
   app.use('/api', healthRouter)
+  // Off unless SS_HEAP_SNAPSHOT_DIR is set: a snapshot holds prompts and project text.
+  app.use('/api', diagnosticsRouter)
   app.use('/api', systemRouter)
   app.use('/api', visionRouter)
   app.use('/api', uploadRouter)
@@ -124,6 +128,7 @@ export function mountRoutes(app: Express): void {
   app.use('/api', youtubeUploadCenterRouter)
   app.use('/api', youtubeAuditRouter)
   app.use('/api', youtubeUploadPacingRouter)
+  app.use('/api', youtubeChannelScheduleRouter)
   app.use('/api', youtubeChannelSettingsRouter)
   app.use('/api', socialPublishingRouter)
   app.use('/api', charactersRouter)

@@ -75,6 +75,10 @@ test('health and a per-project job read answer while fs.readFile never settles',
     assert.equal(health.body.version, packageVersion, 'the boot-resolved version, not a fresh read')
     assert.equal(typeof health.body.boot_complete, 'boolean')
     assert.ok(Array.isArray(health.body.waiting))
+    // A paused queue takes no work, and health is where a person or an agent looks first.
+    // (The paused branch itself is pinned in queue-pause-ownership.test.ts — this test has
+    // fs.readFile stalled, so it must not write settings.)
+    assert.equal(health.body.queue.paused, false)
 
     const job = await request(app)
       .get(`/api/projects/${SLUG}/jobs/${JOB_ID}`)

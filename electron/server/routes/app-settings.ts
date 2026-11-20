@@ -9,7 +9,7 @@
 
 import { Router } from 'express'
 import { buildRequireSession, isOwnerRequest, readAutomationKeyHeader } from '../lib/auth-session.js'
-import { getServerModeConfig } from '../lib/server-mode.js'
+import { getServerModeConfig, isServerMode } from '../lib/server-mode.js'
 import { getNotifierSettings, setNotifierSettings } from '../services/job-notifier.js'
 import {
   listProviderKeys, setApiKey, clearApiKey, getApiKey,
@@ -70,7 +70,7 @@ router.get('/app-settings/open-at-login', (_req, res) => {
 })
 router.put('/app-settings/open-at-login', async (req, res) => {
   try {
-    await setOpenAtLogin(req.body?.enabled === true, process.execPath)
+    await setOpenAtLogin(req.body?.enabled === true, process.execPath, undefined, { keepAliveAlways: isServerMode() })
     res.json({ enabled: openAtLogin() })
   } catch (error: any) {
     res.status(400).json(humanizeBackendError(error, 'Could not change Open at Login'))

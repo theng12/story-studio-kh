@@ -488,6 +488,27 @@ test('multiple channels render one row each and events group into local days', a
   } finally { ui.close() }
 })
 
+test('each channel row says what YouTube actually has, including both unknowns', async () => {
+  const ui = await mount({ overview: {
+    generated_at: '2026-11-19T00:00:00.000Z', cache_ttl_ms: 1, calendar: [],
+    channels: [
+      channel({ slug: 's', name: 'Scheduled', youtube_schedule: { read_at: '2026-11-19T00:00:00.000Z', state: 'scheduled', scheduled_count: 42, next_slot_at: '2027-12-01T10:00:00.000Z', freshness: 'fresh' } }),
+      channel({ slug: 'n', name: 'Not read', youtube_schedule: { read_at: null, state: 'no_data', scheduled_count: null, next_slot_at: null, error: 'Never read.' } }),
+      channel({ slug: 'u', name: 'Unconfigured', youtube_schedule: { read_at: '2026-11-19T00:00:00.000Z', state: 'unconfigured', scheduled_count: 0, next_slot_at: null, freshness: 'fresh' } }),
+      channel({ slug: 'f', name: 'Failed', youtube_schedule: { read_at: '2026-11-19T00:00:00.000Z', state: 'read_failed', scheduled_count: null, next_slot_at: null, error: 'YouTube could not be reached.' } }),
+    ],
+  } })
+  try {
+    const cells = [...ui.host.querySelectorAll('.yt-schedule-state')].map(el => el.textContent || '')
+    assert.equal(cells.length, 4)
+    assert.match(cells[0]!, /^42 scheduled on YouTube · next .* · last read /)
+    assert.match(cells[1]!, /^Unknown — not read yet: Never read\./)
+    assert.equal(cells[2]!.trim(), 'nothing scheduled on YouTube')
+    assert.equal(cells[3]!.trim(), 'Unknown — last read failed: YouTube could not be reached.')
+    assert.doesNotMatch(ui.host.textContent || '', /cannot upload/i)
+  } finally { ui.close() }
+})
+
 // ---- Responsive controls -----------------------------------------------------
 test('the page fills the window, contains wide tables, and compacts without dropping recommendations', async () => {
   const source = readFileSync(new URL('../pages/publishing.vue', import.meta.url), 'utf8')

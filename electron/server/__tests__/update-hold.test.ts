@@ -92,6 +92,25 @@ after(async () => {
   await cleanup()
 })
 
+// Health is the only place a hold is visible: it writes nothing durable, so a person or an agent
+// looking for "why is nothing starting" must be able to see it, and its expiry is what makes a lost
+// DELETE harmless (the installer's resume is best effort, and a killed installer sends nothing).
+test('health names a hold in force, and the hold clears itself without a boot', async () => {
+  const { updateHoldState } = await import('../services/job-queue.js')
+  assert.deepEqual(await updateHoldState(), { active: false, owner: 'updater', expires_at: null })
+  await request(app).post('/api/maintenance/hold?timeout_s=0&pause_s=1').expect(200)
+  const during = await updateHoldState()
+  assert.equal(during.active, true, 'a hold in force is visible on health')
+  assert.equal(during.owner, 'updater')
+  assert.ok(Date.parse(during.expires_at!) > Date.now(), 'and says when it expires')
+  // Poll for the expiry rather than betting 1200 ms covers a 1 s hold: this is "has happened",
+  // which load can only delay, never fake.
+  await waitFor(async () => (await updateHoldState()).active === false, { label: 'the hold to expire by itself' })
+  const after1 = await updateHoldState()
+  assert.equal(after1.active, false, 'it expires by itself — no DELETE, no restart')
+  assert.equal(after1.expires_at, null)
+})
+
 describe('POST/DELETE /api/maintenance/hold', () => {
   test('the hold closes every claim path and in_flight matches the live worker', async () => {
     const project = await pm.createProject({ name: 'Update Hold Live Work' })

@@ -202,6 +202,31 @@ export interface PublishingTimelineEpisode {
   artifacts_pending?: boolean
 }
 
+/** What YouTube itself has scheduled for the channel, read back from its uploads. */
+export type YouTubeScheduleState = 'scheduled' | 'no_data' | 'unconfigured' | 'read_failed'
+
+export interface YouTubeScheduledSlot {
+  /** UTC day of publishAt; a channel's own day is derived with its timezone. */
+  date: string
+  video_id: string
+  title?: string
+  publish_at: string
+  read_at: string
+}
+
+export interface YouTubeChannelScheduleView {
+  read_at: string | null
+  state: YouTubeScheduleState
+  /** Null on no_data/read_failed: "unknown" is never a zero. */
+  scheduled_count: number | null
+  next_slot_at: string | null
+  /** Plain reason on no_data/read_failed. */
+  error?: string
+  /** A read older than a day is stale, even when the number itself was once true. */
+  freshness?: 'fresh' | 'stale' | 'unknown'
+  scheduled_dates?: YouTubeScheduledSlot[]
+}
+
 export interface PublishingOverviewChannel {
   slug: string
   name: string
@@ -218,6 +243,13 @@ export interface PublishingOverviewChannel {
    * assigned one is not connected (`confirmed.error` says which).
    */
   channel: { channel_id: string; title: string } | null
+  /**
+   * YouTube's own schedule for this channel, read from its uploads. Its own
+   * field, never the local `upload_pacing` policy: a channel with no saved
+   * window can still have videos scheduled far into the future. Absent on an
+   * older payload means no_data.
+   */
+  youtube_schedule?: YouTubeChannelScheduleView
   /**
    * True when a usable cadence/plan was read, false when the reads succeeded and
    * there is none ("Publishing plan not set"), null when a read FAILED — an

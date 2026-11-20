@@ -23,12 +23,15 @@ import {
   jobEvents,
   getQueueStats,
   findJobs,
+  isUpdateHoldActive,
+  takeUpdateHold,
   runningJobIdsForShutdown,
 } from './server/services/job-queue.js'
 import { reapFfmpegOrphans } from './server/services/orphan-reaper.js'
 import { projectsRoot, migrateLegacyProjects } from './server/services/project-manager.js'
 import { getRunningFlagPath, patchLastSession } from './server/services/last-session.js'
 import { isServerMode, getServerModeConfig } from './server/lib/server-mode.js'
+import { openAtLogin, syncAgentPlist } from './server/services/open-at-login.js'
 import { armShutdownDeadline, beginShutdown, cancelShutdown } from './server/lib/shutdown-state.js'
 import { DEV_BACKEND_PORT } from './server/lib/dev-backend.js'
 import { applyServerTimeouts } from './server/lib/server-timeouts.js'
@@ -42,7 +45,7 @@ import { OWNER_WINDOW_HEADER, ownerWindowSecret } from './server/lib/auth-sessio
 import {
   aggregateBatch, isBatchComplete, shouldNotifyForSingleJob,
   formatBatchMessage, formatSingleJobMessage, formatFailureMessage, getBatchId,
-  getNotifierSettings, formatQuitWarning, formatApprovalWaitMessage,
+  getNotifierSettings, formatQuitWarning, mayAskBeforeQuit, formatApprovalWaitMessage,
   summarizeBatchEpisodes,
 } from './server/services/job-notifier.js'
 import type { Job } from './server/models/types.js'
@@ -703,6 +706,23 @@ function clearRunningFlag(): void {
 void electronApp.whenReady().then(async () => {
   try {
     if (process.env.STORY_STUDIO_HIDDEN === '1') electronApp.dock?.hide()
+    // One starter, and the agent's role follows the deployment (angkor 2026-11-19): macOS restored
+    // the app at login (login item `2.com.storystudio.kh`) while the launch agent started a second
+    // copy. The agent's copy lost the single-instance lock, exited 0, and `KeepAlive {Crashed}`
+    // never restarted it — the supervised job was dead and the survivor was unsupervised.
+    if (openAtLogin()) {
+      electronApp.setLoginItemSettings({ openAtLogin: false })
+      if (electronApp.isPackaged) {
+        try {
+          const healed = await syncAgentPlist(process.execPath, isServerMode())
+          if (healed === 'rewritten') {
+            console.log(`[open-at-login] agent ${isServerMode() ? 'comes back from any exit (server role)' : 'restarts after a crash only'}`)
+          }
+        } catch (e) {
+          logCrash('open-at-login-sync', e)
+        }
+      }
+    }
     buildMenu()
     // One-time migration from legacy dev project locations. This used to run
     // as a side effect of importing project-manager.ts, which meant every
@@ -937,9 +957,23 @@ electronApp.on('before-quit', (event) => {
     exit: code => electronApp.exit(code),
     log: (message, meta) => logLine('warn', message, meta),
   })
-  // Say what happens to running jobs before they stop. Headless server mode has no window to ask in.
+  // Say what happens to running jobs before they stop — to a PERSON. The updater's stop is the
+  // same Apple Event quit, and a modal blocks the main thread and the shutdown ceiling alike
+  // (angkor 2026-11-19: 181 s in runModalForWindow: with 9 jobs, until the off-thread watchdog
+  // killed the app). A hold in force came over the hold-token credential, so the stop behind it is
+  // the updater's: keep dispatch closed across the gap, settle, exit, no dialog.
   const warning = formatQuitWarning(getQueueStats().running)
-  if (warning && mainWindow && !mainWindow.isDestroyed()) {
+  const askedByUpdater = isUpdateHoldActive()
+  const ask = mayAskBeforeQuit({
+    warning,
+    hasWindow: Boolean(mainWindow && !mainWindow.isDestroyed()),
+    updateHoldActive: askedByUpdater,
+  })
+  if (askedByUpdater) void takeUpdateHold(0, 120).catch(e => logCrash('quit-hold', e))
+  if (warning && !ask) {
+    console.log(`[shutdown] no quit dialog (${askedByUpdater ? 'the updater holds the queue' : 'no window'}); settling ${getQueueStats().running} running job(s) and exiting`)
+  }
+  if (ask && warning && mainWindow) {
     console.log('[shutdown] quit-warning dialog opening')
     const choice = dialog.showMessageBoxSync(mainWindow, {
       type: 'warning', buttons: ['Quit', 'Cancel'], defaultId: 0, cancelId: 1,
