@@ -4,6 +4,12 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.416 — 2026-11-21
+
+- **A step that hangs can no longer hold the queue for ever.** Each kind of work now has its own time limit — hours for a big render, minutes for a small local step — instead of no limit at all. When a step passes its own limit, its row ends with a sentence saying which kind of work ran too long and that it can be retried, the files it already saved stay on disk, any program it started is stopped, and the work waiting behind it starts. The limit follows the kind of work, so a long render is never cut by a small step's clock.
+- **A job stopped by a crash or a freeze now says why on the row itself.** When the app had to kill itself because it froze, the row that was running said only that the app restarted. It now says a wedged app was killed by its watchdog, keeps its job id so the restart can follow it, and is retried the same way as before.
+- **The wedge note in the code now matches the code.** The comment described pausing the queue for good; the code takes the in-memory, expiring hold — which is what keeps an aborted install from leaving an app that has stopped taking work.
+
 ## v1.4.415 — 2026-11-20
 
 - **A video that uploaded later no longer leaves its episode marked as failed.** When an upload failed and a later upload of the same episode to the same channel succeeded, the old failed row kept saying the episode needed attention — so an episode already on YouTube read as blocked. That row now settles and names the upload that superseded it. A retry that also failed, a different episode or a different channel still keeps it.

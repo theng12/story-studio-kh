@@ -153,7 +153,9 @@ echo "== installed $INSTALLED"
 
 if [ "$REAL_TARGET" = yes ]; then
   # `env -u ELECTRON_RUN_AS_NODE` because a shell that has that set makes the app boot as Node.
-  env -u ELECTRON_RUN_AS_NODE open -a "$TARGET" && echo "== launched"
+  # `-g -j` because an install must never take the owner's desktop (owner rule 2026-11-12): the app
+  # starts in the background, and the owner brings it forward when they choose to.
+  env -u ELECTRON_RUN_AS_NODE open -g -j -a "$TARGET" && echo "== launched (in the background)"
 fi
 
 if [ "$WE_PAUSED" = yes ]; then
