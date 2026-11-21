@@ -37,6 +37,7 @@ import { DEV_BACKEND_PORT } from './server/lib/dev-backend.js'
 import { applyServerTimeouts } from './server/lib/server-timeouts.js'
 import { logLine, getLogDir, startLogPruning } from './server/services/logger.js'
 import { startWedgeRecovery } from './server/services/wedge-recovery.js'
+import { startJobLeaseSettings } from './server/services/job-lease.js'
 import { noteWedgeStage, startWedgeWatch } from './server/services/wedge-watch.js'
 import { bootstrapServerModeFromEnv } from './server/services/app-settings.js'
 import { isAllowedApplicationNavigation, isSafeExternalUrl } from './server/lib/security.js'
@@ -132,6 +133,8 @@ function startServer(): Promise<number> {
     // ignored, SIGKILL needed). quit is injected here so the module never
     // reaches for Electron itself.
     startWedgeRecovery({ quit: () => electronApp.exit(1) })
+    // Every worker is bounded by its own work class's ceiling; the scale is a live setting.
+    startJobLeaseSettings()
     // The main thread only publishes a beat and a small state file. A blocked loop
     // cannot run the check above, so a worker thread past `wedge_exit_seconds` of
     // silence captures the incident from its own thread and SIGKILLs the process.

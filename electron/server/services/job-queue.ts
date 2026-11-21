@@ -25,7 +25,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { isDeepStrictEqual } from 'node:util'
 import { mergeGenerationReplacementAttempts } from './generation-paid-replacement.js'
 import { projectsRoot, getConfig, getProjectDir, getUserDataDir } from './project-manager.js'
-import { logLine } from './logger.js'
+import { getLogDir, logLine } from './logger.js'
 import { readYouTubeConnectionRegistry } from './youtube-connection-store.js'
 import { readYouTubeQuota } from './youtube-quota-ledger.js'
 import { validateUploadPacingPolicy } from './upload-pacing.js'
@@ -49,6 +49,7 @@ import { readMusicScenePolishSnapshot } from './text-completion.js'
 import { jobStreamSignature } from './job-stream-signature.js'
 import { closingTailRemixInProgress, CLOSING_TAIL_REMIX_IN_PROGRESS } from './closing-tail-remix-admission.js'
 import { isChatTextJob, isLocalTextModel, isNonRetryableError, resolveJobAutoRetryPolicy } from './job-retry-policy.js'
+import { JobLeaseExpiredError, withJobLease } from './job-lease.js'
 import { getAllAppSettings, getPaidImageReplacementSetting, onAppSettingWritten, setAppSettings } from './app-settings.js'
 import { classifyJobControl, classifyJobControls } from './job-control.js'
 import { getJobCancellationAuditor, hasJobCancellationAuditor, readCancellationAudit } from './job-cancellation-auditors.js'
@@ -5212,11 +5213,48 @@ const INTERRUPTED_BY_RESTART = 'Interrupted by app restart'
 let restartRetryDelayMs = 60_000
 export function _setRestartRetryDelayForTesting(ms: number): void { restartRetryDelayMs = ms }
 
-function markInterruptedByRestart(j: Job): void {
+/**
+ * The ONE exit for a row whose worker stopped without a verdict — the app restarted, a wedge kill
+ * ended the process, or the worker outlived its own ceiling (job-lease.ts). The row is retryable,
+ * keeps its job id, and carries the sentence that says which of the three happened.
+ */
+function endWithoutVerdict(j: Job, sentence: string): void {
   j.status = 'error'
-  j.error = INTERRUPTED_BY_RESTART
+  j.error = sentence
   j.finished_at = j.finished_at || new Date().toISOString()
+}
+
+function markInterruptedByRestart(j: Job): void {
+  endWithoutVerdict(j, INTERRUPTED_BY_RESTART)
+  markWedgeKillOnRow(j)
   scheduleRestartRetry(j.job_id)
+}
+
+/** The newest wedge incident file, read once per start. Null means "no wedge was recorded". */
+let lastWedgeIncidentMs: number | null = null
+async function noteLastWedgeIncident(): Promise<void> {
+  lastWedgeIncidentMs = null
+  try {
+    const dir = getLogDir()
+    for (const name of await fs.readdir(dir)) {
+      if (!name.startsWith('incident-') || !name.endsWith('.txt')) continue
+      const stat = await fs.stat(path.join(dir, name))
+      if (lastWedgeIncidentMs === null || stat.mtimeMs > lastWedgeIncidentMs) lastWedgeIncidentMs = stat.mtimeMs
+    }
+  } catch { /* no log dir: no wedge proof, and the plain sentence stands */ }
+}
+
+/**
+ * A row the off-thread watchdog killed says so on the row: the wedge left one incident file beside
+ * the logs, and a file newer than this row's start is proof the row was in flight when it fired.
+ * The `error` value stays the stable "Interrupted by app restart" the retry rule matches on.
+ */
+function markWedgeKillOnRow(j: Job): void {
+  const startedAt = Date.parse(j.started_at || '')
+  if (!Number.isFinite(startedAt) || lastWedgeIncidentMs === null) return
+  if (lastWedgeIncidentMs < startedAt) return
+  j.output_lines = Array.isArray(j.output_lines) ? j.output_lines : []
+  j.output_lines.push('✗ A wedged app was killed by its watchdog while this row was in flight. Its id is kept: the next start follows it.')
 }
 
 function scheduleRestartRetry(jobId: string): void {
@@ -5888,6 +5926,9 @@ export async function runningJobsThatWouldNotResume(): Promise<Job[]> {
 export async function resumeInterruptedJobsAtBoot(): Promise<void> {
   imageEpisodeBootAdmissionHolds++
   try {
+    // Before any row is read: was the previous run killed by the wedge watchdog? If so, the rows it
+    // left running say that, not "the app restarted" (both are still this one exit).
+    await noteLastWedgeIncident()
     // Stop encoders a crashed previous run left behind BEFORE anything resumes
     // into their temp dirs.
     const reaped = await reapRecordedChildren()
@@ -6981,9 +7022,12 @@ async function runJob(type: JobType, job: Job): Promise<void> {
           // child processes spawned deep in the call tree register against this
           // job id via `trackChild(proc)`. Without this, a cancelled FFmpeg
           // assembly would keep running until it finished or hit an error.
-          const executorResult = await jobContext.run({ jobId: job.job_id }, () => (
+          // Bounded by THIS job type's own ceiling (job-lease.ts): the lane a worker holds must be
+          // reclaimable without a restart. Crossing it stops the row's recorded children, ends the
+          // row retryable with that sentence, and frees the lane in the `finally` below.
+          const executorResult = await withJobLease(job, () => jobContext.run({ jobId: job.job_id }, () => (
             runWithJobContentPackProvenance(job.content_pack_provenance, () => q.executor!(job))
-          ))
+          )), { onExpired: () => killChildrenFor(job.job_id) })
           if (!jobs.has(job.job_id)) return
           if (executorResult?.kind === 'video-assembly-remote-wait' && !hasFinalRenderFence(job)) {
             finalRenderRecoveryHolds.add(finalRenderStateKey(job.project_slug, job.job_id))
@@ -7037,6 +7081,10 @@ async function runJob(type: JobType, job: Job): Promise<void> {
             return
           }
           finalError = error
+          // A worker that outlived its own ceiling already spent the whole bound. Running it
+          // again would spend it again with no evidence anything changed, so the row ends now —
+          // retryable by the operator, through the same exit a restart takes.
+          if (error instanceof JobLeaseExpiredError) throw error
           // A cancel ends this job's attempts. `cancelled` is the local stop;
           // a cancellation CONTEXT is the remote one — the owner asked the
           // Gateway to stop this work, and the provider settlement path below
@@ -7180,6 +7228,11 @@ async function runJob(type: JobType, job: Job): Promise<void> {
         job.output_lines.push(isPause
           ? `Local pause request retained while provider cancellation is pending: ${message}`
           : `Local executor error retained while provider cancellation is pending: ${message}`)
+      } else if (e instanceof JobLeaseExpiredError) {
+        // Same exit a restart and a wedge kill take: retryable, the id kept, and the sentence names
+        // which of the three happened. Its recorded children were already stopped when it fired.
+        endWithoutVerdict(job, e.message)
+        job.output_lines.push(`✗ ${e.message}`)
       } else if (e instanceof JobPausedError || pauseRequested.has(job.job_id)) {
         job.status = 'paused'
         job.pause_requested = false

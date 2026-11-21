@@ -6,7 +6,10 @@
  * oldest live wait; past `wedge_exit_seconds` it runs, in order:
  *
  *   1. capture evidence to one file beside the logs (`wedge-capture.ts`);
- *   2. stop taking new work (`setQueuePaused(true)`, the queue's own API);
+ *   2. stop taking new work (`takeUpdateHold(0, 300)` — the in-memory, expiring
+ *      hold, never the owner's durable Pause: this process is about to die, and
+ *      a durable latch it left behind is exactly what made angkor boot taking no
+ *      work and saying nothing);
  *   3. park in-flight rows through the queue's stall pause, or name the rows
  *      that refused it (type + id) rather than claiming them parked;
  *   4. write ONE plain sentence saying what waited, how long, and the bound
