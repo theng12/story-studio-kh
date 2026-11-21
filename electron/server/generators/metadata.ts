@@ -835,12 +835,16 @@ Requirements:
     // Read back what was just written — the completion manifest and the package it names. A step that
     // reports "saved" while the folder holds nothing is how 903 episode folders came to have no
     // metadata at all (S28, Production 2026-11-21); the run fails here, naming the folder.
+    //
+    // Only a MISSING record fails here. A package that is on disk but short of a field is the
+    // completion audit's own verdict (`requireJobCompletion` below, which also marks the Gateway answer
+    // unusable for Retry) — one rule each, and the marker is set before either throw.
     const wrote = await inspectMetadataCompletion(dir, episode_id)
-    if (!wrote.authoritative || !wrote.complete) {
+    if (!wrote.authoritative) {
       throw new Error(
-        `The metadata for ${episode_id} was reported saved, but reading ${dir} back found it incomplete`
-        + ` (${wrote.missing.join(', ') || 'no completion record'}). Nothing was published. Re-run the `
-        + 'Metadata step for this episode, and report this if it happens again.',
+        `The metadata for ${episode_id} was reported saved, but reading ${dir} back found no completion`
+        + ' record — the package is not on disk. Nothing was published. Re-run the Metadata step for'
+        + ' this episode, and report this if it happens again.',
       )
     }
     if (!preserveExistingPackage) {
