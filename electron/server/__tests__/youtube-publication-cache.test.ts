@@ -660,3 +660,58 @@ describe('round three', () => {
     assert.equal(view.coverage.legacy_included, false)
   })
 })
+
+describe('S31 — a future local date never outlives the answer that it was wrong', () => {
+  const publicNow = (id: string) => ({
+    id, status: { uploadStatus: 'processed', privacyStatus: 'public' }, snippet: { title: `Title ${id}`, channelId: CHANNEL },
+  })
+
+  test('YouTube says public and the sidecar is still dated: the date is cleared', async () => {
+    const s = await setup()
+    const [code] = await s.episodes(1)
+    await s.legacy(code!, 'early-video')   // sidecar: scheduled_for 2030-01-01
+    const fake = new FakeYouTube()
+    fake.respondMatching({ method: 'GET', match: VIDEOS, body: { items: [publicNow('early-video')] } })
+    __setYouTubeTransportForTests(fake.transport())
+
+    // The observation pass itself: the same call the sync and the background refresh both make.
+    const accepted = await im.getIdeas(s.slug, 'accepted')
+    const ideaTitle = accepted.find(row => (row.episode_code || '') === code)?.title || ''
+    assert.ok(ideaTitle, `the accepted idea names the folder: ${JSON.stringify(accepted.map(r => [r.episode_code, r.title]))}`)
+    const before = await sidecars.readSidecar(s.slug, code!, ideaTitle, 'youtube')
+    assert.equal(before?.scheduled_for, '2030-01-01T00:00:00.000Z', 'the fixture sidecar is read by code, whatever the title')
+    const result = await cacheService.refreshYouTubePublications({
+      project_slug: s.slug, account_id: s.accountId(), channel_id: CHANNEL, max_calls: 1,
+      videos: new Map([['early-video', { source: 'legacy' as const, episode_code: code! }]]),
+    })
+    assert.deepEqual(result.answered, ['early-video'], JSON.stringify(result))
+    assert.equal(result.details['early-video']?.privacyStatus, 'public', JSON.stringify(result.details))
+
+    const sidecar = await sidecars.readSidecar(s.slug, code!, '', 'youtube')
+    assert.equal(sidecar?.scheduled_for, null, 'a live observation of "public" clears the local future date')
+  })
+
+  test('a private video with the same date keeps it, and no answer touches nothing', async () => {
+    const s = await setup()
+    const [code] = await s.episodes(1)
+    await s.legacy(code!, 'still-private')
+    const fake = new FakeYouTube()
+    fake.respondMatching({
+      method: 'GET', match: VIDEOS,
+      body: { items: [scheduled('still-private', '2026-12-01T15:00:00Z')] },
+    })
+    __setYouTubeTransportForTests(fake.transport())
+
+    await request(app).post(`/api/projects/${s.slug}/youtube/sync`)
+    const sidecar = await sidecars.readSidecar(s.slug, code!, '', 'youtube')
+    assert.equal(sidecar?.scheduled_for, '2030-01-01T00:00:00.000Z', 'a schedule YouTube still holds is left alone')
+
+    // No answer at all (a failed call) must not clear it either.
+    const failing = new FakeYouTube()
+    failing.respondMatching({ method: 'GET', match: VIDEOS, status: 500, body: { error: { message: 'boom' } } })
+    __setYouTubeTransportForTests(failing.transport())
+    await request(app).post(`/api/projects/${s.slug}/youtube/sync`)
+    const after = await sidecars.readSidecar(s.slug, code!, '', 'youtube')
+    assert.equal(after?.scheduled_for, '2030-01-01T00:00:00.000Z', 'a missing observation is never a reason to clear')
+  })
+})

@@ -43,7 +43,7 @@ import { getEffectiveFormat } from '../services/format-loader.js'
 import { getEffectiveNicheFor } from '../services/niche-loader.js'
 import type { Job } from '../models/types.js'
 import { requireJobCompletion } from '../services/job-completion.js'
-import { writeMetadataPackage } from '../services/metadata-completion.js'
+import { inspectMetadataCompletion, writeMetadataPackage } from '../services/metadata-completion.js'
 import {
   finalizeYouTubeDescription,
   inspectYouTubeFinalizationStatus,
@@ -832,6 +832,17 @@ Requirements:
       completion: { expectedTitles: expectedTitleCount, expectedTags: expectedTagCount },
     })
 
+    // Read back what was just written — the completion manifest and the package it names. A step that
+    // reports "saved" while the folder holds nothing is how 903 episode folders came to have no
+    // metadata at all (S28, Production 2026-11-21); the run fails here, naming the folder.
+    const wrote = await inspectMetadataCompletion(dir, episode_id)
+    if (!wrote.authoritative || !wrote.complete) {
+      throw new Error(
+        `The metadata for ${episode_id} was reported saved, but reading ${dir} back found it incomplete`
+        + ` (${wrote.missing.join(', ') || 'no completion record'}). Nothing was published. Re-run the `
+        + 'Metadata step for this episode, and report this if it happens again.',
+      )
+    }
     if (!preserveExistingPackage) {
       await trackGeneration(project_slug, 'description').catch(() => {})
     }

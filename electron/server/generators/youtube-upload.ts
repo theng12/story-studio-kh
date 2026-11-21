@@ -45,6 +45,7 @@ import {
   readShortSidecarAtPath,
   shortSidecarPath,
   writeShortSidecarAtPath,
+  writeUploadRefusalBeside,
   type UploadSidecar,
 } from '../services/upload-sidecar.js'
 import { remoteVideoFor, alreadyOnYouTubeReason } from '../services/youtube-remote-video.js'
@@ -229,6 +230,27 @@ async function snapshotApprovedThumbnail(
 }
 
 /**
+ * Refuse this upload BEFORE any operation record, and leave the sentence on disk beside the episode's
+ * own upload record. The queue row carries it too, but clearing history used to be the end of the only
+ * copy (S26, Production 2026-11-21: EP0107 failed twice with the reason found nowhere afterwards).
+ */
+async function refuseUpload(
+  sidecarPath: string,
+  jobId: string,
+  packageRevision: unknown,
+  error: unknown,
+): Promise<never> {
+  const reason = error instanceof Error ? error.message : String(error)
+  await writeUploadRefusalBeside(sidecarPath, {
+    refused_at: new Date().toISOString(),
+    reason,
+    job_id: jobId,
+    ...(typeof packageRevision === 'string' && packageRevision ? { package_revision: packageRevision } : {}),
+  })
+  throw error instanceof Error ? error : new Error(reason)
+}
+
+/**
  * A passed publication deadline HOLDS the job — it never publishes now and
  * never fails permanently (Story 386 Item 1, owner brief 7). The row is parked
  * with no wake instant (we do not invent a date); Upload Center shows the plain
@@ -238,6 +260,7 @@ async function snapshotApprovedThumbnail(
  * Returns true when the job was held, so the caller returns WITHOUT throwing —
  * a thrown error would mark a correctly-held row as failed.
  */
+
 async function holdForPassedPublishDeadline(job: Job, pkg: YouTubeMetadataPackage, episodeId: string): Promise<boolean> {
   const refusal = publishDateRefusal(pkg)
   if (!refusal) return false
@@ -795,7 +818,11 @@ export async function generateYoutubeUpload(job: Job): Promise<void> {
         if (params.approved_upload_mode !== 'apply-plan' && params.approved_upload_mode !== 'private') {
           throw new Error('The approved YouTube upload mode is missing. Preview and confirm the upload again; nothing was uploaded.')
         }
-        metadataPackage = metadataPackageFromFinalPayload(params.approved_final_payload, episodeId)
+        try {
+          metadataPackage = metadataPackageFromFinalPayload(params.approved_final_payload, episodeId)
+        } catch (error) {
+          await refuseUpload(sidecarFilePath, job.job_id, params.expected_package_revision, error)
+        }
         if (metadataPackage.package_revision !== params.expected_package_revision) {
           throw new Error('The approved YouTube upload details are invalid. Preview and confirm the upload again; nothing was uploaded.')
         }
@@ -827,10 +854,14 @@ export async function generateYoutubeUpload(job: Job): Promise<void> {
         // Fresh-path only, on the package that will be sent. Refuse BEFORE any
         // durable record or quota: a description-less upload went out publicly
         // and silent once before (§8).
-        assertUploadMetadataComplete({
-          title: metadataPackage.snippet.title ?? '',
-          description: metadataPackage.snippet.description ?? '',
-        }, episodeId)
+        try {
+          assertUploadMetadataComplete({
+            title: metadataPackage.snippet.title ?? '',
+            description: metadataPackage.snippet.description ?? '',
+          }, episodeId)
+        } catch (error) {
+          await refuseUpload(sidecarFilePath, job.job_id, params.expected_package_revision, error)
+        }
       }
       // Same check, before ANY durable record is opened: a refused date must
       // leave nothing behind that later reads as an upload in flight. Legacy

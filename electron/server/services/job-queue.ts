@@ -1857,7 +1857,8 @@ async function releaseQuotaWaitIfDue(jobId: string): Promise<void> {
   if (job.status !== 'queued' || job.force_abandoned || cancelled.has(jobId)
     || pauseRequested.has(jobId) || job.pause_requested || job.pause_origin) return
   emitUpdate(job)
-  if (!pendingContains(job.type, job.job_id)) queues[job.type].pending.push(job)
+  // Back by first-come order, not to the back of the lane — see insertPendingByAdmissionOrder.
+  insertPendingByAdmissionOrder(job.type, job)
   if (IMAGE_EPISODE_TYPES.has(job.type)) pumpImageEpisodeGroup(imageEpisodeConcurrency)
   else pump(job.type)
 }
@@ -2152,7 +2153,7 @@ export async function reevaluateUploadQueue(): Promise<void> {
     if (typeof job.params?.quota_retry_at !== 'string') continue
     clearQuotaWaitTimer(job.job_id)
     delete job.params.quota_retry_at
-    if (!lane.pending.some(candidate => candidate.job_id === job.job_id)) lane.pending.push(job)
+    insertPendingByAdmissionOrder('youtube_upload', job)
     requeued.push(job)
   }
   await Promise.all(requeued.map(job => persistJob(job)))
@@ -9379,9 +9380,52 @@ export async function findJobs(
     }
   }
 
+  // S29: a queued row states its place and how long it has waited. An upload that waits days for its
+  // channel's own pacing window must be able to say so, and one that keeps being passed over must be
+  // visible as such (Production, 2026-11-21: EP0044 sat 29 h behind later rows with nothing on it).
+  const now = Date.now()
+  const awaitingUploads = [...jobs.values()]
+    .filter(job => job.type === 'youtube_upload' && job.status === 'queued')
+    .sort(admissionOrder)
+  const uploadPositions = new Map(awaitingUploads.map((job, index) => [job.job_id, index + 1]))
+  for (const job of projectJobs) {
+    if (job.status !== 'queued') continue
+    if (job.type === 'youtube_upload') {
+      const place = uploadPositions.get(job.job_id)
+      if (place !== undefined) job.queue_position = place
+    }
+    const created = Date.parse(job.created_at ?? '')
+    if (Number.isFinite(created)) job.queued_for_seconds = Math.max(0, Math.round((now - created) / 1000))
+  }
+
   const order: Record<string, number> = { running: 0, paused: 1, queued: 2, done: 3, cancelled: 4, error: 4 }
   projectJobs.sort((a, b) => (order[a.status] ?? 4) - (order[b.status] ?? 4))
   return projectJobs
+}
+
+/**
+ * First-come order inside one lane: enqueue time, then the owner's manual rank. A row that was held and
+ * woken goes back by this order, never to the back — otherwise a later row that started while it waited
+ * keeps overtaking it (S29, the EP0044 starvation), and a row waiting for its channel's own pacing
+ * window waits behind every upload admitted after it.
+ */
+function admissionOrder(a: Readonly<Job>, b: Readonly<Job>): number {
+  const enqueued = Date.parse(a.created_at ?? '') - Date.parse(b.created_at ?? '')
+  if (Number.isFinite(enqueued) && enqueued !== 0) return enqueued
+  return (a.queue_rank ?? Infinity) - (b.queue_rank ?? Infinity)
+}
+
+/**
+ * A row returning to a lane goes back to its first-come place. Appending it to the back is how an
+ * upload held for its channel's pacing window kept losing its place to uploads admitted after it
+ * (S29, EP0044 waited 29 h) — the same rule for the pacing timer and for reevaluation.
+ */
+function insertPendingByAdmissionOrder(type: JobType, job: Job): void {
+  if (pendingContains(type, job.job_id)) return
+  const pending = queues[type].pending
+  const at = pending.findIndex(candidate => admissionOrder(candidate, job) > 0)
+  if (at < 0) pending.push(job)
+  else pending.splice(at, 0, job)
 }
 
 /** Every queued, running or paused job of one type on this server, across all projects. */

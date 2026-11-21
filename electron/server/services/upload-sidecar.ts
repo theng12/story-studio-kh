@@ -584,9 +584,66 @@ export async function writeShortSidecarAtPath(filePath: string, sidecar: UploadS
 }
 
 /**
- * Record a verified playlist membership on a record at an EXACT path.
+ * Clear an episode's future `scheduled_for` on the record that OWNS it, whatever its title is now
+ * (S31). It resolves the folder the way the readers do — by code, by which folder holds the record —
+ * because `setScheduledFor` resolves by title and wrote a SECOND record beside a renamed episode.
  *
- * The episode-scoped `checkpointPlaylistSync` resolves the episode's folder
+ * Returns the date it cleared, or null when there was nothing to clear. A record without a future date
+ * is left untouched: this clears a date YouTube has already overtaken, and never writes a new one.
+ */
+export async function clearScheduledForForEpisode(slug: string, episode_code: string): Promise<string | null> {
+  const paths = await resolveEpisodePathsByCodeWithSidecar(slug, episode_code, 'youtube_upload.json')
+  const p = sidecarPath(paths.episode_dir, 'youtube')
+  return withLock(p, async () => {
+    const existing = await readSidecarAtPath(p)
+    const dated = existing?.scheduled_for
+    if (!existing || !dated || !(Date.parse(dated) > Date.now())) return null
+    await writeJsonAtomic(p, { ...existing, scheduled_for: null })
+    return dated
+  })
+}
+
+// ── Why an upload was refused (1.4.417) ─────────────────────────────────
+//
+// A refusal before any operation record leaves only the queue row's `error`,
+// and clearing history ends it. This note sits beside the record it belongs to
+// so the reason survives the row. It is a NOTE, never an operation: it claims
+// no upload, no quota and no video id.
+
+export interface UploadRefusalNote {
+  refused_at: string
+  reason: string
+  job_id: string
+  /** The approved package the refusal was about, when it knew one. */
+  package_revision?: string
+}
+
+/** The note's path, beside the record of the upload it refused. */
+export function uploadRefusalPathBeside(sidecarPath: string): string {
+  return path.join(path.dirname(sidecarPath), 'youtube_upload.refusal.json')
+}
+
+export async function writeUploadRefusalBeside(sidecarPath: string, note: UploadRefusalNote): Promise<void> {
+  const filePath = uploadRefusalPathBeside(sidecarPath)
+  await fsp.mkdir(path.dirname(filePath), { recursive: true })
+  await withLock(filePath, () => writeJsonAtomic(filePath, note))
+}
+
+/** The latest refusal note for this record, or null. A damaged note reads as absent, never as a reason. */
+export async function readUploadRefusalBeside(sidecarPath: string): Promise<UploadRefusalNote | null> {
+  const filePath = uploadRefusalPathBeside(sidecarPath)
+  try {
+    const parsed = JSON.parse(await fsp.readFile(filePath, 'utf-8'))
+    if (!parsed || typeof parsed !== 'object' || typeof parsed.reason !== 'string' || !parsed.reason.trim()) return null
+    return parsed as UploadRefusalNote
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Record a verified playlist membership on a record at an EXACT path.
+ * * The episode-scoped `checkpointPlaylistSync` resolves the episode's folder
  * from its code, so it cannot be used for a Short (whose code names no
  * episode folder — resolving it would CREATE a stray empty folder). This
  * variant works on the path the caller already knows.

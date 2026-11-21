@@ -6122,3 +6122,44 @@ test('the final check refuses an episode with no rendered video instead of inven
   assert.equal(res.status, 409)
   assert.equal(res.body.code, 'YOUTUBE_NO_RENDERED_VIDEO')
 })
+
+// ── S26 / S29 (1.4.417) ────────────────────────────────────────────────────
+
+test('an approval whose description is blank is refused by name, and queues nothing', async () => {
+  const { slug, episodeCode, title } = await uploadReadyProject()
+  // The operator's own sidecar is the last word on the text; an empty one is exactly what Production
+  // approved on 2026-11-21 and then watched fail hours later at dispatch.
+  const paths = await utils.resolveEpisodePaths(slug, episodeCode, title)
+  await fs.writeFile(path.join(paths.episode_dir, 'upload_metadata_overrides.json'),
+    JSON.stringify({ youtube: { description: '' } }))
+  const body = await confirmedUploadBody(slug, episodeCode)
+
+  const refused = await request(app).post(`/api/projects/${slug}/youtube/upload`).send(body)
+  assert.equal(refused.status, 409, JSON.stringify(refused.body))
+  assert.equal(refused.body.code, 'YOUTUBE_METADATA_BLANK')
+  assert.match(String(refused.body.detail), /description/)
+  assert.match(String(refused.body.detail), /nothing was uploaded|Open the Metadata page/i)
+
+  const queued = (await jobQueue.getJobs(slug, { type: 'youtube_upload' }))
+    .filter(job => job.episode_id === episodeCode && job.status === 'queued')
+  assert.equal(queued.length, 0, 'a refused approval never becomes a queued upload')
+})
+
+test('the preview says why the last attempt to upload this episode was refused', async () => {
+  const { slug, episodeCode, title } = await uploadReadyProject()
+  const paths = await utils.resolveEpisodePaths(slug, episodeCode, title)
+  await sidecars.writeUploadRefusalBeside(path.join(paths.episode_dir, 'youtube_upload.json'), {
+    refused_at: new Date().toISOString(),
+    reason: `${episodeCode} has a blank description in the approved upload details.`,
+    job_id: 'refused-before-any-operation',
+  })
+
+  const preview = await request(app).post(`/api/projects/${slug}/youtube/preview`).send({ episode_code: episodeCode })
+  assert.equal(preview.status, 200, JSON.stringify(preview.body))
+  assert.equal(preview.body.metadata.written, true, 'the metadata step has written a package for this episode')
+  assert.match(String(preview.body.metadata.refused_because), /blank description/)
+  assert.ok(
+    (preview.body.warnings as string[]).some(line => /last attempt to upload/.test(line)),
+    'the refusal is on the panel, not only on disk',
+  )
+})
