@@ -6155,6 +6155,9 @@ test('a SCHEDULED approval â€” the apply-plan mode Production\'s rows carried â€
   await fs.writeFile(path.join(paths.episode_dir, 'upload_metadata_overrides.json'),
     JSON.stringify({ youtube: { description: '' } }))
   const publishAt = '2027-01-06T18:00:00.000Z'
+  // Earlier tests in this file may leave rows under the same project slug; count only what THIS
+  // request adds, so the assertion is about the refusal rather than another test's leftovers.
+  const before = new Set((await jobQueue.getJobs(slug, { type: 'youtube_upload' })).map(job => job.job_id))
   const preview = await request(app).post(`/api/projects/${slug}/youtube/preview`)
     .send({ episode_code: episodeCode, privacy_status: 'private', publish_at: publishAt })
   assert.equal(preview.status, 200, JSON.stringify(preview.body))
@@ -6172,7 +6175,8 @@ test('a SCHEDULED approval â€” the apply-plan mode Production\'s rows carried â€
   assert.equal(refused.body.code, 'YOUTUBE_METADATA_BLANK')
   assert.match(String(refused.body.detail), new RegExp(episodeCode), 'the refusal names the episode')
   assert.equal(
-    (await jobQueue.getJobs(slug, { type: 'youtube_upload' })).filter(job => job.episode_id === episodeCode).length,
+    (await jobQueue.getJobs(slug, { type: 'youtube_upload' }))
+      .filter(job => !before.has(job.job_id) && job.episode_id === episodeCode).length,
     0,
     'nothing was queued, so there is no row that can fail 4 s later',
   )
