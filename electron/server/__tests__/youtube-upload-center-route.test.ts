@@ -6145,6 +6145,43 @@ test('an approval whose description is blank is refused by name, and queues noth
   assert.equal(queued.length, 0, 'a refused approval never becomes a queued upload')
 })
 
+test('a SCHEDULED approval — the apply-plan mode Production\'s rows carried — is refused at the door too', async () => {
+  // angkor, 2026-11-22: PR0047/PR0048 carried `approved_upload_mode: "apply-plan"` in their own
+  // params and an empty frozen description. Their mode comes from a chosen publish date, not from a
+  // different admission path, so the same refusal must land on this shape too: before the job, with
+  // the episode named, and with nothing left in the queue to fail later.
+  const { slug, episodeCode, title } = await uploadReadyProject()
+  const paths = await utils.resolveEpisodePaths(slug, episodeCode, title)
+  await fs.writeFile(path.join(paths.episode_dir, 'upload_metadata_overrides.json'),
+    JSON.stringify({ youtube: { description: '' } }))
+  const publishAt = '2027-01-06T18:00:00.000Z'
+  // Earlier tests in this file may leave rows under the same project slug; count only what THIS
+  // request adds, so the assertion is about the refusal rather than another test's leftovers.
+  const before = new Set((await jobQueue.getJobs(slug, { type: 'youtube_upload' })).map(job => job.job_id))
+  const preview = await request(app).post(`/api/projects/${slug}/youtube/preview`)
+    .send({ episode_code: episodeCode, privacy_status: 'private', publish_at: publishAt })
+  assert.equal(preview.status, 200, JSON.stringify(preview.body))
+  assert.equal(String(preview.body.snippet.description ?? '').trim(), '', 'the description the preview shows is 0 characters')
+
+  const refused = await request(app).post(`/api/projects/${slug}/youtube/upload`).send({
+    episode_code: episodeCode,
+    confirm: true,
+    expected_channel_id: CHANNEL,
+    expected_package_revision: preview.body.package_revision,
+    expected_source_revision: preview.body.source?.revision,
+    publish_at: publishAt,
+  })
+  assert.equal(refused.status, 409, JSON.stringify(refused.body))
+  assert.equal(refused.body.code, 'YOUTUBE_METADATA_BLANK')
+  assert.match(String(refused.body.detail), new RegExp(episodeCode), 'the refusal names the episode')
+  assert.equal(
+    (await jobQueue.getJobs(slug, { type: 'youtube_upload' }))
+      .filter(job => !before.has(job.job_id) && job.episode_id === episodeCode).length,
+    0,
+    'nothing was queued, so there is no row that can fail 4 s later',
+  )
+})
+
 test('the preview says why the last attempt to upload this episode was refused', async () => {
   const { slug, episodeCode, title } = await uploadReadyProject()
   const paths = await utils.resolveEpisodePaths(slug, episodeCode, title)

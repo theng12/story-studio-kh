@@ -17,6 +17,7 @@ import { stampFreshGenerationAction } from '../lib/fresh-generation-action.js'
 import { evidenceHoldsUnknownOutcome } from '../lib/genstudio-client.js'
 import { logLine } from '../services/logger.js'
 import { isContentSha256Revision } from '../services/youtube-source-video.js'
+import { metadataPackageFromFinalPayload } from '../services/youtube-metadata-package.js'
 import { jobDisplayStatus } from '../contracts/jobs-history.js'
 
 export const router = Router()
@@ -418,6 +419,21 @@ function retryAdmissionError(job: Job): string | null {
       return 'This upload was saved with a value that is not the rendered video\'s revision (the one '
         + 'starting with "sha256:"). It is the details hash, not the video\'s, so retrying would fail '
         + 'the same way. Preview the episode again and confirm the upload.'
+    }
+    // S26's other half. Approval now refuses a blank description, but a row saved BEFORE that check
+    // still carries the blank inside `approved_final_payload`, and the dispatcher reads the frozen
+    // payload rather than the live metadata. Retry copies that payload, so this is the one remaining
+    // way to put a doomed upload back in the queue — and it is how a row can still fail 4 s after it
+    // is created on a build whose admission refuses the same blank (angkor, 2026-11-22: PR0047 and
+    // PR0048). Refuse with the dispatcher's own rule and words, so the one action that fixes it —
+    // preview, write the description, confirm — is what is said.
+    if (job.params?.approved_final_payload) {
+      try {
+        metadataPackageFromFinalPayload(job.params.approved_final_payload, job.episode_id)
+      } catch (error) {
+        return 'Retrying would replay the same saved details, so it would fail the same way. '
+          + (error instanceof Error ? error.message : 'Preview the episode and confirm the upload again.')
+      }
     }
   }
   return null

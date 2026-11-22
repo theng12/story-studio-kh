@@ -28,6 +28,7 @@ import { readYouTubeConnectionRegistry } from '../services/youtube-connection-st
 import { buildYouTubeMetadataPackage, resolveYouTubeUploadSettings } from '../services/youtube-metadata-package.js'
 import { thumbnailFileHash } from '../services/thumbnail-scoring.js'
 import { resolveSourceRevision } from '../services/youtube-operation-recorder.js'
+import { readUploadRefusalBeside } from '../services/upload-sidecar.js'
 
 let cleanup: (() => Promise<void>) | undefined
 const reviewedParamsBySlug = new Map<string, Record<string, unknown>>()
@@ -934,5 +935,33 @@ describe('a fresh upload carries nothing forward from a previous video', () => {
 
     await generateYoutubeUpload(running)
     assert.equal(running.result?.safety_warnings?.[0]?.check, 'episode_number_claim')
+  })
+
+  test('a queued row already frozen with a blank description is refused by name, and the refusal is written beside the episode', async () => {
+    // The existing half of S26: a job admitted before approval refused blanks (angkor, 2026-11-22:
+    // PR0047/PR0048) must not fail silently or spend a quota unit. It stops at the frozen payload
+    // with the episode named, and the refusal lands where the Publish page reads it
+    // (`metadata.refused_because`), so the row says what to do instead of only failing.
+    const { slug, accountId } = await setUp(true)
+    const fake = fakeAcceptingUpload('must-not-upload')
+    __setYouTubeTransportForTests(fake.transport())
+    const running = job(slug, accountId)
+    const frozen = running.params.approved_final_payload
+    running.params.approved_final_payload = {
+      ...frozen,
+      snippet_json: JSON.stringify({ ...JSON.parse(frozen.snippet_json), description: '' }),
+    }
+
+    await assert.rejects(
+      generateYoutubeUpload(running),
+      /EP0001 has a blank description in the approved upload details\. Review and confirm the exact video and YouTube details again; nothing was uploaded\./,
+    )
+    assert.equal(fake.calls.length, 0, 'YouTube was never contacted')
+    assert.equal((await listYouTubeOperations(slug)).length, 0, 'no durable operation was opened')
+
+    const paths = await resolveEpisodePaths(slug, CODE, TITLE)
+    const refusal = await readUploadRefusalBeside(path.join(paths.episode_dir, 'youtube_upload.json'))
+    assert.match(String(refusal?.reason), /EP0001 has a blank description in the approved upload details/)
+    assert.equal(refusal?.job_id, running.job_id)
   })
 })
