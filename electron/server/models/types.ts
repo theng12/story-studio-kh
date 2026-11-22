@@ -3242,6 +3242,8 @@ export interface Job {
   /** Proven pending keys; normal/listicle calls may recover only by exact membership. */
   genstudio_chat_recovery_keys?: string[]
   queue_position?: number
+  /** How long a queued row has waited, in seconds, as the list reports it (S29). */
+  queued_for_seconds?: number
   /** Durable manual position inside this job's own type lane, assigned when
    * the owner moves a queued job. Jobs without it keep their enqueue order and
    * wait behind the explicitly ordered ones after a restart. */

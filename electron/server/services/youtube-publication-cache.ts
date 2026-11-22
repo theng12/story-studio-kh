@@ -29,7 +29,7 @@ import { listVideoPublicationDetails, listRecentUploads } from '../lib/youtube-c
 import * as im from './idea-manager.js'
 import { logLine } from './logger.js'
 import { getProjectDir } from './project-manager.js'
-import { readSidecarStrict } from './upload-sidecar.js'
+import { clearScheduledForForEpisode, readSidecarStrict } from './upload-sidecar.js'
 import type { ProjectFactsCache } from './utils.js'
 import type { YouTubeOperationRecordV1 } from './youtube-operation-record-reader.js'
 import { listYouTubeOperations } from './youtube-operation-store.js'
@@ -679,7 +679,43 @@ export async function refreshYouTubePublications(input: {
     logLine('warn', `[youtube-publication-cache] could not record observations: ${(error as Error)?.message || 'unknown'}`, { slug: input.project_slug })
     return 0
   })
+  await clearFutureDatesYouTubeAlreadyPublished({
+    project_slug: input.project_slug, answered, details, videos: input.videos,
+  }).catch(error => {
+    logLine('warn', `[youtube-publication-cache] could not reconcile sidecar dates: ${(error as Error)?.message || 'unknown'}`, { slug: input.project_slug })
+  })
   return { outcome, ...(error_code ? { error_code } : {}), requested, unrequested, calls, details, answered, recorded }
+}
+
+/**
+ * S31: local intent never outlives a live observation. YouTube said this video is public (or its
+ * publishAt has passed), and the episode's own record still holds a future date — so the date is
+ * cleared. That stale future date is what made already-published episodes count as still scheduled
+ * (Production, 2026-11-21). Only a FRESH answer clears: a missing or stale observation touches
+ * nothing, and nothing here infers a publication.
+ */
+async function clearFutureDatesYouTubeAlreadyPublished(input: {
+  project_slug: string
+  answered: string[]
+  details: Record<string, VideoPublicationDetails>
+  videos: Map<string, { source: ObservedPublication['source']; episode_code?: string }>
+}): Promise<void> {
+  const now = Date.now()
+  const episodes = input.answered.flatMap(videoId => {
+    const detail = input.details[videoId]
+    const episodeCode = input.videos.get(videoId)?.episode_code
+    if (!detail || !episodeCode) return []
+    const publishAt = detail.publishAt ? Date.parse(detail.publishAt) : NaN
+    const live = detail.privacyStatus === 'public' || (Number.isFinite(publishAt) && publishAt <= now)
+    return live ? [{ videoId, episodeCode }] : []
+  })
+  if (!episodes.length) return
+  for (const { videoId, episodeCode } of episodes) {
+    const cleared = await clearScheduledForForEpisode(input.project_slug, episodeCode)
+    if (cleared) {
+      logLine('info', `[youtube-publication-cache] ${episodeCode} is live on YouTube; cleared its future local date ${cleared}`, { video_id: videoId })
+    }
+  }
 }
 
 /**

@@ -16,6 +16,7 @@ import { scenePromptPackOutputContract } from '../lib/story-output-contracts.js'
 import { stampFreshGenerationAction } from '../lib/fresh-generation-action.js'
 import { evidenceHoldsUnknownOutcome } from '../lib/genstudio-client.js'
 import { logLine } from '../services/logger.js'
+import { isContentSha256Revision } from '../services/youtube-source-video.js'
 import { jobDisplayStatus } from '../contracts/jobs-history.js'
 
 export const router = Router()
@@ -404,6 +405,20 @@ function retryAdmissionError(job: Job): string | null {
   // migrate at Retry into the current thumbnail executor.
   if (type === 'images' && job.params?.mode !== undefined && job.params.mode !== 'thumbs') {
     return 'Legacy Scene Images are retired. Render planned scenes in Scene Review.'
+  }
+  // A retry re-uses the job's own params, so a bad `expected_source_revision` saved at admission — the
+  // metadata hash sent where the video's revision belongs, which is what Production's script did on
+  // 2026-11-21 — would be carried straight into the same refusal hours later. Refuse the retry by name:
+  // the operator previews again and re-admits, which writes a correct value. Dropping the field is NOT
+  // the safe alternative — `hasReviewedFreshUploadParams` requires it, so a job without it takes a
+  // different path that never verifies the file.
+  if (type === 'youtube_upload') {
+    const saved = job.params?.expected_source_revision
+    if (typeof saved === 'string' && saved.trim() && !isContentSha256Revision(saved.trim())) {
+      return 'This upload was saved with a value that is not the rendered video\'s revision (the one '
+        + 'starting with "sha256:"). It is the details hash, not the video\'s, so retrying would fail '
+        + 'the same way. Preview the episode again and confirm the upload.'
+    }
   }
   return null
 }

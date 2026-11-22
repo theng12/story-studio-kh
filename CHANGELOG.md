@@ -4,6 +4,14 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.417 — 2026-11-21
+
+- **An upload now refuses the details hash where the video's revision belongs.** The preview answers with two similarly named values — one for the details, one for the rendered file. A script sent the details hash as the video's revision: the upload was accepted, queued, and failed hours later with "the rendered video changed" while the video sat untouched. That value is now refused at the moment of approval, by name, and a retry of an upload already queued with it is refused instead of carried forward.
+- **A blank description is refused where it can still be fixed.** Approving blank details queued an upload that could only fail at dispatch, with the reason left in one queue row. Approval now refuses it by name before anything is queued, saving an empty description is refused the same way (Reset still restores the generated text), and the last refusal stays on disk beside the episode's own upload record and is shown on the preview.
+- **The Metadata step proves what it wrote.** If it reports saved while the folder holds no package, the run now fails and names the folder — and the preview says whether an episode has no metadata at all or has metadata with an empty description, which are fixed differently.
+- **A queued upload states its place and how long it has waited.** Rows carry the position in the upload lane and the seconds waited, and a row that was held and woken goes back to its first-come place instead of the back of the lane, which is how one upload sat behind later ones for 29 hours.
+- **A live "public" answer clears a stale local date.** When YouTube reports a video public (or past its publish time) and the episode still holds a future date, that date is cleared, using the record the readers actually read — so an episode already public stops counting as still scheduled. A private video, a missing answer or a stale one leaves the date alone.
+
 ## v1.4.416 — 2026-11-21
 
 - **A step that hangs can no longer hold the queue for ever.** Each kind of work now has its own time limit — hours for a big render, minutes for a small local step — instead of no limit at all. When a step passes its own limit, its row ends with a sentence saying which kind of work ran too long and that it can be retried, the files it already saved stay on disk, any program it started is stopped, and the work waiting behind it starts. The limit follows the kind of work, so a long render is never cut by a small step's clock.

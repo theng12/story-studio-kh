@@ -91,7 +91,9 @@ import {
   uploadOnOf,
 } from '../services/upload-pacing-queue.js'
 import type { Job } from '../models/types.js'
-import { listUploadThumbnails, resolveUploadMetadata, snippetFromMeta, YT_TITLE_MAX } from '../lib/upload-metadata.js'
+import {
+  assertUploadMetadataComplete, listUploadThumbnails, resolveUploadMetadata, snippetFromMeta, YT_TITLE_MAX,
+} from '../lib/upload-metadata.js'
 import { findMetadataJunk } from '../lib/metadata-scaffold.js'
 import {
   readTitleAndDescription,
@@ -105,7 +107,7 @@ import {
   YOUTUBE_DESCRIPTION_MAX_BYTES_PUBLISHED,
 } from '../lib/youtube-description-limit.js'
 import { createProjectFactsCache, resolveEpisodePaths, resolveScenePlanPath, EPISODE_PROBE_BATCH } from '../services/utils.js'
-import { findYouTubeSourceVideoPath, resolveYouTubeSourceRevisionCached } from '../services/youtube-source-video.js'
+import { findYouTubeSourceVideoPath, isContentSha256Revision, resolveYouTubeSourceRevisionCached } from '../services/youtube-source-video.js'
 import { getUploadMode } from '../services/upload-store.js'
 import { safetyMode } from '../services/safety-checks.js'
 import {
@@ -124,7 +126,7 @@ import {
   latestFutureProjectClaimMs, listPlans, localDayKeyInTz, orderEpisodeCodes,
   plannedDateFromFacts, readItemSchedule, UploadScheduleBatchWriteError,
 } from '../services/upload-plans.js'
-import { readSidecarStrict, setScheduledFor } from '../services/upload-sidecar.js'
+import { readSidecarStrict, readUploadRefusalBeside, setScheduledFor } from '../services/upload-sidecar.js'
 import { remoteVideoFor, alreadyOnYouTubeReason, OPEN_LIFECYCLES, SUPERSEDED_LIFECYCLES } from '../services/youtube-remote-video.js'
 import { UPLOAD_STORE_UNREADABLE, latestEpisodeUploadJob, localUploadProjection } from '../services/youtube-local-upload.js'
 import { invalidatePublishingOverviewCache } from '../services/publishing-overview.js'
@@ -3111,7 +3113,47 @@ async function youtubePreviewResponse(options: {
     // lookup is best-effort
   }
   const { thumbnail_filename: _thumbnailFilename, ...payload } = built
-  return { ...payload, thumbnail, source, video_id: videoId, limits: YOUTUBE_EDIT_LIMITS }
+  // S28: "nothing was generated for this episode" and "the saved description is empty" look identical
+  // in a blank field, and they are fixed differently — the first by running the metadata step, the
+  // second by writing the text. Say which one it is (Production, 2026-11-21: 903 episode folders had no
+  // metadata at all and the preview could not tell that apart from a cleared description).
+  const metadata = await metadataPresence(slug, episodeCode, previewTitle)
+  if (!payload.snippet.description?.trim()) {
+    payload.warnings = [
+      ...payload.warnings,
+      metadata.written
+        ? `${episodeCode}'s saved metadata has no description in it. Write one on the Metadata page (or here) before publishing.`
+        : `${episodeCode} has no metadata yet — nothing has been generated for it, so the description is empty because it was never written. Run the Metadata step for ${episodeCode} first.`,
+    ]
+  }
+  if (metadata.refused_because) {
+    payload.warnings = [
+      ...payload.warnings,
+      `The last attempt to upload ${episodeCode} was refused: ${metadata.refused_because}`,
+    ]
+  }
+  return { ...payload, metadata, thumbnail, source, video_id: videoId, limits: YOUTUBE_EDIT_LIMITS }
+}
+
+/**
+ * Whether the episode's metadata step has ever written a package for it, and why the last upload was
+ * refused. Both are read from disk, never inferred.
+ */
+async function metadataPresence(
+  slug: string,
+  episodeCode: string,
+  title: string,
+): Promise<{ written: boolean; refused_because?: string }> {
+  const paths = await resolveOverrideEpisodePaths(slug, episodeCode, title || '')
+  const metadataDir = path.dirname(paths.metadata_json)
+  const files = await fsp.readdir(metadataDir).catch(() => [] as string[])
+  const escaped = episodeCode.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const pattern = new RegExp(`^${escaped}_Metadata(?:_v\\d+)?\\.(?:json|txt)$`, 'i')
+  const refusal = await readUploadRefusalBeside(path.join(path.dirname(metadataDir), 'youtube_upload.json'))
+  return {
+    written: files.some(file => pattern.test(file)),
+    ...(refusal ? { refused_because: refusal.reason } : {}),
+  }
 }
 
 /** A refusal the route answers itself, rather than a 500 with a stack. */
@@ -3282,6 +3324,17 @@ router.post('/projects/:slug/youtube/metadata-overrides', async (req, res) => {
         }
         description = typed
       }
+    }
+    // A blank description used to save clean and then fail the upload hours later, with the reason
+    // only in the queue row (S28, Production 2026-11-21). Refuse it HERE, by name: `null` (Reset)
+    // restores the generated text, which is the thing an empty save is usually reaching for.
+    if (typeof description === 'string' && !description.trim()) {
+      res.status(400).json({
+        code: 'YOUTUBE_DESCRIPTION_REQUIRED',
+        detail: 'A description is required: YouTube gets one, and a blank one fails the upload. '
+          + 'Write it, or use Reset to restore the generated description.',
+      })
+      return
     }
     // The publish gate's own rules, checked here so the owner is told now —
     // and only for the text this request actually writes. A field that is not
@@ -4068,6 +4121,21 @@ export async function admitYouTubeUpload(
       })
       return
     }
+    // The confirmation is about the VIDEO. A preview answers with two similarly named values — the
+    // package's `source_sha256` (a hash of title/description/tags, bare hex) and `source.revision`
+    // (the rendered file, `sha256:` + 64 hex). This route used to trim and accept either, so a caller
+    // that sent the metadata hash queued an upload that could never pass its own check and failed
+    // hours later with "the rendered video changed" while the video sat untouched (P002, 2026-11-21).
+    // Refuse it here, by name, before anything is queued.
+    if (!isContentSha256Revision(reviewedSourceRevision)) {
+      res.status(400).json({
+        code: 'YOUTUBE_SOURCE_REVISION_INVALID',
+        detail: 'expected_source_revision must be the rendered video\'s revision from the preview '
+          + '(it starts with "sha256:"). The value sent is not one: a bare 64-character hash is the '
+          + 'metadata hash (`source_sha256`), not the video\'s. Preview again and send `source.revision`.',
+      })
+      return
+    }
     // Already open? Refuse and say which. `accepted` and later mean the video
     // exists on YouTube: uploading again would create a duplicate nobody asked
     // for, and YouTube has no "replace" for content.
@@ -4158,6 +4226,24 @@ export async function admitYouTubeUpload(
           ? { thumbnail_filename: body.thumbnail_filename }
           : {}),
       })
+      // S26: blank details are refused HERE, on the text that would be frozen, by the same rule the
+      // dispatcher applies. Approving a blank queued an upload that could only fail later, hours away
+      // from the page that could have fixed it, with the reason left in one queue row (Production,
+      // 2026-11-21: EP0107 failed twice on the same blank description).
+      try {
+        assertUploadMetadataComplete({
+          title: built.snippet.title ?? '',
+          description: built.snippet.description ?? '',
+        }, uploadIdentity)
+      } catch (error) {
+        return {
+          refusal: {
+            status: 409,
+            code: 'YOUTUBE_METADATA_BLANK',
+            detail: error instanceof Error ? error.message : 'The upload details are blank.',
+          },
+        }
+      }
       if (!automatic && expectedPackageRevision !== built.package_revision && !await letThrough('reviewed_unchanged',
         'The YouTube upload details changed after preview; uploading the details as they are now.')) {
         return {

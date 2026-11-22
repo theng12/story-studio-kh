@@ -1052,7 +1052,9 @@ export interface JobEnqueuedResponse {
   genstudio_chat_retry_scope?: string
   /** A pending chat Retry may only reconcile its existing provider request. */
   genstudio_chat_recovery?: true
+  /** Place in the upload lane's first-come order, and how long it has waited there (S29). */
   queue_position?: number
+  queued_for_seconds?: number
   /**
    * Server-computed: whether this row is real work to count as running. False for a `running`
    * final-render row whose remote outcome is already acknowledged or whose durable hold has no

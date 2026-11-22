@@ -256,22 +256,22 @@ test('the answer is the payload that will be sent: the save and the next preview
   assert.equal(after.snippet.description, saved.body.snippet.description)
 })
 
-test('a blank description is saved as an empty description, not as the generated one', async () => {
-  const { resolveUploadMetadata } = await import('../lib/upload-metadata.js')
-  const { slug, episodeCode, title } = await seededEpisode('Blank Description')
+test('a blank description is refused by name, and the saved text is left alone', async () => {
+  const { slug, episodeCode } = await seededEpisode('Blank Description')
   const before = await preview(slug, episodeCode)
 
+  // 1.4.417 reverses the old "save it blank" answer: a blank used to save clean and then fail the
+  // upload hours later, with the reason only in the queue row (S26/S28, Production 2026-11-21).
   const saved = await save(slug, episodeCode, {
     title: 'Kept Title', description: '',
     expected_package_revision: before.package_revision,
   })
-  assert.equal(saved.status, 200, JSON.stringify(saved.body))
-  assert.equal(saved.body.snippet.description, '', 'the description is empty, not the generated text')
+  assert.equal(saved.status, 400, JSON.stringify(saved.body))
+  assert.equal(saved.body.code, 'YOUTUBE_DESCRIPTION_REQUIRED')
+  assert.match(String(saved.body.detail), /Reset/)
 
-  const resolved = await resolveUploadMetadata({
-    slug, episode_code: episodeCode, platform: 'youtube', fallback_title: title,
-  })
-  assert.equal(resolved.description, '', 'the resolver honours the empty description')
+  const after = await preview(slug, episodeCode)
+  assert.equal(after.snippet.description, before.snippet.description, 'nothing was written over the saved text')
 })
 
 test('text YouTube would refuse is refused here, where it can still be fixed', async () => {
@@ -300,7 +300,7 @@ test('text YouTube would refuse is refused here, where it can still be fixed', a
 
   // The publish gate's own rule, said here instead of at upload time.
   const junk = await save(slug, episodeCode, {
-    title: '# SEO-Optimized Video Titles', description: '', expected_package_revision: before.package_revision,
+    title: '# SEO-Optimized Video Titles', description: 'Fine description.', expected_package_revision: before.package_revision,
   })
   assert.equal(junk.status, 400)
   assert.equal(junk.body.code, 'YOUTUBE_METADATA_NOT_PUBLISHABLE')
@@ -308,20 +308,20 @@ test('text YouTube would refuse is refused here, where it can still be fixed', a
   // YouTube drops angle brackets from every title. A text that would change
   // on the way out is refused with the text that WOULD arrive.
   const angles = await save(slug, episodeCode, {
-    title: 'A title <with brackets>', description: '', expected_package_revision: before.package_revision,
+    title: 'A title <with brackets>', description: 'Fine description.', expected_package_revision: before.package_revision,
   })
   assert.equal(angles.status, 400)
   assert.equal(angles.body.code, 'YOUTUBE_METADATA_WOULD_BE_CHANGED')
   assert.equal(angles.body.suggestion.title, 'A title with brackets')
 
   // A save with no reviewed revision behind it is refused.
-  const unreviewed = await save(slug, episodeCode, { title: 'Fine', description: '' })
+  const unreviewed = await save(slug, episodeCode, { title: 'Fine', description: 'Fine description.' })
   assert.equal(unreviewed.status, 400)
   assert.equal(unreviewed.body.code, 'YOUTUBE_CONFIRMATION_REQUIRED')
 
   // A revision that is not the one on the server is refused as stale.
   const stale = await save(slug, episodeCode, {
-    title: 'Fine', description: '', expected_package_revision: 'not-the-reviewed-revision',
+    title: 'Fine', description: 'Fine description.', expected_package_revision: 'not-the-reviewed-revision',
   })
   assert.equal(stale.status, 409)
   assert.equal(stale.body.code, 'YOUTUBE_PREVIEW_STALE')
@@ -376,14 +376,17 @@ test('an explicit null restores the generated text; an empty description does no
   assert.equal(resolved.description, 'Generated description.')
   assert.equal(resolved.title, 'Owner Title')
 
-  // An EMPTY description is an empty description the owner asked for. It is
-  // not a reset and must not bring the generated text back.
+  // 1.4.417 reversed the old answer here. An EMPTY description used to save clean and then fail the
+  // upload hours later with the reason only in the queue row (S26/S28, Production 2026-11-21), so it is
+  // refused at the save — and it still must not be read as a reset that brings the generated text back.
   const emptied = await save(slug, episodeCode, {
     description: '',
     expected_package_revision: reset.body.package_revision,
   })
-  assert.equal(emptied.status, 200, JSON.stringify(emptied.body))
-  assert.equal(emptied.body.snippet.description, '', 'the description is empty, not the generated text')
+  assert.equal(emptied.status, 400, JSON.stringify(emptied.body))
+  assert.equal(emptied.body.code, 'YOUTUBE_DESCRIPTION_REQUIRED')
+  const afterEmpty = await preview(slug, episodeCode)
+  assert.equal(afterEmpty.snippet.description, 'Generated description.', 'a refused save changes nothing')
 })
 
 test('a request that changes nothing is refused, and a field that is not mentioned is left alone', async () => {
