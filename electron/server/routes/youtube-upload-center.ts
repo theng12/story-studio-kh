@@ -4227,13 +4227,16 @@ export async function admitYouTubeUpload(
           : {}),
       })
       // S26: blank details are refused HERE, on the text that would be frozen, by the same rule the
-      // dispatcher applies. Approving a blank queued an upload that could only fail later, hours away
-      // from the page that could have fixed it, with the reason left in one queue row (Production,
-      // 2026-11-21: EP0107 failed twice on the same blank description).
+      // dispatcher applies. The bytes checked are READ BACK FROM `final_payload` — what the job will
+      // actually carry and the dispatcher will actually parse — not a second look at the same object
+      // (`built.snippet`), so the two can never disagree. Approving a blank queued an upload that
+      // could only fail later, hours away from the page that could have fixed it (Production,
+      // 2026-11-21: EP0107; 2026-11-22: PR0047/PR0048 replayed the same blank at dispatch).
       try {
+        const frozen = JSON.parse(built.final_payload.snippet_json) as { title?: string, description?: string }
         assertUploadMetadataComplete({
-          title: built.snippet.title ?? '',
-          description: built.snippet.description ?? '',
+          title: frozen.title ?? '',
+          description: frozen.description ?? '',
         }, uploadIdentity)
       } catch (error) {
         return {
