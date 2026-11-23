@@ -27,7 +27,7 @@
     "dist": "npm run dist:smoke",
     "dist:smoke": "node scripts/release/build-unsigned-dmg.mjs",
     "dist:public": "node scripts/release/build-public-dmg.mjs",
-    "dist:retain": "python3 -I \"$HOME/Developer/Shared Tools/portfolio/tools/release-dist.py\"",
+    "dist:retain": "zsh scripts/release/dist-retain.sh",
     "verify:artifact": "node scripts/release/verify-desktop-artifact.mjs",
     "verify:deps": "node scripts/release/verify-packaged-dependencies.mjs",
     "verify:launch": "node scripts/release/smoke-launch-artifact.mjs",
