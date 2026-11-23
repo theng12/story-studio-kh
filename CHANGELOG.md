@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.419 — 2026-11-23
+
+- **The update hold now answers only the updater, and says so when it can't.** Pausing Story before the Launcher replaces it is how an update never cuts off work — but anything else on the Mac could pause it too, and an answer of "not now" was being read as "go ahead". The hold now needs the updater's private token, a file only you can read: without it Story refuses, nothing is paused, it keeps doing its work, and the refusal names the file to fix. Any other kind of request is answered as unsupported instead of quietly doing nothing.
+
 ## v1.4.418 — 2026-11-23
 
 - **An upload saved with a blank description now says so where you can fix it.** An approval made before this fix could sit in the queue with no description and fail hours later with one line in its job. Approval now checks the exact details it will send, a queued row that was already saved blank is refused by name with the reason kept beside the episode, and Retry refuses that row instead of queueing the same failure again — it names the one fix: preview, write the description, confirm again.
