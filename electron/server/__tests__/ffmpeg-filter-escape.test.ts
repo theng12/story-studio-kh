@@ -38,6 +38,10 @@ import { buildContextualCueDrawtextFilters } from '../lib/contextual-cue-filters
 import type { ContextualCue } from '../models/types.js'
 
 const run = promisify(execFile)
+// Bounded on purpose: on 2026-11-24 a child ffmpeg in this file went idle and the whole backend
+// suite (no per-test timeout) sat behind it for 1 h 44 m until the gate was stopped by hand. A
+// wedged child must fail this test in a minute, not freeze the release gate.
+const FFMPEG_RUN = { timeout: 60_000, maxBuffer: 4 * 1024 * 1024 }
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..')
 
 /**
@@ -161,7 +165,7 @@ async function renderGraph(filters: string[]): Promise<void> {
     '-hide_banner', '-f', 'lavfi', '-i', 'color=c=black:s=640x360:d=0.1',
     '-filter_complex', `${parts.join(';')};${label}null[vout]`,
     '-map', '[vout]', '-frames:v', '1', '-f', 'null', '-',
-  ])
+  ], FFMPEG_RUN)
 }
 
 describe('contextual cue filters accepted by the real FFmpeg parser', { skip: FFMPEG ? false : 'no drawtext-capable ffmpeg found (run `npm run fetch:ffmpeg`)' }, () => {
@@ -265,7 +269,7 @@ describe('subtitle burn-in accepted by the real FFmpeg parser', { skip: FFMPEG ?
           '-filter_complex',
           `[0:v]subtitles=filename=${escapeFilterPath(srt)}:original_size=1920x1080:force_style='${style}'[vout]`,
           '-map', '[vout]', '-frames:v', '1', '-f', 'null', '-',
-        ])
+        ], FFMPEG_RUN)
       } finally {
         rmSync(root, { recursive: true, force: true })
       }
@@ -290,7 +294,7 @@ describe('subtitle burn-in accepted by the real FFmpeg parser', { skip: FFMPEG ?
           '-hide_banner', '-f', 'lavfi', '-i', 'color=c=black:s=320x180:d=0.1',
           '-filter_complex', `[0:v]ass=filename=${escapeFilterPath(assPath)}[vout]`,
           '-map', '[vout]', '-frames:v', '1', '-f', 'null', '-',
-        ])
+        ], FFMPEG_RUN)
       } finally {
         rmSync(root, { recursive: true, force: true })
       }
