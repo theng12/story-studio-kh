@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.418 — 2026-11-23
+
+- **An upload saved with a blank description now says so where you can fix it.** An approval made before this fix could sit in the queue with no description and fail hours later with one line in its job. Approval now checks the exact details it will send, a queued row that was already saved blank is refused by name with the reason kept beside the episode, and Retry refuses that row instead of queueing the same failure again — it names the one fix: preview, write the description, confirm again.
+
 ## v1.4.417 — 2026-11-21
 
 - **An upload now refuses the details hash where the video's revision belongs.** The preview answers with two similarly named values — one for the details, one for the rendered file. A script sent the details hash as the video's revision: the upload was accepted, queued, and failed hours later with "the rendered video changed" while the video sat untouched. That value is now refused at the moment of approval, by name, and a retry of an upload already queued with it is refused instead of carried forward.
