@@ -9,6 +9,10 @@
  */
 
 import assert from 'node:assert/strict'
+import { randomBytes } from 'node:crypto'
+import fs from 'node:fs/promises'
+import os from 'node:os'
+import path from 'node:path'
 import test, { mock } from 'node:test'
 import {
   _resetShutdownStateForTests,
@@ -20,6 +24,14 @@ import {
   shutdownSnapshot,
 } from '../lib/shutdown-state.js'
 import { maintenanceHoldPost } from '../routes/system.js'
+
+// The hold route answers only the Launcher now (server/hold-auth.ts), so these tests carry the
+// Launcher's credential the way the updater does — the shutdown behaviour is what is under test.
+const HOLD_TOKEN = randomBytes(32).toString('hex')
+const tokenDir = await fs.mkdtemp(path.join(os.tmpdir(), 'story-hold-token-'))
+process.env.KHU_HOLD_TOKEN_FILE = path.join(tokenDir, 'hold-token')
+await fs.writeFile(process.env.KHU_HOLD_TOKEN_FILE, HOLD_TOKEN, { mode: 0o600 })
+const holdHeaders = { 'x-hub-token': HOLD_TOKEN }
 
 test('a quit that does not finish ends at its ceiling, naming what was in flight', () => {
   _resetShutdownStateForTests()
@@ -53,7 +65,7 @@ test('a quitting app answers the maintenance hold at once instead of going silen
 
   let body: any = null
   await maintenanceHoldPost(
-    { query: { timeout_s: '20' } } as any,
+    { method: 'POST', headers: holdHeaders, query: { timeout_s: '20' } } as any,
     { json: (payload: unknown) => { body = payload } } as any,
   )
 
@@ -98,7 +110,10 @@ test('a quitting app also takes DELETE plainly', async () => {
   beginShutdown([])
   let body: any = null
   const { maintenanceHoldDelete } = await import('../routes/system.js')
-  await maintenanceHoldDelete({} as any, { json: (payload: unknown) => { body = payload } } as any)
+  await maintenanceHoldDelete(
+    { method: 'DELETE', headers: holdHeaders } as any,
+    { json: (payload: unknown) => { body = payload } } as any,
+  )
   assert.equal(body?.ok, true)
   assert.equal(body?.detail, shutdownSentence())
 })
