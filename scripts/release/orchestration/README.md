@@ -196,7 +196,7 @@ required.
 ## Assembling the 1.4.389 proof (no new runner)
 
 The reviewed record
-`/build/Developer/_orchestra/story-lead/release-389-qualification-20261108/reconciliation-r2.json`
+`~/Developer/_orchestra/story-lead/release-389-qualification-20261108/reconciliation-r2.json`
 is input, not a proof. Map it as follows, writing the new `gate-result.json` and identity
 files into a fresh proof directory:
 

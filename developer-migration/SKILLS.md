@@ -77,11 +77,11 @@ their upstream restore commands were not established in the inspected input.
 |---|---|---|
 | `genstudio-add-model` | Researching/adding/pricing/routing a model in GenStudio; companion repository work. | `~/.codex/skills/genstudio-add-model/` |
 | `genstudio-route-onboarding` | GenStudio operation-specific routes, provider/aggregator comparison and owner-approved route workflow. | `~/.codex/skills/genstudio-route-onboarding/` |
-| `terranash-script` | TerraNash sleep-story script, image-prompt sheet and YouTube metadata production. | `~/.codex/plugins/cache/claude-cowork/anthropic-skills/1.0.0/skills/terranash-script/` |
+| `sleep-story-script` | Sleep-story script, image-prompt sheet and YouTube metadata production. | `~/.codex/plugins/cache/claude-cowork/anthropic-skills/1.0.0/skills/sleep-story-script/` |
 | `pinokio` | Discovering and launching local Pinokio tools. | `~/.agents/skills/pinokio/` |
 | `gepeto` | Creating Pinokio launchers. | `~/.agents/skills/gepeto/` |
 
-**[MEASURED]** The TerraNash entry lives inside a cached bundle whose manifest
+**[MEASURED]** The sleep-story entry lives inside a cached bundle whose manifest
 records `creatorType: "user"` for it. Do not assume a generic Anthropic/plugin
 reinstall will recover that custom skill. Gepeto/Pinokio metadata points to
 local `~/pinokio/skills/...` sources; the skill folders alone do not install

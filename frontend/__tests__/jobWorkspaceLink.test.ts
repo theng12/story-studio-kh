@@ -3,13 +3,13 @@ import { existsSync, readFileSync } from 'node:fs'
 import { test } from 'node:test'
 import { jobWorkspaceLink } from '../utils/job-presentation.js'
 
-const failed = { type: 'audio', status: 'error', project_slug: 'terranash-sleep-stories', episode_id: 'TN0354' }
+const failed = { type: 'audio', status: 'error', project_slug: 'sleep-stories', episode_id: 'TN0354' }
 
 test('failed audio opens its own project and episode without retry or repair parameters', () => {
   assert.deepEqual(jobWorkspaceLink(failed), {
     label: 'Open Audio Generator',
     ariaLabel: 'Open Audio Generator for TN0354',
-    to: '/projects/terranash-sleep-stories/audio?episode_id=TN0354',
+    to: '/projects/sleep-stories/audio?episode_id=TN0354',
   })
   assert.equal(jobWorkspaceLink({ ...failed, status: 'cancelled' })?.to, jobWorkspaceLink(failed)?.to)
   assert.equal(jobWorkspaceLink({ ...failed, project_slug: 'another project', episode_id: 'EP/1 & 2' })?.to,
@@ -25,7 +25,7 @@ test('unknown and app-wide tasks have no misleading workspace shortcut', () => {
 
 test('every status opens its generator, not only failed ones', () => {
   for (const status of ['running', 'queued', 'done', 'paused', 'needs_attention'])
-    assert.equal(jobWorkspaceLink({ ...failed, status })?.to, '/projects/terranash-sleep-stories/audio?episode_id=TN0354')
+    assert.equal(jobWorkspaceLink({ ...failed, status })?.to, '/projects/sleep-stories/audio?episode_id=TN0354')
 })
 
 test('writing, media and upload tasks use existing work pages', () => {
@@ -35,12 +35,12 @@ test('writing, media and upload tasks use existing work pages', () => {
     thumb_images: 'images', scene_clips_batch: 'motion-review', video_assembly: 'video-assembly', youtube_upload: 'upload/publish',
   }
   for (const [type, page] of Object.entries(cases)) {
-    assert.equal(jobWorkspaceLink({ ...failed, type })?.to, `/projects/terranash-sleep-stories/${page}?episode_id=TN0354`)
+    assert.equal(jobWorkspaceLink({ ...failed, type })?.to, `/projects/sleep-stories/${page}?episode_id=TN0354`)
     assert.ok(existsSync(new URL(`../pages/projects/[slug]/${page}.vue`, import.meta.url)))
   }
   assert.equal(jobWorkspaceLink({ ...failed, type: 'image_prompts', params: { mode: 'scenes' } })?.label, 'Open Scene Plan')
   assert.equal(jobWorkspaceLink({ ...failed, type: 'image_prompts', params: { mode: 'thumbnails' } })?.label, 'Open Thumbnail Prompts')
-  assert.equal(jobWorkspaceLink({ ...failed, type: 'idea_campaign', episode_id: null })?.to, '/projects/terranash-sleep-stories/ideas')
+  assert.equal(jobWorkspaceLink({ ...failed, type: 'idea_campaign', episode_id: null })?.to, '/projects/sleep-stories/ideas')
 })
 
 test('both job lists render a navigation link with an episode-specific accessible label', () => {

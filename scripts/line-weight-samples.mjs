@@ -18,7 +18,7 @@ import sharp from 'sharp'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const HELPER = path.join(ROOT, 'bundled', 'scene-clip', 'scene-clip')
-const OUT = path.resolve(process.argv[2] || '/build/Developer/_orchestra/line-weight-374-samples')
+const OUT = path.resolve(process.argv[2] || path.join(os.homedir(), 'Developer/_orchestra/line-weight-374-samples'))
 
 const W = 1920, H = 1080, FPS = 24, FRAMES = 24, HOLD = 6
 const SOURCE_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}">

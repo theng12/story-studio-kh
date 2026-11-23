@@ -16,7 +16,7 @@ async function preflight(result: any) {
   const context = {
     ref, response: result,
     selectedEpisodes: new Set(['TN0001']),
-    slug: ref('terranash-sleep-stories'),
+    slug: ref('sleep-stories'),
     submitting: ref(false), preflighting: ref(false), repairMode: ref(false), forceRerun: ref(false),
     showConfirm: ref(false), repairActionId: ref(''), runActionId: ref(''),
     preflightSummary: ref(''), preflightBlocked: ref<any[]>([]), preflightLeftOut: ref<any[]>([]), preflightWarnings: ref<string[]>([]),

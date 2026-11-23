@@ -25,8 +25,9 @@ APP_LABEL="${APP_LABEL:-story}"; LANE_APP="${LANE_APP:-$APP_LABEL}"; LOCK_HOLDER
 STEPS="${STEPS:-lint build dist:smoke test}"
 [ "${ISOLATE_TRASH:-1}" = "1" ] && unset STORY_STUDIO_RETAINED_FIXTURES_ROOT
 
-LOCK_SH="/build/Developer/_orchestra/tools/app-test-lock.sh"
-LANE_MEM="/build/Developer/_orchestra/tools/lane-mem.sh"
+TOOLS="${STUDIO_TOOLS:-$HOME/Developer/_orchestra/tools}"
+LOCK_SH="$TOOLS/app-test-lock.sh"
+LANE_MEM="$TOOLS/lane-mem.sh"
 mkdir -p "$EVIDENCE_DIR"
 S() { echo "=== $1 $(date '+%H:%M:%S') ===" | tee -a "$EVIDENCE_DIR/summary.txt"; }
 
@@ -81,7 +82,7 @@ while :; do
   printf '%s\n' "$wait_out" | tee -a "$EVIDENCE_DIR/00-lock-wait.log"
   printf '%s\n' "$wait_out" | grep -q '^ACQUIRED:' && break
   [ "$wait_rc" -eq 3 ] && { S "ABORT wait withdrawn"; exit 1; }
-  holder=$(sed -n 's/.*holder-pid \([0-9]*\).*/\1/p' /build/Developer/_orchestra/tools/ui-acceptance.lock/heavy/owner 2>/dev/null)
+  holder=$(sed -n 's/.*holder-pid \([0-9]*\).*/\1/p' $TOOLS/ui-acceptance.lock/heavy/owner 2>/dev/null)
   if [ -n "$holder" ] && ! kill -0 "$holder" 2>/dev/null; then
     echo "stale holder $holder is not running — sweeping it" | tee -a "$EVIDENCE_DIR/00-lock-wait.log"
     zsh "$LOCK_SH" release "$LANE_APP" 2>&1 | tee -a "$EVIDENCE_DIR/00-lock-wait.log"
@@ -103,9 +104,9 @@ for step in ${=STEPS}; do
   case "$step" in
     lint)          npm run lint > "$EVIDENCE_DIR/$id.log" 2>&1 & STEP_PID=$!; wait $STEP_PID || rc=$? ;;
     fetch:ffmpeg)  npm run fetch:ffmpeg > "$EVIDENCE_DIR/$id.log" 2>&1 & STEP_PID=$!; wait $STEP_PID || rc=$? ;;
-    build)         /build/Developer/_orchestra/tools/lane-mem.sh "$APP_LABEL-build" -- npm run build > "$EVIDENCE_DIR/$id.log" 2>&1 & STEP_PID=$!; wait $STEP_PID || rc=$? ;;
-    dist:smoke)    /build/Developer/_orchestra/tools/lane-mem.sh "$APP_LABEL-dist-smoke" -- npm run dist:smoke > "$EVIDENCE_DIR/$id.log" 2>&1 & STEP_PID=$!; wait $STEP_PID || rc=$? ;;
-    test)          /build/Developer/_orchestra/tools/lane-mem.sh "$APP_LABEL-test" -- npm test > "$EVIDENCE_DIR/$id.log" 2>&1 & STEP_PID=$!; wait $STEP_PID || rc=$? ;;
+    build)         $LANE_MEM "$APP_LABEL-build" -- npm run build > "$EVIDENCE_DIR/$id.log" 2>&1 & STEP_PID=$!; wait $STEP_PID || rc=$? ;;
+    dist:smoke)    $LANE_MEM "$APP_LABEL-dist-smoke" -- npm run dist:smoke > "$EVIDENCE_DIR/$id.log" 2>&1 & STEP_PID=$!; wait $STEP_PID || rc=$? ;;
+    test)          $LANE_MEM "$APP_LABEL-test" -- npm test > "$EVIDENCE_DIR/$id.log" 2>&1 & STEP_PID=$!; wait $STEP_PID || rc=$? ;;
     *)             S "ABORT unknown step $step"; exit 1 ;;
   esac
   STEP_PID=""  # finished cleanly: nothing of ours left to end

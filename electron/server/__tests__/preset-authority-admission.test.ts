@@ -188,7 +188,7 @@ test('new Scene Plan admission resolves the saved selection against the live ima
     intended_image_model: 'studio-hub::approved-image', prompt_char_cap: 8_000,
   }, catalog), 4_800, 'a saved custom value cannot exceed the current published capability')
   // Owner, 2026-10-27 — an id the catalogue no longer publishes is NOT a refusal.
-  // `terranash-sleep-stories` still carries four presets naming `flux-2-klein`,
+  // `sleep-stories` still carries four presets naming `flux-2-klein`,
   // and selecting one ended in a 409 from THIS resolver on a generation the
   // customer had already committed to. The page drops the dead model on apply;
   // here the preset's own selection simply goes unclamped, and `unresolved`

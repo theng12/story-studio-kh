@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { after, before, test } from 'node:test'
 import express from 'express'
 import fs from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import path from 'node:path'
 import request from 'supertest'
 import sharp from 'sharp'
@@ -26,7 +27,7 @@ before(async () => {
   cleanup = async () => {
     delete process.env.STORY_STUDIO_DATA_DIR
     if (process.env.STORY_STUDIO_TEST_HARNESS_ROOT) return // the focused runner retains this fixture
-    const trash = '/build/Developer/_trash/thumbnail-text-tests'
+    const trash = process.env.STORY_STUDIO_TRASH_ROOT || path.join(tmpdir(), 'story-studio-thumbnail-text-tests')
     await fs.mkdir(trash, { recursive: true })
     await fs.rename(temp.dir, path.join(trash, path.basename(temp.dir)))
   }

@@ -3,7 +3,7 @@
  * or a bug" (owner, 2026-10-11).
  *
  * - The Presentation Frame reaches a Pipeline batch: from the Video Assembly preset's own copy,
- *   or from the Effects preset it names (refinanced and terranash-sleep-stories had it on there
+ *   or from the Effects preset it names (refinanced and sleep-stories had it on there
  *   while the copy never kept it). Measured on real pixels through the final composition.
  * - The outro saved inside the intro slot, the episode's own title on a title card, and the
  *   "hide captions during the intro" choice reach the batch request.

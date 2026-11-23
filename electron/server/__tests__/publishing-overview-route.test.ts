@@ -213,7 +213,7 @@ test('operation-record and legacy-sidecar evidence excludes an episode from read
   // on_youtube counts the SAME episodes the Publish page knows have a video —
   // an operation record and a legacy sidecar are both authoritative evidence,
   // and counting only `episode_video_links` reported 2 where 62 were known
-  // (Story Sprout) or 39 where 200 were (TerraNash).
+  // (Story Sprout) or 39 where 200 were (a production channel).
   assert.equal(channel.readiness.on_youtube, 2)
   // Only the episode with NO remote evidence anywhere may be recommended.
   assert.deepEqual(channel.recommendations.map((r: any) => r.episode_code), ['RE0003'])

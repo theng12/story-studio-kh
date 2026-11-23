@@ -2,7 +2,7 @@
 
 ## Bold-Line Field Explainer, 2026-10-30
 
-The owner supplied and approved these original Qwen Image 2.1 Turbo images from `/build/Developer/_orchestra/explainer-style-20261030/`; generation cost and underlying license terms were not independently verified. No new generation, overlay, compositing or repair was performed. Each 1280×720 PNG was resized as a whole using cover and Lanczos3 to 1672×941 and encoded as WebP quality 90, method 6. All three outputs decoded successfully and have distinct SHA-256 hashes.
+The owner supplied and approved these original Qwen Image 2.1 Turbo images from `~/Developer/_orchestra/explainer-style-20261030/`; generation cost and underlying license terms were not independently verified. No new generation, overlay, compositing or repair was performed. Each 1280×720 PNG was resized as a whole using cover and Lanczos3 to 1672×941 and encoded as WebP quality 90, method 6. All three outputs decoded successfully and have distinct SHA-256 hashes.
 
 | Role | Original | Original bytes | Original SHA-256 | WebP bytes | WebP SHA-256 |
 | --- | --- | ---: | --- | ---: | --- |

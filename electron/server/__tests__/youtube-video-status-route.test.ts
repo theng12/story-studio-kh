@@ -2,7 +2,7 @@
  * Read-only video status for videos this project has no operation record for.
  *
  * The need came from production: legacy uploads (Boundful EP62-72, Story
- * Sprout SS57-60, TerraNash TN160-161) went up before the operation store
+ * Sprout SS57-60, the channel TN160-161) went up before the operation store
  * existed, so no per-operation route can reach them and their state could only
  * be read by hand in YouTube Studio. This is the bounded, read-only way to ask.
  *

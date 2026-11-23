@@ -226,7 +226,7 @@ void test('Gateway image retry identity is fresh after failure and stable on a l
       globalThis.fetch = async (input, init) => {
         if (String(input).includes('/v1/images/by-idempotency-key/')) {
           // The Gateway is still holding this failed job as an unknown outcome
-          // (`origin-field/38cf1226`, `terranash-sleep-stories/516bd788`): the answer may
+          // (`origin-field/38cf1226`, `sleep-stories/516bd788`): the answer may
           // yet be adopted, so `state: failed` here is not a settled failure.
           return Response.json({
             id: heldJobId, state: 'failed', cancelled: false, failure_code: 'provider_error',

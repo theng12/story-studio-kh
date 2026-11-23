@@ -27,6 +27,7 @@ import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { execFile, spawn } from 'node:child_process'
 import { promisify } from 'node:util'
+import { fileURLToPath } from 'node:url'
 import fs from 'node:fs/promises'
 import http from 'node:http'
 import type { AddressInfo } from 'node:net'
@@ -57,8 +58,9 @@ import { resolveEpisodePaths } from '../services/utils.js'
 
 const execFileAsync = promisify(execFile)
 
-/** Orchestra guards live outside the repo; this Mac is the only test host. */
-const ORCHESTRA_TOOLS = '/build/Developer/_orchestra/tools'
+/** Orchestra guards live outside the repo; the path is derived from this checkout, never baked in. */
+const REPO_ROOT = fileURLToPath(new URL('../../..', import.meta.url))
+const ORCHESTRA_TOOLS = process.env.STUDIO_TOOLS || path.resolve(REPO_ROOT, '..', '..', '..', 'tools')
 
 const TEMPLATE_ID = 'verify-shell-01'
 const LAYOUT_NOTE = 'Leave the left third clear for the episode’s chosen words.'

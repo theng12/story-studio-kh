@@ -5938,7 +5938,7 @@
           "task": "20261024 three-preview backfill and Cinematic Historical Illustration review draft",
           "branch": "feat/job-go-to-generator-20261024"
         },
-        "proposal_ref": "Owner's three-preview rule 2026-10-24; orchestrator-approved previews and worker evidence at /build/Developer/_orchestra/story-356-focus/preview-work-NOTES.md (two 1.0.1 successors plus one new style, Cinematic Historical Illustration)",
+        "proposal_ref": "Owner's three-preview rule 2026-10-24; orchestrator-approved previews and worker evidence at ~/Developer/_orchestra/story-356-focus/preview-work-NOTES.md (two 1.0.1 successors plus one new style, Cinematic Historical Illustration)",
         "records": [
           {
             "pack_id": "com.storystudio.pack.style.bold-illustrated-history",
@@ -6018,7 +6018,7 @@
           "task": "formula modernization and adoption, owner ruling 2026-10-25",
           "branch": "content/formula-modernize-20261026"
         },
-        "proposal_ref": "Owner ruling 2026-10-25: modernize the store Formulas (opening recipes and shared field set), adopt the three unique owner custom Formulas, and add the three new channel Formulas. Audit: /build/Developer/_orchestra/formula-audit-20261025/PROPOSAL.md; corrections in the task brief override it.",
+        "proposal_ref": "Owner ruling 2026-10-25: modernize the store Formulas (opening recipes and shared field set), adopt the three unique owner custom Formulas, and add the three new channel Formulas. Audit: ~/Developer/_orchestra/formula-audit-20261025/PROPOSAL.md; corrections in the task brief override it.",
         "records": [
           {
             "pack_id": "com.storystudio.pack.formula.ancient-humans",

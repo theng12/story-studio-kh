@@ -1394,9 +1394,9 @@ Candidate source builds on `3e1fb6bc` / 1.4.259. Audit loading repairs skip port
 
 API key is now called Gateway API Key; the release signing key is now the App Update Key. Settings → This Mac names the connection credential; About → Updates shows the first 16 fingerprint characters and points to Gateway → Settings → App Update Key. Code identifiers and existing credential/signing fields remain unchanged.
 
-Source gates for this source revision pass. Lint, typecheck, changelog, typography, security, model-drift and release source checks exited 0. Backend completed 631/631 files and 6,319 tests (6,315 pass, 0 fail/cancelled, 4 skip); frontend completed 294/294 files and 2,472 tests (all pass); Content Packs completed 38/38 files and 368 tests (366 pass, 0 fail/cancelled, 2 skip). The full backend log also records the configured projects root byte-identical. Evidence and the remaining delivery state are in `/build/Developer/_orchestra/codex-remediation-20261007/story-delivery-receipt.json`.
+Source gates for this source revision pass. Lint, typecheck, changelog, typography, security, model-drift and release source checks exited 0. Backend completed 631/631 files and 6,319 tests (6,315 pass, 0 fail/cancelled, 4 skip); frontend completed 294/294 files and 2,472 tests (all pass); Content Packs completed 38/38 files and 368 tests (366 pass, 0 fail/cancelled, 2 skip). The full backend log also records the configured projects root byte-identical. Evidence and the remaining delivery state are in `~/Developer/_orchestra/codex-remediation-20261007/story-delivery-receipt.json`.
 
-At source verification, UI and package validation were pending coordinator integration. The first retained baseline UI attempt is invalid because its synthetic profile had no configured Library and route middleware correctly redirected it to Welcome before Video Assembly mounted; the external seed/harness was corrected but had not been rerun. Current delivery status and exact commit, artifact and installation evidence are authoritative in `/build/Developer/_orchestra/codex-remediation-20261007/story-delivery-receipt.json`. At that checkpoint, the mini's read-only health check reported 1.4.259; the old pending-install note below is historical, not current evidence.
+At source verification, UI and package validation were pending coordinator integration. The first retained baseline UI attempt is invalid because its synthetic profile had no configured Library and route middleware correctly redirected it to Welcome before Video Assembly mounted; the external seed/harness was corrected but had not been rerun. Current delivery status and exact commit, artifact and installation evidence are authoritative in `~/Developer/_orchestra/codex-remediation-20261007/story-delivery-receipt.json`. At that checkpoint, the mini's read-only health check reported 1.4.259; the old pending-install note below is historical, not current evidence.
 
 ## Current work — 2026-10-07 (1.4.259 assembled)
 
@@ -1444,7 +1444,7 @@ Installer tests now isolate their temporary trash as well as their install targe
 
 ## Upstream 1.4.255 — 2026-10-06
 
-Source release **1.4.255**, based on `dcea61ad` (1.4.254), addresses the owner's unattended Pipeline workflow on the separate 2 TB Mac mini. See `docs/superpowers/plans/2026-10-06-autonomous-pipeline.md` for scope and safeguards. The installable artifact is `dist/Story Studio KH 1.4.255-arm64.dmg`; the coordinating handoff under `/build/Developer/_orchestra/` records its final build/verification status. This release has not been installed on the mini.
+Source release **1.4.255**, based on `dcea61ad` (1.4.254), addresses the owner's unattended Pipeline workflow on the separate 2 TB Mac mini. See `docs/superpowers/plans/2026-10-06-autonomous-pipeline.md` for scope and safeguards. The installable artifact is `dist/Story Studio KH 1.4.255-arm64.dmg`; the coordinating handoff under `~/Developer/_orchestra/` records its final build/verification status. This release has not been installed on the mini.
 
 - Bulk preflight shares project facts and overlaps independent episode reads with at most eight workers. Start performs a fresh preflight, and admission checks current completion evidence; immutable snapshots cannot schedule duplicate paid work or skip removed artifacts.
 - Scene Plan checkpoints usable rows from typed token-truncation errors. Disk-rejected duplicate/invalid IDs remain writable by missing-only repair. Ordinary repair continues when the missing count decreases and stops after two consecutive settled passes without improvement; unresolved requests, Pause, Cancel and final completion audits remain authoritative.
@@ -1453,7 +1453,7 @@ Source release **1.4.255**, based on `dcea61ad` (1.4.254), addresses the owner's
 - Remote access: the mini's recorded server port **8765** refused connections during diagnosis; SSH stopped at host-key verification. The owner was asked for Server Mode status. Credentials were neither stored nor printed, and no production jobs/settings were changed. Do not restart/install over active mini jobs merely to verify this release.
 - Installer-test safety: a temporary install target alone does **not** isolate trash. `install-local.test.mjs` now copies the real installer into a private temporary project with miniature source/target apps, and both default/overridden trash paths stay there. `STORY_STUDIO_INSTALL_TRASH` permits an explicitly isolated trash location; normal installs retain project `_trash/app`. The read-only built-bundle existence check requires the main build before the release test lane. Local incident/recovery details are in `_orchestra/audit-20261006/RELEASE-TEST-INCIDENT.md`; do not run an older installer test against real shared trash.
 
-Older release/install statements below are historical. The cross-repo current baseline is `/build/Developer/_orchestra/HANDOFF-20261005.md`; the mini's 1.4.254 install is now confirmed by the owner's screenshots.
+Older release/install statements below are historical. The cross-repo current baseline is `~/Developer/_orchestra/HANDOFF-20261005.md`; the mini's 1.4.254 install is now confirmed by the owner's screenshots.
 
 **Written:** 2026-09-23 · **against:** v1.4.219 · branch `codex/stabilization-takeover` @ `734ccd70` (record-only commits after this pin leave the app unchanged) · `main` @ `eced221b`
 
@@ -1516,7 +1516,7 @@ Run in this order. Anything marked ⚠ has burned us before.
 
 | Path | What it is |
 |---|---|
-| repo root | `/build/Developer/story-studio-kh` |
+| repo root | `~/Developer/story-studio-kh` |
 | `electron/server/` | Express backend; job queue, generators, content-store client |
 | `frontend/` | Nuxt 4 / Vue frontend |
 | `bundled/ffmpeg/` | `ffmpeg` 8.1 + `ffprobe`; prepend to `PATH` for dev runs |

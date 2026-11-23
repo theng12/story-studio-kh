@@ -70,7 +70,7 @@ const LEGACY_LOOKS: Array<Record<string, any>> = [
   { film_grain: { enabled: true, strength: 15 } },
   { letterbox: { enabled: true, ratio: '2.00:1', color: '#1a1a2e' } },
   { letterbox: { enabled: true, ratio: '1.85:1', color: 'black' } },
-  // TerraNash's active look on the mini: vignette with the aged-film treatment.
+  // The channel's active look on the mini: vignette with the aged-film treatment.
   { vignette: { enabled: true, strength: 1 }, aged_archive_film: { enabled: true, strength: 45 } },
   // Classic checkbox plus a library effect and a frame; the section was off with a stale pick.
   {

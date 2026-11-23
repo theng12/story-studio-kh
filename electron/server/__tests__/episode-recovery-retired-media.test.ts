@@ -1,5 +1,5 @@
 /**
- * 1.4.292 — Free Up Space moved TerraNash TN0162–TN0170's chapter audio to Trash
+ * 1.4.292 — Free Up Space moved channel TN0162–TN0170's chapter audio to Trash
  * after upload; the next restart's recovery sweep queued Audio Assembly for all
  * nine and each failed 3/3 ("required audio file(s) are missing"). Retired media
  * is intentionally absent: automatic recovery must not queue work for it, while an

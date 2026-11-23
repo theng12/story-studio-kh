@@ -61,7 +61,7 @@ was never in `main`; on the owner's decision relayed in the gateway's Content Pa
 revert `2db266f3`**, which removed `content-packs/rebuilt/**` from the working line and returned
 `content-packs/authoring-registry.json` to the revision 289 baseline. The commit itself stays recoverable in
 history, and `content-packs/rebuilt/` is now an empty directory.
-Checkout: `/build/Developer/story-studio-kh`.
+Checkout: `~/Developer/story-studio-kh`.
 Inherited uncommitted work is preserved and recorded, never reset, stashed, rebased or discarded.
 **Version is 1.4.219 (released and installed):** the ACCEPT-01 fixes, the export-root status watch, the
 acceptance driver and the release guard are in `main`; the installed app is 1.4.219.
@@ -151,8 +151,8 @@ prove different things. Do not add these categories together as a count of bugs 
 ### Graph navigation on this Mac
 
 An existing code-only graph lives in
-`/build/.codex/worktrees/story-studio-kh-recovery/story-studio-kh/graphify-out/`.
-The CLI is `/build/.local/share/uv/tools/graphifyy/bin/graphify`.
+`~/.codex/worktrees/story-studio-kh-recovery/story-studio-kh/graphify-out/`.
+The CLI is `~/.local/share/uv/tools/graphifyy/bin/graphify`.
 Query from that worktree if available; check `.graphify_python` first. Its source locations are
 navigation leads, **not proof about this checkout**. Verify every lead against current source.
 At preparation, a 500-token-budget query for cancellation/recovery found `cancellationControlFor`,
@@ -1297,7 +1297,7 @@ was built and verified locally at the owner's explicit request as a temporary ar
   `content-packs/rebuilt/` and `content-packs/authoring-registry.json` were deliberately left modified
   and untracked working-tree state, per the rule against sweeping unrelated work into a commit. The
   branch is **not** integrated into `main`, no pull request was opened, and the commit author resolves
-  to the machine-local identity `vengtheng@build-mac.local` (git config was not set), which
+  to a machine-local identity (git config was not set), which
   is cosmetic and worth correcting before any integration. No signed/notarized release was built.
 - **2026-09-22 — DeepSeek lead, DS-14 (M-08, model-drift guard):** `fixed`, self-accepted. The guard is
   now exercisable on fixtures (exports `analyzeModelDriftSource`, `scanForModelDrift`,

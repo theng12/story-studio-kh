@@ -378,8 +378,8 @@ describe('Quit while jobs run', () => {
 describe('Scene Review waiting on the owner', () => {
   test('a finished scene render with unapproved scenes notifies once, in plain words', async () => {
     const job = { job_id: 'r1', type: 'continuity_render', status: 'done', episode_id: 'TN0329', result: { awaiting_approval: 1 } } as unknown as Job
-    assert.deepEqual(formatApprovalWaitMessage(job, 'TerraNash'), {
-      title: 'Waiting for your approval (1 scene) — TerraNash',
+    assert.deepEqual(formatApprovalWaitMessage(job, 'Sleep Stories'), {
+      title: 'Waiting for your approval (1 scene) — Sleep Stories',
       body: 'TN0329 — Scene Review. Open it to approve the scenes.',
     })
     assert.equal(formatApprovalWaitMessage({ ...job, result: {} } as Job), null)

@@ -19,7 +19,7 @@ and project status. Do not spawn or delegate agents. Work one packet at a time a
 next unblocked packet without asking whether to proceed. Record acceptance honestly as
 self-acceptance; never present it as independent human or independent-agent review.
 
-Repository: /build/Developer/story-studio-kh
+Repository: ~/Developer/story-studio-kh
 Read completely:
 1. AGENTS.md and applicable parent instructions.
 2. Story Studio Project Status.md in the repository root (the current source of truth and queue).
@@ -34,7 +34,7 @@ editing. You may expand a packet's production-file scope when current-source tra
 cause requires it — record the reason and revised owned files before editing.
 
 Use Ponytail for the smallest complete solution, Graphify for architecture/caller navigation, and
-Impeccable for frontend/visual/accessibility work. Read the skills under /build/.codex/skills/
+Impeccable for frontend/visual/accessibility work. Read the skills under ~/.codex/skills/
 rather than claiming them from memory; if a tool/skill is unavailable, say so and use the documented
 direct-inspection fallback. No paid graph extraction. No new framework, dependency or broad refactor
 for a small bug.

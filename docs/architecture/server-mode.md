@@ -114,7 +114,7 @@ curl http://127.0.0.1:8765/api/health
 tailscale status
 ```
 
-Find the line for the Mac mini and note its hostname (typically something like `mac-mini.your-tailnet.ts.net`). MagicDNS makes this resolvable from any other tailnet member.
+Find the line for the Mac mini and note its hostname (typically something like `mac-mini.<your-tailnet>`). MagicDNS makes this resolvable from any other tailnet member.
 
 ---
 
@@ -123,7 +123,7 @@ Find the line for the Mac mini and note its hostname (typically something like `
 From your iMac (or any tailnet member), open in a browser:
 
 ```
-http://mac-mini.your-tailnet.ts.net:8765/
+http://mac-mini.<your-tailnet>:8765/
 ```
 
 You'll see the login page. Enter the credentials you set above. The full Story Studio UI loads. Use it as you would normally — generate scripts, render audio, assemble video, etc.

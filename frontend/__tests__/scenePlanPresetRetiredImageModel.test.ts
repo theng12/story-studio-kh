@@ -2,7 +2,7 @@
  * A Scene Plan preset that names an image model the live catalogue no longer
  * publishes must still APPLY — and must never reach a generation.
  *
- * Production, 2026-10-27: four `terranash-sleep-stories` Scene Plan presets
+ * Production, 2026-10-27: four `sleep-stories` Scene Plan presets
  * ("Haiku 5.5", "Gemini Free", "GPT 6 Luna", "Gemma 4 Local") all carry
  * `intended_image_model: 'flux-2-klein'`, a bare legacy id. Selecting one and
  * pressing Build ended in a **409 from the prompt-cap resolver**, not a plain
@@ -69,7 +69,7 @@ describe('the owner-published retired image id', () => {
   })
 })
 
-describe('applying the real terranash preset', () => {
+describe('applying the real production preset', () => {
   test('every other field applies; the dead model is dropped, not carried', () => {
     const resolved = resolveSavedImageModelId(STORED_BODY.intended_image_model, find, resolveRetiredImageModelId)
 

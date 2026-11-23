@@ -117,6 +117,8 @@ test('reference pool: no network without categories; polite, cached, backs off o
       assert.equal(call.headers['User-Agent'], WIKIPEDIA_USER_AGENT)
       assert.ok(call.url.startsWith('https://en.wikipedia.org/w/api.php?'))
     }
+    // Declared exception to the path-free tree: this regex IS the guard — it proves the user agent
+    // carries no personal data. The names stay so the check keeps catching them.
     assert.doesNotMatch(WIKIPEDIA_USER_AGENT, /@|mailto|vengtheng|fannv/i, 'no personal data in the User-Agent')
 
     const cached = await getReferencePool(project.slug, ['Category:Teas', 'Category:Spices'], { deps: deps(never) })

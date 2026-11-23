@@ -8,7 +8,7 @@ revert a deliberate call.
 
 **Delegation (owner 2026-11-10).** Invoke the global `efficient-orchestration` skill for multi-step
 coordination after required ponytail, and follow
-[Efficient delegation and parallel work](/build/Developer/_orchestra/developer-handoff/LEAD-RULES.md#efficient-delegation-and-parallel-work).
+[Efficient delegation and parallel work](~/Developer/_orchestra/developer-handoff/LEAD-RULES.md#efficient-delegation-and-parallel-work).
 Leads own complete bounded implementation/check/review/fix outcomes and brief workers with required
 skills, graph queries, exact working folders, source and owned files. Run independent source/light
 work in parallel; serialize only conflicting writers, the KH Apps heavy-job schedule and conflicting

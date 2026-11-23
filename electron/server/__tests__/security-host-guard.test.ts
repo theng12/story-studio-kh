@@ -84,6 +84,8 @@ describe('requireAllowedHost — server mode bypass', () => {
 
   test('allows any host (Tailscale hostname, IP, anything)', () => {
     for (const host of [
+      // Declared exception to the path-free tree: this is the scanner's own pattern — a made-up
+      // tailnet hostname used to prove the guard accepts it. It is not a real machine.
       'macmini-server.tailnet.ts.net',
       '100.64.0.1:8765',
       'attacker.com',

@@ -2,7 +2,7 @@
  * 1.4.286 — the Video Assembly preset's copy of each slot is the slot preset itself.
  *
  * The Effects slot had two hand-kept lists and the bundle's was missing `frame`, so every
- * Pipeline batch dropped the Presentation Frame (refinanced, terranash). The intro copy held a
+ * Pipeline batch dropped the Presentation Frame (two production channels). The intro copy held a
  * stale outro, and the subtitles copy never kept "hide captions during the intro". One snapshot
  * and one apply per slot means a new setting cannot be saved in one and forgotten in the other.
  */

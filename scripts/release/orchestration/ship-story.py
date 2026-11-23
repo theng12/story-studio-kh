@@ -9,7 +9,7 @@ is the normal guarded check-in (no force/restart/pause change). Receipts go to s
 
 KH_GATEWAY_URL must be set to an explicit http(s) origin before anything else: there is no local
 fallback.  The DMG is staged to the Gateway host at
-/build/story-release-staging/<version>-<head8> using known-host SSH, its remote SHA-256 is
+<staging-root>/<version>-<head8> (STORY_RELEASE_STAGING, default ~/story-release-staging) using known-host SSH, its remote SHA-256 is
 verified exactly, and that remote path is what gets published.
 
 Before the FIRST publish or mini-update mutation this refuses to proceed unless a full-gate proof
@@ -50,18 +50,19 @@ def gateway_origin():
 GW_ORIGIN, GW_HOST = gateway_origin()
 ORIGIN_SHA = hashlib.sha256(GW_ORIGIN.encode()).hexdigest()
 
-sys.path.insert(0, '/build/Developer/_orchestra/audit-20261011/vision/gateway')
-sys.path.insert(0, '/build/Developer/_orchestra/codex-takeover-20261012/tools/recovered-helpers')
+ORCHESTRA = Path(os.environ.get('STORY_ORCHESTRA_ROOT', Path.home() / 'Developer' / '_orchestra'))
+for helper in (ORCHESTRA / 'audit-20261011/vision/gateway', ORCHESTRA / 'codex-takeover-20261012/tools/recovered-helpers'):
+    if helper.is_dir(): sys.path.insert(0, str(helper))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import gw, mini_api  # admin / Story keys are read in-process, never printed
 import story_gate_proof
 
 VERSION = None
 OBSERVE = '--observe' in sys.argv
-P = Path('/build/Developer/story-studio-kh')
+P = Path(os.environ.get('STORY_REPO_ROOT', Path(__file__).resolve().parents[3]))
 D = None
 INSTANCE = 'macmini-angkor'
-SSH_KEY = '/build/.ssh/id_ed25519_gateway1301'
+SSH_KEY = str(Path(os.environ.get('STORY_SSH_KEY', Path.home() / '.ssh/id_ed25519_gateway1301')))
 head = tree = diff_sha = None
 
 
@@ -130,9 +131,10 @@ def sh(args):
 
 
 def stage(version, artifact, sha, head):
-    remote_dir = f'/build/story-release-staging/{version}-{head[:8]}'
+    STAGING_ROOT = os.environ.get('STORY_RELEASE_STAGING', '~/story-release-staging')
+    remote_dir = f'{STAGING_ROOT}/{version}-{head[:8]}'
     remote_artifact = remote_dir + '/' + Path(artifact).name
-    target = 'vengtheng@' + GW_HOST
+    target = os.environ.get('STORY_SSH_TARGET', GW_HOST)  # user comes from ssh config unless overridden
     opts = ['-i', SSH_KEY, '-o', 'StrictHostKeyChecking=yes',
             '-o', 'IdentitiesOnly=yes', '-o', 'ConnectTimeout=10']
     identity = {'version': version, 'sha256': sha, 'remote_artifact': remote_artifact,
@@ -181,7 +183,7 @@ def main():
     VERSION = sys.argv[1]
     D = Path(__file__).resolve().parent.parent / 'story-releases' / VERSION
     D.mkdir(parents=True, exist_ok=True)
-    GATE_PROOF = Path(arg('--gate-proof', '/build/Developer/_orchestra/app-closeout-20261021/story-gate'))
+    GATE_PROOF = Path(arg('--gate-proof', str(ORCHESTRA / 'app-closeout-20261021/story-gate')))
     # Trusted paths for testctl-change-aware proofs; schema 1/2 composite
     # proofs ignore these. The publisher must supply them explicitly when
     # using a common-core proof; never derived from proof content.

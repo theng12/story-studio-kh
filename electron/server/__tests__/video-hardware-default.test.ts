@@ -1,6 +1,6 @@
 /**
  * Owner, 2026-10-09: "set up the hardware encoder for video assembly." The final
- * encode ran libx264 ultrafast at about 0.9× realtime on the mini (a TerraNash
+ * encode ran libx264 ultrafast at about 0.9× realtime on the mini (a channel
  * episode took ~1 h 56 min). With no saved encoding effort it now uses the Media
  * Engine; a saved effort is the owner's and wins; libx264 takes over by itself if
  * VideoToolbox cannot start; the length check still runs on the result.

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { after, before, test } from 'node:test'
 import fs from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import {
@@ -17,7 +18,7 @@ before(async () => {
 })
 after(async () => {
   if (process.env.STORY_STUDIO_TEST_HARNESS_ROOT) return // retained by the focused runner
-  const trash = '/build/Developer/_trash/thumbnail-text-tests'
+  const trash = process.env.STORY_STUDIO_TRASH_ROOT || path.join(tmpdir(), 'story-studio-thumbnail-text-tests')
   await fs.mkdir(trash, { recursive: true })
   await fs.rename(tempDir, path.join(trash, path.basename(tempDir)))
 })

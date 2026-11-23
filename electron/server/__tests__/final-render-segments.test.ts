@@ -46,7 +46,7 @@ describe('segment plan', () => {
   })
 
   test('a still tail renders 30 s once and repeats it; the pieces add up to the whole video', () => {
-    // TerraNash TN0183: the after-outro still starts at 2600.07 s of a 6185.07 s render.
+    // the channel TN0183: the after-outro still starts at 2600.07 s of a 6185.07 s render.
     const plan = planFinalSegments(6185.073333, 0.04, { stillTailFromSec: 2600.07 })
     assert.equal(plan.tail_loop?.from_sec, 2603)
     assert.equal(plan.tail_loop?.repeats, 118)
@@ -147,8 +147,8 @@ describe('lossless proof with FFmpeg', () => {
     const dir = path.join(tmp.dir, 'proof')
     await fs.mkdir(path.join(dir, 'final_segments'), { recursive: true })
     const p = (name: string) => path.join(dir, name)
-    // 10 s moving picture, then a 7 s still (as TerraNash's after-outro image), a frame board at 25 fps.
-    // Like TerraNash (6200 s intermediate, 6185 s render), the picture runs past the end, so `-t` ends both renders.
+    // 10 s moving picture, then a 7 s still (as the channel's after-outro image), a frame board at 25 fps.
+    // Like the channel (6200 s intermediate, 6185 s render), the picture runs past the end, so `-t` ends both renders.
     ffmpeg(['-f', 'lavfi', '-i', 'testsrc2=s=320x180:r=24:d=10', '-c:v', 'libx264', '-qp', '0', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p', p('a.mp4')])
     ffmpeg(['-i', p('a.mp4'), '-vf', 'select=eq(n\\,0)', '-frames:v', '1', p('still.png')])
     ffmpeg(['-loop', '1', '-framerate', '24', '-i', p('still.png'), '-t', '7', '-c:v', 'libx264', '-qp', '0', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p', p('b.mp4')])

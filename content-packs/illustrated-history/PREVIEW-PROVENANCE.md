@@ -46,7 +46,7 @@ edited in this lane.
 | source | `~/Developer/_orchestra/illustrated-sleep-history-20261021/sample/rome-thumbnail-sample.png` |
 | origin | one-sample probe requested by the owner, 2026-10-21 |
 | model | `studio-hub::filipstrand/Z-Image-Turbo-mflux-4bit` |
-| route | configured Gateway image API → Studio Hub fleet (`terranash-0108-m1-8-256-hub`) |
+| route | configured Gateway image API → Studio Hub fleet (`a Studio Hub fleet node`) |
 | job | `d7e867a3-039b-4540-bfba-88bf2ab75381` / upstream `7ffe8c62a7` |
 | original | 1,428,338 bytes PNG, 1280x720, SHA-256 `749859235ae960661177e61effe98cfb97ff9510d3199f572dcd41eb9d828db3` |
 | review | ROME and FOR SLEEP spelled correctly, one subject line, badge bottom-left, no extra text or watermark |
@@ -68,9 +68,9 @@ reference images. Source receipts live in
 
 | slot | subject | Gateway job | upstream | machine | source |
 |------|---------|-------------|----------|---------|--------|
-| `style-1` | text-free harbour scene | `4a2a328e-89f0-49f7-9c55-22fab2a7e117` | `e3c5a0a759` | `studio-mini` | 1,244,646 PNG, 1280x720, `663d22b2…c1902` |
-| `thumbnail-2` | `THE SILK ROAD` | `addd7961-82b6-4dad-9bee-b4e3c9dc0bb7` | `05968c6747` | `terranash-1502-m4-16-256-hub` | 1,243,894 PNG, 1280x720, `9d538c4a…db1912` |
-| `thumbnail-3` | `THE FALL OF CARTHAGE` | `efc08ad8-32c3-4609-8d3a-d9dc2735f0af` | `eca1f5c2fd` | `studio-mini` | 1,156,789 PNG, 1280x720, `f5a28b9c…ea6c1c` |
+| `style-1` | text-free harbour scene | `4a2a328e-89f0-49f7-9c55-22fab2a7e117` | `e3c5a0a759` | `a Studio Hub fleet node` | 1,244,646 PNG, 1280x720, `663d22b2…c1902` |
+| `thumbnail-2` | `THE SILK ROAD` | `addd7961-82b6-4dad-9bee-b4e3c9dc0bb7` | `05968c6747` | `a Studio Hub fleet node` | 1,243,894 PNG, 1280x720, `9d538c4a…db1912` |
+| `thumbnail-3` | `THE FALL OF CARTHAGE` | `efc08ad8-32c3-4609-8d3a-d9dc2735f0af` | `eca1f5c2fd` | `a Studio Hub fleet node` | 1,156,789 PNG, 1280x720, `f5a28b9c…ea6c1c` |
 
 The owner reviewed all three directly on 2026-10-21 and approved them for these previews: “i've
 check the generated images just now. they are all good quality and accepted.” No additional sample

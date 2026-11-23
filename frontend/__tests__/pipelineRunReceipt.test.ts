@@ -21,7 +21,7 @@ function harness(
   const context = {
     ref, computed, response: result, reject,
     selectedEpisodes: new Set(['TN0001', 'TN0002']),
-    slug: ref('terranash-sleep-stories'),
+    slug: ref('sleep-stories'),
     submitting: ref(false), preflighting: ref(false), repairMode: ref(repair), forceRerun: ref(false),
     showConfirm: ref(true), repairActionId: ref('repair-1'), runActionId: ref(''),
     pendingPipelineSubmission: shallowRef<any>(null),
@@ -78,7 +78,7 @@ test('successful submission stays on Pipeline with server counts and an explicit
   assert.match(page.batchReceipt.value.lines.join(' '), /7 job\(s\).*2 episode\(s\)/)
   const html = await renderReceipt(page)
   assert.match(html, /Stay on Pipeline/)
-  assert.match(html, /href="\/projects\/terranash-sleep-stories\/jobs"/)
+  assert.match(html, /href="\/projects\/sleep-stories\/jobs"/)
   assert.match(html, /View Jobs/)
   page.batchReceipt.value = null
   assert.equal((await renderReceipt(page)).includes('View Jobs'), false)

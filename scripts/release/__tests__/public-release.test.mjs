@@ -1,6 +1,7 @@
 import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
+import os from 'node:os'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -13,7 +14,9 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '.
 
 // The owner's home directory, assembled at runtime rather than written out, so
 // this gate does not itself become the thing it forbids.
-const OWNER_HOME = ['', 'Users', 'thengmacmini'].join('/')
+// Declared exception to the path-free tree: a scanner pattern. Resolved at run time so the guard
+// keeps looking for the real owner home without carrying it in the source.
+const OWNER_HOME = os.userInfo().homedir
 
 describe('public desktop release gate', () => {
   test('requires signing and one complete notarization credential set', () => {
@@ -62,7 +65,8 @@ describe('public desktop release gate', () => {
     }
     const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'))
     assert.equal(pkg.scripts.dist, 'npm run dist:smoke')
-    assert.equal(pkg.scripts['dist:retain'], 'python3 -I "$HOME/Developer/Shared Tools/portfolio/tools/release-dist.py"')
+    assert.equal(pkg.scripts['dist:retain'], 'zsh scripts/release/dist-retain.sh',
+      'retention goes through the wrapper that names the pin document and the helper path')
   })
 
   test('desktop runtime does not depend on the vulnerable extract-zip package', () => {

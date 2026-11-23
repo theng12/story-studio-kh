@@ -2,7 +2,7 @@
 temp directory and asserts the verifier accepts it, then that each tamper is rejected.  No
 network, no repo, no gate.  Run only when the coordinator grants the lane:
 
-    python3 -I /build/Developer/_orchestra/codex-takeover-20261012/tools/test_story_gate_proof.py
+    python3 -I ~/Developer/_orchestra/codex-takeover-20261012/tools/test_story_gate_proof.py
 """
 import hashlib
 import json
