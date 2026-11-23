@@ -24,6 +24,7 @@ import { resolveAssetPath, toPortablePath, isPortablePath } from '../services/pa
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 import { isShuttingDown, shutdownSentence, shutdownSnapshot } from '../lib/shutdown-state.js'
 import { isServerMode } from '../lib/server-mode.js'
+import { holdRefusal, maintenanceHoldOtherMethod } from '../hold-auth.js'
 
 const require = createRequire(import.meta.url)
 
@@ -471,7 +472,14 @@ function boundedHoldNumber(value: unknown, fallback: number, min: number, max: n
 // (127.0.0.1:8647) the signed feed's holdURL names — one implementation, two
 // listeners, so the Launcher can reach the hold without knowing the app's
 // random API port.
+//
+// Both handlers answer only the Launcher's 0600 hold token (server/hold-auth.ts):
+// anything on the machine can reach a loopback port, so the credential — not the
+// address — is what makes a hold a request from the updater. A refusal is a 401
+// with nothing paused, which is why a refused hold never stalls the app.
 export async function maintenanceHoldPost(req: express.Request, res: express.Response) {
+  const refused = await holdRefusal(req)
+  if (refused) return res.status(refused.status).json(refused.body)
   // A quitting app answers at once and says why, instead of going silent for the updater's window.
   if (isShuttingDown()) {
     return res.json({
@@ -487,13 +495,16 @@ export async function maintenanceHoldPost(req: express.Request, res: express.Res
   res.json(await takeUpdateHold(timeoutS, pauseS))
 }
 
-export async function maintenanceHoldDelete(_req: express.Request, res: express.Response) {
+export async function maintenanceHoldDelete(req: express.Request, res: express.Response) {
+  const refused = await holdRefusal(req)
+  if (refused) return res.status(refused.status).json(refused.body)
   if (isShuttingDown()) return res.json({ ok: true, detail: shutdownSentence() })
   res.json(await releaseUpdateHold())
 }
 
 router.post('/maintenance/hold', maintenanceHoldPost)
 router.delete('/maintenance/hold', maintenanceHoldDelete)
+router.all('/maintenance/hold', maintenanceHoldOtherMethod)
 
 // Named roots were retired in v1.4.3. The label → path map they managed was
 // the fourth location concept, and the one that made a project non-portable in

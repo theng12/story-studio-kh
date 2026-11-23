@@ -22,12 +22,18 @@
 
 import { after, before, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
+import { randomBytes } from 'crypto'
 import express from 'express'
 import fs from 'fs/promises'
 import path from 'path'
 import request from 'supertest'
 import { useTempDataDir } from './_helpers.js'
 import { waitFor, sleep } from './_timing.js'
+
+// The Launcher's own credential: these tests prove the hold's behaviour, so every request here
+// carries it the way the Launcher does. The refusal contract (401/405) is proved in
+// update-hold-auth.test.ts.
+const HOLD_TOKEN = randomBytes(32).toString('hex')
 
 let tempDir: string
 let cleanup: () => Promise<void>
@@ -67,8 +73,17 @@ before(async () => {
   pm = await import('../services/project-manager.js')
   jq = await import('../services/job-queue.js')
   const { router } = await import('../routes/system.js')
+  process.env.KHU_HOLD_TOKEN_FILE = path.join(tempDir, 'hold-token')
+  await fs.writeFile(process.env.KHU_HOLD_TOKEN_FILE, HOLD_TOKEN, { mode: 0o600 })
   app = express()
   app.use(express.json())
+  // Stands in for the Launcher on this Mac: the real refusal path is proved in update-hold-auth.
+  app.use((req, _res, next) => {
+    if (req.path === '/api/maintenance/hold' && !req.headers['x-hub-token']) {
+      req.headers['x-hub-token'] = HOLD_TOKEN
+    }
+    next()
+  })
   app.use('/api', router)
 
   jq.registerExecutor('chapter-only', async () => {
@@ -89,6 +104,7 @@ after(async () => {
   releaseGates(chapterGates)
   releaseGates(thumbGates)
   await jq.setQueuePaused(false).catch(() => {})
+  delete process.env.KHU_HOLD_TOKEN_FILE
   await cleanup()
 })
 

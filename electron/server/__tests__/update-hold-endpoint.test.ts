@@ -13,11 +13,16 @@
 
 import { after, before, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
+import { randomBytes } from 'crypto'
 import http from 'http'
 import fs from 'fs/promises'
 import path from 'path'
 import { useTempDataDir } from './_helpers.js'
 import { sleep, waitFor } from './_timing.js'
+
+// The Launcher's credential, sent exactly as UpdateHold.swift sends it: X-Hub-Token.
+const HOLD_TOKEN = randomBytes(32).toString('hex')
+const HOLD_HEADERS = { 'X-Hub-Token': HOLD_TOKEN }
 
 // Dynamic imports in before() — the hold-endpoint chain (routes/system.ts →
 // job-queue) must load AFTER useTempDataDir() claims the sandbox, or its
@@ -45,6 +50,8 @@ before(async () => {
   const isolated = await useTempDataDir()
   tempDir = isolated.dir
   cleanup = isolated.cleanup
+  process.env.KHU_HOLD_TOKEN_FILE = path.join(tempDir, 'hold-token')
+  await fs.writeFile(process.env.KHU_HOLD_TOKEN_FILE, HOLD_TOKEN, { mode: 0o600 })
   ;({ HOLD_ENDPOINT_PORT, HOLD_ENDPOINT_URL, startHoldEndpoint } = await import('../hold-endpoint.js'))
   await fs.mkdir(path.join(tempDir, 'projects'), { recursive: true })
   pm = await import('../services/project-manager.js')
@@ -61,6 +68,7 @@ after(async () => {
   chapterFree = true
   for (const resolve of chapterGates.splice(0)) resolve()
   if (holdServer?.listening) await new Promise<void>(resolve => holdServer.close(() => resolve()))
+  delete process.env.KHU_HOLD_TOKEN_FILE
   await cleanup()
 })
 
@@ -84,8 +92,14 @@ describe('fixed hold endpoint on 127.0.0.1:8647', () => {
     })
     const queuedBehind = enqueue(project.slug, 'chapter-only', 'UH101', 'queued behind the live job')
 
+    // The fixed port is reachable by anything on this Mac: without the Launcher's token it refuses
+    // over the real wire, byte for byte as the Launcher would find it.
+    const anonymous = await fetch(`${HOLD_ENDPOINT_URL}?timeout_s=0&pause_s=60`, { method: 'POST' })
+    assert.equal(anonymous.status, 401, 'the fixed port refuses a hold with no token')
+    assert.match((await anonymous.json() as { detail: string }).detail, /^update blocked: hold token /)
+
     // POST the URL the signed feed will name — not supertest, the real wire.
-    const held = await fetch(`${HOLD_ENDPOINT_URL}?timeout_s=0&pause_s=60`, { method: 'POST' })
+    const held = await fetch(`${HOLD_ENDPOINT_URL}?timeout_s=0&pause_s=60`, { method: 'POST', headers: HOLD_HEADERS })
     assert.equal(held.status, 200)
     const heldBody = await held.json() as { safe: boolean; unsettled: string[]; dispatch_paused_s: number; in_flight: number }
     assert.deepEqual(Object.keys(heldBody).sort(), ['dispatch_paused_s', 'in_flight', 'safe', 'unsettled'])
@@ -105,7 +119,7 @@ describe('fixed hold endpoint on 127.0.0.1:8647', () => {
     assert.equal(jq.getJob(queuedBehind.job_id)?.status, 'queued')
     assert.equal(jq.getJob(queuedFreeLane.job_id)?.status, 'queued')
 
-    const resumed = await fetch(HOLD_ENDPOINT_URL, { method: 'DELETE' })
+    const resumed = await fetch(HOLD_ENDPOINT_URL, { method: 'DELETE', headers: HOLD_HEADERS })
     assert.equal(resumed.status, 200)
     const resumedBody = await resumed.json() as { dispatch_paused_s: number }
     assert.equal(resumedBody.dispatch_paused_s, 0, 'DELETE resumes at once')
