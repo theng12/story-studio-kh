@@ -14,5 +14,16 @@
       <description><![CDATA[- **The update hold now answers only the updater, and says so when it can't.** Pausing Story before the Launcher replaces it is how an update never cuts off work — but anything else on the Mac could pause it too, and an answer of "not now" was being read as "go ahead". The hold now needs the updater's private token, a file only you can read: without it Story refuses, nothing is paused, it keeps doing its work, and the refusal names the file to fix. Any other kind of request is answered as unsupported instead of quietly doing nothing.]]></description>
       <enclosure url="https://github.com/theng12/story-studio-kh/releases/download/1.4.419/654517c8f7bd-Story.Studio.KH.1.4.419-arm64.dmg" length="264004523" type="application/octet-stream" sparkle:edSignature="CnZd0o0V+ZZpj8KMnn/wY7XCREZySzeNAB4vzmGwdB0VFvASSz09iQr8/NICiGWAylcYIlBfFYM5j5fiecarDA==" />
     </item>
+      <item>
+      <title>Version 1.4.420</title>
+      <pubDate>Tue, 24 Nov 2026 17:36:50 +0000</pubDate>
+      <sparkle:version>1.4.420</sparkle:version>
+      <sparkle:shortVersionString>1.4.420</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>12.0</sparkle:minimumSystemVersion>
+      <description><![CDATA[- **A check that is still running no longer speaks for the last one.** While a final check is measuring a video, the row, the check's own answer and the upload button all say it is checking instead of showing an old pass or an old failure — so an episode can no longer be held, or released, for a fault a finished re-check has already cleared. An upload started during a check waits for the verdict, and when you choose to upload anyway the job itself records the verdict, when it was taken and that you chose to go ahead, so a released episode can be read back and explained later.
+- **A preview can no longer describe half a package.** It waits for a metadata save that is in progress instead of reading between two halves, it writes a line to the log when a description really is empty, and a save that only adds a publish date now says the date changed instead of "the details changed".
+- **A green test run stops reporting a cleanup error.** The test harness restores write permission before releasing a passing run's retained evidence, so a green run no longer ends with a permission-denied line that reads like a failure.]]></description>
+      <enclosure url="https://github.com/theng12/story-studio-kh/releases/download/1.4.420/1b906d09a021-Story.Studio.KH.1.4.420-arm64.dmg" length="263995929" type="application/octet-stream" sparkle:edSignature="5hZKA0ikgYlP2Ep4WvfUV69a4Hnsi1iAamOrK3DEu+4/vjVT3/Dw9ECTj36qN+bbrL+O+psZgtLIOTnDdEF/AA==" />
+    </item>
   </channel>
 </rss>
