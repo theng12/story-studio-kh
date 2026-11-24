@@ -200,6 +200,48 @@ test('a channel with no cadence says "Publishing plan not set" — never a guess
   assert.deepEqual(channel.recommendations, [])
 })
 
+test('a counted-week cadence (3 a week, random) IS a plan — 1.4.421', async () => {
+  // The counted default chooses no weekdays and no day of the month, so a rule
+  // written for weekday/monthly cadences alone read a saved 3-a-week rhythm as
+  // "No publishing plan is set" while it was working perfectly.
+  const now = Date.now()
+  const random = { weekdays: [], random_weekly: 3, random_time_window: { start: '08:00', end: '22:00' }, time_local: '08:00', timezone: 'UTC', start_date: '2020-01-06' }
+  await projectWithCadence('Random Channel', 'RP', random)
+  const saved = ((await pm.getConfig('random-channel')) as any).publish_cadence.schedule
+  assert.equal(saved.random_seed, 'random-channel', 'the save path stamped the channel seed')
+
+  const overview = await svc.readPublishingOverview({ now })
+  const channel = overview.channels[0]!
+
+  assert.equal(channel.plan_set, true)
+  const expected = plans.computeSlots(saved, svc.PLANNED_SLOT_HORIZON, { notBefore: new Date(now) })
+  assert.ok(expected.length > 0, 'the cadence really produces slots')
+  assert.deepEqual(channel.planned.slots.map(slot => slot.at), expected)
+})
+
+test('a saved counted-week cadence with NO random_seed still draws its slots — 1.4.421', async () => {
+  // The seed is stamped on at save (`ensureRandomSeed`). This is the proof that
+  // a config written by something else — a hand edit, an older build — is not a
+  // crash or an empty plan: the walk falls back to the empty seed, so its days
+  // are stable and identical for every seedless channel. That last part is the
+  // limit worth knowing, and it is why the save path keeps stamping the slug.
+  const now = Date.now()
+  const created = await pm.createProject({ name: 'Seedless Channel', episode_prefix: 'SL' })
+  const seedless = { weekdays: [], random_weekly: 3, time_local: '08:00', timezone: 'UTC', start_date: '2020-01-06' }
+  await pm.updateConfig(created.slug, {
+    publish_cadence: { schedule: seedless, defaults: { privacy_status: 'private', made_for_kids: false } },
+  } as any)
+
+  const expected = plans.computeSlots(seedless, svc.PLANNED_SLOT_HORIZON, { notBefore: new Date(now) })
+  assert.ok(expected.length > 0, 'no seed is not no plan')
+  assert.deepEqual(plans.computeSlots(seedless, svc.PLANNED_SLOT_HORIZON, { notBefore: new Date(now) }), expected,
+    'the empty seed is deterministic — a re-read never moves a slot')
+
+  const channel = (await svc.readPublishingOverview({ now })).channels[0]!
+  assert.equal(channel.plan_set, true)
+  assert.deepEqual(channel.planned.slots.map(slot => slot.at), expected)
+})
+
 test('a LOCAL plan never clears a CONFIRMED gap — the uncovered slot is the first', async () => {
   const now = Date.now()
   const created = await projectWithCadence('Gap Channel', 'GP')

@@ -117,7 +117,13 @@ export function shortsUploadSpacingDays(config: unknown): number {
   return typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= 30 ? value : 1
 }
 
-function isUsableSchedule(value: unknown): value is UploadSchedule {
+/**
+ * A cadence that can actually produce a slot. The ONE rule: the cadence writer
+ * below enforces it, and the Publishing Overview asks it too — a second copy
+ * there drifted and dropped the counted mode, so a 3-a-week random channel read
+ * as "No publishing plan is set" (1.4.421).
+ */
+export function isUsableSchedule(value: unknown): value is UploadSchedule {
   if (!value || typeof value !== 'object') return false
   const s = value as UploadSchedule
   if (typeof s.time_local !== 'string' || !/^\d{2}:\d{2}$/.test(s.time_local)) return false
