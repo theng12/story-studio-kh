@@ -5,6 +5,8 @@ import http, {
 } from 'node:http'
 import { once } from 'node:events'
 import { createHash, generateKeyPairSync, sign } from 'node:crypto'
+import { appendFileSync, mkdirSync } from 'node:fs'
+import { join } from 'node:path'
 
 export const MOCK_GENSTUDIO_FULL_KEY = 'gsk_mock_story_full_scope'
 
@@ -370,6 +372,14 @@ function requiredScope(pathname: string, method: string): MockGenStudioScope | n
 
 export class MockGenStudioService {
   readonly requests: MockGenStudioRequest[] = []
+  /**
+   * Every request since this fixture started, `reset()` or not — row `20261122-31x`.
+   * A gate run once failed `requests.length === 0` and the stray request could not be named
+   * because `reset()` wipes `requests`. This ledger survives the wipe, so an assertion can read
+   * what happened after a marker. When `MOCK_GENSTUDIO_EVIDENCE_DIR` is set, each entry is also
+   * appended to `requests.log` there, so it outlives the test process.
+   */
+  readonly ledger: Array<{ at: string; method: string; path: string }> = []
   readonly submissions: MockGenStudioSubmission[] = []
   readonly server: Server
   ttsModels: Array<Record<string, unknown>> = [{
@@ -477,6 +487,29 @@ export class MockGenStudioService {
 
   /** Songs with lyrics: the transcription quote's price (default the fixed mock price); 0 = a free fleet model. */
   transcriptionQuoteCredits: number | null = null
+
+  /** A point in the ledger an assertion can read from after a later request. */
+  mark(): number {
+    return this.ledger.length
+  }
+
+  /** Requests recorded since `mark()`, including any that followed a `reset()`. */
+  requestsSince(mark: number): Array<{ at: string; method: string; path: string }> {
+    return this.ledger.slice(mark)
+  }
+
+  private recordLedger(method: string, path: string): void {
+    const entry = { at: new Date().toISOString(), method, path }
+    this.ledger.push(entry)
+    const dir = process.env.MOCK_GENSTUDIO_EVIDENCE_DIR
+    if (!dir) return
+    try {
+      mkdirSync(dir, { recursive: true })
+      appendFileSync(join(dir, 'requests.log'), `${entry.at} ${entry.method} ${entry.path}\n`)
+    } catch {
+      // Evidence is a convenience for a failing run; a read-only or absent dir never fails a test.
+    }
+  }
 
   reset(): void {
     this.fleetCapacity = null
@@ -1525,6 +1558,7 @@ export class MockGenStudioService {
         idempotencyKey,
         bodyText,
       })
+      this.recordLedger(method, url.pathname)
 
       const scope = requiredScope(url.pathname, method)
       if (scope && !this.authorize(request, scope)) {

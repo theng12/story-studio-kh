@@ -5811,6 +5811,146 @@ test('final check Off uploads without asking; Block refuses even when the owner 
   assert.equal(blocked.body.confirmable, false, 'Block offers no click-through')
 })
 
+// ── Verdict traces (row `20261119-95`, by its text: the id in the backlog does not describe it) ──
+//
+// An acknowledgement that decides what publishes must leave a durable trace ON THE JOB — the
+// verdict, its `checked_at` and the acknowledgement — so the row can read what was released and
+// why. And a verdict is only a verdict once it has finished: while a check runs, the stored result
+// is the PREVIOUS one, and serving it held EP0044 for a fault a finished re-check had cleared.
+
+test('an acknowledged upload carries the verdict, its checked_at and the acknowledgement on the job', async () => {
+  const { slug, body, checkedAt } = await uploadReadyProjectWithFailedCheck()
+
+  const clicked = await request(app).post(`/api/projects/${slug}/youtube/upload`)
+    .send({ ...body, acknowledge_final_check: true, final_check_checked_at: checkedAt })
+  assert.equal(clicked.status, 200, JSON.stringify(clicked.body))
+
+  const trace = jobQueue.getJob(clicked.body.job_id)?.params?.final_check
+  assert.equal(trace?.acknowledged, true, 'the answer is on the job, not only in a log line')
+  assert.equal(trace?.checked_at, checkedAt, 'bound to the check the owner answered')
+  assert.equal(trace?.passed, false)
+  assert.ok(Array.isArray(trace?.issues) && trace.issues.length > 0, 'the verdict travels with the answer')
+  assert.match(String(trace?.summary), /^Final check: /)
+  assert.match(String(trace?.acknowledged_verdict), /add up to 60\.0s/)
+  await removeQueuedTestJob(slug, clicked.body.job_id)
+})
+
+test('a passing verdict needs no answer, and the job still records the verdict it was admitted on', async () => {
+  const { slug, videoPath, body } = await uploadReadyProjectWithFailedCheck()
+  const passed = await runFinalCheck(videoPath, {
+    planned_sec: 0, tail: { sec: 0, from_end_sec: 0 }, closing_music: false,
+    width: 0, height: 0, subtitles_path: null,
+  })
+  assert.equal(passed.passed, true, JSON.stringify(passed.issues))
+  await storeFinalCheck(videoPath, passed)
+
+  const admitted = await request(app).post(`/api/projects/${slug}/youtube/upload`).send(body)
+  assert.equal(admitted.status, 200, JSON.stringify(admitted.body))
+  const trace = jobQueue.getJob(admitted.body.job_id)?.params?.final_check
+  assert.equal(trace?.acknowledged, false, 'nothing was answered because nothing needed answering')
+  assert.equal(trace?.passed, true)
+  assert.equal(trace?.checked_at, passed.checked_at)
+  await removeQueuedTestJob(slug, admitted.body.job_id)
+})
+
+test('a check in flight reports in flight: the previous verdict is neither served nor answerable', async () => {
+  const { slug, episodeCode, videoPath, body, checkedAt } = await uploadReadyProjectWithFailedCheck()
+
+  // A check that never finishes, so "in flight" is a fact of this test rather than a race.
+  __setFinalCheckRunnerForTests(() => new Promise(() => {}))
+  const started = await request(app).post(`/api/projects/${slug}/youtube/final-check`)
+    .send({ episode_code: episodeCode })
+  assert.equal(started.status, 202, JSON.stringify(started.body))
+  await waitFor(() => finalCheckProgress(videoPath).running, { label: 'the check to be in flight' })
+
+  const read = await request(app).get(`/api/projects/${slug}/youtube/final-check`)
+    .query({ episode_code: episodeCode })
+  assert.equal(read.status, 200, JSON.stringify(read.body))
+  assert.equal(read.body.in_flight, true)
+  assert.equal(read.body.result, null, "the previous verdict is not this file's result")
+  assert.equal(read.body.checked_at, null, 'a verdict with no finished timestamp is not a verdict')
+
+  const listed = await request(app).get(`/api/projects/${slug}/youtube/publishable`)
+  const row = listed.body.episodes.find((entry: any) => entry.episode_code === episodeCode)
+  assert.equal(row.final_check.running, true)
+  assert.equal(row.final_check.checked, false, 'the old verdict is not reported as this file\'s state')
+  assert.equal(row.final_check.identity, null)
+  assert.deepEqual(row.final_check.issues, [], 'the old problems are not shown as current ones')
+  assert.equal(row.final_check.summary, 'Final check: checking…')
+
+  const refused = await request(app).post(`/api/projects/${slug}/youtube/upload`)
+    .send({ ...body, acknowledge_final_check: true, final_check_checked_at: checkedAt })
+  assert.equal(refused.status, 409)
+  assert.equal(refused.body.code, 'YOUTUBE_FINAL_CHECK_IN_FLIGHT')
+  assert.equal(refused.body.confirmable, false, 'nothing can be answered about a verdict that has not finished')
+  assert.equal(refused.body.job_id, undefined)
+  assert.match(refused.body.detail, /being checked right now/)
+})
+
+// ── The preview reads a whole package (owner's row, Production 2026-11-19) and the date is named ──
+
+test('a preview waits for a save holding the override lock instead of describing a half-written package', async () => {
+  const { slug, episodeCode, title } = await uploadReadyProject()
+  const overrides = await import('../services/upload-overrides.js')
+
+  let release!: () => void
+  const held = new Promise<void>(resolve => { release = resolve })
+  let entered!: () => void
+  const enteredP = new Promise<void>(resolve => { entered = resolve })
+  const holding = overrides.withOverrideLock(slug, episodeCode, title, async () => { entered(); await held })
+  await enteredP
+
+  let settled = false
+  const previewP = request(app).post(`/api/projects/${slug}/youtube/preview`)
+    .send({ episode_code: episodeCode, privacy_status: 'private' })
+    .then(res => { settled = true; return res })
+  try {
+    // No fixed sleep: `waitForValue` polls, and its timeout is the proof — a preview that could
+    // read the sidecar while a write holds it would settle at once, so this can only time out
+    // when the lock is respected.
+    await assert.rejects(
+      waitForValue(() => (settled ? 'settled' : null), {
+        label: 'the preview to settle while the override lock is held',
+        timeoutMs: 250,
+      }),
+      /Timed out waiting for the preview to settle while the override lock is held/,
+    )
+  } finally {
+    // The lock must be released even if that assertion fails, or every later test in this file hangs.
+    release()
+    await holding
+  }
+  const preview = await previewP
+  assert.equal(preview.status, 200, JSON.stringify(preview.body))
+})
+
+test('a save that only adds a publish date names the date, not "the details changed"', async () => {
+  const { slug, episodeCode } = await uploadReadyProject()
+  const dateless = await request(app).post(`/api/projects/${slug}/youtube/preview`)
+    .send({ episode_code: episodeCode, privacy_status: 'private' })
+  assert.equal(dateless.status, 200, JSON.stringify(dateless.body))
+
+  // One field the review already shows, so the save has something to carry and nothing to correct.
+  const snippet = dateless.body.snippet ?? {}
+  const carried = typeof snippet.title === 'string' && snippet.title.trim()
+    ? { title: snippet.title }
+    : typeof snippet.description === 'string' && snippet.description.trim()
+      ? { description: snippet.description }
+      : null
+  assert.ok(carried, 'the preview carried a title or a description to re-send')
+
+  const dated = await request(app).post(`/api/projects/${slug}/youtube/metadata-overrides`).send({
+    episode_code: episodeCode,
+    ...carried,
+    expected_package_revision: dateless.body.package_revision,
+    publish_at: '2026-12-01T10:00:00.000Z',
+  })
+  assert.equal(dated.status, 409, JSON.stringify(dated.body))
+  assert.equal(dated.body.code, 'YOUTUBE_PREVIEW_DATE_CHANGED')
+  assert.match(dated.body.detail, /made without a publish date/)
+  assert.match(dated.body.detail, /Preview again with the date/)
+})
+
 test('the final check runs on demand and stores its verdict beside the finished video', async () => {
   const { slug, episodeCode, title } = await uploadReadyProject()
   const videoPath = path.join(
