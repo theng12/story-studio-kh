@@ -45,7 +45,7 @@ import * as pm from './project-manager.js'
 import * as jq from './job-queue.js'
 import { getIdeas } from './idea-manager.js'
 import type { StoredIdea } from './idea-manager.js'
-import { readCadence } from './publish-cadence.js'
+import { isUsableSchedule, readCadence } from './publish-cadence.js'
 import { listPlans, getActivePlanId, computeSlots, readItemSchedule, localDayKeyInTz, type UploadSchedule } from './upload-plans.js'
 import {
   PUBLICATION_CACHE_TTL_MS,
@@ -130,16 +130,6 @@ export function invalidatePublishingOverviewCache(): void {
 }
 
 type Registry = Awaited<ReturnType<typeof readYouTubeConnectionRegistry>>
-
-/** A cadence that can actually produce a slot — the same rule publish-cadence.ts enforces. */
-function isUsableSchedule(schedule: UploadSchedule | null | undefined): schedule is UploadSchedule {
-  if (!schedule || typeof schedule !== 'object') return false
-  if (typeof schedule.time_local !== 'string' || !/^\d{2}:\d{2}$/.test(schedule.time_local)) return false
-  if (typeof schedule.timezone !== 'string' || !schedule.timezone) return false
-  const hasWeekdays = Array.isArray(schedule.weekdays) && schedule.weekdays.length > 0
-  const hasMonthly = typeof schedule.monthly_day === 'number' && schedule.monthly_day >= 1 && schedule.monthly_day <= 31
-  return hasWeekdays || hasMonthly
-}
 
 /**
  * Conservative freshness. `newest_checked_at` alone is not enough: a cache can
