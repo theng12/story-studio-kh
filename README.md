@@ -4,6 +4,20 @@ Personal-use desktop app for producing story episodes (script + images +
 audio + video assembly + YouTube upload). macOS-only, arm64-only, ad-hoc
 signed (no Apple Developer ID).
 
+## What it looks like
+
+The channels screen — one card per channel, with what each one still needs.
+
+![The Channels screen: a single channel card showing its API-key and YouTube state, episode count and when it was created](docs/screenshots/story-channels-light.png)
+
+A channel's dashboard — where every episode stands and what to do next.
+
+![A channel dashboard: workflow counts for needs-work, ready-for-video and finished videos, the channel's cost, and a "Focus now" list that starts with ideas](docs/screenshots/story-channel-flow-light.png)
+
+The Ideas Generator — step 1 of the 17-step story-to-upload flow.
+
+[![The Ideas Generator: the story step of the 17-step workflow, its idea supply and the Generate New Ideas panel](docs/screenshots/story-ideas-light.png)](docs/screenshots/story-ideas-light.png)
+
 ## Installing on macOS
 
 Drag `Story Studio KH.app` from the mounted DMG into `/Applications`.
