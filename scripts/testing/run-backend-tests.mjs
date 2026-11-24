@@ -323,6 +323,15 @@ export async function preflightSandboxRetention(sandbox, fixtures) {
 
 export const RETAIN_SUCCESSFUL_ENV = 'STORY_STUDIO_RETAIN_SUCCESSFUL_FIXTURES'
 
+// Retained snapshots are deliberately read-only (0500/0400); unlinking only
+// needs owner write on their directories, never on the files or symlinks.
+async function restoreOwnerWrite(dir) {
+  for (const entry of await fs.readdir(dir, { withFileTypes: true })) {
+    if (entry.isDirectory()) await restoreOwnerWrite(path.join(dir, entry.name))
+  }
+  await fs.chmod(dir, 0o700)
+}
+
 /**
  * Release the bulky sandbox/snapshots of a SUCCESSFUL run, keeping the small
  * report bytes the lane return and the gate still read: suite-coverage*.jsonl
@@ -341,6 +350,10 @@ async function releaseSuccessfulRunBulk(retained) {
       const reports = (await fs.readdir(dir)).filter(entry => /^suite-coverage.*\.jsonl$/.test(entry))
       for (const file of reports) await fs.rename(path.join(dir, file), path.join(retained, file))
     }
+    // Best effort: the rm below keeps its own EACCES handling and evidence.
+    try {
+      await restoreOwnerWrite(dir)
+    } catch { /* a tree we cannot chmod stays retained rather than failing the run */ }
     await fs.rm(dir, { recursive: true, force: true })
   }
   if (bulky.length > 0) {

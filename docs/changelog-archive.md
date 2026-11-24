@@ -134,3 +134,7 @@ lost; git history is the final record).
 - **A blocked retry now tells you why instead of pretending it worked.** Retry used to answer "queued" whether or not anything was queued, so a row that could not be re-run looked like it had been. It now answers with the real reason, in Story Studio's own words.
 - **Cancel says what actually stops a stuck row.** When the Gateway cannot stop work it already started, the message now names Abandon — the control that does end the wait — instead of pointing only at Pause, which pauses nothing on a row that is not sending anything.
 - **A build can no longer record one machine's folder in the source.** The build's `frontend/dist` link is no longer tracked, so a build on any checkout cannot commit its own local path. Nothing else changes: the build makes the link where it needs it.
+
+## v1.4.410 — 2026-11-18
+
+- **Scene Plan now asks for 50 scenes per request by default.** "Automatic" used to send 250 scenes in one writing request. Smaller requests come back sooner, so a slow provider no longer puts a whole batch at risk of running out of time. A channel that already saved its own number keeps it — nothing is rewritten — and 100 is still offered as a choice, along with 250 and 500 and any whole number you type.

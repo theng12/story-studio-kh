@@ -4,6 +4,14 @@ What's new in each release. Newest first. The ten most recent are here; older re
 
 ---
 
+## v1.4.420 — 2026-11-24
+
+- **A check that is still running no longer speaks for the last one.** While a final check is measuring a video, the row, the check's own answer and the upload button all say it is checking instead of showing an old pass or an old failure — so an episode can no longer be held, or released, for a fault a finished re-check has already cleared. An upload started during a check waits for the verdict, and when you choose to upload anyway the job itself records the verdict, when it was taken and that you chose to go ahead, so a released episode can be read back and explained later.
+
+- **A preview can no longer describe half a package.** It waits for a metadata save that is in progress instead of reading between two halves, it writes a line to the log when a description really is empty, and a save that only adds a publish date now says the date changed instead of "the details changed".
+
+- **A green test run stops reporting a cleanup error.** The test harness restores write permission before releasing a passing run's retained evidence, so a green run no longer ends with a permission-denied line that reads like a failure.
+
 ## v1.4.419 — 2026-11-23
 
 - **The update hold now answers only the updater, and says so when it can't.** Pausing Story before the Launcher replaces it is how an update never cuts off work — but anything else on the Mac could pause it too, and an answer of "not now" was being read as "go ahead". The hold now needs the updater's private token, a file only you can read: without it Story refuses, nothing is paused, it keeps doing its work, and the refusal names the file to fix. Any other kind of request is answered as unsupported instead of quietly doing nothing.
@@ -53,7 +61,3 @@ What's new in each release. Newest first. The ten most recent are here; older re
 - **Clear replaces Hide.** A finished job now leaves the list for real instead of only being hidden: the row and its record are removed, it waits in a new "Recently cleared" area with Restore, and nothing is ever deleted for good. Clear runs by status — finished, failed, or all — for one channel or every channel, and before anything goes Story says how many jobs and how much record space it will remove, measured, and states plainly that the rendered media stays on disk. The jobs already hidden are moved into Recently cleared the first time their channel loads, so nothing disappears without a way back.
 - **A frozen API says so, and comes back by itself.** When a request has waited too long, Story logs which operation is holding it and how long, and reports the wait on its health check instead of answering as if everything were fine. The health check no longer touches the disk. If the app is genuinely stuck past its limit, it stops taking work, says so in one sentence and exits cleanly, so the login item brings it straight back rather than leaving a frozen window until someone notices. Both limits are settings; the recovery is on by default.
 - **Tests and builds no longer depend on a shortcut folder.** The trash folder is a real, named location instead of a link through the checkout, so emptying the Desktop trash can no longer break a test run or a DMG build.
-
-## v1.4.410 — 2026-11-18
-
-- **Scene Plan now asks for 50 scenes per request by default.** "Automatic" used to send 250 scenes in one writing request. Smaller requests come back sooner, so a slow provider no longer puts a whole batch at risk of running out of time. A channel that already saved its own number keeps it — nothing is rewritten — and 100 is still offered as a choice, along with 250 and 500 and any whole number you type.

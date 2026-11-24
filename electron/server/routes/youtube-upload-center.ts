@@ -956,17 +956,21 @@ router.get('/projects/:slug/youtube/publishable', async (req, res) => {
             ? {
                 final_check: {
                   summary: finalCheckSummary(finalCheck, finalCheckRun),
-                  passed: !!finalCheck && !finalCheck.stale && finalCheck.result.passed,
-                  checked: !!finalCheck,
-                  stale: !!finalCheck?.stale,
+                  // While a check runs the stored verdict is the PREVIOUS one about these bytes, so
+                  // the row reports the run rather than an old pass or an old failure (row
+                  // `20261119-95`, EP0044: held for a fault a finished re-check had cleared).
+                  passed: !finalCheckRun.running && !!finalCheck && !finalCheck.stale && finalCheck.result.passed,
+                  checked: !finalCheckRun.running && !!finalCheck,
+                  stale: !finalCheckRun.running && !!finalCheck?.stale,
                   // A check is measured in the background, so the row is where its progress and its
                   // result are read — the page reloads this row while this is true.
                   running: finalCheckRun.running,
-                  issues: finalCheck?.result.issues ?? [],
+                  issues: finalCheckRun.running ? [] : finalCheck?.result.issues ?? [],
                   // Which check this row is showing. An acknowledgement echoes `checked_at` back so
                   // the answer binds to this verdict about these bytes, not to whatever verdict is
-                  // stored by the time the upload is admitted.
-                  identity: finalCheckIdentity(finalCheck),
+                  // stored by the time the upload is admitted. No identity while a check is running:
+                  // a verdict with no finished timestamp is not a verdict.
+                  identity: finalCheckRun.running ? null : finalCheckIdentity(finalCheck),
                 } satisfies YouTubeFinalCheckProjection,
               }
             : {}),
@@ -3042,19 +3046,24 @@ router.post('/projects/:slug/youtube/preview', async (req, res) => {
     // resolves the accepted idea's title, so a preview built without one
     // described a different video.
     const previewTitle = await acceptedTitleFor(req.params.slug, episodeCode)
-    const built = await buildYouTubeMetadataPackage({
-      project_slug: req.params.slug,
-      episode_code: episodeCode,
-      privacy_status: req.body?.privacy_status === 'public' || req.body?.privacy_status === 'unlisted'
-        ? req.body.privacy_status
-        : 'private',
-      ...(typeof req.body?.publish_at === 'string' && req.body.publish_at ? { publish_at: req.body.publish_at } : {}),
-      ...settings,
-      fallback_title: previewTitle,
-      ...(typeof req.body?.thumbnail_filename === 'string' || req.body?.thumbnail_filename === null
-        ? { thumbnail_filename: req.body.thumbnail_filename }
-        : {}),
-    })
+    // Built under the overrides lock, the same one a save takes. A preview that reads the sidecar
+    // while a write is landing described a package nobody had — and it did so with a 200 and no
+    // warning, which read as "this episode's description is empty" (Production, 2026-11-19). The
+    // lock makes the preview answer for a package that existed, whole.
+    const built = await withOverrideLock(req.params.slug, episodeCode, previewTitle, () =>
+      buildYouTubeMetadataPackage({
+        project_slug: req.params.slug,
+        episode_code: episodeCode,
+        privacy_status: req.body?.privacy_status === 'public' || req.body?.privacy_status === 'unlisted'
+          ? req.body.privacy_status
+          : 'private',
+        ...(typeof req.body?.publish_at === 'string' && req.body.publish_at ? { publish_at: req.body.publish_at } : {}),
+        ...settings,
+        fallback_title: previewTitle,
+        ...(typeof req.body?.thumbnail_filename === 'string' || req.body?.thumbnail_filename === null
+          ? { thumbnail_filename: req.body.thumbnail_filename }
+          : {}),
+      }))
     res.json(await youtubePreviewResponse({
       slug: req.params.slug, episodeCode, built, previewTitle,
     }))
@@ -3119,6 +3128,10 @@ async function youtubePreviewResponse(options: {
   // metadata at all and the preview could not tell that apart from a cleared description).
   const metadata = await metadataPresence(slug, episodeCode, previewTitle)
   if (!payload.snippet.description?.trim()) {
+    // Never silent: the same preview returned "" at 19:18 and 881 characters at 19:58 for one
+    // unchanged package, and nothing in the log said so (Production, 2026-11-19).
+    console.warn(`[youtube preview] ${episodeCode}: the description is empty — `
+      + (metadata.written ? 'the saved metadata has no description in it' : 'no metadata has been generated'))
     payload.warnings = [
       ...payload.warnings,
       metadata.written
@@ -3425,6 +3438,21 @@ router.post('/projects/:slug/youtube/metadata-overrides', async (req, res) => {
     }
     const reviewed = await buildYouTubeMetadataPackage(buildInputs)
     if (reviewed.package_revision !== expectedPackageRevision) {
+      // Row `20261122-280`: the revision hashes `publishAt` too, so setting a date on a preview
+      // that had none was refused as "the details changed" — true, but it named the wrong thing
+      // and read as a fault. When the date is the ONLY difference, say so and name the order:
+      // preview again with the date, then save.
+      const { publish_at: _reviewedDate, ...datelessInputs } = buildInputs
+      const dateIsTheOnlyChange = !!buildInputs.publish_at
+        && (await buildYouTubeMetadataPackage(datelessInputs)).package_revision === expectedPackageRevision
+      if (dateIsTheOnlyChange) {
+        res.status(409).json({
+          code: 'YOUTUBE_PREVIEW_DATE_CHANGED',
+          detail: `This review was made without a publish date, and this save sets one, so the details `
+            + `no longer match what you looked at. Preview again with the date, then save.`,
+        })
+        return
+      }
       res.status(409).json({
         code: 'YOUTUBE_PREVIEW_STALE',
         detail: 'The YouTube upload details changed after you opened this review. '
@@ -3716,19 +3744,26 @@ router.get('/projects/:slug/youtube/final-check', async (req, res) => {
       })
       return
     }
+    // A check in flight is not a verdict. The stored result is then the PREVIOUS one, and serving it
+    // as this file's result is what let an episode be held — and acknowledged — for a fault a
+    // finished re-check had already cleared (row `20261119-95`, EP0044). So the answer names the run
+    // and carries no verdict until the run has written one.
+    const running = finalCheckProgress(sourceVideoPath).running
     res.json({
       episode_code: episodeCode,
-      // True while a check is measuring this file right now; the verdict below is then the previous
-      // one, which `stale` and `identity` already describe.
-      running: finalCheckProgress(sourceVideoPath).running,
-      stale: stored.stale,
-      identity: finalCheckIdentity(stored),
+      running,
+      in_flight: running,
+      // What the caller may act on: nothing while a check is running.
+      stale: running ? false : stored.stale,
+      identity: running ? null : finalCheckIdentity(stored),
+      // The finished marker: a verdict with no `checked_at` is not a verdict.
+      checked_at: running ? null : finalCheckIdentity(stored)?.checked_at ?? null,
       // What this final's own expectation was frozen to, when one was taken, so a plan-less final's
       // expected length and intro can be read back and verified without the app
       // (`frozenExpectationPath` holds the same record beside the file).
       frozen_expectation: await readFrozenShape(sourceVideoPath).then(frozen => frozen?.shape ?? null),
       freeze_state: freeze,
-      result: stored.result,
+      result: running ? null : stored.result,
     })
   } catch (error) {
     fail(res, error, 'Failed to read the final check result.')
@@ -4063,6 +4098,24 @@ export async function admitYouTubeUpload(
       })
       return
     }
+    // A check in flight is not a verdict. `storedCheck` is then the PREVIOUS result, and refusing —
+    // or asking the owner to acknowledge — on it presented an old fault as this file's state. EP0044
+    // was read as 28 issues while a fresh check had already finished clean, so the episode was held,
+    // and would have been acknowledged, for a fault it no longer had. Nothing can be answered about
+    // a verdict that has not finished, so this is refused outright rather than offered as a choice.
+    const checkProgress = finalCheckPath
+      ? finalCheckProgress(finalCheckPath)
+      : { running: false, error: null, interrupted: false }
+    if (checkProgress.running) {
+      res.status(409).json({
+        code: 'YOUTUBE_FINAL_CHECK_IN_FLIGHT',
+        detail: `${episodeCode}'s finished video is being checked right now. The verdict on file is `
+          + 'the previous one, so there is nothing to answer yet — wait for this check to finish and '
+          + 'read the verdict it writes.',
+        confirmable: false,
+      })
+      return
+    }
     const checkReason = automatic && !storedCheck
       ? 'has no stored final check'
       : finalCheckVerdict(storedCheck)
@@ -4090,6 +4143,21 @@ export async function admitYouTubeUpload(
         passedChecks.push({ check: 'final_check', message: `The finished video ${checkReason}; you chose to upload it anyway.` })
       }
     }
+    // An acknowledgement that decides what publishes must leave a durable trace on the job itself —
+    // the verdict, its `checked_at` and the acknowledgement — so the row can read what was released
+    // and why, instead of a green tick and nothing else. Written only for a stored verdict: an
+    // acknowledgement of "no stored check" answers nothing and says nothing.
+    const finalCheckTrace = storedCheck
+      ? {
+          acknowledged: body?.acknowledge_final_check === true && checkReason !== null,
+          checked_at: finalCheckIdentity(storedCheck)?.checked_at ?? null,
+          passed: storedCheck.result.passed,
+          stale: storedCheck.stale,
+          issues: storedCheck.result.issues,
+          summary: finalCheckSummary(storedCheck),
+          ...(checkReason ? { acknowledged_verdict: checkReason } : {}),
+        }
+      : null
     // The reviewed revision travels to the job. This route does NOT re-derive
     // it, and that is the whole point of this block.
     //
@@ -4295,6 +4363,7 @@ export async function admitYouTubeUpload(
           // with no transition date, so it would have stayed private forever.
           ...(built.status.publishAt ? { scheduled_for: built.status.publishAt } : {}),
           ...(passedChecks.length ? { safety_warnings: passedChecks } : {}),
+          ...(finalCheckTrace ? { final_check: finalCheckTrace } : {}),
         },
       })
       return { built, job }
