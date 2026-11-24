@@ -5931,7 +5931,7 @@
     },
     {
       "revision": 299,
-      "receipt_ref": "authoring:1dab10aa83cfc25cccc12ebf6efeb7463c238888e39d520a0083c3665b668d73",
+      "receipt_ref": "authoring:bcad9c6cb6c2918a3a78e21aa3d3cdbe76a6a850197d0616a974133df74b2f9d",
       "request": {
         "expected_revision": 298,
         "coordinator": {
@@ -6011,7 +6011,7 @@
     },
     {
       "revision": 303,
-      "receipt_ref": "authoring:752f26d69ab5e55f3d560635b7a2db6ce4148c1ac37d339ec2529dc1268d376a",
+      "receipt_ref": "authoring:cf8ac2241c6010ae02264df374a0d989d5270dcd2a11c4445ccbad9838711bca",
       "request": {
         "expected_revision": 302,
         "coordinator": {
@@ -14398,14 +14398,14 @@
     },
     {
       "revision": 300,
-      "transition_ref": "lifecycle:9b87fd3069f2aa94c2555a1330717f9ae1695863b8f130b952f8926a38cec562",
+      "transition_ref": "lifecycle:2d38a73f9f3526698d524208cb0bf784979b564013c40af47708aa9efb97a43d",
       "request": {
         "expected_revision": 299,
         "coordinator": {
           "task": "20261024 three-preview backfill and Cinematic Historical Illustration review draft",
           "branch": "feat/job-go-to-generator-20261024"
         },
-        "receipt_ref": "authoring:1dab10aa83cfc25cccc12ebf6efeb7463c238888e39d520a0083c3665b668d73",
+        "receipt_ref": "authoring:bcad9c6cb6c2918a3a78e21aa3d3cdbe76a6a850197d0616a974133df74b2f9d",
         "pack_id": "com.storystudio.pack.style.bold-illustrated-history",
         "version": "1.0.1",
         "changes": {
@@ -14415,14 +14415,14 @@
     },
     {
       "revision": 301,
-      "transition_ref": "lifecycle:8db5afa6c5a7a174c48a32f8414ec6a3f824afd0e18e937db082668f037e6ae4",
+      "transition_ref": "lifecycle:1bcd26b922f90ff61b9619be31feb6e0b5b569e3ad3b40f680241f75dbc724ab",
       "request": {
         "expected_revision": 300,
         "coordinator": {
           "task": "20261024 three-preview backfill and Cinematic Historical Illustration review draft",
           "branch": "feat/job-go-to-generator-20261024"
         },
-        "receipt_ref": "authoring:1dab10aa83cfc25cccc12ebf6efeb7463c238888e39d520a0083c3665b668d73",
+        "receipt_ref": "authoring:bcad9c6cb6c2918a3a78e21aa3d3cdbe76a6a850197d0616a974133df74b2f9d",
         "pack_id": "com.storystudio.pack.style.quiet-anime-poetry",
         "version": "1.0.1",
         "changes": {
@@ -14432,14 +14432,14 @@
     },
     {
       "revision": 302,
-      "transition_ref": "lifecycle:664fc44d9ce7bb610031cbf2f4f7b38d367dce10cb516f9cef9cc7c3a7efa047",
+      "transition_ref": "lifecycle:5d65c671b1c91ef115f44fa7c53095669ba196378b0eec1a8fc9b0a7a6003fba",
       "request": {
         "expected_revision": 301,
         "coordinator": {
           "task": "20261024 three-preview backfill and Cinematic Historical Illustration review draft",
           "branch": "feat/job-go-to-generator-20261024"
         },
-        "receipt_ref": "authoring:1dab10aa83cfc25cccc12ebf6efeb7463c238888e39d520a0083c3665b668d73",
+        "receipt_ref": "authoring:bcad9c6cb6c2918a3a78e21aa3d3cdbe76a6a850197d0616a974133df74b2f9d",
         "pack_id": "com.storystudio.pack.style.cinematic-historical-illustration",
         "version": "1.0.0",
         "changes": {
@@ -14449,14 +14449,14 @@
     },
     {
       "revision": 304,
-      "transition_ref": "lifecycle:f2aea3e46367161b0ed8896beea1b94976d8f96cba1a0fa0c467bb396f6262ca",
+      "transition_ref": "lifecycle:6214966895cbaef4af2868732b3a5de051aa3bd1a49af698c22862c808d40864",
       "request": {
         "expected_revision": 303,
         "coordinator": {
           "task": "formula modernization and adoption, owner ruling 2026-10-25",
           "branch": "content/formula-modernize-20261026"
         },
-        "receipt_ref": "authoring:752f26d69ab5e55f3d560635b7a2db6ce4148c1ac37d339ec2529dc1268d376a",
+        "receipt_ref": "authoring:cf8ac2241c6010ae02264df374a0d989d5270dcd2a11c4445ccbad9838711bca",
         "pack_id": "com.storystudio.pack.formula.ancient-humans",
         "version": "1.0.3",
         "changes": {
@@ -14466,14 +14466,14 @@
     },
     {
       "revision": 305,
-      "transition_ref": "lifecycle:c8e7e0374c8b9dcb211a51d22372c8d9d07c4d6331fd3326aaba0d5d2d7b7f58",
+      "transition_ref": "lifecycle:51b8a67d585a97bc04525979c34bd60c5483942a5f9e39b22b1789593b12e230",
       "request": {
         "expected_revision": 304,
         "coordinator": {
           "task": "formula modernization and adoption, owner ruling 2026-10-25",
           "branch": "content/formula-modernize-20261026"
         },
-        "receipt_ref": "authoring:752f26d69ab5e55f3d560635b7a2db6ce4148c1ac37d339ec2529dc1268d376a",
+        "receipt_ref": "authoring:cf8ac2241c6010ae02264df374a0d989d5270dcd2a11c4445ccbad9838711bca",
         "pack_id": "com.storystudio.pack.formula.deep-time-documentary",
         "version": "1.0.3",
         "changes": {
@@ -14483,14 +14483,14 @@
     },
     {
       "revision": 306,
-      "transition_ref": "lifecycle:2c5518772c6f94a81a22caa6e8ff72dfc544e1a7eb2cee75f8063fc14b46a032",
+      "transition_ref": "lifecycle:56d9c8208c5770529dadbe6d54c02274dec91fad52db8cea87d836633abaebf9",
       "request": {
         "expected_revision": 305,
         "coordinator": {
           "task": "formula modernization and adoption, owner ruling 2026-10-25",
           "branch": "content/formula-modernize-20261026"
         },
-        "receipt_ref": "authoring:752f26d69ab5e55f3d560635b7a2db6ce4148c1ac37d339ec2529dc1268d376a",
+        "receipt_ref": "authoring:cf8ac2241c6010ae02264df374a0d989d5270dcd2a11c4445ccbad9838711bca",
         "pack_id": "com.storystudio.pack.formula.economics-of",
         "version": "1.0.2",
         "changes": {
@@ -14500,14 +14500,14 @@
     },
     {
       "revision": 307,
-      "transition_ref": "lifecycle:d42a03f10c4eae0c76aaa8a896547f5c4db6903657612e618dc4d3bfea24ce43",
+      "transition_ref": "lifecycle:bcb2bdb5e0db9df625e6bc8c48ba4176e4df4d3be302ffadf5819615b5cc3740",
       "request": {
         "expected_revision": 306,
         "coordinator": {
           "task": "formula modernization and adoption, owner ruling 2026-10-25",
           "branch": "content/formula-modernize-20261026"
         },
-        "receipt_ref": "authoring:752f26d69ab5e55f3d560635b7a2db6ce4148c1ac37d339ec2529dc1268d376a",
+        "receipt_ref": "authoring:cf8ac2241c6010ae02264df374a0d989d5270dcd2a11c4445ccbad9838711bca",
         "pack_id": "com.storystudio.pack.formula.guided-mindfulness",
         "version": "1.0.2",
         "changes": {
@@ -14517,14 +14517,14 @@
     },
     {
       "revision": 308,
-      "transition_ref": "lifecycle:87f843ea593a1c27fd265fcc0e2bc3787da1d0da2d335f0eb8884fc1f5883b25",
+      "transition_ref": "lifecycle:9386d3ec2677365d9584058b7753b9d6a9fd555a7f64e436b1e75f0e89ec7d80",
       "request": {
         "expected_revision": 307,
         "coordinator": {
           "task": "formula modernization and adoption, owner ruling 2026-10-25",
           "branch": "content/formula-modernize-20261026"
         },
-        "receipt_ref": "authoring:752f26d69ab5e55f3d560635b7a2db6ce4148c1ac37d339ec2529dc1268d376a",
+        "receipt_ref": "authoring:cf8ac2241c6010ae02264df374a0d989d5270dcd2a11c4445ccbad9838711bca",
         "pack_id": "com.storystudio.pack.formula.history-explained",
         "version": "1.0.3",
         "changes": {
@@ -14534,14 +14534,14 @@
     },
     {
       "revision": 309,
-      "transition_ref": "lifecycle:1565acf7822ad6389b1ea1f8e8f5a36ea2d1f9ab58128ac8aaa03b7978e41efd",
+      "transition_ref": "lifecycle:ddb717189a59e59ba524135e33fe38afeeed9205e42ff2bf7f8c99f0058e7858",
       "request": {
         "expected_revision": 308,
         "coordinator": {
           "task": "formula modernization and adoption, owner ruling 2026-10-25",
           "branch": "content/formula-modernize-20261026"
         },
-        "receipt_ref": "authoring:752f26d69ab5e55f3d560635b7a2db6ce4148c1ac37d339ec2529dc1268d376a",
+        "receipt_ref": "authoring:cf8ac2241c6010ae02264df374a0d989d5270dcd2a11c4445ccbad9838711bca",
         "pack_id": "com.storystudio.pack.formula.human-behavior-explained",
         "version": "1.0.3",
         "changes": {
@@ -14551,14 +14551,14 @@
     },
     {
       "revision": 310,
-      "transition_ref": "lifecycle:34f57cdfe8bc98b4128e56d55fe66b2ecbe9adf76919c20cd2d1e02b4beca235",
+      "transition_ref": "lifecycle:97b4b8273b37e1fec6810b9b5def6fbdc0ba1e6788a677c692c6b174a69b018e",
       "request": {
         "expected_revision": 309,
         "coordinator": {
           "task": "formula modernization and adoption, owner ruling 2026-10-25",
           "branch": "content/formula-modernize-20261026"
         },
-        "receipt_ref": "authoring:752f26d69ab5e55f3d560635b7a2db6ce4148c1ac37d339ec2529dc1268d376a",
+        "receipt_ref": "authoring:cf8ac2241c6010ae02264df374a0d989d5270dcd2a11c4445ccbad9838711bca",
         "pack_id": "com.storystudio.pack.formula.natural-world-explained",
         "version": "1.0.3",
         "changes": {
@@ -14568,14 +14568,14 @@
     },
     {
       "revision": 311,
-      "transition_ref": "lifecycle:78aba2fe432ae551ba4c584dc34e8eaed586ebe23fdd209ae1cda8f88318246a",
+      "transition_ref": "lifecycle:8f1aa5dd8faaecbc067f1ec87a795a7f72bacc8e32042af1846fec7d88447796",
       "request": {
         "expected_revision": 310,
         "coordinator": {
           "task": "formula modernization and adoption, owner ruling 2026-10-25",
           "branch": "content/formula-modernize-20261026"
         },
-        "receipt_ref": "authoring:752f26d69ab5e55f3d560635b7a2db6ce4148c1ac37d339ec2529dc1268d376a",
+        "receipt_ref": "authoring:cf8ac2241c6010ae02264df374a0d989d5270dcd2a11c4445ccbad9838711bca",
         "pack_id": "com.storystudio.pack.formula.pov-your-life-as",
         "version": "1.0.3",
         "changes": {
@@ -14585,14 +14585,14 @@
     },
     {
       "revision": 312,
-      "transition_ref": "lifecycle:5558741d437ba915bed7bd34e3aac79dc972890636166c22ff0df18295407d62",
+      "transition_ref": "lifecycle:c06e5348a1e71757f2338eda504884f1c54b4a243e6522c764279494fbb59fe8",
       "request": {
         "expected_revision": 311,
         "coordinator": {
           "task": "formula modernization and adoption, owner ruling 2026-10-25",
           "branch": "content/formula-modernize-20261026"
         },
-        "receipt_ref": "authoring:752f26d69ab5e55f3d560635b7a2db6ce4148c1ac37d339ec2529dc1268d376a",
+        "receipt_ref": "authoring:cf8ac2241c6010ae02264df374a0d989d5270dcd2a11c4445ccbad9838711bca",
         "pack_id": "com.storystudio.pack.formula.practical-motivation",
         "version": "1.0.2",
         "changes": {
@@ -14602,14 +14602,14 @@
     },
     {
       "revision": 313,
-      "transition_ref": "lifecycle:207dd09ffb53c853a0155bd783d54d9fa0b85bd5f955250c4db40baddd442ac9",
+      "transition_ref": "lifecycle:3cfbf95778851433b005878ec9b897404a842fd8b08bb6882f6d5d12ecc13c4e",
       "request": {
         "expected_revision": 312,
         "coordinator": {
           "task": "formula modernization and adoption, owner ruling 2026-10-25",
           "branch": "content/formula-modernize-20261026"
         },
-        "receipt_ref": "authoring:752f26d69ab5e55f3d560635b7a2db6ce4148c1ac37d339ec2529dc1268d376a",
+        "receipt_ref": "authoring:cf8ac2241c6010ae02264df374a0d989d5270dcd2a11c4445ccbad9838711bca",
         "pack_id": "com.storystudio.pack.formula.sleep-story",
         "version": "1.0.2",
         "changes": {
@@ -14619,14 +14619,14 @@
     },
     {
       "revision": 314,
-      "transition_ref": "lifecycle:aa9bb6b66fd1df6e0fe645651498a47693965acfd89b3f3f1ff1de144ccb316e",
+      "transition_ref": "lifecycle:9dd359ce993246cdc2ba17a899af6d7c32725687dc757032384bcfbad4f63d8c",
       "request": {
         "expected_revision": 313,
         "coordinator": {
           "task": "formula modernization and adoption, owner ruling 2026-10-25",
           "branch": "content/formula-modernize-20261026"
         },
-        "receipt_ref": "authoring:752f26d69ab5e55f3d560635b7a2db6ce4148c1ac37d339ec2529dc1268d376a",
+        "receipt_ref": "authoring:cf8ac2241c6010ae02264df374a0d989d5270dcd2a11c4445ccbad9838711bca",
         "pack_id": "com.storystudio.pack.formula.counted-explainer",
         "version": "1.0.1",
         "changes": {
@@ -14636,14 +14636,14 @@
     },
     {
       "revision": 315,
-      "transition_ref": "lifecycle:28d047834a6661b51631baedfe6568b2a37f30567671dbbe5a0c3a9633f8357c",
+      "transition_ref": "lifecycle:8f716b1da43dafcad17ed165a20b676a1b72d582d7811e6b02e513b16c516f22",
       "request": {
         "expected_revision": 314,
         "coordinator": {
           "task": "formula modernization and adoption, owner ruling 2026-10-25",
           "branch": "content/formula-modernize-20261026"
         },
-        "receipt_ref": "authoring:752f26d69ab5e55f3d560635b7a2db6ce4148c1ac37d339ec2529dc1268d376a",
+        "receipt_ref": "authoring:cf8ac2241c6010ae02264df374a0d989d5270dcd2a11c4445ccbad9838711bca",
         "pack_id": "com.storystudio.pack.formula.build-under-constraints",
         "version": "1.0.1",
         "changes": {
@@ -14653,14 +14653,14 @@
     },
     {
       "revision": 316,
-      "transition_ref": "lifecycle:b36ba4dd74710edebfb846b3be84fc9ddb9f47911a1a1043bed93d2d37836213",
+      "transition_ref": "lifecycle:4fd11f1a4d2a47ce8e821f94c9461ffc6c55316e2788b5298a020e8d3ab89ccc",
       "request": {
         "expected_revision": 315,
         "coordinator": {
           "task": "formula modernization and adoption, owner ruling 2026-10-25",
           "branch": "content/formula-modernize-20261026"
         },
-        "receipt_ref": "authoring:752f26d69ab5e55f3d560635b7a2db6ce4148c1ac37d339ec2529dc1268d376a",
+        "receipt_ref": "authoring:cf8ac2241c6010ae02264df374a0d989d5270dcd2a11c4445ccbad9838711bca",
         "pack_id": "com.storystudio.pack.formula.pastoral-scripture",
         "version": "1.0.1",
         "changes": {
@@ -14670,14 +14670,14 @@
     },
     {
       "revision": 317,
-      "transition_ref": "lifecycle:0d1068177f26364b1f3a76e5e08a86f3e241c602a2d1ac30a78dadcffe78eb03",
+      "transition_ref": "lifecycle:fa3a298ce28db41dbc538606bb74c9ab75e5d2e3c7c3b893a53a034410738090",
       "request": {
         "expected_revision": 316,
         "coordinator": {
           "task": "formula modernization and adoption, owner ruling 2026-10-25",
           "branch": "content/formula-modernize-20261026"
         },
-        "receipt_ref": "authoring:752f26d69ab5e55f3d560635b7a2db6ce4148c1ac37d339ec2529dc1268d376a",
+        "receipt_ref": "authoring:cf8ac2241c6010ae02264df374a0d989d5270dcd2a11c4445ccbad9838711bca",
         "pack_id": "com.storystudio.pack.formula.philosophy-real-problem",
         "version": "1.0.1",
         "changes": {
@@ -14687,14 +14687,14 @@
     },
     {
       "revision": 318,
-      "transition_ref": "lifecycle:859aab615f81b8f06850b7837f347f796635b86a75a3a11f921adaa07f6ee660",
+      "transition_ref": "lifecycle:61a2f42e1500dc13d833f7722b38484347ac83eeed9524ab93d36ac42168dbba",
       "request": {
         "expected_revision": 317,
         "coordinator": {
           "task": "formula modernization and adoption, owner ruling 2026-10-25",
           "branch": "content/formula-modernize-20261026"
         },
-        "receipt_ref": "authoring:752f26d69ab5e55f3d560635b7a2db6ce4148c1ac37d339ec2529dc1268d376a",
+        "receipt_ref": "authoring:cf8ac2241c6010ae02264df374a0d989d5270dcd2a11c4445ccbad9838711bca",
         "pack_id": "com.storystudio.pack.formula.prayer",
         "version": "1.0.1",
         "changes": {
@@ -14704,14 +14704,14 @@
     },
     {
       "revision": 319,
-      "transition_ref": "lifecycle:015f1fbd453ae42812f1b6ee528596aa120d583631295bd8f2167c4155f18b42",
+      "transition_ref": "lifecycle:b153b32a0feaef8d0d93095cd2531847a21d839f7f6c7d4463f9f9d8e4bc46d2",
       "request": {
         "expected_revision": 318,
         "coordinator": {
           "task": "formula modernization and adoption, owner ruling 2026-10-25",
           "branch": "content/formula-modernize-20261026"
         },
-        "receipt_ref": "authoring:752f26d69ab5e55f3d560635b7a2db6ce4148c1ac37d339ec2529dc1268d376a",
+        "receipt_ref": "authoring:cf8ac2241c6010ae02264df374a0d989d5270dcd2a11c4445ccbad9838711bca",
         "pack_id": "com.storystudio.pack.formula.before-after-timeline",
         "version": "1.0.1",
         "changes": {
@@ -14721,14 +14721,14 @@
     },
     {
       "revision": 320,
-      "transition_ref": "lifecycle:ef18b8ac3f9b276c71b63658aca6aca6a578cf90aaa54c85cfc6c4dab54fa311",
+      "transition_ref": "lifecycle:bffcfc4a3d9ca84958e77043e32ae5d991dc3f9174e22d5f5b2e0c3e2b644a50",
       "request": {
         "expected_revision": 319,
         "coordinator": {
           "task": "formula modernization and adoption, owner ruling 2026-10-25",
           "branch": "content/formula-modernize-20261026"
         },
-        "receipt_ref": "authoring:752f26d69ab5e55f3d560635b7a2db6ce4148c1ac37d339ec2529dc1268d376a",
+        "receipt_ref": "authoring:cf8ac2241c6010ae02264df374a0d989d5270dcd2a11c4445ccbad9838711bca",
         "pack_id": "com.storystudio.pack.formula.question-ladder",
         "version": "1.0.1",
         "changes": {
@@ -14738,14 +14738,14 @@
     },
     {
       "revision": 321,
-      "transition_ref": "lifecycle:8eb159b6022fb8d98ca62ef6cc867bf1e141208ffdfd70ce58e1787e19192d4d",
+      "transition_ref": "lifecycle:fc57914dad34d2bff8810fbf87982d421d141a228370f14d1bed2be770ba2d57",
       "request": {
         "expected_revision": 320,
         "coordinator": {
           "task": "formula modernization and adoption, owner ruling 2026-10-25",
           "branch": "content/formula-modernize-20261026"
         },
-        "receipt_ref": "authoring:752f26d69ab5e55f3d560635b7a2db6ce4148c1ac37d339ec2529dc1268d376a",
+        "receipt_ref": "authoring:cf8ac2241c6010ae02264df374a0d989d5270dcd2a11c4445ccbad9838711bca",
         "pack_id": "com.storystudio.pack.formula.wildlife-under-pressure",
         "version": "1.0.0",
         "changes": {
@@ -14755,14 +14755,14 @@
     },
     {
       "revision": 322,
-      "transition_ref": "lifecycle:4907aee296c11fcb199b7589da764a24d3d1d08ed9f22a9c16b72cd505026f84",
+      "transition_ref": "lifecycle:25f123072c62fdb498d94330f2105363d87d0968ecbb67665fac45231d285a34",
       "request": {
         "expected_revision": 321,
         "coordinator": {
           "task": "formula modernization and adoption, owner ruling 2026-10-25",
           "branch": "content/formula-modernize-20261026"
         },
-        "receipt_ref": "authoring:752f26d69ab5e55f3d560635b7a2db6ce4148c1ac37d339ec2529dc1268d376a",
+        "receipt_ref": "authoring:cf8ac2241c6010ae02264df374a0d989d5270dcd2a11c4445ccbad9838711bca",
         "pack_id": "com.storystudio.pack.formula.coffee-jazz-ambient",
         "version": "1.0.0",
         "changes": {
@@ -14772,14 +14772,14 @@
     },
     {
       "revision": 323,
-      "transition_ref": "lifecycle:ccff7df10c5a20e96a627fe26790f760d0625ab89c9d54bb38dfb9b978968c9a",
+      "transition_ref": "lifecycle:9277879a04865b1938feb32a14a7df36460d193b4702efe0802db46bab0e35dc",
       "request": {
         "expected_revision": 322,
         "coordinator": {
           "task": "formula modernization and adoption, owner ruling 2026-10-25",
           "branch": "content/formula-modernize-20261026"
         },
-        "receipt_ref": "authoring:752f26d69ab5e55f3d560635b7a2db6ce4148c1ac37d339ec2529dc1268d376a",
+        "receipt_ref": "authoring:cf8ac2241c6010ae02264df374a0d989d5270dcd2a11c4445ccbad9838711bca",
         "pack_id": "com.storystudio.pack.formula.a-world-before-us",
         "version": "1.0.0",
         "changes": {
@@ -14789,14 +14789,14 @@
     },
     {
       "revision": 324,
-      "transition_ref": "lifecycle:eb84fec480ff46047a95222f94ea4cef35cc502782478c7e3e8f1bec2dc4e683",
+      "transition_ref": "lifecycle:1670b8b05b05c4c4459f61011d4c8090aeac7466661378a1c3216cb1bb747bd5",
       "request": {
         "expected_revision": 323,
         "coordinator": {
           "task": "formula modernization and adoption, owner ruling 2026-10-25",
           "branch": "content/formula-modernize-20261026"
         },
-        "receipt_ref": "authoring:752f26d69ab5e55f3d560635b7a2db6ce4148c1ac37d339ec2529dc1268d376a",
+        "receipt_ref": "authoring:cf8ac2241c6010ae02264df374a0d989d5270dcd2a11c4445ccbad9838711bca",
         "pack_id": "com.storystudio.pack.formula.khmer-folk-horror",
         "version": "1.0.0",
         "changes": {
@@ -14806,14 +14806,14 @@
     },
     {
       "revision": 325,
-      "transition_ref": "lifecycle:0c4bd5983cd3c06dc4f291e0db986b48bddbf19a5ef75dfe0cefe5181390d45f",
+      "transition_ref": "lifecycle:9e3c3a056d0d30d0412b4850068e2fcb0fffd0612d230e3374f659c81cc02416",
       "request": {
         "expected_revision": 324,
         "coordinator": {
           "task": "formula modernization and adoption, owner ruling 2026-10-25",
           "branch": "content/formula-modernize-20261026"
         },
-        "receipt_ref": "authoring:752f26d69ab5e55f3d560635b7a2db6ce4148c1ac37d339ec2529dc1268d376a",
+        "receipt_ref": "authoring:cf8ac2241c6010ae02264df374a0d989d5270dcd2a11c4445ccbad9838711bca",
         "pack_id": "com.storystudio.pack.formula.calm-science-for-sleep",
         "version": "1.0.0",
         "changes": {
@@ -14823,14 +14823,14 @@
     },
     {
       "revision": 326,
-      "transition_ref": "lifecycle:7c2e7b69615d10590b29ead3c75a4143aedec7a3d1efee699dffe63a686064fc",
+      "transition_ref": "lifecycle:dfb1058184824113dacdcaa18404ee73ed81299d522ee2f277c9ab8d4e925b06",
       "request": {
         "expected_revision": 325,
         "coordinator": {
           "task": "formula modernization and adoption, owner ruling 2026-10-25",
           "branch": "content/formula-modernize-20261026"
         },
-        "receipt_ref": "authoring:752f26d69ab5e55f3d560635b7a2db6ce4148c1ac37d339ec2529dc1268d376a",
+        "receipt_ref": "authoring:cf8ac2241c6010ae02264df374a0d989d5270dcd2a11c4445ccbad9838711bca",
         "pack_id": "com.storystudio.pack.formula.mythology-for-sleep",
         "version": "1.0.0",
         "changes": {
@@ -24289,7 +24289,7 @@
       }
     },
     {
-      "receipt_ref": "authoring:1dab10aa83cfc25cccc12ebf6efeb7463c238888e39d520a0083c3665b668d73",
+      "receipt_ref": "authoring:bcad9c6cb6c2918a3a78e21aa3d3cdbe76a6a850197d0616a974133df74b2f9d",
       "pack_id": "com.storystudio.pack.style.bold-illustrated-history",
       "item_id": "com.storystudio.style.bold-illustrated-history",
       "version": "1.0.1",
@@ -24312,7 +24312,7 @@
       }
     },
     {
-      "receipt_ref": "authoring:1dab10aa83cfc25cccc12ebf6efeb7463c238888e39d520a0083c3665b668d73",
+      "receipt_ref": "authoring:bcad9c6cb6c2918a3a78e21aa3d3cdbe76a6a850197d0616a974133df74b2f9d",
       "pack_id": "com.storystudio.pack.style.quiet-anime-poetry",
       "item_id": "com.storystudio.style.quiet-anime-poetry",
       "version": "1.0.1",
@@ -24335,7 +24335,7 @@
       }
     },
     {
-      "receipt_ref": "authoring:1dab10aa83cfc25cccc12ebf6efeb7463c238888e39d520a0083c3665b668d73",
+      "receipt_ref": "authoring:bcad9c6cb6c2918a3a78e21aa3d3cdbe76a6a850197d0616a974133df74b2f9d",
       "pack_id": "com.storystudio.pack.style.cinematic-historical-illustration",
       "item_id": "com.storystudio.style.cinematic-historical-illustration",
       "version": "1.0.0",
@@ -24358,7 +24358,7 @@
       }
     },
     {
-      "receipt_ref": "authoring:752f26d69ab5e55f3d560635b7a2db6ce4148c1ac37d339ec2529dc1268d376a",
+      "receipt_ref": "authoring:cf8ac2241c6010ae02264df374a0d989d5270dcd2a11c4445ccbad9838711bca",
       "pack_id": "com.storystudio.pack.formula.ancient-humans",
       "item_id": "com.storystudio.formula.ancient-humans",
       "version": "1.0.3",
@@ -24381,7 +24381,7 @@
       }
     },
     {
-      "receipt_ref": "authoring:752f26d69ab5e55f3d560635b7a2db6ce4148c1ac37d339ec2529dc1268d376a",
+      "receipt_ref": "authoring:cf8ac2241c6010ae02264df374a0d989d5270dcd2a11c4445ccbad9838711bca",
       "pack_id": "com.storystudio.pack.formula.deep-time-documentary",
       "item_id": "com.storystudio.formula.deep-time-documentary",
       "version": "1.0.3",
@@ -24404,7 +24404,7 @@
       }
     },
     {
-      "receipt_ref": "authoring:752f26d69ab5e55f3d560635b7a2db6ce4148c1ac37d339ec2529dc1268d376a",
+      "receipt_ref": "authoring:cf8ac2241c6010ae02264df374a0d989d5270dcd2a11c4445ccbad9838711bca",
       "pack_id": "com.storystudio.pack.formula.economics-of",
       "item_id": "com.storystudio.formula.economics-of",
       "version": "1.0.2",
@@ -24427,7 +24427,7 @@
       }
     },
     {
-      "receipt_ref": "authoring:752f26d69ab5e55f3d560635b7a2db6ce4148c1ac37d339ec2529dc1268d376a",
+      "receipt_ref": "authoring:cf8ac2241c6010ae02264df374a0d989d5270dcd2a11c4445ccbad9838711bca",
       "pack_id": "com.storystudio.pack.formula.guided-mindfulness",
       "item_id": "com.storystudio.formula.guided-mindfulness",
       "version": "1.0.2",
@@ -24450,7 +24450,7 @@
       }
     },
     {
-      "receipt_ref": "authoring:752f26d69ab5e55f3d560635b7a2db6ce4148c1ac37d339ec2529dc1268d376a",
+      "receipt_ref": "authoring:cf8ac2241c6010ae02264df374a0d989d5270dcd2a11c4445ccbad9838711bca",
       "pack_id": "com.storystudio.pack.formula.history-explained",
       "item_id": "com.storystudio.formula.history-explained",
       "version": "1.0.3",
@@ -24473,7 +24473,7 @@
       }
     },
     {
-      "receipt_ref": "authoring:752f26d69ab5e55f3d560635b7a2db6ce4148c1ac37d339ec2529dc1268d376a",
+      "receipt_ref": "authoring:cf8ac2241c6010ae02264df374a0d989d5270dcd2a11c4445ccbad9838711bca",
       "pack_id": "com.storystudio.pack.formula.human-behavior-explained",
       "item_id": "com.storystudio.formula.human-behavior-explained",
       "version": "1.0.3",
@@ -24496,7 +24496,7 @@
       }
     },
     {
-      "receipt_ref": "authoring:752f26d69ab5e55f3d560635b7a2db6ce4148c1ac37d339ec2529dc1268d376a",
+      "receipt_ref": "authoring:cf8ac2241c6010ae02264df374a0d989d5270dcd2a11c4445ccbad9838711bca",
       "pack_id": "com.storystudio.pack.formula.natural-world-explained",
       "item_id": "com.storystudio.formula.natural-world-explained",
       "version": "1.0.3",
@@ -24519,7 +24519,7 @@
       }
     },
     {
-      "receipt_ref": "authoring:752f26d69ab5e55f3d560635b7a2db6ce4148c1ac37d339ec2529dc1268d376a",
+      "receipt_ref": "authoring:cf8ac2241c6010ae02264df374a0d989d5270dcd2a11c4445ccbad9838711bca",
       "pack_id": "com.storystudio.pack.formula.pov-your-life-as",
       "item_id": "com.storystudio.formula.pov-your-life-as",
       "version": "1.0.3",
@@ -24542,7 +24542,7 @@
       }
     },
     {
-      "receipt_ref": "authoring:752f26d69ab5e55f3d560635b7a2db6ce4148c1ac37d339ec2529dc1268d376a",
+      "receipt_ref": "authoring:cf8ac2241c6010ae02264df374a0d989d5270dcd2a11c4445ccbad9838711bca",
       "pack_id": "com.storystudio.pack.formula.practical-motivation",
       "item_id": "com.storystudio.formula.practical-motivation",
       "version": "1.0.2",
@@ -24565,7 +24565,7 @@
       }
     },
     {
-      "receipt_ref": "authoring:752f26d69ab5e55f3d560635b7a2db6ce4148c1ac37d339ec2529dc1268d376a",
+      "receipt_ref": "authoring:cf8ac2241c6010ae02264df374a0d989d5270dcd2a11c4445ccbad9838711bca",
       "pack_id": "com.storystudio.pack.formula.sleep-story",
       "item_id": "com.storystudio.formula.sleep-story",
       "version": "1.0.2",
@@ -24588,7 +24588,7 @@
       }
     },
     {
-      "receipt_ref": "authoring:752f26d69ab5e55f3d560635b7a2db6ce4148c1ac37d339ec2529dc1268d376a",
+      "receipt_ref": "authoring:cf8ac2241c6010ae02264df374a0d989d5270dcd2a11c4445ccbad9838711bca",
       "pack_id": "com.storystudio.pack.formula.counted-explainer",
       "item_id": "com.storystudio.formula.counted-explainer",
       "version": "1.0.1",
@@ -24611,7 +24611,7 @@
       }
     },
     {
-      "receipt_ref": "authoring:752f26d69ab5e55f3d560635b7a2db6ce4148c1ac37d339ec2529dc1268d376a",
+      "receipt_ref": "authoring:cf8ac2241c6010ae02264df374a0d989d5270dcd2a11c4445ccbad9838711bca",
       "pack_id": "com.storystudio.pack.formula.build-under-constraints",
       "item_id": "com.storystudio.formula.build-under-constraints",
       "version": "1.0.1",
@@ -24634,7 +24634,7 @@
       }
     },
     {
-      "receipt_ref": "authoring:752f26d69ab5e55f3d560635b7a2db6ce4148c1ac37d339ec2529dc1268d376a",
+      "receipt_ref": "authoring:cf8ac2241c6010ae02264df374a0d989d5270dcd2a11c4445ccbad9838711bca",
       "pack_id": "com.storystudio.pack.formula.pastoral-scripture",
       "item_id": "com.storystudio.formula.pastoral-scripture",
       "version": "1.0.1",
@@ -24657,7 +24657,7 @@
       }
     },
     {
-      "receipt_ref": "authoring:752f26d69ab5e55f3d560635b7a2db6ce4148c1ac37d339ec2529dc1268d376a",
+      "receipt_ref": "authoring:cf8ac2241c6010ae02264df374a0d989d5270dcd2a11c4445ccbad9838711bca",
       "pack_id": "com.storystudio.pack.formula.philosophy-real-problem",
       "item_id": "com.storystudio.formula.philosophy-real-problem",
       "version": "1.0.1",
@@ -24680,7 +24680,7 @@
       }
     },
     {
-      "receipt_ref": "authoring:752f26d69ab5e55f3d560635b7a2db6ce4148c1ac37d339ec2529dc1268d376a",
+      "receipt_ref": "authoring:cf8ac2241c6010ae02264df374a0d989d5270dcd2a11c4445ccbad9838711bca",
       "pack_id": "com.storystudio.pack.formula.prayer",
       "item_id": "com.storystudio.formula.prayer",
       "version": "1.0.1",
@@ -24703,7 +24703,7 @@
       }
     },
     {
-      "receipt_ref": "authoring:752f26d69ab5e55f3d560635b7a2db6ce4148c1ac37d339ec2529dc1268d376a",
+      "receipt_ref": "authoring:cf8ac2241c6010ae02264df374a0d989d5270dcd2a11c4445ccbad9838711bca",
       "pack_id": "com.storystudio.pack.formula.before-after-timeline",
       "item_id": "com.storystudio.formula.before-after-timeline",
       "version": "1.0.1",
@@ -24726,7 +24726,7 @@
       }
     },
     {
-      "receipt_ref": "authoring:752f26d69ab5e55f3d560635b7a2db6ce4148c1ac37d339ec2529dc1268d376a",
+      "receipt_ref": "authoring:cf8ac2241c6010ae02264df374a0d989d5270dcd2a11c4445ccbad9838711bca",
       "pack_id": "com.storystudio.pack.formula.question-ladder",
       "item_id": "com.storystudio.formula.question-ladder",
       "version": "1.0.1",
@@ -24749,7 +24749,7 @@
       }
     },
     {
-      "receipt_ref": "authoring:752f26d69ab5e55f3d560635b7a2db6ce4148c1ac37d339ec2529dc1268d376a",
+      "receipt_ref": "authoring:cf8ac2241c6010ae02264df374a0d989d5270dcd2a11c4445ccbad9838711bca",
       "pack_id": "com.storystudio.pack.formula.wildlife-under-pressure",
       "item_id": "com.storystudio.formula.wildlife-under-pressure",
       "version": "1.0.0",
@@ -24772,7 +24772,7 @@
       }
     },
     {
-      "receipt_ref": "authoring:752f26d69ab5e55f3d560635b7a2db6ce4148c1ac37d339ec2529dc1268d376a",
+      "receipt_ref": "authoring:cf8ac2241c6010ae02264df374a0d989d5270dcd2a11c4445ccbad9838711bca",
       "pack_id": "com.storystudio.pack.formula.coffee-jazz-ambient",
       "item_id": "com.storystudio.formula.coffee-jazz-ambient",
       "version": "1.0.0",
@@ -24795,7 +24795,7 @@
       }
     },
     {
-      "receipt_ref": "authoring:752f26d69ab5e55f3d560635b7a2db6ce4148c1ac37d339ec2529dc1268d376a",
+      "receipt_ref": "authoring:cf8ac2241c6010ae02264df374a0d989d5270dcd2a11c4445ccbad9838711bca",
       "pack_id": "com.storystudio.pack.formula.a-world-before-us",
       "item_id": "com.storystudio.formula.a-world-before-us",
       "version": "1.0.0",
@@ -24818,7 +24818,7 @@
       }
     },
     {
-      "receipt_ref": "authoring:752f26d69ab5e55f3d560635b7a2db6ce4148c1ac37d339ec2529dc1268d376a",
+      "receipt_ref": "authoring:cf8ac2241c6010ae02264df374a0d989d5270dcd2a11c4445ccbad9838711bca",
       "pack_id": "com.storystudio.pack.formula.khmer-folk-horror",
       "item_id": "com.storystudio.formula.khmer-folk-horror",
       "version": "1.0.0",
@@ -24841,7 +24841,7 @@
       }
     },
     {
-      "receipt_ref": "authoring:752f26d69ab5e55f3d560635b7a2db6ce4148c1ac37d339ec2529dc1268d376a",
+      "receipt_ref": "authoring:cf8ac2241c6010ae02264df374a0d989d5270dcd2a11c4445ccbad9838711bca",
       "pack_id": "com.storystudio.pack.formula.calm-science-for-sleep",
       "item_id": "com.storystudio.formula.calm-science-for-sleep",
       "version": "1.0.0",
@@ -24864,7 +24864,7 @@
       }
     },
     {
-      "receipt_ref": "authoring:752f26d69ab5e55f3d560635b7a2db6ce4148c1ac37d339ec2529dc1268d376a",
+      "receipt_ref": "authoring:cf8ac2241c6010ae02264df374a0d989d5270dcd2a11c4445ccbad9838711bca",
       "pack_id": "com.storystudio.pack.formula.mythology-for-sleep",
       "item_id": "com.storystudio.formula.mythology-for-sleep",
       "version": "1.0.0",
