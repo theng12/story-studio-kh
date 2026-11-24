@@ -5904,11 +5904,14 @@ test('a preview waits for a save holding the override lock instead of describing
   const previewP = request(app).post(`/api/projects/${slug}/youtube/preview`)
     .send({ episode_code: episodeCode, privacy_status: 'private' })
     .then(res => { settled = true; return res })
-  await new Promise(resolve => setTimeout(resolve, 120))
-  assert.equal(settled, false, 'the preview waited for the write in flight, so it cannot read between two halves')
-
-  release()
-  await holding
+  try {
+    await new Promise(resolve => setTimeout(resolve, 120))
+    assert.equal(settled, false, 'the preview waited for the write in flight, so it cannot read between two halves')
+  } finally {
+    // The lock must be released even if that assertion fails, or every later test in this file hangs.
+    release()
+    await holding
+  }
   const preview = await previewP
   assert.equal(preview.status, 200, JSON.stringify(preview.body))
 })
