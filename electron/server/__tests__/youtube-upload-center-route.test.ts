@@ -5905,8 +5905,16 @@ test('a preview waits for a save holding the override lock instead of describing
     .send({ episode_code: episodeCode, privacy_status: 'private' })
     .then(res => { settled = true; return res })
   try {
-    await new Promise(resolve => setTimeout(resolve, 120))
-    assert.equal(settled, false, 'the preview waited for the write in flight, so it cannot read between two halves')
+    // No fixed sleep: `waitForValue` polls, and its timeout is the proof — a preview that could
+    // read the sidecar while a write holds it would settle at once, so this can only time out
+    // when the lock is respected.
+    await assert.rejects(
+      waitForValue(() => (settled ? 'settled' : null), {
+        label: 'the preview to settle while the override lock is held',
+        timeoutMs: 250,
+      }),
+      /Timed out waiting for the preview to settle while the override lock is held/,
+    )
   } finally {
     // The lock must be released even if that assertion fails, or every later test in this file hangs.
     release()
