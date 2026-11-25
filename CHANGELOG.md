@@ -6,7 +6,7 @@ What's new in each release. Newest first. The ten most recent are here; older re
 
 ## v1.4.422 — 2026-11-25
 
-- **Story Studio now checks for and installs signed updates on its own, behind the update hold.** The shipped app now carries Sparkle 2 with Story's own signed update feed and public key. Before checking or swapping the app, it takes Story's update hold with the private hold token so running work can settle first and queued jobs stay queued; if the hold is refused or work is not ready to pause, nothing is fetched and Story keeps working as usual. Once safe, it downloads the verified update, relaunches automatically, and picks up queued work again.
+- **Story Studio now checks for and installs signed updates on its own, behind the update hold.** The shipped app now carries Sparkle 2 with Story's own signed update feed and public key. Before checking or swapping the app, it takes Story's update hold with the private hold token so running work can settle first and queued jobs stay queued; if the hold is refused or work is not ready to pause, nothing is fetched and Story keeps working as usual. When there is nothing to install, the hold is released a moment later and queued work starts as usual. Once safe, it downloads the verified update, relaunches automatically, and picks up queued work again.
 
 ## v1.4.421 — 2026-11-25
 

@@ -1,5 +1,8 @@
 import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 import { startSparkle } from '../sparkle.js'
 
 type LogLine = { level: 'info' | 'warn', message: string }
@@ -34,9 +37,11 @@ describe('in-app Sparkle start', () => {
       resourcesPath: '/bundle/Resources',
       load: (addon) => {
         requested = addon
-        return { start: () => 0, lastError: () => '' }
+        return { start: () => 0, lastError: () => '', state: () => 0 }
       },
       log,
+      releaseAfterMs: 60_000,
+      fetchImpl: async () => ({ ok: true, status: 200 }),
     })
     assert.equal(ok, true)
     assert.equal(requested, '/bundle/Resources/app.asar.unpacked/electron/dist/khsparkle.node')
@@ -45,11 +50,51 @@ describe('in-app Sparkle start', () => {
     assert.match(lines[0].message, /holds work before fetching the signed feed/)
   })
 
+  test('a background check that finds nothing releases the hold Story would otherwise leave closed', async () => {
+    const { lines, log } = capture()
+    const tokenFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'kh-sparkle-')), 'hold-token')
+    fs.writeFileSync(tokenFile, 'a'.repeat(64))
+    const calls: { url: string, method: string, auth: string }[] = []
+    startSparkle({
+      packaged: true,
+      load: () => ({ start: () => 0, lastError: () => '', state: () => 0 }),
+      log,
+      hold: { url: 'http://127.0.0.1:8647/api/maintenance/hold', tokenFile },
+      releaseAfterMs: 5,
+      fetchImpl: async (url, init) => {
+        calls.push({ url, method: init.method, auth: init.headers.Authorization })
+        return { ok: true, status: 200 }
+      },
+    })
+    await new Promise(r => setTimeout(r, 40))
+    assert.deepEqual(calls, [{
+      url: 'http://127.0.0.1:8647/api/maintenance/hold',
+      method: 'DELETE',
+      auth: `Bearer ${'a'.repeat(64)}`,
+    }])
+    assert.match(lines.at(-1)?.message ?? '', /no update available; released the update hold/)
+  })
+
+  test('an update that IS available keeps the hold until the app is replaced', async () => {
+    const { lines, log } = capture()
+    let fetched = 0
+    startSparkle({
+      packaged: true,
+      load: () => ({ start: () => 0, lastError: () => '', state: () => 1 }),
+      log,
+      releaseAfterMs: 5,
+      fetchImpl: async () => { fetched += 1; return { ok: true, status: 200 } },
+    })
+    await new Promise(r => setTimeout(r, 40))
+    assert.equal(fetched, 0)
+    assert.match(lines.at(-1)?.message ?? '', /a newer version is available; the hold stays/)
+  })
+
   test('a refusal says why and says no update was fetched', () => {
     const { lines, log } = capture()
     const ok = startSparkle({
       packaged: true,
-      load: () => ({ start: () => 2, lastError: () => 'Info.plist is missing SUFeedURL' }),
+      load: () => ({ start: () => 2, lastError: () => 'Info.plist is missing SUFeedURL', state: () => 0 }),
       log,
     })
     assert.equal(ok, false)
