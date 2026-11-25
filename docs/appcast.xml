@@ -25,5 +25,14 @@
 - **A green test run stops reporting a cleanup error.** The test harness restores write permission before releasing a passing run's retained evidence, so a green run no longer ends with a permission-denied line that reads like a failure.]]></description>
       <enclosure url="https://github.com/theng12/story-studio-kh/releases/download/1.4.420/1b906d09a021-Story.Studio.KH.1.4.420-arm64.dmg" length="263995929" type="application/octet-stream" sparkle:edSignature="5hZKA0ikgYlP2Ep4WvfUV69a4Hnsi1iAamOrK3DEu+4/vjVT3/Dw9ECTj36qN+bbrL+O+psZgtLIOTnDdEF/AA==" />
     </item>
+      <item>
+      <title>Version 1.4.421</title>
+      <pubDate>Wed, 25 Nov 2026 01:29:47 +0000</pubDate>
+      <sparkle:version>1.4.421</sparkle:version>
+      <sparkle:shortVersionString>1.4.421</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>12.0</sparkle:minimumSystemVersion>
+      <description><![CDATA[- **A channel that publishes three times a week at random now shows its plan.** The Publishing Overview asked its own copy of the "is this a real plan?" rule, and that copy knew only about chosen weekdays and a monthly day — so a saved counted rhythm ("three a week, days chosen for me") read as "No publishing plan is set" while it was working. There is now one rule, the one the schedule saver already enforces, and a channel with a counted rhythm shows its planned slots like any other.]]></description>
+      <enclosure url="https://github.com/theng12/story-studio-kh/releases/download/1.4.421/4b52a77c94c6-Story.Studio.KH.1.4.421-arm64.dmg" length="264000504" type="application/octet-stream" sparkle:edSignature="Mst2ewY8Ma/P661D1ge4Ab/orWhfkc2N1FD6jOGNN7MNLhcQt0dvf4fYLnd4ilvmJBPOYIh6jGJ5m3qbjlRxDg==" />
+    </item>
   </channel>
 </rss>
