@@ -17,6 +17,7 @@
     "output": "dist",
     "buildResources": "build"
   },
+  "afterPack": "scripts/release/after-pack.cjs",
   "files": [
     "electron/dist/**/*",
     "electron/preload.cjs",
@@ -94,9 +95,17 @@
     "category": "public.app-category.productivity",
     "icon": "build/icon.icns",
     "artifactName": "${productName} ${version}-${arch}.${ext}",
+    "hardenedRuntime": true,
+    "entitlements": "scripts/release/entitlements.mac.plist",
+    "entitlementsInherit": "scripts/release/entitlements.mac.plist",
     "extendInfo": {
       "CFBundleName": "Story Studio KH",
-      "CFBundleDisplayName": "Story Studio KH"
+      "CFBundleDisplayName": "Story Studio KH",
+      "SUFeedURL": "https://theng12.github.io/story-studio-kh/appcast.xml",
+      "SUPublicEDKey": "Oh6zINtE/DCKpt1CrTyIxhwBiF9dchqFkIgSzstVotY=",
+      "KHHoldURL": "http://127.0.0.1:8647/api/maintenance/hold",
+      "KHHoldTokenFile": "~/Library/KHUpdater/state/hold-token",
+      "SUEnableAutomaticChecks": true
     }
   },
   "dmg": {

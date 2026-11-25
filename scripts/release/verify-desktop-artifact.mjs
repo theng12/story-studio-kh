@@ -101,6 +101,14 @@ if (fs.existsSync(appPath) && dmgMounted) {
   if (plistValue('CFBundleShortVersionString') !== pkg.version) fail('Info.plist: short version differs from package.json')
   if (plistValue('CFBundleVersion') !== pkg.version) fail('Info.plist: bundle version differs from package.json')
   if (plistValue('CFBundleName') !== contract.productName) fail('Info.plist: bundle name differs from release contract')
+  for (const key of ['SUFeedURL', 'SUPublicEDKey', 'KHHoldURL', 'KHHoldTokenFile']) {
+    const expected = builder.mac?.extendInfo?.[key]
+    if (!expected) fail(`electron-builder.json has no mac.extendInfo.${key}`)
+    else if (plistValue(key) !== expected) fail(`Info.plist ${key} differs from the build config`)
+  }
+  if (!fs.existsSync(path.join(appPath, 'Contents', 'Frameworks', 'Sparkle.framework', 'Versions', 'B', 'Sparkle'))) {
+    fail('Sparkle.framework is missing from Contents/Frameworks')
+  }
 
   const executable = path.join(appPath, 'Contents', 'MacOS', contract.executableName)
   const executableArchs = capture('lipo', ['-archs', executable]).output.split(/\s+/).filter(Boolean)
@@ -138,6 +146,9 @@ if (fs.existsSync(appPath) && dmgMounted) {
   }
 
   const resources = path.join(appPath, 'Contents', 'Resources')
+  if (!fs.existsSync(path.join(resources, 'app.asar.unpacked', 'electron', 'dist', 'khsparkle.node'))) {
+    fail('the unpacked Sparkle addon is missing from Contents/Resources/app.asar.unpacked')
+  }
   for (const relative of contract.requiredPackagedResources) {
     if (!fs.existsSync(path.join(resources, relative))) fail(`packaged resource is missing: ${relative}`)
   }

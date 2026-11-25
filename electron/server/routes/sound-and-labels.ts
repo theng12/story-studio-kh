@@ -177,13 +177,13 @@ router.get('/projects/:slug/sound-and-labels/label-designs/:id/sample', async (r
     if (!await pm.getConfig(req.params.slug)) return res.status(404).json({ detail: 'Project not found' })
     const { findLabelDesign, labelDesignAssetPath } = await import('../lib/label-design-render.js')
     if (legacyLabelDesigns.some(design => design.id === req.params.id)) {
-      return res.sendFile(labelDesignAssetPath(`classic-${req.params.id}.png`))
+      return res.sendFile(labelDesignAssetPath(`classic-${req.params.id}.png`), { dotfiles: 'allow' })
     }
     const design = await findLabelDesign(req.params.id)
     if (!design || typeof design.asset !== 'string' || path.basename(design.asset) !== design.asset || !design.asset.endsWith('.png')) {
       return res.status(404).json({ detail: 'Label sample not found.' })
     }
-    res.sendFile(labelDesignAssetPath(design.asset))
+    res.sendFile(labelDesignAssetPath(design.asset), { dotfiles: 'allow' })
   } catch (error: any) {
     res.status(500).json(humanizeBackendError(error, 'Could not load this label sample.'))
   }

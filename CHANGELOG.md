@@ -4,6 +4,10 @@ What's new in each release. Newest first. The ten most recent are here; older re
 
 ---
 
+## v1.4.422 — 2026-11-25
+
+- **Story Studio now checks for and installs signed updates on its own, behind the update hold.** The shipped app now carries Sparkle 2 with Story's own signed update feed and public key. Before checking or swapping the app, it takes Story's update hold with the private hold token so running work can settle first and queued jobs stay queued; if the hold is refused or work is not ready to pause, nothing is fetched and Story keeps working as usual. When there is nothing to install, the hold is released a moment later and queued work starts as usual. Once safe, it downloads the verified update, relaunches automatically, and picks up queued work again.
+
 ## v1.4.421 — 2026-11-25
 
 - **A channel that publishes three times a week at random now shows its plan.** The Publishing Overview asked its own copy of the "is this a real plan?" rule, and that copy knew only about chosen weekdays and a monthly day — so a saved counted rhythm ("three a week, days chosen for me") read as "No publishing plan is set" while it was working. There is now one rule, the one the schedule saver already enforces, and a channel with a counted rhythm shows its planned slots like any other.
@@ -54,8 +58,3 @@ What's new in each release. Newest first. The ten most recent are here; older re
 
 - **A retired model is caught before the work, not hours into it.** A saved plan that names a model the Gateway no longer sells is now refused when the run is started: Pipeline says so before it queues anything, and episode recovery stops before it re-does narration, audio or subtitles. The message names the missing model and where to pick a current one. If the Gateway cannot be read at all, that is treated as an outage, not a missing model, and nothing is blocked for it.
 - **A model the Gateway renamed keeps working.** When the live catalogue publishes the same product under another name, the saved choice now finds it and the job says which name it used. It is the same product, so nothing about the writing changes; a product the catalogue no longer publishes is still never swapped for a different one.
-
-## v1.4.412 — 2026-11-19
-
-- **Removed private details from the app's own text.** An example address in the Gateway error message and the comments that named owner channels no longer appear anywhere in the shipped app. Nothing functional changed: no setting, no address and no default was read from either, and the example now uses the reserved documentation range. The native Keychain guard also no longer carries a build path.
-- **The gate now cleans up after itself.** A test process left behind by an interrupted release no longer keeps running (and competing for memory) after the gate that started it has gone.

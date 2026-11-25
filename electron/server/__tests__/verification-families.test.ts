@@ -61,14 +61,15 @@ const execFileAsync = promisify(execFile)
 
 /**
  * Orchestra guards live outside the repo; the path is found by walking up from this checkout, never
- * baked in and never counted in `..`s. Three levels up is right from the main checkout and wrong
- * from a worktree (`story-studio-kh/worktrees/<name>` is one level deeper), which is how this read
- * `developer-media/tools` and failed every gate built in a worktree.
+ * baked in and never counted in `..`s. Three levels up is right from the main checkout; a worktree
+ * (`story-studio-kh/worktrees/<name>`) is one level deeper, and an app-scoped worktree
+ * (`app/.claude/worktrees/<name>`) is four deeper, which is how this read `developer-media/tools`
+ * and failed every gate built in a nested worktree.
  */
 const REPO_ROOT = fileURLToPath(new URL('../../..', import.meta.url))
 function findOrchestraTools(): string {
   let dir = REPO_ROOT
-  for (let depth = 0; depth < 6; depth += 1) {
+  for (let depth = 0; depth < 10; depth += 1) {
     const candidate = path.resolve(dir, 'tools')
     if (existsSync(path.join(candidate, 'check-request-records.py'))) return candidate
     dir = path.resolve(dir, '..')

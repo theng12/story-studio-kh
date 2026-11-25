@@ -39,10 +39,10 @@ test('a real startup failure still logs, reports a redacted error, and quits', (
 test('a late successful window load cannot start background services after shutdown', () => {
   const continuation = source.match(/await createWindow\(port\)([\s\S]*?)installJobNotifier\(\)/)?.[1]
   assert.ok(continuation)
-  const run = new Function('isShuttingDown', 'installJobNotifier', `${continuation}; installJobNotifier()`)
+  const run = new Function('isShuttingDown', 'installJobNotifier', 'startSparkle', 'electronApp', `${continuation}; installJobNotifier()`)
   let installed = 0
-  run(true, () => installed++)
+  run(true, () => installed++, () => {}, { isPackaged: false })
   assert.equal(installed, 0)
-  run(false, () => installed++)
+  run(false, () => installed++, () => {}, { isPackaged: false })
   assert.equal(installed, 1)
 })

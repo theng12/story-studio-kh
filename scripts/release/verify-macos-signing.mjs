@@ -73,6 +73,16 @@ export function buildReceipt({ appPath, identity }) {
   const version = capture('plutil', ['-extract', 'CFBundleShortVersionString', 'raw', '-o', '-', plist]).trim()
 
   capture('codesign', ['--verify', '--deep', '--strict', appPath], 300_000)
+  // A strict verify is not a launch: under the hardened runtime, Sparkle's framework has no
+  // matching Team ID. The running app must carry these three, or it dies in dyld or with SIGTRAP.
+  const entitlements = capture('codesign', ['-d', '--entitlements', ':-', appPath])
+  for (const key of [
+    'com.apple.security.cs.allow-jit',
+    'com.apple.security.cs.allow-unsigned-executable-memory',
+    'com.apple.security.cs.disable-library-validation',
+  ]) {
+    if (!entitlements.includes(key)) throw new Error(`The packaged app is missing ${key}`)
+  }
 
   const executable = path.join('Contents', 'MacOS', contract.executableName)
   const helpers = persistentHelperBundles(appPath)

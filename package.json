@@ -1,7 +1,7 @@
 {
   "name": "story-studio-kh",
   "productName": "Story Studio KH",
-  "version": "1.4.421",
+  "version": "1.4.422",
   "private": true,
   "description": "Story Studio KH \u2014 continuity-first video pipeline for YouTube channels. Research, scripts, voice, narration-timed scenes, optional motion, and assembly across scenes, listicle, and character-locked formats.",
   "author": "",
@@ -14,7 +14,7 @@
     "dev:frontend": "cd frontend && npx nuxt dev --port 3000",
     "dev:electron": "cd electron && npx tsc --watch --preserveWatchOutput",
     "build:frontend": "npm --prefix frontend run generate",
-    "build:electron": "node -e \"require('fs').rmSync('electron/dist',{recursive:true,force:true})\" && tsc -p electron/tsconfig.build.json && node scripts/build-keychain-guard.mjs",
+    "build:electron": "node -e \"require('fs').rmSync('electron/dist',{recursive:true,force:true})\" && tsc -p electron/tsconfig.build.json && node scripts/build-keychain-guard.mjs && node scripts/build-khsparkle.mjs",
     "check:changelog": "node scripts/check-changelog.mjs",
     "check:typography": "node scripts/check-typography.mjs",
     "check:security": "node scripts/check-production-security.mjs",
