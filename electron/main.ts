@@ -9,6 +9,7 @@ import './boot-env.js'
 import { app as electronApp, BrowserWindow, Menu, Notification, dialog, shell } from 'electron'
 import { app as expressApp } from './server/app.js'
 import { startHoldEndpoint } from './server/hold-endpoint.js'
+import { startSparkle } from './server/sparkle.js'
 import { buildMenuTemplate } from './menu-template.js'
 import { registerDeferredBootWork, signalBootFirstPaint } from './server/boot/deferred-boot.js'
 import http from 'http'
@@ -798,6 +799,13 @@ void electronApp.whenReady().then(async () => {
     }
     await createWindow(port)
     if (isShuttingDown) return
+    // In-app updates: after the fixed hold endpoint and window exist. The shim takes the
+    // hold before it fetches anything; starting it in dev would load no framework at all.
+    startSparkle({
+      packaged: electronApp.isPackaged,
+      resourcesPath: process.resourcesPath,
+      log: (level, message) => logLine(level, message),
+    })
     // ── Notifications ─────────────────────────────────────────────────────
     // Subscribe to the queue's event bus so long-running single jobs and
     // completed batches pop an OS notification. Runs after createWindow so
