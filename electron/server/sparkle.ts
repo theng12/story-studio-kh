@@ -34,8 +34,9 @@ export type SparkleStartOptions = {
   hold?: { url: string, tokenFile: string }
   plistPath?: string
   homedir?: string
-  releaseAfterMs?: number
   fetchImpl?: FetchLike
+  /** Injectable grace timer: tests fire it instead of sleeping (no fixed-ms sleep in tests). */
+  setTimer?: (fn: () => void, ms: number) => unknown
 }
 
 /** How long the check gets before a still-idle shim means "nothing to install". */
@@ -69,8 +70,13 @@ function holdConfig(options: SparkleStartOptions): { url: string, token: string 
 }
 
 function releaseWhenNothingFound(shim: Shim, options: SparkleStartOptions, log: NonNullable<SparkleStartOptions['log']>) {
-  const graceMs = options.releaseAfterMs ?? RELEASE_GRACE_MS
-  const timer = setTimeout(() => {
+  const graceMs = RELEASE_GRACE_MS
+  const schedule = options.setTimer ?? ((fn: () => void, ms: number) => {
+    const timer = setTimeout(fn, ms)
+    timer.unref?.()
+    return timer
+  })
+  schedule(() => {
     void (async () => {
       try {
         if (shim.state() !== 0) {
@@ -95,7 +101,6 @@ function releaseWhenNothingFound(shim: Shim, options: SparkleStartOptions, log: 
       }
     })()
   }, graceMs)
-  timer.unref?.()
 }
 
 export function startSparkle(options: SparkleStartOptions = {}): boolean {

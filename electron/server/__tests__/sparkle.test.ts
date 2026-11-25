@@ -40,7 +40,7 @@ describe('in-app Sparkle start', () => {
         return { start: () => 0, lastError: () => '', state: () => 0 }
       },
       log,
-      releaseAfterMs: 60_000,
+      setTimer: () => {},
       fetchImpl: async () => ({ ok: true, status: 200 }),
     })
     assert.equal(ok, true)
@@ -50,43 +50,50 @@ describe('in-app Sparkle start', () => {
     assert.match(lines[0].message, /holds work before fetching the signed feed/)
   })
 
-  test('a background check that finds nothing releases the hold Story would otherwise leave closed', async () => {
+  test('a background check that finds nothing releases the hold exactly once', async () => {
     const { lines, log } = capture()
     const tokenFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'kh-sparkle-')), 'hold-token')
     fs.writeFileSync(tokenFile, 'a'.repeat(64))
     const calls: { url: string, method: string, auth: string }[] = []
+    let graceMs = 0
+    let fire: (() => void) | undefined
     startSparkle({
       packaged: true,
       load: () => ({ start: () => 0, lastError: () => '', state: () => 0 }),
       log,
       hold: { url: 'http://127.0.0.1:8647/api/maintenance/hold', tokenFile },
-      releaseAfterMs: 5,
+      setTimer: (fn, ms) => { fire = fn; graceMs = ms },
       fetchImpl: async (url, init) => {
         calls.push({ url, method: init.method, auth: init.headers.Authorization })
         return { ok: true, status: 200 }
       },
     })
-    await new Promise(r => setTimeout(r, 40))
+    assert.equal(graceMs, 10_000, 'the grace is the production window, not a test value')
+    assert.deepEqual(calls, [], 'nothing is released before the grace elapses')
+    fire?.()
+    await Promise.resolve()
     assert.deepEqual(calls, [{
       url: 'http://127.0.0.1:8647/api/maintenance/hold',
       method: 'DELETE',
       auth: `Bearer ${'a'.repeat(64)}`,
-    }])
+    }], 'exactly one DELETE, addressed to the shim hold Story took')
     assert.match(lines.at(-1)?.message ?? '', /no update available; released the update hold/)
   })
 
-  test('an update that IS available keeps the hold until the app is replaced', async () => {
+  test('an update that IS available still holds after the grace window', async () => {
     const { lines, log } = capture()
-    let fetched = 0
+    const calls: string[] = []
+    let fire: (() => void) | undefined
     startSparkle({
       packaged: true,
       load: () => ({ start: () => 0, lastError: () => '', state: () => 1 }),
       log,
-      releaseAfterMs: 5,
-      fetchImpl: async () => { fetched += 1; return { ok: true, status: 200 } },
+      setTimer: (fn) => { fire = fn },
+      fetchImpl: async (url, init) => { calls.push(`${init.method} ${url}`); return { ok: true, status: 200 } },
     })
-    await new Promise(r => setTimeout(r, 40))
-    assert.equal(fetched, 0)
+    fire?.()
+    await Promise.resolve()
+    assert.deepEqual(calls, [], 'no DELETE: the hold is still held while an update installs')
     assert.match(lines.at(-1)?.message ?? '', /a newer version is available; the hold stays/)
   })
 
