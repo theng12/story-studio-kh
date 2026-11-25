@@ -34,5 +34,14 @@
       <description><![CDATA[- **A channel that publishes three times a week at random now shows its plan.** The Publishing Overview asked its own copy of the "is this a real plan?" rule, and that copy knew only about chosen weekdays and a monthly day — so a saved counted rhythm ("three a week, days chosen for me") read as "No publishing plan is set" while it was working. There is now one rule, the one the schedule saver already enforces, and a channel with a counted rhythm shows its planned slots like any other.]]></description>
       <enclosure url="https://github.com/theng12/story-studio-kh/releases/download/1.4.421/4b52a77c94c6-Story.Studio.KH.1.4.421-arm64.dmg" length="264000504" type="application/octet-stream" sparkle:edSignature="Mst2ewY8Ma/P661D1ge4Ab/orWhfkc2N1FD6jOGNN7MNLhcQt0dvf4fYLnd4ilvmJBPOYIh6jGJ5m3qbjlRxDg==" />
     </item>
+      <item>
+      <title>Version 1.4.422</title>
+      <pubDate>Wed, 25 Nov 2026 17:11:13 +0000</pubDate>
+      <sparkle:version>1.4.422</sparkle:version>
+      <sparkle:shortVersionString>1.4.422</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>12.0</sparkle:minimumSystemVersion>
+      <description><![CDATA[- **Story Studio now checks for and installs signed updates on its own, behind the update hold.** The shipped app now carries Sparkle 2 with Story's own signed update feed and public key. Before checking or swapping the app, it takes Story's update hold with the private hold token so running work can settle first and queued jobs stay queued; if the hold is refused or work is not ready to pause, nothing is fetched and Story keeps working as usual. When there is nothing to install, the hold is released a moment later and queued work starts as usual. Once safe, it downloads the verified update, relaunches automatically, and picks up queued work again.]]></description>
+      <enclosure url="https://github.com/theng12/story-studio-kh/releases/download/1.4.422/Story.Studio.KH.1.4.422-arm64.dmg" length="264676494" type="application/octet-stream" sparkle:edSignature="RCC39GA3bhwD4r8PqJ7z3EN/3Za3QPzC+o2ybNE4PFD6AvLtTmOklHBIRyKMOhDG5w2McQc5DyG5/NCieHqjAw==" />
+    </item>
   </channel>
 </rss>
