@@ -235,11 +235,11 @@ describe('useToast.humanizeError', () => {
     const realFetch = globalThis.fetch
     globalThis.fetch = (async (url: string | URL) => String(url).endsWith('/api/health')
       ? new Response('{}', { status: 200 })
-      : new Response(JSON.stringify({ reachable: false, url: 'http://127.0.0.1:8787' }), { status: 200 })) as typeof fetch
+      : new Response(JSON.stringify({ reachable: false, url: 'http://192.0.2.10:8787' }), { status: 200 })) as typeof fetch
     try {
       await useNetworkStatus().refresh()
-      assert.equal(currentGatewayUrl(), 'http://127.0.0.1:8787')
-      assert.match(humanizeError('fetch failed'), /Gateway not reachable at http:\/\/127\.0\.0\.1:8787 — is the Gateway app running on that Mac\?/)
+      assert.equal(currentGatewayUrl(), 'http://192.0.2.10:8787')
+      assert.match(humanizeError('fetch failed'), /Gateway not reachable at http:\/\/192\.0\.2\.10:8787 — is the Gateway app running on that Mac\?/)
     } finally {
       globalThis.fetch = realFetch
     }

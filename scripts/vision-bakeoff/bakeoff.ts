@@ -48,8 +48,28 @@ import {
   type SceneVisionVerdict,
 } from '../../electron/server/contracts/scene-image-check.js'
 
-/** Addresses this tool must never reach. No flag disables this list. */
-const FORBIDDEN_HOSTS = ['127.0.0.1']
+/**
+ * Addresses this tool must never reach. No flag disables this list.
+ *
+ * The owner's live Gateway sits on Tailscale, so the whole CGNAT range
+ * (100.64.0.0/10, RFC 6598) is refused rather than its one address: the range
+ * is what identifies it, and a literal here would publish the host in a public
+ * repo. Any Tailscale address in that range is a private overlay, never a
+ * public bake-off target.
+ */
+const FORBIDDEN_CIDRS = ['100.64.0.0/10']
+
+export function isForbiddenHost(hostname: string): boolean {
+  const octets = hostname.split('.').map(Number)
+  if (octets.length !== 4 || octets.some(n => !Number.isInteger(n) || n < 0 || n > 255)) return false
+  const value = octets.reduce((acc, n) => acc * 256 + n, 0)
+  return FORBIDDEN_CIDRS.some(cidr => {
+    const [base, bits] = cidr.split('/')
+    const baseValue = base.split('.').map(Number).reduce((acc, n) => acc * 256 + n, 0)
+    const size = 2 ** (32 - Number(bits))
+    return Math.floor(value / size) === Math.floor(baseValue / size)
+  })
+}
 
 const IMAGE_WIDTH = 640
 const IMAGE_QUALITY = 80
@@ -156,7 +176,7 @@ function parseArgs(argv: string[]): Args | null {
 function assertSafeGateway(gateway: string): void {
   let parsed: URL
   try { parsed = new URL(gateway) } catch { usage(`--gateway is not a URL: ${gateway}`) }
-  if (FORBIDDEN_HOSTS.includes(parsed.hostname)) {
+  if (isForbiddenHost(parsed.hostname)) {
     throw new Error(`${parsed.hostname} is the owner's live Gateway. This tool never measures against it.`)
   }
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') usage('--gateway must be http or https.')
@@ -421,7 +441,8 @@ async function main(): Promise<void> {
   console.log('The decision rule is written BEFORE looking: auto-remake needs precision ≥ 0.90 per axis (FINDINGS §3).')
 }
 
-main().catch(error => {
+// Imported by its own guard test; only run as a program.
+if (import.meta.main) main().catch(error => {
   console.error(`\nBake-off failed: ${error?.message || error}`)
   process.exit(1)
 })
